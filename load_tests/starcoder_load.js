@@ -5,6 +5,7 @@ import {Trend} from 'k6/metrics';
 const host = __ENV.HOST || '127.0.0.1:3000';
 
 const totalTime = new Trend('total_time', true);
+const totalTokens = new Trend('total_tokens', true);
 const validationTime = new Trend('validation_time', true);
 const queueTime = new Trend('queue_time', true);
 const inferenceTime = new Trend('inference_time', true);
@@ -55,6 +56,7 @@ export default function () {
 
     if (res.status === 200) {
         totalTime.add(res.headers["X-Total-Time"]);
+        totalTokens.add(res.headers["X-Total-Tokens"]);
         validationTime.add(res.headers["X-Validation-Time"]);
         queueTime.add(res.headers["X-Queue-Time"]);
         inferenceTime.add(res.headers["X-Inference-Time"]);
