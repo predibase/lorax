@@ -74,7 +74,8 @@ RUN chmod +x ~/mambaforge.sh && \
 RUN case ${TARGETPLATFORM} in \
          "linux/arm64")  exit 1 ;; \
          *)              /opt/conda/bin/conda update -y conda &&  \
-                         /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}" -y "python=${PYTHON_VERSION}" pytorch==$PYTORCH_VERSION "pytorch-cuda=$(echo $CUDA_VERSION | cut -d'.' -f 1-2)"  ;; \
+                         /opt/conda/bin/conda install -y "python=3.9" && \
+                         /opt/conda/bin/pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu118 ;; \
     esac && \
     /opt/conda/bin/conda clean -ya
 
@@ -131,6 +132,8 @@ RUN python setup.py build
 
 # Build vllm CUDA kernels
 FROM kernel-builder as vllm-builder
+
+RUN /opt/conda/bin/conda install packaging
 
 WORKDIR /usr/src
 
@@ -215,3 +218,4 @@ FROM base
 
 ENTRYPOINT ["text-generation-launcher"]
 CMD ["--json-output"]
+
