@@ -70,4 +70,4 @@ win32-setctime==1.1.0 ; python_version >= "3.9" and python_version < "4.0" and s
 wrapt==1.15.0 ; python_version >= "3.9" and python_version < "4.0"
 xxhash==3.2.0 ; python_version >= "3.9" and python_version < "4.0"
 yarl==1.9.2 ; python_version >= "3.9" and python_version < "4.0"
-peft==0.3.0 ; python_version >= "3.9" and python_version < "4.0"
+peft==0.4.0 ; python_version >= "3.9" and python_version < "4.0"
