@@ -89,6 +89,7 @@ def download_weights(
     auto_convert: bool = True,
     logger_level: str = "INFO",
     json_output: bool = False,
+    source: str = "hub",
 ):
     # Remove default handler
     logger.remove()
@@ -119,18 +120,25 @@ def download_weights(
     ) is not None
 
     if not is_local_model:
-        # Try to download weights from the hub
-        try:
-            filenames = utils.weight_hub_files(model_id, revision, extension)
-            utils.download_weights(filenames, model_id, revision)
-            # Successfully downloaded weights
-            return
+        if source == "hub":
+            # Try to download weights from the hub
+            try:
+                filenames = utils.weight_hub_files(model_id, revision, extension)
+                utils.download_weights(filenames, model_id, revision)
+                # Successfully downloaded weights
+                return
 
-        # No weights found on the hub with this extension
-        except utils.EntryNotFoundError as e:
-            # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
-            if not extension == ".safetensors" or not auto_convert:
-                raise e
+            # No weights found on the hub with this extension
+            except utils.EntryNotFoundError as e:
+                # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
+                if not extension == ".safetensors" or not auto_convert:
+                    raise e
+
+        if source == "s3":
+            raise NotImplementedError("S3 weights are not implemented yet.")
+        
+        else:
+            raise ValueError(f"Unknown source {source}")
 
     # Try to see if there are local pytorch weights
     try:
