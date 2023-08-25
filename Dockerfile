@@ -188,10 +188,12 @@ RUN pip install einops --no-cache-dir
 COPY proto proto
 COPY server server
 COPY server/Makefile server/Makefile
-RUN cd server && \
-    make gen-server && \
-    pip install -r requirements.txt && \
-    pip install ".[bnb, accelerate, quantize]" --no-cache-dir
+
+RUN cd server && pip install -r requirements.txt
+
+RUN cd server && make gen-server
+
+RUN cd server && pip install ".[bnb, accelerate, quantize]" --no-cache-dir
 
 # Install benchmarker
 COPY --from=builder /usr/src/target/release/text-generation-benchmark /usr/local/bin/text-generation-benchmark

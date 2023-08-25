@@ -108,9 +108,16 @@ def download_weights(
 
     # Test if files were already download
     try:
-        utils.weight_files(model_id, revision, extension)
-        logger.info("Files are already present on the host. " "Skipping download.")
-        return
+        if source == "hub":
+            utils.weight_files(model_id, revision, extension)
+            logger.info("Files are already present on the host. " "Skipping download.")
+            return
+        elif source == "s3":
+            utils.weight_files_s3(model_id, extension)
+            logger.info("Files are already present on the host. " "Skipping download.")
+            return
+        else:
+            raise ValueError(f"Unknown source {source}")
     # Local files not found
     except (utils.LocalEntryNotFoundError, FileNotFoundError):
         pass
