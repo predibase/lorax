@@ -20,7 +20,7 @@ TAG="${COMMIT_SHA}${DIRTY}"
 IMAGE_NAME="kubellm"
 
 # ECR Repository URL (replace with your actual ECR repository URL)
-ECR_REPO="474375891613.dkr.ecr.us-west-2.amazonaws.com/kubellm"
+ECR_REPO="474375891613.dkr.ecr.us-west-2.amazonaws.com"
 
 echo "Building ${IMAGE_NAME}:${TAG}"
 
@@ -28,13 +28,14 @@ echo "Building ${IMAGE_NAME}:${TAG}"
 docker build -t ${IMAGE_NAME}:${TAG} .
 
 # Tag the Docker image for ECR repository
-docker tag ${IMAGE_NAME}:${TAG} ${ECR_REPO}:${TAG}
+docker tag ${IMAGE_NAME}:${TAG} ${ECR_REPO}/${IMAGE_NAME}:${TAG}
+
+# Log in to the ECR registry (assumes AWS CLI and permissions are set up)
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${ECR_REPO}
 
 # Push to ECR
-docker push ${ECR_REPO}:${TAG}
+docker push ${ECR_REPO}/${IMAGE_NAME}:${TAG}
 
 # Optional: Tag and push as 'latest'
-docker tag ${IMAGE_NAME}:${TAG} ${ECR_REPO}:latest
-docker push ${ECR_REPO}:latest
-
-
+docker tag ${IMAGE_NAME}:${TAG} ${ECR_REPO}/${IMAGE_NAME}:latest
+docker push ${ECR_REPO}/${IMAGE_NAME}:latest

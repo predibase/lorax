@@ -80,6 +80,13 @@ struct Args {
     #[clap(default_value = "", long, env)]
     adapter_id: String,
 
+    /// The source of the model to load.
+    /// Can be `huggingface` or `predibase`.
+    /// `huggingface` will load the model from the huggingface hub.
+    /// `predibase` will load the model from the predibase S3 bucket.
+    #[clap(default_value = "hub", long, env)]
+    source: String,
+
     /// The actual revision of the model if you're referring to a model
     /// on the hub. You can use a specific commit id or a branch like `refs/pr/2`.
     #[clap(long, env)]
@@ -666,6 +673,8 @@ fn download_convert_model(model_id: String, args: &Args, running: Arc<AtomicBool
         "--logger-level".to_string(),
         "INFO".to_string(),
         "--json-output".to_string(),
+        "--source".to_string(),
+        args.source.clone(),
     ];
 
     // Model optional revision
