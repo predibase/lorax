@@ -154,10 +154,11 @@ class HubModelSource(BaseModelSource):
         self.revision = revision
         self.extension = extension
 
-    def remote_weight_files(self):
-        return weight_hub_files(self.model_id, self.revision, self.extension)
+    def remote_weight_files(self, extension: str = None):
+        extention = extension or self.extension
+        return weight_hub_files(self.model_id, self.revision, extension)
 
-    def weight_files(self, extension):
+    def weight_files(self, extension=None):
         extension = extension or self.extension
         return weight_files(self.model_id, self.revision, extension)
     

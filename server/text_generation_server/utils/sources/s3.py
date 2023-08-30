@@ -51,8 +51,7 @@ def download_files_from_s3(
     filenames: List[str], model_id: str
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
-    # def download_file(filename, tries=5, backoff: int = 5): # XXX
-    def download_file(filename, tries=1, backoff: int = 5):
+    def download_file(filename, tries=5, backoff: int = 5):
         local_file = try_to_load_from_cache(model_id, None, filename)
         if local_file is not None:
             logger.info(f"File {filename} already present in cache.")
@@ -161,14 +160,16 @@ def download_model_from_s3(model_id: str, extension: str = ".safetensors"):
 
 class S3ModelSource(BaseModelSource):
     def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+        # TODO: add support for revisions of the same model
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
     
-    def remote_weight_files(self):
+    def remote_weight_files(self, extension: str = None):
+        extension = extension or self.extension
         return weight_s3_files(self.model_id, self.extension)
 
-    def weight_files(self, extension=None):
+    def weight_files(self, extension: str = None):
         extension = extension or self.extension
         return weight_files_s3(self.model_id, extension)
     

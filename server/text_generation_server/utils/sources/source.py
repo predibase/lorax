@@ -43,13 +43,13 @@ def try_to_load_from_cache(
 
 
 class BaseModelSource:
-    def remote_weight_files(self):
+    def remote_weight_files(self, extension: str = None):
         raise NotImplementedError
 
-    def weight_files(self, extension):
+    def weight_files(self, extension: str = None):
         raise NotImplementedError
     
-    def download_weights(self, filenames):
+    def download_weights(self, filenames: List[str]):
         raise NotImplementedError
     
     def download_model_assets(self):
