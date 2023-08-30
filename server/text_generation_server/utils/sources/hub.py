@@ -14,6 +14,8 @@ from huggingface_hub.utils import (
     RevisionNotFoundError,  # Import here to ease try/except in other part of the lib
 )
 
+from .source import BaseModelSource, try_to_load_from_cache
+
 WEIGHTS_CACHE_OVERRIDE = os.getenv("WEIGHTS_CACHE_OVERRIDE", None)
 
 
@@ -41,42 +43,6 @@ def weight_hub_files(
 
     return filenames
 
-
-def try_to_load_from_cache(
-    model_id: str, revision: Optional[str], filename: str
-) -> Optional[Path]:
-    """Try to load a file from the Hugging Face cache"""
-    if revision is None:
-        revision = "main"
-
-    object_id = model_id.replace("/", "--")
-    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}"
-
-    if not repo_cache.is_dir():
-        # No cache for this model
-        return None
-
-    refs_dir = repo_cache / "refs"
-    snapshots_dir = repo_cache / "snapshots"
-
-    # Resolve refs (for instance to convert main to the associated commit sha)
-    if refs_dir.is_dir():
-        revision_file = refs_dir / revision
-        if revision_file.exists():
-            with revision_file.open() as f:
-                revision = f.read()
-
-    # Check if revision folder exists
-    if not snapshots_dir.exists():
-        return None
-    cached_shas = os.listdir(snapshots_dir)
-    if revision not in cached_shas:
-        # No cache for this revision and we won't try to return a random revision
-        return None
-
-    # Check if file exists in cache
-    cached_file = snapshots_dir / revision / filename
-    return cached_file if cached_file.is_file() else None
 
 
 def weight_files(
@@ -180,3 +146,24 @@ def download_weights(
         files.append(file)
 
     return files
+
+
+class HubModelSource(BaseModelSource):
+    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+        self.model_id = model_id
+        self.revision = revision
+        self.extension = extension
+
+    def remote_weight_files(self):
+        return weight_hub_files(self.model_id, self.revision, self.extension)
+
+    def weight_files(self, extension):
+        extension = extension or self.extension
+        return weight_files(self.model_id, self.revision, extension)
+    
+    def download_weights(self, filenames):
+        return download_weights(filenames, self.model_id, self.revision)
+    
+    def download_model_assets(self):
+        filenames = self.weight_files()
+        return self.download_weights(filenames)

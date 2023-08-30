@@ -92,7 +92,7 @@ struct Args {
     #[clap(long, env)]
     revision: Option<String>,
 
-    /// The number of tokenizer workers used for payload validation and truncation inside the
+/// The number of tokenizer workers used for payload validation and truncation inside the
     /// router.
     #[clap(default_value = "2", long, env)]
     validation_workers: usize,
@@ -307,6 +307,7 @@ fn shard_manager(
     model_id: String,
     adapter_id: String,
     revision: Option<String>,
+    source: String,
     quantize: Option<Quantization>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
@@ -346,6 +347,8 @@ fn shard_manager(
         "--logger-level".to_string(),
         "INFO".to_string(),
         "--json-output".to_string(),
+        "--source".to_string(),
+        source,
     ];
 
     // Check if adapter id is non-empty string
@@ -793,6 +796,7 @@ fn spawn_shards(
         let model_id = args.model_id.clone();
         let adapter_id = args.adapter_id.clone();
         let revision = args.revision.clone();
+        let source: String = args.source.clone();
         let uds_path = args.shard_uds_path.clone();
         let master_addr = args.master_addr.clone();
         let huggingface_hub_cache = args.huggingface_hub_cache.clone();
@@ -814,6 +818,7 @@ fn spawn_shards(
                 model_id,
                 adapter_id,
                 revision,
+                source,
                 quantize,
                 dtype,
                 trust_remote_code,

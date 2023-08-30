@@ -184,16 +184,18 @@ COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-39 /opt/co
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir
 
+# Install the pip requirements 
+COPY server/requirements.txt .
+RUN pip install -r requirements.txt
+
 # Install server
 COPY proto proto
 COPY server server
 COPY server/Makefile server/Makefile
 
-RUN cd server && pip install -r requirements.txt
-
-RUN cd server && make gen-server
-
-RUN cd server && pip install ".[bnb, accelerate, quantize]" --no-cache-dir
+RUN cd server && \
+    make gen-server && \
+    pip install ".[bnb, accelerate, quantize]" --no-cache-dir
 
 # Install benchmarker
 COPY --from=builder /usr/src/target/release/text-generation-benchmark /usr/local/bin/text-generation-benchmark

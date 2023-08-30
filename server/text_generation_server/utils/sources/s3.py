@@ -5,45 +5,31 @@ import os
 from datetime import timedelta
 from pathlib import Path
 import boto3
+import os
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
-
-# XXX:
-# TODO: move this to env variable
-MODEL_BUCKET = "magdy-test"
 
 from huggingface_hub.utils import (
     LocalEntryNotFoundError,
     EntryNotFoundError,
 )
 
+from .source import BaseModelSource, try_to_load_from_cache
+
 
 def _get_bucket_resource():
     """Get the s3 client"""
     s3 = boto3.resource('s3')
-    return s3.Bucket(MODEL_BUCKET)
+    bucket = os.getenv("PREDIBASE_MODEL_BUCKET")
+    if not bucket:
+        raise ValueError("PREDIBASE_MODEL_BUCKET environment variable is not set")
+    return s3.Bucket(bucket)
 
 
-def _get_local_cache_path():
-    """Get the local cache path"""
-    # TODO: Make the cache path consistent with the hub download cache path
-    default_home = os.path.join(os.path.expanduser("~"), ".cache")
-    kubellm_cache_home = os.path.expanduser(
-        os.path.join(default_home, "kubellm"),
-    )
-
-    default_cache_path = os.path.join(kubellm_cache_home, "s3")
-    return Path(default_cache_path)
-
-
-def try_to_load_from_cache(model_id: str, filename):
-    breakpoint()
-    cache = _get_local_cache_path()
-    model_path = cache / model_id
-    if not model_path.is_dir():
-        return None
-    cached_file = model_path / filename
-    return cached_file if cached_file.is_file() else None
+def get_s3_model_local_path(model_id: str):
+    object_id = model_id.replace("/", "--")
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
+    return repo_cache
 
 
 def weight_s3_files(
@@ -61,12 +47,13 @@ def weight_s3_files(
     return filenames
 
 
-def download_weights_from_s3(
+def download_files_from_s3(
     filenames: List[str], model_id: str
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
-    def download_file(filename, tries=5, backoff: int = 5):
-        local_file = try_to_load_from_cache(model_id, filename)
+    # def download_file(filename, tries=5, backoff: int = 5): # XXX
+    def download_file(filename, tries=1, backoff: int = 5):
+        local_file = try_to_load_from_cache(model_id, None, filename)
         if local_file is not None:
             logger.info(f"File {filename} already present in cache.")
             return Path(local_file)
@@ -74,13 +61,16 @@ def download_weights_from_s3(
             try:
                 logger.info(f"Download file: {filename}")
                 start_time = time.time()
-                local_file_path = _get_local_cache_path() / filename
+                local_file_path = get_s3_model_local_path(model_id) / filename
                 # ensure cache dir exists and create it if needed
                 local_file_path.parent.mkdir(parents=True, exist_ok=True)
+                bucket = _get_bucket_resource()
+                bucket_file_name = f"{model_id}/{filename}"
+                bucket.download_file(bucket_file_name, str(local_file_path))
                 # TODO: add support for revision
                 logger.info(
                     f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}."
-                )
+                ) 
                 if not local_file_path.is_file():
                     raise FileNotFoundError(f"File {local_file_path} not found")
                 return local_file_path
@@ -92,6 +82,9 @@ def download_weights_from_s3(
     start_time = time.time()
     files = []
     for i, filename in enumerate(filenames):
+        # TODO: clean up name creation logic
+        if not filename:
+            continue
         file = download_file(filename)
 
         elapsed = timedelta(seconds=int(time.time() - start_time))
@@ -134,12 +127,12 @@ def weight_files_s3(
     files = []
     for filename in filenames:
         cache_file = try_to_load_from_cache(
-            model_id, filename=filename
+            model_id, None, filename
         )
         if cache_file is None:
             raise LocalEntryNotFoundError(
                 f"File {filename} of model {model_id} not found in "
-                f"{_get_local_cache_path()}. "
+                f"{HUGGINGFACE_HUB_CACHE}. "
                 f"Please run `text-generation-server download-weights {model_id}` first."
             )
         files.append(cache_file)
@@ -147,23 +140,40 @@ def weight_files_s3(
     return files
 
 
-def main():
-    # test s3 files
-    filenames = weight_s3_files("opt-350m", extension=".bin")
-    assert filenames == ["pytorch_model.bin"]
+def download_model_from_s3(model_id: str, extension: str = ".safetensors"):
+    bucket = _get_bucket_resource()
+    model_files = bucket.objects.filter(Prefix=model_id)
+    filenames_with_extension = [f for f in model_files if f.key.endswith(extension)]
+    if not filenames_with_extension:
+        raise EntryNotFoundError(
+            f"No {extension} weights found for model {model_id}",
+            None,
+        )
+    filenames = [f.key.removeprefix(model_id).lstrip("/") for f in model_files]
+    # need to filter out the empty name
+    filenames = [f for f in filenames if len(f)]
+    logger.info(filenames)
+    download_files_from_s3(filenames, model_id)
+    logger.info(f"Downloaded {len(filenames)} files")
+    logger.info(f"Contents of the cache folder: {os.listdir('/data/models--llama2-7b-chat-hf/snapshots/')}")
 
-    # test errors
-    try:
-        weight_s3_files("opt-350m", extension=".errors")
-    except EntryNotFoundError as e:
-        print("Got correct error")
 
-    # test downloads
-    model_id = "opt-350m"
-    filenames = weight_s3_files(model_id, extension=".bin")
-    files = download_weights_from_s3(filenames, model_id)
-    local_files = weight_files_s3("opt-350m", extension=".bin")
-    assert files == local_files
 
-if __name__ == "__main__":
-    main()
+class S3ModelSource(BaseModelSource):
+    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+        self.model_id = model_id
+        self.revision = revision
+        self.extension = extension
+    
+    def remote_weight_files(self):
+        return weight_s3_files(self.model_id, self.extension)
+
+    def weight_files(self, extension=None):
+        extension = extension or self.extension
+        return weight_files_s3(self.model_id, extension)
+    
+    def download_weights(self, filenames: List[str]):
+        return download_files_from_s3(filenames, self.model_id)
+
+    def download_model_assets(self):
+        return download_model_from_s3(self.model_id, self.extension)

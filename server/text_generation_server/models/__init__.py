@@ -18,6 +18,7 @@ from text_generation_server.models.galactica import GalacticaSharded
 from text_generation_server.models.santacoder import SantaCoder
 from text_generation_server.models.t5 import T5Sharded
 from text_generation_server.models.gpt_neox import GPTNeoxSharded
+from text_generation_server.utils.sources.s3 import get_s3_model_local_path
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -74,6 +75,7 @@ def get_model(
     quantize: Optional[str],
     dtype: Optional[str],
     trust_remote_code: bool,
+    source: str,
 ) -> Model:
     if len(adapter_id) > 0:
         logger.warning(
@@ -120,10 +122,24 @@ def get_model(
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
-
-    config_dict, _ = PretrainedConfig.get_config_dict(
-        model_id, revision=revision, trust_remote_code=trust_remote_code
-    )
+    
+    config_dict = None
+    if source == "s3":
+        # change the model id to be the local path to the folder so
+        # we can load the config_dict locally
+        logger.info(f"Using the local files since we are coming from s3")
+        model_path = get_s3_model_local_path(model_id)
+        logger.info(f"model_path: {model_path}")
+        config_dict, _ = PretrainedConfig.get_config_dict(
+            model_path, revision=revision, trust_remote_code=trust_remote_code
+        )
+        logger.info(f"config_dict: {config_dict}")
+    elif source == "hub":
+        config_dict, _ = PretrainedConfig.get_config_dict(
+            model_id, revision=revision, trust_remote_code=trust_remote_code
+        )
+    else: 
+        raise ValueError(f"Unknown source {source}")
     model_type = config_dict["model_type"]
 
     if model_type == "gpt_bigcode":
@@ -189,6 +205,8 @@ def get_model(
 
     elif model_type == "llama":
         if FLASH_ATTENTION:
+            if source == "s3":
+                model_id = model_path
             return FlashLlama(
                 model_id,
                 adapter_id,

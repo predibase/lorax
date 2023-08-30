@@ -34,6 +34,7 @@ def serve(
     logger_level: str = "INFO",
     json_output: bool = False,
     otlp_endpoint: Optional[str] = None,
+    source: str = "hub",
 ):
     if sharded:
         assert (
@@ -53,7 +54,7 @@ def serve(
     logger.remove()
     logger.add(
         sys.stdout,
-        format="{message}",
+        format="{file}:{line} {message}",
         filter="text_generation_server",
         level=logger_level,
         serialize=json_output,
@@ -77,7 +78,7 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, uds_path
+        model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, uds_path, source
     )
 
 
@@ -95,7 +96,7 @@ def download_weights(
     logger.remove()
     logger.add(
         sys.stdout,
-        format="{message}",
+        format="{file}:{line} {message}",
         filter="text_generation_server",
         level=logger_level,
         serialize=json_output,
@@ -105,19 +106,15 @@ def download_weights(
 
     # Import here after the logger is added to log potential import exceptions
     from text_generation_server import utils
+    from text_generation_server.utils import sources
+
+    model_source = sources.get_model_source(source, model_id, revision, extension)
 
     # Test if files were already download
     try:
-        if source == "hub":
-            utils.weight_files(model_id, revision, extension)
-            logger.info("Files are already present on the host. " "Skipping download.")
-            return
-        elif source == "s3":
-            utils.weight_files_s3(model_id, extension)
-            logger.info("Files are already present on the host. " "Skipping download.")
-            return
-        else:
-            raise ValueError(f"Unknown source {source}")
+        model_source.weight_files()
+        logger.info("Files are already present on the host. " "Skipping download.")
+        return
     # Local files not found
     except (utils.LocalEntryNotFoundError, FileNotFoundError):
         pass
@@ -130,19 +127,8 @@ def download_weights(
             # TODO: Combine into class that takes the source as input
             # Try to download weights from the hub
             try:
-                if source == "hub":
-                    filenames = utils.weight_hub_files(model_id, revision, extension)
-                    utils.download_weights(filenames, model_id, revision)
-                    # Successfully downloaded weights
-                    return
-                elif source == "s3":
-                    filenames = utils.weight_s3_files(model_id, revision, extension)
-                    utils.download_weights_from_s3(filenames, model_id, revision)
-                    # Successfully downloaded weights
-                    return
-                else:
-                    raise ValueError(f"Unknown source {source}")
-
+                model_source.download_model_assets()
+                return
             # No weights found on the hub with this extension
             except utils.EntryNotFoundError as e:
                 # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
@@ -152,7 +138,7 @@ def download_weights(
     # Try to see if there are local pytorch weights
     try:
         # Get weights for a local model, a hub cached model and inside the WEIGHTS_CACHE_OVERRIDE
-        local_pt_files = utils.weight_files(model_id, revision, ".bin")
+        local_pt_files = model_source.weight_files(extension=".bin")
 
     # No local pytorch weights
     except utils.LocalEntryNotFoundError:
@@ -163,9 +149,9 @@ def download_weights(
             )
 
         # Try to see if there are pytorch weights on the hub
-        pt_filenames = utils.weight_hub_files(model_id, revision, ".bin")
+        pt_filenames = model_source.remote_weight_files(extension=".bin")
         # Download pytorch weights
-        local_pt_files = utils.download_weights(pt_filenames, model_id, revision)
+        local_pt_files = model_source.download_weights(pt_filenames)
 
     if auto_convert:
         logger.warning(

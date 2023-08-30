@@ -11,7 +11,7 @@ from peft.utils import transpose
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 
-from text_generation_server.utils.hub import weight_files
+from text_generation_server.utils.sources.hub import weight_files
 
 
 def compute_delta_weight(

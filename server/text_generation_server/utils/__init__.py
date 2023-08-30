@@ -7,10 +7,11 @@ from text_generation_server.utils.s3 import (
     download_weights_from_s3,
     weight_files_s3
 )
-from text_generation_server.utils.hub import (
-    weight_files,
-    weight_hub_files,
+from text_generation_server.utils.sources import (
+    get_model_source,
     download_weights,
+    weight_hub_files,
+    weight_files,
     EntryNotFoundError,
     LocalEntryNotFoundError,
     RevisionNotFoundError,
@@ -32,12 +33,9 @@ __all__ = [
     "convert_files",
     "get_start_stop_idxs_for_rank",
     "initialize_torch_distributed",
-    "weight_files",
-    "weight_hub_files",
     "download_weights",
-    "weight_s3_files",
-    "download_weights_from_s3",
-    "weight_files_s3",
+    "weight_hub_files",
+    "get_model_source",
     "EntryNotFoundError",
     "HeterogeneousNextTokenChooser",
     "LocalEntryNotFoundError",
