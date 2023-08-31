@@ -205,6 +205,7 @@ def get_model(
 
     elif model_type == "llama":
         if FLASH_ATTENTION:
+            # XXX: this only works for llama models
             if source == "s3":
                 model_id = model_path
             return FlashLlama(
