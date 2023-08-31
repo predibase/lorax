@@ -7,6 +7,7 @@ use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use nohash_hasher::IntMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -16,7 +17,7 @@ use text_generation_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
-use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot, Mutex};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -25,8 +26,8 @@ use tracing::{info_span, instrument, Instrument, Span};
 pub struct Infer {
     /// Validation
     validation: Validation,
-    /// Request queue
-    queue: Queue,
+    /// Manages the queues of the various adapters
+    adapter_manager: AdapterManager,
     /// Shared state
     shared: Arc<Shared>,
     /// Inference limit
@@ -37,6 +38,190 @@ pub struct Infer {
 struct Shared {
     /// Batching background Tokio task notifier
     batching_task: Notify,
+}
+
+enum AdapterQueueCommand {
+    Append {
+        response_sender: oneshot::Sender<bool>,
+        entry: Box<Entry>,
+    },
+    IsEmpty {
+        response_sender: oneshot::Sender<bool>,
+    },
+    NextBatch {
+        response_sender: oneshot::Sender<Option<String>>,
+    },
+
+}
+
+struct AdapterQueue {
+    sender: flume::Sender<AdapterQueueCommand>,
+}
+
+impl AdapterQueue {
+    pub(crate) fn new() -> Self {
+        let (sender, receiver) = flume::unbounded();
+
+        tokio::spawn(adapter_queue_task(receiver));
+        Self {
+            sender,
+        }
+    }
+
+    pub(crate) async fn append(&self, entry: Box<Entry>) {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.sender
+            .send(AdapterQueueCommand::Append {
+                response_sender,
+                entry,
+            })
+            .unwrap();
+        response_receiver.await.unwrap();
+    }
+
+    pub(crate) async fn is_empty(&self) -> bool {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.sender
+            .send(AdapterQueueCommand::IsEmpty {
+                response_sender,
+            })
+            .unwrap();
+        response_receiver.await.unwrap()
+    }
+
+    pub(crate) async fn next_batch(
+        &self,
+    ) -> Option<String> {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.sender
+            .send(AdapterQueueCommand::NextBatch {
+                response_sender,
+            })
+            .unwrap();
+        response_receiver.await.unwrap()
+    }
+}
+
+async fn adapter_queue_task(
+    receiver: flume::Receiver<AdapterQueueCommand>,
+) {
+    let mut queue: VecDeque<Box<Entry>> = VecDeque::new();
+
+    while let Ok(cmd) = receiver.recv_async().await {
+        match cmd {
+            AdapterQueueCommand::Append{
+                response_sender, 
+                entry
+            } => {
+                queue.push_back(entry);
+                println!("ASDFASDF inside adapter_queue_task. queue length: {}", queue.len());
+                response_sender.send(true).unwrap();
+            }
+            AdapterQueueCommand::IsEmpty { 
+                response_sender
+            } => {
+                let response = queue.is_empty();
+                response_sender.send(response).unwrap();
+            }
+            AdapterQueueCommand::NextBatch {
+                response_sender
+            } => {
+                let entry: Box<Entry> = queue.pop_front().unwrap();
+                response_sender.send(Some(entry.request.inputs)).unwrap();
+            }
+        }
+    }
+}
+
+enum AdapterManagerCommand {
+    Append(String, Box<Entry>),
+}
+
+#[derive(Clone)]
+struct AdapterManager {
+    sender: flume::Sender<AdapterManagerCommand>,
+}
+
+impl AdapterManager {
+    pub(crate) fn new() -> Self {
+        let (sender, receiver) = flume::unbounded();
+        let (drainer_sender, drainer_receiver) = flume::unbounded();
+
+        // receives requests from the infer struct and sends them to the appropriate adapter queue
+        tokio::spawn(adapter_manager_task(receiver, drainer_sender));
+
+        // receives adapter queues from the adapter manager and drains them
+        tokio::spawn(drainer_task(drainer_receiver));
+
+        Self {
+            sender,
+        }
+    }
+
+    pub(crate) fn process(&self, adapter_id: String, entry: Entry) {
+        // only blocks until the message is sent
+        // the adapter manager task will handle the actual processing
+        self.sender.send(AdapterManagerCommand::Append(adapter_id, Box::new(entry))).unwrap();
+    }
+}
+
+async fn adapter_manager_task(
+    receiver: flume::Receiver<AdapterManagerCommand>,
+    drainer_sender: flume::Sender<DrainerCommand>,
+) {
+    let mut queue_map: HashMap<String, Arc<Mutex<AdapterQueue>>> = HashMap::new();
+
+    while let Ok(cmd) = receiver.recv_async().await {
+        match cmd {
+            AdapterManagerCommand::Append(adapter_id, entry) => {
+                println!("ASDFASDF inside adapter_manager_task. adapter_id: {}", adapter_id);
+
+                let queue = queue_map.entry(adapter_id.clone()).or_insert_with(|| {
+                    Arc::new(Mutex::new(AdapterQueue::new()))
+                });
+
+                // ensure that append completes before sending drainer message
+                queue.lock().await.append(entry).await;
+                drainer_sender.send(DrainerCommand::Drain{adapter_id, queue: queue.clone()}).unwrap();
+            }
+        }
+    }
+}
+
+enum DrainerCommand {
+    Drain {
+        adapter_id: String, 
+        queue: Arc<Mutex<AdapterQueue>>
+    }
+}
+
+async fn drainer_task(
+    drainer_receiver: flume::Receiver<DrainerCommand>,
+) {
+    while let Ok(cmd) = drainer_receiver.recv_async().await {
+        match cmd {
+            DrainerCommand::Drain {
+                adapter_id,
+                queue,
+            } => {
+                let mut counter = 0;
+                loop {
+                    if queue.lock().await.is_empty().await {
+                        break;
+                    }
+                    let _ = queue.lock().await.next_batch().await.unwrap();
+                    // sleep for 3 seconds
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    println!("ASDFASDF drainer task: next_batch called");
+                    counter += 1;
+                }
+                println!("ASDFASDF drainer task: drained {} entries from adapter {}", counter, adapter_id);
+            }
+        }
+    }           
 }
 
 impl Infer {
@@ -53,29 +238,30 @@ impl Infer {
         generation_health: Arc<AtomicBool>,
     ) -> Self {
         // Infer shared state
-        let queue = Queue::new(requires_padding, 16);
+        // let queue = Queue::new(requires_padding, 16);
         let shared = Arc::new(Shared {
             batching_task: Notify::new(),
         });
 
         // Spawn batching background task that contains all the inference logic
-        tokio::spawn(batching_task(
-            client,
-            waiting_served_ratio,
-            max_batch_prefill_tokens,
-            max_batch_total_tokens,
-            max_waiting_tokens,
-            queue.clone(),
-            shared.clone(),
-            generation_health,
-        ));
+        // tokio::spawn(batching_task(
+        //     client,
+        //     waiting_served_ratio,
+        //     max_batch_prefill_tokens,
+        //     max_batch_total_tokens,
+        //     max_waiting_tokens,
+        //     queue.clone(),
+        //     shared.clone(),
+        //     generation_health,
+        // ));
 
         // Inference limit with a semaphore
         let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
+        let adapter_manager = AdapterManager::new();
         Self {
             validation,
-            queue,
+            adapter_manager,
             shared,
             limit_concurrent_requests: semaphore,
         }
@@ -104,6 +290,8 @@ impl Infer {
                 err
             })?;
 
+        let adapter_id = request.parameters.adapter_id.clone().unwrap_or("__base_model__".to_string());
+
         // Validate request
         let valid_request = self.validation.validate(request).await.map_err(|err| {
             metrics::increment_counter!("tgi_request_failure", "err" => "validation");
@@ -114,8 +302,7 @@ impl Infer {
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = flume::unbounded();
 
-        // Append the request to the queue
-        self.queue.append(Entry {
+        self.adapter_manager.process(adapter_id, Entry {
             request: valid_request,
             response_tx,
             span: Span::current(),
@@ -124,9 +311,19 @@ impl Infer {
             batch_time: None,
         });
 
+        // // Append the request to the queue
+        // self.queue.append(Entry {
+        //     request: valid_request,
+        //     response_tx,
+        //     span: Span::current(),
+        //     temp_span: None,
+        //     queue_time: Instant::now(),
+        //     batch_time: None,
+        // });
+
         // Notify the background task that we have a new entry in the queue that needs
         // to be batched
-        self.shared.batching_task.notify_one();
+        // self.shared.batching_task.notify_one();
 
         // Return stream
         Ok((permit, response_rx.into_stream()))

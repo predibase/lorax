@@ -64,6 +64,9 @@ pub struct Info {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct GenerateParameters {
     #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "arnavgrg/codealpaca-qlora")]
+    pub adapter_id: Option<String>,
+    #[serde(default)]
     #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 1)]
     pub best_of: Option<usize>,
     #[serde(default)]
@@ -143,6 +146,7 @@ fn default_max_new_tokens() -> u32 {
 
 fn default_parameters() -> GenerateParameters {
     GenerateParameters {
+        adapter_id: None,
         best_of: None,
         temperature: None,
         repetition_penalty: None,
