@@ -134,6 +134,9 @@ def get_model(
             model_path, revision=revision, trust_remote_code=trust_remote_code
         )
         logger.info(f"config_dict: {config_dict}")
+        if config_dict["model_type"] != "llama":
+            raise ValueError(f"Unsupported model type {config_dict['model_type']} for s3 imports")
+        model_id = model_path
     elif source == "hub":
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
@@ -205,9 +208,6 @@ def get_model(
 
     elif model_type == "llama":
         if FLASH_ATTENTION:
-            # XXX: this only works for llama models
-            if source == "s3":
-                model_id = model_path
             return FlashLlama(
                 model_id,
                 adapter_id,
