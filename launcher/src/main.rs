@@ -92,7 +92,7 @@ struct Args {
     #[clap(long, env)]
     revision: Option<String>,
 
-/// The number of tokenizer workers used for payload validation and truncation inside the
+    /// The number of tokenizer workers used for payload validation and truncation inside the
     /// router.
     #[clap(default_value = "2", long, env)]
     validation_workers: usize,
