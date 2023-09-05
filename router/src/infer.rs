@@ -6,7 +6,7 @@ use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
-use nohash_hasher::IntMap;
+use nohash_hasher::{BuildNoHashHasher, IntMap};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -14,7 +14,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use text_generation_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
+    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, Request, ShardedClient,
 };
 use thiserror::Error;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot, Mutex};
@@ -40,6 +40,8 @@ struct Shared {
     batching_task: Notify,
 }
 
+type NextBatch = (IntMap<u64, Entry>, Batch, Span);
+
 enum AdapterQueueCommand {
     Append {
         response_sender: oneshot::Sender<bool>,
@@ -49,7 +51,11 @@ enum AdapterQueueCommand {
         response_sender: oneshot::Sender<bool>,
     },
     NextBatch {
-        response_sender: oneshot::Sender<Option<String>>,
+        min_size: Option<usize>,
+        prefill_token_budget: u32,
+        token_budget: u32,
+        response_sender: oneshot::Sender<Option<NextBatch>>,
+        span: Span,
     },
 
 }
@@ -59,10 +65,14 @@ struct AdapterQueue {
 }
 
 impl AdapterQueue {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(requires_padding: bool, block_size: u32) -> Self {
         let (sender, receiver) = flume::unbounded();
 
-        tokio::spawn(adapter_queue_task(receiver));
+        tokio::spawn(adapter_queue_task(
+            requires_padding,
+            block_size,
+            receiver,
+        ));
         Self {
             sender,
         }
@@ -93,22 +103,215 @@ impl AdapterQueue {
 
     pub(crate) async fn next_batch(
         &self,
-    ) -> Option<String> {
+        min_size: Option<usize>,
+        prefill_token_budget: u32,
+        token_budget: u32,
+    ) -> Option<NextBatch> {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
+        // Send next batch command to the background task managing the state
+        // Unwrap is safe here
         self.sender
             .send(AdapterQueueCommand::NextBatch {
+                min_size,
+                prefill_token_budget,
+                token_budget,
                 response_sender,
+                span: Span::current(),
             })
             .unwrap();
+        // Await on response channel
+        // Unwrap is safe here
         response_receiver.await.unwrap()
     }
 }
 
+struct State {
+    /// Queue entries organized in a Vec
+    entries: VecDeque<(u64, Entry)>,
+
+    /// Id of the next entry
+    next_id: u64,
+
+    /// Id of the next batch
+    next_batch_id: u64,
+
+    /// Whether the model is using padding
+    requires_padding: bool,
+
+    /// Paged Attention block size
+    block_size: u32,
+}
+
+impl State {
+    fn new(requires_padding: bool, block_size: u32) -> Self {
+        Self {
+            entries: VecDeque::with_capacity(128),
+            next_id: 0,
+            next_batch_id: 0,
+            requires_padding,
+            block_size,
+        }
+    }
+
+    /// Append an entry to the queue
+    fn append(&mut self, mut entry: Entry) {
+        // Create a span that will live as long as the entry is in the queue waiting to be batched
+        let queue_span = info_span!(parent: &entry.span, "queued");
+        entry.temp_span = Some(queue_span);
+
+        // Push entry in the queue
+        self.entries.push_back((self.next_id, entry));
+        self.next_id += 1;
+    }
+
+    // Is empty
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    // Len
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    // Get the next batch
+    fn next_batch(
+        &mut self,
+        min_size: Option<usize>,
+        prefill_token_budget: u32,
+        token_budget: u32,
+    ) -> Option<NextBatch> {
+        if self.entries.is_empty() {
+            return None;
+        }
+
+        // Check if we have enough entries
+        if let Some(min_size) = min_size {
+            if self.entries.len() < min_size {
+                return None;
+            }
+        }
+
+        // Create span for this batch to add context to inference calls
+        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
+        next_batch_span.follows_from(&Span::current());
+
+        let mut batch_requests = Vec::with_capacity(self.entries.len());
+        let mut batch_entries =
+            IntMap::with_capacity_and_hasher(self.entries.len(), BuildNoHashHasher::default());
+
+        let mut max_input_length = 0;
+        let mut prefill_tokens: u32 = 0;
+        let mut decode_tokens: u32 = 0;
+
+        // Pop entries starting from the front of the queue
+        while let Some((id, mut entry)) = self.entries.pop_front() {
+            // Filter entries where the response receiver was dropped (== entries where the request
+            // was dropped by the client)
+            if entry.response_tx.is_disconnected() {
+                metrics::increment_counter!("tgi_request_failure", "err" => "dropped");
+                continue;
+            }
+
+            if self.requires_padding {
+                // We pad to max input length in the Python shards
+                // We need to take these padding tokens into the equation
+                max_input_length = max_input_length.max(entry.request.input_length);
+                prefill_tokens = (batch_requests.len() + 1) as u32 * max_input_length
+            } else {
+                // pad to block size
+                prefill_tokens += ((entry.request.input_length + self.block_size - 1)
+                    / self.block_size)
+                    * self.block_size;
+            }
+
+            if self.requires_padding {
+                decode_tokens += entry.request.stopping_parameters.max_new_tokens;
+            } else {
+                // pad to block size
+                decode_tokens +=
+                    ((entry.request.stopping_parameters.max_new_tokens + self.block_size - 1)
+                        / self.block_size)
+                        * self.block_size;
+            }
+
+            if prefill_tokens > prefill_token_budget
+                || (prefill_tokens + decode_tokens) > token_budget
+            {
+                // Entry is over budget
+                // Add it back to the front
+                self.entries.push_front((id, entry));
+                break;
+            }
+
+            // Create a new span to link the batch back to this entry
+            let entry_batch_span = info_span!(parent: &entry.span, "infer");
+            // Add relationships
+            next_batch_span.follows_from(&entry_batch_span);
+            entry_batch_span.follows_from(&next_batch_span);
+            // Update entry
+            entry.temp_span = Some(entry_batch_span);
+
+            batch_requests.push(Request {
+                id,
+                prefill_logprobs: entry.request.decoder_input_details,
+                inputs: entry.request.inputs.clone(),
+                truncate: entry.request.truncate,
+                parameters: Some(entry.request.parameters.clone()),
+                stopping_parameters: Some(entry.request.stopping_parameters.clone()),
+            });
+            // Set batch_time
+            entry.batch_time = Some(Instant::now());
+            // Insert in batch_entries IntMap
+            batch_entries.insert(id, entry);
+        }
+
+        // Empty batch
+        if batch_requests.is_empty() {
+            return None;
+        }
+
+        // Check if our batch is big enough
+        if let Some(min_size) = min_size {
+            // Batch is too small
+            if batch_requests.len() < min_size {
+                // Add back entries to the queue in the correct order
+                for r in batch_requests.into_iter().rev() {
+                    let id = r.id;
+                    let entry = batch_entries.remove(&id).unwrap();
+                    self.entries.push_front((id, entry));
+                }
+
+                return None;
+            }
+        }
+
+        // Final batch size
+        let size = batch_requests.len() as u32;
+        next_batch_span.record("batch_size", size);
+
+        let batch = Batch {
+            id: self.next_batch_id,
+            requests: batch_requests,
+            size,
+            max_tokens: (prefill_tokens + decode_tokens),
+        };
+        // Increment batch id
+        self.next_batch_id += 1;
+
+        metrics::histogram!("tgi_batch_next_size", batch.size as f64);
+
+        Some((batch_entries, batch, next_batch_span))
+    }
+}
+
 async fn adapter_queue_task(
+    requires_padding: bool,
+    block_size: u32,
     receiver: flume::Receiver<AdapterQueueCommand>,
 ) {
-    let mut queue: VecDeque<Box<Entry>> = VecDeque::new();
+    let mut state = State::new(requires_padding, block_size);
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
@@ -116,22 +319,27 @@ async fn adapter_queue_task(
                 response_sender, 
                 entry
             } => {
-                queue.push_back(entry);
-                println!("ASDFASDF inside adapter_queue_task. queue length: {}", queue.len());
+                state.append(*entry);
+                println!("ASDFASDF inside adapter_queue_task. queue length: {}", state.len());
                 response_sender.send(true).unwrap();
             }
             AdapterQueueCommand::IsEmpty { 
                 response_sender
             } => {
-                let response = queue.is_empty();
+                let response = state.is_empty();
                 response_sender.send(response).unwrap();
             }
             AdapterQueueCommand::NextBatch {
-                response_sender
-            } => {
-                let entry: Box<Entry> = queue.pop_front().unwrap();
-                response_sender.send(Some(entry.request.inputs)).unwrap();
-            }
+                min_size,
+                prefill_token_budget,
+                token_budget,
+                response_sender,
+                span,
+            } => span.in_scope(|| {
+                let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
+                response_sender.send(next_batch).unwrap();
+                metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
+            }),
         }
     }
 }
@@ -146,15 +354,20 @@ struct AdapterManager {
 }
 
 impl AdapterManager {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(
+        requires_padding: bool,
+        block_size: u32,
+        batcher_sender: flume::Sender<BatcherCommand>,
+    ) -> Self {
         let (sender, receiver) = flume::unbounded();
-        let (drainer_sender, drainer_receiver) = flume::unbounded();
 
         // receives requests from the infer struct and sends them to the appropriate adapter queue
-        tokio::spawn(adapter_manager_task(receiver, drainer_sender));
-
-        // receives adapter queues from the adapter manager and drains them
-        tokio::spawn(drainer_task(drainer_receiver));
+        tokio::spawn(adapter_manager_task(
+            requires_padding,
+            block_size,
+            receiver,
+            batcher_sender
+        ));
 
         Self {
             sender,
@@ -169,10 +382,12 @@ impl AdapterManager {
 }
 
 async fn adapter_manager_task(
+    requires_padding: bool,
+    block_size: u32,
     receiver: flume::Receiver<AdapterManagerCommand>,
-    drainer_sender: flume::Sender<DrainerCommand>,
+    batcher_sender: flume::Sender<BatcherCommand>,
 ) {
-    let mut queue_map: HashMap<String, Arc<Mutex<AdapterQueue>>> = HashMap::new();
+    let mut queue_map: HashMap<String, Arc<AdapterQueue>> = HashMap::new();
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
@@ -180,45 +395,139 @@ async fn adapter_manager_task(
                 println!("ASDFASDF inside adapter_manager_task. adapter_id: {}", adapter_id);
 
                 let queue = queue_map.entry(adapter_id.clone()).or_insert_with(|| {
-                    Arc::new(Mutex::new(AdapterQueue::new()))
+                    Arc::new(AdapterQueue::new(
+                        requires_padding,
+                        block_size,
+                    ))
                 });
 
-                // ensure that append completes before sending drainer message
-                queue.lock().await.append(entry).await;
-                drainer_sender.send(DrainerCommand::Drain{adapter_id, queue: queue.clone()}).unwrap();
+                // ensure that append completes before sending batcher message
+                queue.append(entry).await;
+                batcher_sender.send(BatcherCommand::Batch{adapter_id, queue: queue.clone()}).unwrap();
             }
         }
     }
 }
 
-enum DrainerCommand {
-    Drain {
+enum BatcherCommand {
+    Batch {
         adapter_id: String, 
-        queue: Arc<Mutex<AdapterQueue>>
+        queue: Arc<AdapterQueue>
     }
 }
 
-async fn drainer_task(
-    drainer_receiver: flume::Receiver<DrainerCommand>,
+async fn batcher_task(
+    mut client: ShardedClient,
+    waiting_served_ratio: f32,
+    max_batch_prefill_tokens: u32,
+    max_batch_total_tokens: u32,
+    max_waiting_tokens: usize,
+    generation_health: Arc<AtomicBool>,
+    batcher_receiver: flume::Receiver<BatcherCommand>,
 ) {
-    while let Ok(cmd) = drainer_receiver.recv_async().await {
+    while let Ok(cmd) = batcher_receiver.recv_async().await {
         match cmd {
-            DrainerCommand::Drain {
+            BatcherCommand::Batch {
                 adapter_id,
                 queue,
             } => {
-                let mut counter = 0;
+                println!("ASDFASDF top of batcher_task: {}", adapter_id);
                 loop {
-                    if queue.lock().await.is_empty().await {
+                    if queue.is_empty().await {
+                        println!("ASDFASDF batcher_task: queue is empty");
                         break;
                     }
-                    let _ = queue.lock().await.next_batch().await.unwrap();
-                    // sleep for 3 seconds
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    println!("ASDFASDF drainer task: next_batch called");
-                    counter += 1;
+                    if let Some((mut entries, batch, span)) = queue
+                        .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
+                        .await
+                    {
+                        println!("ASDFASDF batcher_task: next_batch called");
+                        let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
+                            .instrument(span)
+                            .await;
+                        let mut waiting_tokens = 1;
+
+                        // We loop until we do not receive any cached batch from the inference server (== until
+                        // all requests have met their stopping criteria)
+                        while let Some(batch) = cached_batch {
+                            // Get current batch info
+                            let batch_size = batch.size;
+                            let batch_max_tokens = batch.max_tokens;
+                            let mut batches = vec![batch];
+                            metrics::gauge!("tgi_batch_current_size", batch_size as f64);
+                            metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
+
+                            let min_size = if waiting_tokens >= max_waiting_tokens {
+                                // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                                // to add a new batch even though its size might be small
+                                None
+                            } else {
+                                // Minimum batch size
+                                Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                            };
+
+                            let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+
+                            // Try to get a new batch
+                            if let Some((mut new_entries, new_batch, span)) = queue
+                                .next_batch(min_size, max_batch_prefill_tokens, token_budget)
+                                .await
+                            {
+                                // Tracking metrics
+                                if min_size.is_some() {
+                                    metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
+                                } else {
+                                    metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
+                                }
+
+                                entries.iter_mut().for_each(|(_, entry)| {
+                                    // Create a new span to add the info that this entry is waiting
+                                    // because a new batch is being computed
+                                    let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                                    // Add relationships
+                                    span.follows_from(&entry_waiting_span);
+                                    entry_waiting_span.follows_from(&span);
+                                    // Update entry
+                                    entry.temp_span = Some(entry_waiting_span);
+                                });
+
+                                // Generate one token for this new batch to have the attention past in cache
+                                let new_cached_batch =
+                                    prefill(&mut client, new_batch, &mut new_entries, &generation_health)
+                                        .instrument(span)
+                                        .await;
+                                // Reset waiting counter
+                                waiting_tokens = 1;
+                                // Extend current batch with the new batch
+                                if let Some(new_cached_batch) = new_cached_batch {
+                                    entries.extend(new_entries);
+                                    batches.push(new_cached_batch);
+                                }
+                            }
+
+                            // Create span for this batch to add context to inference calls
+                            let next_batch_size = entries.len();
+                            let next_batch_span =
+                                info_span!(parent: None, "batch", batch_size = next_batch_size);
+                            entries.iter_mut().for_each(|(_, entry)| {
+                                // Create a new span to link the batch back to this entry
+                                let entry_batch_span = info_span!(parent: &entry.span, "infer");
+                                // Add relationships
+                                next_batch_span.follows_from(&entry_batch_span);
+                                entry_batch_span.follows_from(&next_batch_span);
+                                // Update entry
+                                entry.temp_span = Some(entry_batch_span);
+                            });
+
+                            cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
+                                .instrument(next_batch_span)
+                                .await;
+                            waiting_tokens += 1;
+                        }
+                        metrics::gauge!("tgi_batch_current_size", 0.0);
+                        metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
+                    }
                 }
-                println!("ASDFASDF drainer task: drained {} entries from adapter {}", counter, adapter_id);
             }
         }
     }           
@@ -258,7 +567,20 @@ impl Infer {
         // Inference limit with a semaphore
         let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
-        let adapter_manager = AdapterManager::new();
+        let (batcher_sender, batcher_receiver) = flume::unbounded();
+        let adapter_manager = AdapterManager::new(requires_padding, 16, batcher_sender);
+        // receives adapter queues from the adapter manager and batches them
+        tokio::spawn(batcher_task(
+            client,
+            waiting_served_ratio,
+            max_batch_prefill_tokens,
+            max_batch_total_tokens,
+            max_waiting_tokens,
+            generation_health,
+            batcher_receiver,
+        ));
+
+
         Self {
             validation,
             adapter_manager,
