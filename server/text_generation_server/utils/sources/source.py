@@ -35,7 +35,6 @@ def try_to_load_from_cache(
         return None
     cached_shas = os.listdir(snapshots_dir)
     if revision and revision not in cached_shas:
-        logger.info(f">>>>>>>>>>>> Revision {revision} not found in cache. Cache content: {cached_shas}\n\n")
         # No cache for this revision and we won't try to return a random revision
         return None
 
