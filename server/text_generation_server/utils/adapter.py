@@ -10,6 +10,7 @@ from peft import LoraConfig
 from peft.utils import transpose
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
+from filelock import FileLock
 
 from text_generation_server.utils.sources import get_model_source, get_s3_model_local_path, weight_files    
 
@@ -100,39 +101,41 @@ def create_merged_weight_files(
 
     merged_weight_directory = Path(HUGGINGFACE_HUB_CACHE) / f"models--{adapter_id.replace('/', '--')}-merged"
     # just grab the existing files if they already exist and return immediately
-    if os.path.exists(merged_weight_directory):
-        logger.info("Merged weight files already exist, skipping merge computation.")
-        return weight_files(merged_weight_directory)
-    else:
-        logger.info("Merged weight files do not exist, computing merge.")
-        os.makedirs(merged_weight_directory)
+    lock = FileLock(str(merged_weight_directory)+ ".lock")
+    with lock:
+        if merged_weight_directory.is_dir():
+            logger.info(f"Merged weight directory {merged_weight_directory} exist, skipping merge computation.")
+            return weight_files(merged_weight_directory)
+        else:
+            logger.info("Merged weight files do not exist, computing merge.")
+            os.makedirs(merged_weight_directory)
 
-    merged_weight_filenames = []
-    for i, filename in enumerate(model_weight_filenames):
-        logger.info(
-            f"Merging adapter weights into model weights in "
-            f"{filename} ({i+1} / {len(model_weight_filenames)})..."
-        )
-        model_weights = load_file(filename)
-        merged_weights, processed_adapter_weight_names = merge_adapter_weights(
-            model_weights, adapter_weights, adapter_config)
+        merged_weight_filenames = []
+        for i, filename in enumerate(model_weight_filenames):
+            logger.info(
+                f"Merging adapter weights into model weights in "
+                f"{filename} ({i+1} / {len(model_weight_filenames)})..."
+            )
+            model_weights = load_file(filename)
+            merged_weights, processed_adapter_weight_names = merge_adapter_weights(
+                model_weights, adapter_weights, adapter_config)
+            
+            merged_adapter_filename = Path(merged_weight_directory, os.path.basename(filename))
+            save_file(merged_weights, merged_adapter_filename)
+            logger.debug(f"Saved merged weights into {merged_adapter_filename}")
+
+            merged_weight_filenames.append(merged_adapter_filename)
+            remaining_adapter_weight_names = remaining_adapter_weight_names.difference(
+                processed_adapter_weight_names)
         
-        merged_adapter_filename = Path(merged_weight_directory, os.path.basename(filename))
-        save_file(merged_weights, merged_adapter_filename)
-        logger.debug(f"Saved merged weights into {merged_adapter_filename}")
+        if len(remaining_adapter_weight_names) > 0:
+            logger.warning("WARNING: The following lora weights were not merged into the model weights:")
+            for lora_name in remaining_adapter_weight_names:
+                logger.warning("\t" + lora_name)
 
-        merged_weight_filenames.append(merged_adapter_filename)
-        remaining_adapter_weight_names = remaining_adapter_weight_names.difference(
-            processed_adapter_weight_names)
-    
-    if len(remaining_adapter_weight_names) > 0:
-        logger.warning("WARNING: The following lora weights were not merged into the model weights:")
-        for lora_name in remaining_adapter_weight_names:
-            logger.warning("\t" + lora_name)
-
-    logger.info(
-        f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}")
-    return merged_weight_filenames
+        logger.info(
+            f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}")
+        return merged_weight_filenames
 
 
 def main():
