@@ -155,6 +155,7 @@ def serve(
     trust_remote_code: bool,
     uds_path: Path,
     source: str,
+    adapter_source: str,
 ):
     async def serve_inner(
         model_id: str,
@@ -178,7 +179,7 @@ def serve(
 
         try:
             model = get_model(
-                model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, source
+                model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, source, adapter_source
             )
         except Exception:
             logger.exception("Error when initializing model")

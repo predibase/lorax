@@ -54,11 +54,11 @@ def weight_s3_files(
 
 
 def download_files_from_s3(
-    bucket: Any, filenames: List[str], model_id: str
+    bucket: Any, filenames: List[str], model_id: str, revision: str = "",
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
     def download_file(filename):
-        local_file = try_to_load_from_cache(model_id, None, filename)
+        local_file = try_to_load_from_cache(model_id, revision, filename)
         if local_file is not None:
             logger.info(f"File {filename} already present in cache.")
             return Path(local_file)
@@ -96,7 +96,7 @@ def download_files_from_s3(
 
 
 def weight_files_s3(
-    bucket: Any, model_id: str, extension: str = ".safetensors"
+    bucket: Any, model_id: str, revision: str = "", extension: str = ".safetensors"
 ) -> List[Path]:
     """Get the local files"""
     # Local model
@@ -125,7 +125,7 @@ def weight_files_s3(
     files = []
     for filename in filenames:
         cache_file = try_to_load_from_cache(
-            model_id, None, filename
+            model_id, revision, filename
         )
         if cache_file is None:
             raise LocalEntryNotFoundError(
@@ -140,24 +140,26 @@ def weight_files_s3(
 
 def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safetensors"):
     model_files = bucket.objects.filter(Prefix=model_id)
-    filenames_with_extension = [f for f in model_files if f.key.endswith(extension)]
-    if not filenames_with_extension:
-        raise EntryNotFoundError(
-            f"No {extension} weights found for model {model_id}",
-            None,
-        )
     filenames = [f.key.removeprefix(model_id).lstrip("/") for f in model_files]
     # need to filter out the empty name
     filenames = [f for f in filenames if len(f)]
     logger.info(filenames)
     download_files_from_s3(bucket, filenames, model_id)
     logger.info(f"Downloaded {len(filenames)} files")
-    logger.info(f"Contents of the cache folder: {os.listdir('/data/models--llama2-7b-chat-hf/snapshots/')}")
+    logger.info(f"Contents of the cache folder: {os.listdir(get_s3_model_local_path(model_id))}")
+
+    # Raise an error if none of the files we downloaded have the correct extension
+    filenames_with_extension = [f for f in model_files if f.key.endswith(extension)]
+    if not filenames_with_extension:
+        raise EntryNotFoundError(
+            f"No {extension} weights found for model {model_id}",
+            None,
+        )
 
 
 
 class S3ModelSource(BaseModelSource):
-    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+    def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
         # TODO: add support for revisions of the same model
         self.model_id = model_id
         self.revision = revision
@@ -166,14 +168,14 @@ class S3ModelSource(BaseModelSource):
     
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
-        return weight_s3_files(self.bucket, self.model_id, self.extension)
+        return weight_s3_files(self.bucket, self.model_id, extension)
 
     def weight_files(self, extension: str = None):
         extension = extension or self.extension
-        return weight_files_s3(self.bucket, self.model_id, extension)
+        return weight_files_s3(self.bucket, self.model_id, self.revision, extension)
     
     def download_weights(self, filenames: List[str]):
-        return download_files_from_s3(self.bucket, filenames, self.model_id)
+        return download_files_from_s3(self.bucket, filenames, self.model_id, self.revision)
 
     def download_model_assets(self):
         return download_model_from_s3(self.bucket, self.model_id, self.extension)

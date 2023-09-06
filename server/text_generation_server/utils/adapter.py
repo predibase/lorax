@@ -11,7 +11,7 @@ from peft.utils import transpose
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 
-from text_generation_server.utils.sources.hub import weight_files
+from text_generation_server.utils.sources import get_model_source, get_s3_model_local_path, weight_files    
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
@@ -74,12 +74,20 @@ def merge_adapter_weights(
 def create_merged_weight_files(
     adapter_id: str, 
     model_id: str,
-    model_weight_filenames: List[Path]
+    model_weight_filenames: List[Path],
+    adapter_source: str = "hub",
 ) -> List[Path]:
     """Creates merged weight files for the given adapter ID and filenames."""
-    adapter_filenames = weight_files(adapter_id, extension=".safetensors")
-    
-    adapter_config = LoraConfig.from_pretrained(adapter_id)
+    source = get_model_source(adapter_source, adapter_id, revision="", extension=".safetensors")
+    adapter_filenames = source.weight_files()
+    if adapter_source == "hub":
+        adapter_config = LoraConfig.from_pretrained(adapter_id)
+    elif adapter_source == "s3":
+        adapter_path = get_s3_model_local_path(adapter_id)
+        adapter_config = LoraConfig.from_pretrained(adapter_path)
+    else:
+        raise ValueError(f"Invalid adapter source: {adapter_source}")
+
     if adapter_config.base_model_name_or_path != model_id:
         raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
                          f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")

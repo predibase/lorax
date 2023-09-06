@@ -87,6 +87,13 @@ struct Args {
     #[clap(default_value = "hub", long, env)]
     source: String,
 
+    /// The source of the model to load.
+    /// Can be `hub` or `s3`.
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    #[clap(default_value = "hub", long, env)]
+    adapter_source: String,
+
     /// The actual revision of the model if you're referring to a model
     /// on the hub. You can use a specific commit id or a branch like `refs/pr/2`.
     #[clap(long, env)]
@@ -308,6 +315,7 @@ fn shard_manager(
     adapter_id: String,
     revision: Option<String>,
     source: String,
+    adapter_source: String, 
     quantize: Option<Quantization>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
@@ -349,6 +357,8 @@ fn shard_manager(
         "--json-output".to_string(),
         "--source".to_string(),
         source,
+        "--adapter-source".to_string(),
+        adapter_source,
     ];
 
     // Check if adapter id is non-empty string
@@ -678,12 +688,19 @@ fn download_convert_model(model_id: String, args: &Args, running: Arc<AtomicBool
         "--json-output".to_string(),
         "--source".to_string(),
         args.source.clone(),
+        "--adapter-source".to_string(),
+        args.adapter_source.clone(),
     ];
 
     // Model optional revision
     if let Some(revision) = &args.revision {
         download_args.push("--revision".to_string());
         download_args.push(revision.to_string())
+    }
+
+    if !args.adapter_id.is_empty() {
+        download_args.push("--adapter-id".to_string());
+        download_args.push(args.adapter_id.clone());
     }
 
     // Copy current process env
@@ -797,6 +814,7 @@ fn spawn_shards(
         let adapter_id = args.adapter_id.clone();
         let revision = args.revision.clone();
         let source: String = args.source.clone();
+        let adapter_source: String = args.adapter_source.clone();
         let uds_path = args.shard_uds_path.clone();
         let master_addr = args.master_addr.clone();
         let huggingface_hub_cache = args.huggingface_hub_cache.clone();
@@ -819,6 +837,7 @@ fn spawn_shards(
                 adapter_id,
                 revision,
                 source,
+                adapter_source,
                 quantize,
                 dtype,
                 trust_remote_code,
@@ -1113,12 +1132,6 @@ fn main() -> Result<(), LauncherError> {
 
     // Download and convert model weights
     download_convert_model(args.model_id.to_string(), &args, running.clone())?;
-
-    // check if adapter_id is non-empty string
-    if !args.adapter_id.is_empty() {
-        download_convert_model(args.adapter_id.to_string(), &args, running.clone())?;
-    }
-
 
     if !running.load(Ordering::SeqCst) {
         // Launcher was asked to stop

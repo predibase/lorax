@@ -1,6 +1,7 @@
 import os
 from typing import Optional, List
 from pathlib import Path
+from loguru import logger
 
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
@@ -33,7 +34,8 @@ def try_to_load_from_cache(
     if not snapshots_dir.exists():
         return None
     cached_shas = os.listdir(snapshots_dir)
-    if revision not in cached_shas:
+    if revision and revision not in cached_shas:
+        logger.info(f">>>>>>>>>>>> Revision {revision} not found in cache. Cache content: {cached_shas}\n\n")
         # No cache for this revision and we won't try to return a random revision
         return None
 

@@ -1,5 +1,5 @@
 from .hub import EntryNotFoundError, LocalEntryNotFoundError, RevisionNotFoundError, weight_files, download_weights, weight_hub_files, HubModelSource
-from .s3 import S3ModelSource
+from .s3 import S3ModelSource, get_s3_model_local_path
 
 S3 = "s3"
 HUB = "hub"
@@ -22,4 +22,5 @@ __all__ = [
     "EntryNotFoundError",
     "LocalEntryNotFoundError",
     "RevisionNotFoundError",
+    "get_s3_model_local_path",
 ]

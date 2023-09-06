@@ -18,7 +18,7 @@ from text_generation_server.models.galactica import GalacticaSharded
 from text_generation_server.models.santacoder import SantaCoder
 from text_generation_server.models.t5 import T5Sharded
 from text_generation_server.models.gpt_neox import GPTNeoxSharded
-from text_generation_server.utils.sources.s3 import get_s3_model_local_path
+from text_generation_server.utils.sources import get_s3_model_local_path
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -76,6 +76,7 @@ def get_model(
     dtype: Optional[str],
     trust_remote_code: bool,
     source: str,
+    adapter_source: str,
 ) -> Model:
     if len(adapter_id) > 0:
         logger.warning(
@@ -143,6 +144,12 @@ def get_model(
         )
     else: 
         raise ValueError(f"Unknown source {source}")
+    
+    # ensure that if an adapter source other than hub is used, 
+    # that we only allow a model type of llama
+    if adapter_source != "hub" and config_dict["model_type"] != "llama":
+        raise ValueError(f"Unsupported model type {config_dict['model_type']} for adapter source {adapter_source}")
+    
     model_type = config_dict["model_type"]
 
     if model_type == "gpt_bigcode":
@@ -211,6 +218,7 @@ def get_model(
             return FlashLlama(
                 model_id,
                 adapter_id,
+                adapter_source,
                 revision,
                 quantize=quantize,
                 dtype=dtype,

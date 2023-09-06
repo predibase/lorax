@@ -37,6 +37,7 @@ class FlashLlama(FlashCausalLM):
         self,
         model_id: str,
         adapter_id: str,
+        adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
@@ -83,8 +84,9 @@ class FlashLlama(FlashCausalLM):
         self.adapter_id = BASE_MODEL_ADAPTER_ID
         if len(adapter_id) > 0:
             logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
+            # Need to pass the adapter source here
             merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames
+                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
             )
             self.dynamic_adapter_loading_enabled = False
             self.adapter_id = adapter_id

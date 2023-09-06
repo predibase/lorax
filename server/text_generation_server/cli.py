@@ -35,6 +35,7 @@ def serve(
     json_output: bool = False,
     otlp_endpoint: Optional[str] = None,
     source: str = "hub",
+    adapter_source: str = "hub",
 ):
     if sharded:
         assert (
@@ -78,36 +79,19 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, uds_path, source
+        model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, uds_path, source, adapter_source
     )
 
-
-@app.command()
-def download_weights(
+def _download_weights(
     model_id: str,
     revision: Optional[str] = None,
     extension: str = ".safetensors",
     auto_convert: bool = True,
-    logger_level: str = "INFO",
-    json_output: bool = False,
     source: str = "hub",
 ):
-    # Remove default handler
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{file}:{line} {message}",
-        filter="text_generation_server",
-        level=logger_level,
-        serialize=json_output,
-        backtrace=True,
-        diagnose=False,
-    )
-
     # Import here after the logger is added to log potential import exceptions
     from text_generation_server import utils
     from text_generation_server.utils import sources
-
     model_source = sources.get_model_source(source, model_id, revision, extension)
 
     # Test if files were already download
@@ -184,6 +168,34 @@ def download_weights(
             discard_names = []
         # Convert pytorch weights to safetensors
         utils.convert_files(local_pt_files, local_st_files, discard_names)
+
+
+@app.command()
+def download_weights(
+    model_id: str,
+    revision: Optional[str] = None,
+    extension: str = ".safetensors",
+    auto_convert: bool = True,
+    logger_level: str = "INFO",
+    json_output: bool = False,
+    source: str = "hub",
+    adapter_id: str = "",
+    adapter_source: str = "hub",
+):
+    # Remove default handler
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format="{file}:{line} {message}",
+        filter="text_generation_server",
+        level=logger_level,
+        serialize=json_output,
+        backtrace=True,
+        diagnose=False,
+    )
+    if adapter_id:
+        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source)
+    _download_weights(model_id, revision, extension, json_output, source)
 
 
 @app.command()
