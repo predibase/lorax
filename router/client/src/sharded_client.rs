@@ -146,6 +146,32 @@ impl ShardedClient {
             join_all(futures).await.into_iter().collect();
         merge_generations(results?)
     }
+
+    pub async fn download_adapter(
+        &mut self,
+        adapter_id: String,
+    ) {
+        let futures: Vec<_> = self
+            .clients
+            .iter_mut()
+            .map(|client| Box::pin(client.download_adapter(adapter_id.clone())))
+            .collect();
+        let _: Vec<_> =
+            join_all(futures).await.into_iter().collect();
+    }
+
+    pub async fn load_adapter(
+        &mut self,
+        adapter_id: String,
+    ) {
+        let futures: Vec<_> = self
+            .clients
+            .iter_mut()
+            .map(|client| Box::pin(client.load_adapter(adapter_id.clone())))
+            .collect();
+        let _: Vec<_> =
+            join_all(futures).await.into_iter().collect();
+    }
 }
 
 /// Merge generations from the different model shards

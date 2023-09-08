@@ -101,9 +101,7 @@ class Weights:
         f = self._get_handle(filename)
         slice_ = f.get_slice(tensor_name)
         size = slice_.get_shape()[dim]
-        block_size = size // world_size
-        start = rank * block_size
-        stop = (rank + 1) * block_size
+        start, stop = get_start_stop_idxs_for_rank(size, rank, world_size)
 
         if dim == 0:
             tensor = slice_[start:stop]
@@ -250,3 +248,9 @@ class Weights:
             self.gptq_groupsize = data["group_size"]
         except Exception:
             pass
+
+def get_start_stop_idxs_for_rank(size, rank, world_size):
+    block_size = size // world_size
+    start = rank * block_size
+    stop = (rank + 1) * block_size
+    return start, stop

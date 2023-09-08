@@ -102,6 +102,28 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
             generations=[generation.to_pb() for generation in generations],
             batch=next_batch.to_pb() if next_batch else None,
         )
+        
+    async def DownloadAdapter(self, request, context):
+        print("ASDFASDF SERVER DownloadAdapter called: ", request.adapter_id)
+        if request.adapter_id == "__base_model__":
+            print("No adapter to download for base model. Skipping.")
+        else:
+            from text_generation_server.cli import download_weights
+
+            download_weights(request.adapter_id)
+
+        return generate_pb2.DownloadAdapterResponse(
+            adapter_id=request.adapter_id,
+        )
+
+    async def LoadAdapter(self, request, context):
+        print("ASDFASDF SERVER LoadAdapter called: ", request.adapter_id)
+        print("type(self.model): ", type(self.model))
+        print("self.model.__class__.__bases__: ", self.model.__class__.__bases__)
+        self.model.load_adapter(request.adapter_id)
+        return generate_pb2.LoadAdapterResponse(
+            adapter_id=request.adapter_id,
+        )
 
 
 def serve(

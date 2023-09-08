@@ -174,4 +174,18 @@ impl Client {
         let response = self.stub.decode(request).await?.into_inner();
         Ok((response.generations, response.batch))
     }
+
+    pub async fn download_adapter(&mut self, adapter_id: String) {
+        println!("ASDFASDF CLIENT SENDING DOWNLOAD ADAPTER REQUEST: {}", adapter_id);
+        let request = tonic::Request::new(DownloadAdapterRequest { adapter_id }).inject_context();
+        let response = self.stub.download_adapter(request).await.unwrap();
+        println!("ASDFASDF CLIENT GOT RESPONSE: {:?}", response);
+    }
+
+    pub async fn load_adapter(&mut self, adapter_id: String) {
+        println!("ASDFASDF CLIENT SENDING LOAD ADAPTER REQUEST: {}", adapter_id);
+        let request = tonic::Request::new(LoadAdapterRequest { adapter_id }).inject_context();
+        let response = self.stub.load_adapter(request).await.unwrap();
+        println!("ASDFASDF CLIENT GOT RESPONSE: {:?}", response);
+    }
 }

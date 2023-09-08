@@ -19,6 +19,10 @@ service TextGenerationService {
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
     rpc Health (HealthRequest) returns (HealthResponse);
+    /// Download adapter
+    rpc DownloadAdapter (DownloadAdapterRequest) returns (DownloadAdapterResponse);
+    /// Load adapter
+    rpc LoadAdapter (LoadAdapterRequest) returns (LoadAdapterResponse);
 }
 
 message HealthRequest {}
@@ -204,4 +208,26 @@ message WarmupRequest {
 message WarmupResponse {
     /// Maximum number of tokens supported by the model
     optional uint32 max_supported_total_tokens = 1;
+}
+
+message DownloadAdapterRequest {
+    /// Adapter ID
+    string adapter_id = 1;
+}
+
+/// Empty response
+message DownloadAdapterResponse {
+    /// Adapter ID
+    string adapter_id = 1;
+}
+
+message LoadAdapterRequest {
+    /// Adapter ID
+    string adapter_id = 1;
+}
+
+/// Empty response
+message LoadAdapterResponse {
+    /// Adapter ID
+    string adapter_id = 1;
 }

@@ -208,40 +208,6 @@ fn main() -> Result<(), RouterError> {
 
             // Warmup model
             tracing::info!("Warming up model");
-<<<<<<< HEAD
-            let max_supported_batch_total_tokens = match sharded_client
-                .warmup(max_input_length as u32, max_batch_prefill_tokens)
-                .await
-                .map_err(RouterError::Warmup)?
-            {
-                // Older models do not support automatic max-batch-total-tokens
-                None => {
-                    let max_batch_total_tokens = max_batch_total_tokens.unwrap_or(
-                        16000.max((max_total_tokens as u32).max(max_batch_prefill_tokens)),
-                    );
-                    tracing::warn!("Model does not support automatic max batch total tokens");
-                    max_batch_total_tokens
-                }
-                // Flash attention models return their max supported total tokens
-                Some(max_supported_batch_total_tokens) => {
-                    // Warn if user added his own max-batch-total-tokens as we will ignore it
-                    if max_batch_total_tokens.is_some() {
-                        tracing::warn!(
-                            "`--max-batch-total-tokens` is deprecated for Flash \
-                        Attention models."
-                        );
-                        tracing::warn!(
-                            "Inferred max batch total tokens: {max_supported_batch_total_tokens}"
-                        );
-                    }
-                    if max_total_tokens as u32 > max_supported_batch_total_tokens {
-                        return Err(RouterError::ArgumentValidation(format!("`max_total_tokens` must be <= `max_batch_total_tokens`. Given: {max_total_tokens} and {max_supported_batch_total_tokens}")));
-                    }
-
-                    max_supported_batch_total_tokens
-                }
-            };
-=======
             // let max_supported_batch_total_tokens = match sharded_client
             //     .warmup(max_input_length as u32, max_batch_prefill_tokens)
             //     .await
@@ -271,7 +237,6 @@ fn main() -> Result<(), RouterError> {
             //     }
             // };
             let max_supported_batch_total_tokens: u32 = 17728;
->>>>>>> b561aef (wired it all up! TODO: reconcile with real continuous batching calls)
             tracing::info!("Setting max batch total tokens to {max_supported_batch_total_tokens}");
             tracing::info!("Connected");
 
@@ -306,7 +271,7 @@ fn main() -> Result<(), RouterError> {
                 ngrok_authtoken,
                 ngrok_edge,
             )
-                .await?;
+            .await?;
             Ok(())
         })
 }
