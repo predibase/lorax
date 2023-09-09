@@ -1,3 +1,6 @@
+import time
+from functools import lru_cache
+
 import torch
 import torch.distributed
 
@@ -123,24 +126,10 @@ class FlashLlama(FlashCausalLM):
                 orig_q_proj = layer.self_attn.query_key_value.linear.weight[:d_q].clone()
                 weight_name = f"{prefix}.{i}.self_attn.q_proj"
                 self.orig_weights[weight_name] = orig_q_proj
-                # print("orig_q_proj details:\n{}\n{}\n{}\n{}\n{}".format(
-                #     f"weight_name: {weight_name}",
-                #     f"orig_q_proj.shape: {orig_q_proj.shape}",
-                #     f"orig_q_proj.dtype: {orig_q_proj.dtype}",
-                #     f"orig_q_proj.device: {orig_q_proj.device}",
-                #     f"orig_q_proj[0:2, 0:2]: {orig_q_proj[0:2, 0:2]}",
-                # ))
                 
                 orig_v_proj = layer.self_attn.query_key_value.linear.weight[2*d_q:].clone()
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = orig_v_proj
-                # print("orig_v_proj details:\n{}\n{}\n{}\n{}\n{}".format(
-                #     f"weight_name: {weight_name}",
-                #     f"orig_v_proj.shape: {orig_v_proj.shape}",
-                #     f"orig_v_proj.dtype: {orig_v_proj.dtype}",
-                #     f"orig_v_proj.device: {orig_v_proj.device}",
-                #     f"orig_v_proj[0:2, 0:2]: {orig_v_proj[0:2, 0:2]}",
-                # ))
     
     def load_adapter(self, adapter_id):
         """
@@ -173,18 +162,14 @@ class FlashLlama(FlashCausalLM):
                     f"{prefix}.{i}.self_attn.v_proj"]
             self.adapter_id = adapter_id
         else:
-            module_map, adapter_config = self._load_module_map(adapter_id, self.orig_weights.keys())
+            start_t = time.time()
+            weight_names = tuple(self.orig_weights.keys())
+            module_map, adapter_config = self._load_module_map(adapter_id, weight_names)
+            print("ASDFASDF loaded module map in {} seconds".format(time.time() - start_t))
             
             def compute_merged_weight(weight_name):
                 # ensure the delta has the same dtype and device as the original weight
                 orig_weight = self.orig_weights[weight_name]
-                # print("orig_weight details:\n{}\n{}\n{}\n{}\n{}".format(
-                #     f"weight_name: {weight_name}",
-                #     f"orig_weight.shape: {orig_weight.shape}",
-                #     f"orig_weight.dtype: {orig_weight.dtype}",
-                #     f"orig_weight.device: {orig_weight.device}",
-                #     f"orig_weight[0:2, 0:2]: {orig_weight[0:2, 0:2]}",
-                # ))
                 lora_A = module_map[weight_name]["lora_A"].to(orig_weight.device, orig_weight.dtype)
                 lora_B = module_map[weight_name]["lora_B"].to(orig_weight.device, orig_weight.dtype)
                 delta_weight = compute_delta_weight(
@@ -200,7 +185,7 @@ class FlashLlama(FlashCausalLM):
             prefix = "model.layers"
             for i, layer in tqdm(
                 enumerate(self.model.model.layers), 
-                desc="Merging adapter weights", 
+                desc=f"Merging weights for adapter {adapter_id}",
                 total=len(self.model.model.layers)
             ):
                 d_qkv, _ = layer.self_attn.query_key_value.linear.weight.shape
@@ -212,23 +197,27 @@ class FlashLlama(FlashCausalLM):
                     f"{prefix}.{i}.self_attn.v_proj")
             self.adapter_id = adapter_id
 
+    @lru_cache(maxsize=5)
     def _load_module_map(self, adapter_id, weight_names):
+        from filelock import FileLock
+        
         from peft import LoraConfig
         from safetensors.torch import load_file
         
         from text_generation_server.utils.hub import weight_files
-
-        adapter_filenames = weight_files(adapter_id, extension=".safetensors")
-        adapter_config = LoraConfig.from_pretrained(adapter_id)
-        if adapter_config.base_model_name_or_path != self.model_id:
-            raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
-                            f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
         
-        # load adapter weights from all shards (should have relatively small memory footprint)
-        adapter_weights = {}
-        for filename in adapter_filenames:
-            adapter_weights.update(load_file(filename))
-        
+        with FileLock(adapter_id.replace('/', '--') + ".lock"):
+            adapter_filenames = weight_files(adapter_id, extension=".safetensors")
+            adapter_config = LoraConfig.from_pretrained(adapter_id)
+            if adapter_config.base_model_name_or_path != self.model_id:
+                raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
+                                f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+            
+            # load adapter weights from all shards (should have relatively small memory footprint)
+            adapter_weights = {}
+            for filename in adapter_filenames:
+                adapter_weights.update(load_file(filename))
+            
         # map the model weights to the relevant adapter weights (LoRA A and B matrices)
         module_map = {}
         for weight_name in weight_names:

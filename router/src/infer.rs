@@ -58,6 +58,7 @@ enum AdapterQueueCommand {
 }
 
 struct AdapterQueue {
+    adapter_id: String,
     sender: flume::Sender<AdapterQueueCommand>,
 }
 
@@ -66,13 +67,14 @@ impl AdapterQueue {
         let (sender, receiver) = flume::unbounded();
 
         tokio::spawn(adapter_queue_task(
-            adapter_id,
+            adapter_id.clone(),
             client,
             requires_padding,
             block_size,
             receiver,
         ));
         Self {
+            adapter_id,
             sender,
         }
     }
@@ -311,7 +313,7 @@ async fn adapter_queue_task(
         match cmd {
             AdapterQueueCommand::Append(entry) => {
                 state.append(*entry);
-                println!("ASDFASDF inside adapter_queue_task. queue length: {}", state.len());
+                println!("ASDFASDF adapter_queue_task: {} queue length: {}", adapter_id, state.len());
             }
             AdapterQueueCommand::IsEmpty { 
                 response_sender
@@ -336,6 +338,9 @@ async fn adapter_queue_task(
 
 enum AdapterManagerCommand {
     Append(String, Box<Entry>),
+    NextQueue {
+        response_sender: oneshot::Sender<Option<Arc<AdapterQueue>>>,
+    },
 }
 
 #[derive(Clone)]
@@ -348,7 +353,6 @@ impl AdapterManager {
         client: ShardedClient,
         requires_padding: bool,
         block_size: u32,
-        batcher_sender: flume::Sender<BatcherCommand>,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -358,7 +362,6 @@ impl AdapterManager {
             requires_padding,
             block_size,
             receiver,
-            batcher_sender
         ));
 
         Self {
@@ -371,6 +374,17 @@ impl AdapterManager {
         // the adapter manager task will handle the actual processing
         self.sender.send(AdapterManagerCommand::Append(adapter_id, Box::new(entry))).unwrap();
     }
+
+    pub(crate) async fn next_queue(&self) -> Option<Arc<AdapterQueue>> {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.sender
+            .send(AdapterManagerCommand::NextQueue {
+                response_sender,
+            })
+            .unwrap();
+        response_receiver.await.unwrap()
+    }
 }
 
 async fn adapter_manager_task(
@@ -378,20 +392,34 @@ async fn adapter_manager_task(
     requires_padding: bool,
     block_size: u32,
     receiver: flume::Receiver<AdapterManagerCommand>,
-    batcher_sender: flume::Sender<BatcherCommand>,
 ) {
     let mut queue_map: HashMap<String, Arc<AdapterQueue>> = HashMap::new();
+    let mut adapter_id_vec: Vec<String> = Vec::new();
+    let mut adapter_id_index: usize = 0;
 
+    // Add __base_model__ as default adapter so that the first
+    // NextQueue command is guaranteed to get the __base_model__ queue
+    let adapter_id = "__base_model__".to_string();
+    let queue = Arc::new(AdapterQueue::new(
+        adapter_id.clone(),
+        client.clone(),
+        requires_padding,
+        block_size,
+    ));
+    queue_map.insert(adapter_id.clone(), queue.clone());
+    adapter_id_vec.append(&mut vec![adapter_id.clone()]);
+
+    println!("ASDFASDF adapter_manager_task: ready to receive requests");
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterManagerCommand::Append(adapter_id, entry) => {
-                println!("ASDFASDF inside adapter_manager_task. adapter_id: {}", adapter_id);
+                // println!("ASDFASDF inside adapter_manager_task. adapter_id: {}", adapter_id);
 
                 // check if queue_map has adapter_id as key
                 // if not, then add a new AdapterQueue and download the adapter
                 let queue;
                 if !queue_map.contains_key(&adapter_id) {
-                    println!("ASDFASDF adapter_manager_task: creating new queue");
+                    // println!("ASDFASDF adapter_manager_task: creating new queue");
                     queue = Arc::new(AdapterQueue::new(
                         adapter_id.clone(),
                         client.clone(),
@@ -399,22 +427,36 @@ async fn adapter_manager_task(
                         block_size,
                     ));
                     queue_map.insert(adapter_id.clone(), queue.clone());
+                    adapter_id_vec.append(&mut vec![adapter_id.clone()]);
                 } else {
                     queue = queue_map.get(&adapter_id).unwrap().clone();
                 }
 
                 // ensure that append completes before sending batcher message
                 queue.append(entry);
-                batcher_sender.send(BatcherCommand::Batch{adapter_id, queue: queue.clone()}).unwrap();
+            }
+            AdapterManagerCommand::NextQueue {
+                response_sender,
+            } => {
+                // return the next adapter queue in the queue map if queue map
+                // is not empty. Otherwise, return None
+                let queue: Option<Arc<AdapterQueue>>;
+                if !queue_map.is_empty() {
+                    adapter_id_index = (adapter_id_index + 1) % adapter_id_vec.len();
+                    let adapter_id = adapter_id_vec[adapter_id_index].clone();
+                    queue = Some(queue_map.get(&adapter_id).unwrap().clone());
+                } else {
+                    queue = None;
+                }
+                // log error if response_sender.send fails
+                match response_sender.send(queue) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        println!("ASDFASDF adapter_manager_task: response_sender.send(queue) failed");
+                    }
+                }
             }
         }
-    }
-}
-
-enum BatcherCommand {
-    Batch {
-        adapter_id: String, 
-        queue: Arc<AdapterQueue>
     }
 }
 
@@ -424,60 +466,78 @@ async fn batcher_task(
     max_batch_prefill_tokens: u32,
     max_batch_total_tokens: u32,
     max_waiting_tokens: usize,
+    max_time_limit: Duration,
     generation_health: Arc<AtomicBool>,
-    batcher_receiver: flume::Receiver<BatcherCommand>,
+    adapter_manager: AdapterManager,
 ) {
-    while let Ok(cmd) = batcher_receiver.recv_async().await {
-        match cmd {
-            BatcherCommand::Batch {
-                adapter_id,
-                queue,
-            } => {
-                println!("ASDFASDF top of batcher_task: {}", adapter_id);                
-                if queue.is_empty().await {
-                    println!("ASDFASDF batcher_task: queue is empty");
-                    continue;
-                }
-                
-                println!("ASDFASDF batcher_task: loading adapter");
-                client.load_adapter(adapter_id.clone()).await;
-                println!("ASDFASDF batcher_task: adapter loaded");
-                while let Some((mut entries, batch, span)) = queue
-                    .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
-                    .await
-                {
-                    println!("ASDFASDF batcher_task: next_batch called");
-                    let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
-                        .instrument(span)
-                        .await;
-                    let mut waiting_tokens = 1;
+    loop {
+        if let Some(queue) = adapter_manager.next_queue().await {
+            let adapter_id = queue.adapter_id.clone();
+            if queue.is_empty().await {
+                // println!("ASDFASDF batcher_task: queue for adapter {} is empty", adapter_id);
+                continue;
+            }
+            
+            client.load_adapter(adapter_id.clone()).await;
+            println!("ASDFASDF batcher_task: adapter {} loaded", adapter_id);
 
-                    // We loop until we do not receive any cached batch from the inference server (== until
-                    // all requests have met their stopping criteria)
-                    while let Some(batch) = cached_batch {
-                        // Get current batch info
-                        let batch_size = batch.size;
-                        let batch_max_tokens = batch.max_tokens;
-                        let mut batches = vec![batch];
-                        metrics::gauge!("tgi_batch_current_size", batch_size as f64);
-                        metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
+            let start_time = Instant::now();
+            let mut max_time_limit_reached = false;
+            while let Some((mut entries, batch, span)) = queue
+                .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
+                .await
+            {
+                // print how much time has passed since start_time
+                println!(
+                    "======\n\nASDFASDF batcher_task: next_batch called for {} after {}ms\n\tentries.len(): {}\n\tbatch.requests.len(): {}\n\n======", 
+                    adapter_id,
+                    start_time.elapsed().as_millis(), 
+                    entries.len(), 
+                    batch.requests.len()
+                );
+                let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
+                    .instrument(span)
+                    .await;
+                let mut waiting_tokens = 1;
 
-                        let min_size = if waiting_tokens >= max_waiting_tokens {
-                            // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                            // to add a new batch even though its size might be small
-                            None
-                        } else {
-                            // Minimum batch size
-                            Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
-                        };
+                // We loop until we do not receive any cached batch from the inference server (== until
+                // all requests have met their stopping criteria)
+                while let Some(batch) = cached_batch {
+                    // Get current batch info
+                    let batch_size = batch.size;
+                    let batch_max_tokens = batch.max_tokens;
+                    let mut batches = vec![batch];
+                    metrics::gauge!("tgi_batch_current_size", batch_size as f64);
+                    metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
 
-                        let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                    let min_size = if waiting_tokens >= max_waiting_tokens {
+                        // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                        // to add a new batch even though its size might be small
+                        None
+                    } else {
+                        // Minimum batch size
+                        Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                    };
 
+                    let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+
+                    // Only try and get a new batch if we are under the max time limit for this request
+                    let time_elapsed = start_time.elapsed();
+                    max_time_limit_reached = time_elapsed > max_time_limit;
+                    if !max_time_limit_reached {
+                        // println!("ASDFASDF batcher_task: time_elapsed is {}, getting new batch", time_elapsed.as_secs());
                         // Try to get a new batch
                         if let Some((mut new_entries, new_batch, span)) = queue
                             .next_batch(min_size, max_batch_prefill_tokens, token_budget)
                             .await
                         {
+                            println!(
+                                "ASDFASDF batcher_task: new batch added to {} after {}ms\n\tnew_entries.len(): {}\n\tnew_batch.requests.len(): {}\n\n======", 
+                                adapter_id,
+                                time_elapsed.as_millis(), 
+                                new_entries.len(), 
+                                new_batch.requests.len()
+                            );
                             // Tracking metrics
                             if min_size.is_some() {
                                 metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
@@ -509,32 +569,36 @@ async fn batcher_task(
                                 batches.push(new_cached_batch);
                             }
                         }
-
-                        // Create span for this batch to add context to inference calls
-                        let next_batch_size = entries.len();
-                        let next_batch_span =
-                            info_span!(parent: None, "batch", batch_size = next_batch_size);
-                        entries.iter_mut().for_each(|(_, entry)| {
-                            // Create a new span to link the batch back to this entry
-                            let entry_batch_span = info_span!(parent: &entry.span, "infer");
-                            // Add relationships
-                            next_batch_span.follows_from(&entry_batch_span);
-                            entry_batch_span.follows_from(&next_batch_span);
-                            // Update entry
-                            entry.temp_span = Some(entry_batch_span);
-                        });
-
-                        cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
-                            .instrument(next_batch_span)
-                            .await;
-                        waiting_tokens += 1;
                     }
-                    metrics::gauge!("tgi_batch_current_size", 0.0);
-                    metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
+
+                    // Create span for this batch to add context to inference calls
+                    let next_batch_size = entries.len();
+                    let next_batch_span =
+                        info_span!(parent: None, "batch", batch_size = next_batch_size);
+                    entries.iter_mut().for_each(|(_, entry)| {
+                        // Create a new span to link the batch back to this entry
+                        let entry_batch_span = info_span!(parent: &entry.span, "infer");
+                        // Add relationships
+                        next_batch_span.follows_from(&entry_batch_span);
+                        entry_batch_span.follows_from(&next_batch_span);
+                        // Update entry
+                        entry.temp_span = Some(entry_batch_span);
+                    });
+
+                    cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
+                        .instrument(next_batch_span)
+                        .await;
+                    waiting_tokens += 1;
+                }
+                metrics::gauge!("tgi_batch_current_size", 0.0);
+                metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
+
+                if max_time_limit_reached {
+                    break;
                 }
             }
         }
-    }           
+    }  
 }
 
 impl Infer {
@@ -571,8 +635,7 @@ impl Infer {
         // Inference limit with a semaphore
         let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
-        let (batcher_sender, batcher_receiver) = flume::unbounded();
-        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16, batcher_sender);
+        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16);
 
         // receives adapter queues from the adapter manager and batches them
         tokio::spawn(batcher_task(
@@ -581,8 +644,9 @@ impl Infer {
             max_batch_prefill_tokens,
             max_batch_total_tokens,
             max_waiting_tokens,
+            Duration::from_secs(2),
             generation_health,
-            batcher_receiver,
+            adapter_manager.clone(),
         ));
 
 

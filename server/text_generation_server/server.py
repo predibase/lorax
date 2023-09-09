@@ -104,13 +104,26 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         )
         
     async def DownloadAdapter(self, request, context):
-        print("ASDFASDF SERVER DownloadAdapter called: ", request.adapter_id)
-        if request.adapter_id == "__base_model__":
+        from filelock import FileLock
+        
+        adapter_id = request.adapter_id
+        print("ASDFASDF SERVER DownloadAdapter called: ", adapter_id)
+        if adapter_id == "__base_model__":
             print("No adapter to download for base model. Skipping.")
         else:
+            import time
+            from threading import Thread
             from text_generation_server.cli import download_weights
+            
+            def fn(adapter_id):
+                adapter_id_filename = adapter_id.replace('/', '--')
+                with FileLock(adapter_id_filename + ".lock"):
+                    print("ASDFASDF beginning to download adapter: ", adapter_id)
+                    start_t = time.time()
+                    download_weights(adapter_id)
+                    print("ASDFASDF completed downloading adapter: ", adapter_id, " in ", time.time() - start_t, " seconds")
 
-            download_weights(request.adapter_id)
+            Thread(target=fn, args=(adapter_id,)).start()
 
         return generate_pb2.DownloadAdapterResponse(
             adapter_id=request.adapter_id,
@@ -118,8 +131,6 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
     async def LoadAdapter(self, request, context):
         print("ASDFASDF SERVER LoadAdapter called: ", request.adapter_id)
-        print("type(self.model): ", type(self.model))
-        print("self.model.__class__.__bases__: ", self.model.__class__.__bases__)
         self.model.load_adapter(request.adapter_id)
         return generate_pb2.LoadAdapterResponse(
             adapter_id=request.adapter_id,
