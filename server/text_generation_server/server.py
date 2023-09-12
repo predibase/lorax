@@ -139,10 +139,14 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
     async def LoadAdapter(self, request, context):
         print("ASDFASDF SERVER LoadAdapter called: ", request.adapter_id)
-        self.model.load_adapter(request.adapter_id)
-        return generate_pb2.LoadAdapterResponse(
-            adapter_id=request.adapter_id,
-        )
+        try:
+            self.model.load_adapter(request.adapter_id)
+            return generate_pb2.LoadAdapterResponse(
+                adapter_id=request.adapter_id,
+            )
+        except Exception as e:
+            print("ASDFASDF error loading adapter: ", request.adapter_id, " error: ", e)
+            raise e
 
 
 def serve(
