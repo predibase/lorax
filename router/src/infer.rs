@@ -308,37 +308,30 @@ async fn adapter_queue_task(
     receiver: flume::Receiver<AdapterQueueCommand>,
 ) {
     let mut state = State::new(requires_padding, block_size);
-    let mut adapter_downloaded = false;
-    let mut adapter_errored = false;
+    let mut err_msg: Option<String> = None;
+    match client.download_adapter(adapter_id.clone()).await {
+        Ok(adapter_id) => {
+            println!("ASDFASDF adapter_queue_task: adapter {} downloaded", adapter_id);
+        }
+        // If we have a download error, we send an error to the entry response
+        Err(error) => {
+            println!("ASDFASDF adapter_queue_task: error downloading adapter");
+            metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
+            err_msg = Some(error.to_string());
+        }
+    }
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterQueueCommand::Append(entry) => {
                 // no-op if adapter errored
-                if adapter_errored {
-                    continue;
-                }
-                // if adapter is not downloaded, download it
-                if !adapter_downloaded {
-                    match client.download_adapter(adapter_id.clone()).await {
-                        Ok(adapter_id) => {
-                            println!("ASDFASDF adapter_queue_task: adapter {} downloaded", adapter_id);
-                            adapter_downloaded = true;
-                        }
-                        // If we have a download error, we send an error to the entry response
-                        Err(error) => {
-                            println!("ASDFASDF adapter_queue_task: error downloading adapter");
-                            let err = InferError::GenerationError(error.to_string());
-                            metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-                            tracing::error!("{err}");
-
-                            entry
-                                .response_tx
-                                .send_timeout(Err(err), Duration::from_millis(10))
-                                .unwrap_or(());
-                            adapter_errored = true;
-                        }
-                    }
+                if err_msg.is_some() {
+                    let err: InferError = InferError::GenerationError(err_msg.clone().unwrap());
+                    tracing::error!("{err}");
+                    entry
+                        .response_tx
+                        .send_timeout(Err(err), Duration::from_millis(10))
+                        .unwrap_or(());
                 }
                 state.append(*entry);
                 println!("ASDFASDF adapter_queue_task: {} queue length: {}", adapter_id, state.len());
@@ -346,7 +339,7 @@ async fn adapter_queue_task(
             AdapterQueueCommand::IsEmpty { 
                 response_sender
             } => {
-                if adapter_errored {
+                if err_msg.is_some() {
                     response_sender.send(true).unwrap();
                 } else {
                     let response = state.is_empty();
@@ -360,7 +353,7 @@ async fn adapter_queue_task(
                 response_sender,
                 span,
             } => span.in_scope(|| {
-                if adapter_errored {
+                if err_msg.is_some() {
                     response_sender.send(None).unwrap();
                     return;
                 } else {
@@ -370,7 +363,7 @@ async fn adapter_queue_task(
                 }
             }),
         }
-        if adapter_errored && receiver.is_empty() {
+        if err_msg.is_some() && receiver.is_empty() {
             println!("ASDFASDF adapter_queue_task: adapter {} is disconnected", adapter_id);
             return;
         }
