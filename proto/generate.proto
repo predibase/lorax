@@ -215,7 +215,6 @@ message DownloadAdapterRequest {
     string adapter_id = 1;
 }
 
-/// Empty response
 message DownloadAdapterResponse {
     /// Adapter ID
     string adapter_id = 1;
@@ -226,7 +225,6 @@ message LoadAdapterRequest {
     string adapter_id = 1;
 }
 
-/// Empty response
 message LoadAdapterResponse {
     /// Adapter ID
     string adapter_id = 1;

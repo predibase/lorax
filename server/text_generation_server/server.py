@@ -14,6 +14,7 @@ from text_generation_server.interceptor import ExceptionInterceptor
 from text_generation_server.models import Model, get_model
 from text_generation_server.pb import generate_pb2_grpc, generate_pb2
 from text_generation_server.tracing import UDSOpenTelemetryAioServerInterceptor
+from text_generation_server.utils import weight_files
 
 
 class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
@@ -112,22 +113,26 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
             print("No adapter to download for base model. Skipping.")
         else:
             import time
-            from threading import Thread
             from text_generation_server.cli import download_weights
-            
-            def fn(adapter_id):
-                adapter_id_filename = adapter_id.replace('/', '--')
-                with FileLock(adapter_id_filename + ".lock"):
+
+            adapter_id_filename = adapter_id.replace('/', '--')
+            with FileLock(adapter_id_filename + ".lock"):
+                try:
                     print("ASDFASDF beginning to download adapter: ", adapter_id)
                     start_t = time.time()
                     download_weights(adapter_id)
                     print("ASDFASDF completed downloading adapter: ", adapter_id, " in ", time.time() - start_t, " seconds")
-
-            Thread(target=fn, args=(adapter_id,)).start()
-
-        return generate_pb2.DownloadAdapterResponse(
-            adapter_id=request.adapter_id,
-        )
+                    return generate_pb2.DownloadAdapterResponse(
+                        adapter_id=request.adapter_id,
+                    )
+                except Exception as e:
+                    print("ASDFASDF error downloading adapter: ", adapter_id, " error: ", e)
+                    # delete safetensors files if there is an issue downloading or converting 
+                    # the weights to prevent cache hits by subsequent calls
+                    filepaths = weight_files(adapter_id)
+                    for filepath in filepaths:
+                        os.remove(filepath)
+                    raise e
 
     async def LoadAdapter(self, request, context):
         print("ASDFASDF SERVER LoadAdapter called: ", request.adapter_id)

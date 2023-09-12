@@ -83,6 +83,10 @@ impl AdapterQueue {
         self.sender.send(AdapterQueueCommand::Append(entry)).unwrap();
     }
 
+    pub(crate) fn is_disconnected(&self) -> bool {
+        self.sender.is_disconnected()
+    }
+
     pub(crate) async fn is_empty(&self) -> bool {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
@@ -103,7 +107,6 @@ impl AdapterQueue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         // Send next batch command to the background task managing the state
-        // Unwrap is safe here
         self.sender
             .send(AdapterQueueCommand::NextBatch {
                 min_size,
@@ -113,8 +116,6 @@ impl AdapterQueue {
                 span: Span::current(),
             })
             .unwrap();
-        // Await on response channel
-        // Unwrap is safe here
         response_receiver.await.unwrap()
     }
 }
@@ -307,19 +308,50 @@ async fn adapter_queue_task(
     receiver: flume::Receiver<AdapterQueueCommand>,
 ) {
     let mut state = State::new(requires_padding, block_size);
+    let mut adapter_downloaded = false;
+    let mut adapter_errored = false;
 
-    client.download_adapter(adapter_id.clone()).await;
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterQueueCommand::Append(entry) => {
+                // no-op if adapter errored
+                if adapter_errored {
+                    continue;
+                }
+                // if adapter is not downloaded, download it
+                if !adapter_downloaded {
+                    match client.download_adapter(adapter_id.clone()).await {
+                        Ok(adapter_id) => {
+                            println!("ASDFASDF adapter_queue_task: adapter {} downloaded", adapter_id);
+                            adapter_downloaded = true;
+                        }
+                        // If we have a download error, we send an error to the entry response
+                        Err(error) => {
+                            println!("ASDFASDF adapter_queue_task: error downloading adapter");
+                            let err = InferError::GenerationError(error.to_string());
+                            metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
+                            tracing::error!("{err}");
+
+                            entry
+                                .response_tx
+                                .send_timeout(Err(err), Duration::from_millis(10))
+                                .unwrap_or(());
+                            adapter_errored = true;
+                        }
+                    }
+                }
                 state.append(*entry);
                 println!("ASDFASDF adapter_queue_task: {} queue length: {}", adapter_id, state.len());
             }
             AdapterQueueCommand::IsEmpty { 
                 response_sender
             } => {
-                let response = state.is_empty();
-                response_sender.send(response).unwrap();
+                if adapter_errored {
+                    response_sender.send(true).unwrap();
+                } else {
+                    let response = state.is_empty();
+                    response_sender.send(response).unwrap();
+                }
             }
             AdapterQueueCommand::NextBatch {
                 min_size,
@@ -328,10 +360,19 @@ async fn adapter_queue_task(
                 response_sender,
                 span,
             } => span.in_scope(|| {
-                let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
-                response_sender.send(next_batch).unwrap();
-                metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
+                if adapter_errored {
+                    response_sender.send(None).unwrap();
+                    return;
+                } else {
+                    let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
+                    response_sender.send(next_batch).unwrap();
+                    metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
+                }
             }),
+        }
+        if adapter_errored && receiver.is_empty() {
+            println!("ASDFASDF adapter_queue_task: adapter {} is disconnected", adapter_id);
+            return;
         }
     }
 }
@@ -341,6 +382,9 @@ enum AdapterManagerCommand {
     NextQueue {
         response_sender: oneshot::Sender<Option<Arc<AdapterQueue>>>,
     },
+    RemoveQueue {
+        adapter_id: String,
+    }
 }
 
 #[derive(Clone)]
@@ -384,6 +428,14 @@ impl AdapterManager {
             })
             .unwrap();
         response_receiver.await.unwrap()
+    }
+
+    pub(crate) async fn remove_queue(&self, adapter_id: String) {
+        self.sender
+            .send(AdapterManagerCommand::RemoveQueue {
+                adapter_id,
+            })
+            .unwrap();
     }
 }
 
@@ -438,8 +490,6 @@ async fn adapter_manager_task(
             AdapterManagerCommand::NextQueue {
                 response_sender,
             } => {
-                // return the next adapter queue in the queue map if queue map
-                // is not empty. Otherwise, return None
                 let queue: Option<Arc<AdapterQueue>>;
                 if !queue_map.is_empty() {
                     adapter_id_index = (adapter_id_index + 1) % adapter_id_vec.len();
@@ -455,6 +505,14 @@ async fn adapter_manager_task(
                         println!("ASDFASDF adapter_manager_task: response_sender.send(queue) failed");
                     }
                 }
+            }
+            AdapterManagerCommand::RemoveQueue {
+                adapter_id,
+            } => {
+                queue_map.remove(&adapter_id);
+                adapter_id_vec.retain(|id| id != &adapter_id);
+                // ensure that adapter ID index is within bounds
+                adapter_id_index = adapter_id_index % adapter_id_vec.len();
             }
         }
     }
@@ -473,12 +531,15 @@ async fn batcher_task(
     loop {
         if let Some(queue) = adapter_manager.next_queue().await {
             let adapter_id = queue.adapter_id.clone();
+            if queue.is_disconnected() {
+                adapter_manager.remove_queue(adapter_id).await;
+                continue
+            }
             if queue.is_empty().await {
-                // println!("ASDFASDF batcher_task: queue for adapter {} is empty", adapter_id);
                 continue;
             }
             
-            client.load_adapter(adapter_id.clone()).await;
+            client.load_adapter(adapter_id.clone()).await.unwrap();
             println!("ASDFASDF batcher_task: adapter {} loaded", adapter_id);
 
             let start_time = Instant::now();

@@ -150,27 +150,24 @@ impl ShardedClient {
     pub async fn download_adapter(
         &mut self,
         adapter_id: String,
-    ) {
-        let futures: Vec<_> = self
-            .clients
-            .iter_mut()
-            .map(|client| Box::pin(client.download_adapter(adapter_id.clone())))
-            .collect();
-        let _: Vec<_> =
-            join_all(futures).await.into_iter().collect();
+    ) -> Result<String> {
+        // Only download the adapter with one client, since they share a single disk
+        self.clients[0].download_adapter(adapter_id).await
     }
 
     pub async fn load_adapter(
         &mut self,
         adapter_id: String,
-    ) {
+    ) -> Result<String> {
+        // Load the adapter in all clients since there is sharding done between them
         let futures: Vec<_> = self
             .clients
             .iter_mut()
             .map(|client| Box::pin(client.load_adapter(adapter_id.clone())))
             .collect();
-        let _: Vec<_> =
-            join_all(futures).await.into_iter().collect();
+        let results: Result<Vec<String>> = join_all(futures).await.into_iter().collect();
+        // Return the first adapter id
+        Ok(results?.pop().unwrap())
     }
 }
 
