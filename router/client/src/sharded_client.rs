@@ -165,9 +165,14 @@ impl ShardedClient {
             .iter_mut()
             .map(|client| Box::pin(client.load_adapter(adapter_id.clone())))
             .collect();
-        let results: Result<Vec<String>> = join_all(futures).await.into_iter().collect();
-        // Return the first adapter id
-        Ok(results?.pop().unwrap())
+
+        match join_all(futures).await.into_iter().collect::<Result<Vec<String>>>() {
+            Ok(mut results) => {
+                // Return the first adapter id
+                Ok(results.pop().unwrap())
+            }
+            Err(err) => Err(err)
+        }
     }
 }
 
