@@ -368,120 +368,128 @@ async fn batching_task(
     generation_health: Arc<AtomicBool>,
     adapter_manager: AdapterManager,
 ) {
+    // Infinite loop
     loop {
-        if let Some(queue) = adapter_manager.next_queue().await {
-            let adapter_id = queue.adapter_id().to_string();
-            if queue.is_errored().await {
-                adapter_manager.remove_queue(adapter_id).await;
-                continue
-            }
-            if queue.is_empty().await {
-                continue;
-            }
+        let queue_option = adapter_manager.next_queue().await;
+        if queue_option.is_none() {
+            continue;
+        }
 
-            queue.load_adapter().await;
-            let start_time = Instant::now();
-            let mut max_time_limit_reached = false;
-            while let Some((mut entries, batch, span)) = queue
-                .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
-                .await
-            {
-                let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
-                    .instrument(span)
-                    .await;
-                let mut waiting_tokens = 1;
+        let queue = queue_option.unwrap();
+        let adapter_id = queue.adapter_id().to_string();
+        if queue.is_errored().await {
+            adapter_manager.remove_queue(adapter_id).await;
+            continue
+        }
+        if queue.is_empty().await {
+            continue;
+        }
 
-                // We loop until we do not receive any cached batch from the inference server (== until
-                // all requests have met their stopping criteria)
-                while let Some(batch) = cached_batch {
-                    // Get current batch info
-                    let batch_size = batch.size;
-                    let batch_max_tokens = batch.max_tokens;
-                    let mut batches = vec![batch];
-                    metrics::gauge!("tgi_batch_current_size", batch_size as f64);
-                    metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
+        queue.load_adapter().await;
+        let start_time = Instant::now();
+        let mut max_time_limit_reached = false;
+        // Get the next batch from the queue
+        // This batch might be smaller than the maximum batch size if there are not enough requests
+        // waiting in the queue
+        while let Some((mut entries, batch, span)) = queue
+            .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
+            .await
+        {
+            let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
+                .instrument(span)
+                .await;
+            let mut waiting_tokens = 1;
 
-                    let min_size = if waiting_tokens >= max_waiting_tokens {
-                        // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                        // to add a new batch even though its size might be small
-                        None
-                    } else {
-                        // Minimum batch size
-                        Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
-                    };
+            // We loop until we do not receive any cached batch from the inference server (== until
+            // all requests have met their stopping criteria)
+            while let Some(batch) = cached_batch {
+                // Get current batch info
+                let batch_size = batch.size;
+                let batch_max_tokens = batch.max_tokens;
+                let mut batches = vec![batch];
+                metrics::gauge!("tgi_batch_current_size", batch_size as f64);
+                metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
 
-                    let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                let min_size = if waiting_tokens >= max_waiting_tokens {
+                    // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                    // to add a new batch even though its size might be small
+                    None
+                } else {
+                    // Minimum batch size
+                    Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                };
 
-                    // Only try and get a new batch if we are under the max time limit for this request
-                    let time_elapsed = start_time.elapsed();
-                    max_time_limit_reached = time_elapsed > max_time_limit;
-                    if !max_time_limit_reached {
-                        // Try to get a new batch
-                        if let Some((mut new_entries, new_batch, span)) = queue
-                            .next_batch(min_size, max_batch_prefill_tokens, token_budget)
-                            .await
-                        {
-                            // Tracking metrics
-                            if min_size.is_some() {
-                                metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
-                            } else {
-                                metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
-                            }
+                let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
 
-                            entries.iter_mut().for_each(|(_, entry)| {
-                                // Create a new span to add the info that this entry is waiting
-                                // because a new batch is being computed
-                                let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
-                                // Add relationships
-                                span.follows_from(&entry_waiting_span);
-                                entry_waiting_span.follows_from(&span);
-                                // Update entry
-                                entry.temp_span = Some(entry_waiting_span);
-                            });
+                // Only try and get a new batch if we are under the max time limit for this request
+                let time_elapsed = start_time.elapsed();
+                max_time_limit_reached = time_elapsed > max_time_limit;
+                if !max_time_limit_reached {
+                    // Try to get a new batch
+                    if let Some((mut new_entries, new_batch, span)) = queue
+                        .next_batch(min_size, max_batch_prefill_tokens, token_budget)
+                        .await
+                    {
+                        // Tracking metrics
+                        if min_size.is_some() {
+                            metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
+                        } else {
+                            metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
+                        }
 
-                            // Generate one token for this new batch to have the attention past in cache
-                            let new_cached_batch =
-                                prefill(&mut client, new_batch, &mut new_entries, &generation_health)
-                                    .instrument(span)
-                                    .await;
-                            // Reset waiting counter
-                            waiting_tokens = 1;
-                            // Extend current batch with the new batch
-                            if let Some(new_cached_batch) = new_cached_batch {
-                                entries.extend(new_entries);
-                                batches.push(new_cached_batch);
-                            }
+                        entries.iter_mut().for_each(|(_, entry)| {
+                            // Create a new span to add the info that this entry is waiting
+                            // because a new batch is being computed
+                            let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                            // Add relationships
+                            span.follows_from(&entry_waiting_span);
+                            entry_waiting_span.follows_from(&span);
+                            // Update entry
+                            entry.temp_span = Some(entry_waiting_span);
+                        });
+
+                        // Generate one token for this new batch to have the attention past in cache
+                        let new_cached_batch =
+                            prefill(&mut client, new_batch, &mut new_entries, &generation_health)
+                                .instrument(span)
+                                .await;
+                        // Reset waiting counter
+                        waiting_tokens = 1;
+                        // Extend current batch with the new batch
+                        if let Some(new_cached_batch) = new_cached_batch {
+                            entries.extend(new_entries);
+                            batches.push(new_cached_batch);
                         }
                     }
-
-                    // Create span for this batch to add context to inference calls
-                    let next_batch_size = entries.len();
-                    let next_batch_span =
-                        info_span!(parent: None, "batch", batch_size = next_batch_size);
-                    entries.iter_mut().for_each(|(_, entry)| {
-                        // Create a new span to link the batch back to this entry
-                        let entry_batch_span = info_span!(parent: &entry.span, "infer");
-                        // Add relationships
-                        next_batch_span.follows_from(&entry_batch_span);
-                        entry_batch_span.follows_from(&next_batch_span);
-                        // Update entry
-                        entry.temp_span = Some(entry_batch_span);
-                    });
-
-                    cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
-                        .instrument(next_batch_span)
-                        .await;
-                    waiting_tokens += 1;
                 }
-                metrics::gauge!("tgi_batch_current_size", 0.0);
-                metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
 
-                if max_time_limit_reached {
-                    break;
-                }
+                // Create span for this batch to add context to inference calls
+                let next_batch_size = entries.len();
+                let next_batch_span =
+                    info_span!(parent: None, "batch", batch_size = next_batch_size);
+                entries.iter_mut().for_each(|(_, entry)| {
+                    // Create a new span to link the batch back to this entry
+                    let entry_batch_span = info_span!(parent: &entry.span, "infer");
+                    // Add relationships
+                    next_batch_span.follows_from(&entry_batch_span);
+                    entry_batch_span.follows_from(&next_batch_span);
+                    // Update entry
+                    entry.temp_span = Some(entry_batch_span);
+                });
+
+                cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
+                    .instrument(next_batch_span)
+                    .await;
+                waiting_tokens += 1;
+            }
+            metrics::gauge!("tgi_batch_current_size", 0.0);
+            metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
+
+            if max_time_limit_reached {
+                break;
             }
         }
-    }  
+    }
 }
 
 #[instrument(skip_all)]
