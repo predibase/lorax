@@ -21,6 +21,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 use text_generation_client::{ShardInfo, ShardedClient};
 use tokenizers::Tokenizer;
 use tokio::signal;
@@ -590,6 +591,7 @@ pub async fn run(
         max_batch_total_tokens,
         max_waiting_tokens,
         max_concurrent_requests,
+        Duration::from_secs(2),
         shard_info.requires_padding,
         generation_health,
     );

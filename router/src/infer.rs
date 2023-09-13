@@ -28,16 +28,8 @@ pub struct Infer {
     validation: Validation,
     /// Manages the queues of the various adapters
     adapter_manager: AdapterManager,
-    /// Shared state
-    shared: Arc<Shared>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
-}
-
-/// Infer shared state
-struct Shared {
-    /// Batching background Tokio task notifier
-    batching_task: Notify,
 }
 
 enum AdapterManagerCommand {
@@ -183,148 +175,6 @@ async fn adapter_manager_task(
     }
 }
 
-async fn batcher_task(
-    mut client: ShardedClient,
-    waiting_served_ratio: f32,
-    max_batch_prefill_tokens: u32,
-    max_batch_total_tokens: u32,
-    max_waiting_tokens: usize,
-    max_time_limit: Duration,
-    generation_health: Arc<AtomicBool>,
-    adapter_manager: AdapterManager,
-) {
-    loop {
-        if let Some(queue) = adapter_manager.next_queue().await {
-            let adapter_id = queue.adapter_id().to_string();
-            if queue.is_errored().await {
-                adapter_manager.remove_queue(adapter_id).await;
-                continue
-            }
-            if queue.is_empty().await {
-                continue;
-            }
-
-            queue.load_adapter().await;
-            let start_time = Instant::now();
-            let mut max_time_limit_reached = false;
-            while let Some((mut entries, batch, span)) = queue
-                .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
-                .await
-            {
-                // print how much time has passed since start_time
-                println!(
-                    "======\n\nASDFASDF batcher_task: next_batch called for {} after {}ms\n\tentries.len(): {}\n\tbatch.requests.len(): {}\n\n======", 
-                    adapter_id,
-                    start_time.elapsed().as_millis(), 
-                    entries.len(), 
-                    batch.requests.len()
-                );
-                let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
-                    .instrument(span)
-                    .await;
-                let mut waiting_tokens = 1;
-
-                // We loop until we do not receive any cached batch from the inference server (== until
-                // all requests have met their stopping criteria)
-                while let Some(batch) = cached_batch {
-                    // Get current batch info
-                    let batch_size = batch.size;
-                    let batch_max_tokens = batch.max_tokens;
-                    let mut batches = vec![batch];
-                    metrics::gauge!("tgi_batch_current_size", batch_size as f64);
-                    metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
-
-                    let min_size = if waiting_tokens >= max_waiting_tokens {
-                        // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                        // to add a new batch even though its size might be small
-                        None
-                    } else {
-                        // Minimum batch size
-                        Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
-                    };
-
-                    let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-
-                    // Only try and get a new batch if we are under the max time limit for this request
-                    let time_elapsed = start_time.elapsed();
-                    max_time_limit_reached = time_elapsed > max_time_limit;
-                    if !max_time_limit_reached {
-                        // println!("ASDFASDF batcher_task: time_elapsed is {}, getting new batch", time_elapsed.as_secs());
-                        // Try to get a new batch
-                        if let Some((mut new_entries, new_batch, span)) = queue
-                            .next_batch(min_size, max_batch_prefill_tokens, token_budget)
-                            .await
-                        {
-                            println!(
-                                "ASDFASDF batcher_task: new batch added to {} after {}ms\n\tnew_entries.len(): {}\n\tnew_batch.requests.len(): {}\n\n======", 
-                                adapter_id,
-                                time_elapsed.as_millis(), 
-                                new_entries.len(), 
-                                new_batch.requests.len()
-                            );
-                            // Tracking metrics
-                            if min_size.is_some() {
-                                metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
-                            } else {
-                                metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
-                            }
-
-                            entries.iter_mut().for_each(|(_, entry)| {
-                                // Create a new span to add the info that this entry is waiting
-                                // because a new batch is being computed
-                                let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
-                                // Add relationships
-                                span.follows_from(&entry_waiting_span);
-                                entry_waiting_span.follows_from(&span);
-                                // Update entry
-                                entry.temp_span = Some(entry_waiting_span);
-                            });
-
-                            // Generate one token for this new batch to have the attention past in cache
-                            let new_cached_batch =
-                                prefill(&mut client, new_batch, &mut new_entries, &generation_health)
-                                    .instrument(span)
-                                    .await;
-                            // Reset waiting counter
-                            waiting_tokens = 1;
-                            // Extend current batch with the new batch
-                            if let Some(new_cached_batch) = new_cached_batch {
-                                entries.extend(new_entries);
-                                batches.push(new_cached_batch);
-                            }
-                        }
-                    }
-
-                    // Create span for this batch to add context to inference calls
-                    let next_batch_size = entries.len();
-                    let next_batch_span =
-                        info_span!(parent: None, "batch", batch_size = next_batch_size);
-                    entries.iter_mut().for_each(|(_, entry)| {
-                        // Create a new span to link the batch back to this entry
-                        let entry_batch_span = info_span!(parent: &entry.span, "infer");
-                        // Add relationships
-                        next_batch_span.follows_from(&entry_batch_span);
-                        entry_batch_span.follows_from(&next_batch_span);
-                        // Update entry
-                        entry.temp_span = Some(entry_batch_span);
-                    });
-
-                    cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
-                        .instrument(next_batch_span)
-                        .await;
-                    waiting_tokens += 1;
-                }
-                metrics::gauge!("tgi_batch_current_size", 0.0);
-                metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
-
-                if max_time_limit_reached {
-                    break;
-                }
-            }
-        }
-    }  
-}
-
 impl Infer {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -335,49 +185,33 @@ impl Infer {
         max_batch_total_tokens: u32,
         max_waiting_tokens: usize,
         max_concurrent_requests: usize,
+        max_time_limit: Duration,
         requires_padding: bool,
         generation_health: Arc<AtomicBool>,
     ) -> Self {
         // Infer shared state
         // let queue = Queue::new(requires_padding, 16);
-        let shared = Arc::new(Shared {
-            batching_task: Notify::new(),
-        });
-
-        // Spawn batching background task that contains all the inference logic
-        // tokio::spawn(batching_task(
-        //     client,
-        //     waiting_served_ratio,
-        //     max_batch_prefill_tokens,
-        //     max_batch_total_tokens,
-        //     max_waiting_tokens,
-        //     queue.clone(),
-        //     shared.clone(),
-        //     generation_health,
-        // ));
-
-        // Inference limit with a semaphore
-        let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
         let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16);
 
-        // receives adapter queues from the adapter manager and batches them
-        tokio::spawn(batcher_task(
+        // Spawn batching background task that contains all the inference logic
+        tokio::spawn(batching_task(
             client,
             waiting_served_ratio,
             max_batch_prefill_tokens,
             max_batch_total_tokens,
             max_waiting_tokens,
-            Duration::from_secs(2),
+            max_time_limit,
             generation_health,
             adapter_manager.clone(),
         ));
 
+        // Inference limit with a semaphore
+        let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
         Self {
             validation,
             adapter_manager,
-            shared,
             limit_concurrent_requests: semaphore,
         }
     }
@@ -425,20 +259,6 @@ impl Infer {
             queue_time: Instant::now(),
             batch_time: None,
         });
-
-        // // Append the request to the queue
-        // self.queue.append(Entry {
-        //     request: valid_request,
-        //     response_tx,
-        //     span: Span::current(),
-        //     temp_span: None,
-        //     queue_time: Instant::now(),
-        //     batch_time: None,
-        // });
-
-        // Notify the background task that we have a new entry in the queue that needs
-        // to be batched
-        // self.shared.batching_task.notify_one();
 
         // Return stream
         Ok((permit, response_rx.into_stream()))
@@ -561,108 +381,140 @@ async fn batching_task(
     max_batch_prefill_tokens: u32,
     max_batch_total_tokens: u32,
     max_waiting_tokens: usize,
-    queue: Queue,
-    shared: Arc<Shared>,
+    max_time_limit: Duration,
     generation_health: Arc<AtomicBool>,
+    adapter_manager: AdapterManager,
 ) {
-    // Infinite loop
     loop {
-        // Wait for a notification from the Infer struct
-        shared.batching_task.notified().await;
+        if let Some(queue) = adapter_manager.next_queue().await {
+            let adapter_id = queue.adapter_id().to_string();
+            if queue.is_errored().await {
+                adapter_manager.remove_queue(adapter_id).await;
+                continue
+            }
+            if queue.is_empty().await {
+                continue;
+            }
 
-        // Get the next batch from the queue
-        // This batch might be smaller than the maximum batch size if there are not enough requests
-        // waiting in the queue
-        while let Some((mut entries, batch, span)) = queue
-            .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
-            .await
-        {
-            let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
-                .instrument(span)
-                .await;
-            let mut waiting_tokens = 1;
+            queue.load_adapter().await;
+            let start_time = Instant::now();
+            let mut max_time_limit_reached = false;
+            while let Some((mut entries, batch, span)) = queue
+                .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
+                .await
+            {
+                // print how much time has passed since start_time
+                println!(
+                    "======\n\nASDFASDF batching_task: next_batch called for {} after {}ms\n\tentries.len(): {}\n\tbatch.requests.len(): {}\n\n======", 
+                    adapter_id,
+                    start_time.elapsed().as_millis(), 
+                    entries.len(), 
+                    batch.requests.len()
+                );
+                let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
+                    .instrument(span)
+                    .await;
+                let mut waiting_tokens = 1;
 
-            // We loop until we do not receive any cached batch from the inference server (== until
-            // all requests have met their stopping criteria)
-            while let Some(batch) = cached_batch {
-                // Get current batch info
-                let batch_size = batch.size;
-                let batch_max_tokens = batch.max_tokens;
-                let mut batches = vec![batch];
-                metrics::gauge!("tgi_batch_current_size", batch_size as f64);
-                metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
+                // We loop until we do not receive any cached batch from the inference server (== until
+                // all requests have met their stopping criteria)
+                while let Some(batch) = cached_batch {
+                    // Get current batch info
+                    let batch_size = batch.size;
+                    let batch_max_tokens = batch.max_tokens;
+                    let mut batches = vec![batch];
+                    metrics::gauge!("tgi_batch_current_size", batch_size as f64);
+                    metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
 
-                let min_size = if waiting_tokens >= max_waiting_tokens {
-                    // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                    // to add a new batch even though its size might be small
-                    None
-                } else {
-                    // Minimum batch size
-                    Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
-                };
-
-                let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-
-                // Try to get a new batch
-                if let Some((mut new_entries, new_batch, span)) = queue
-                    .next_batch(min_size, max_batch_prefill_tokens, token_budget)
-                    .await
-                {
-                    // Tracking metrics
-                    if min_size.is_some() {
-                        metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
+                    let min_size = if waiting_tokens >= max_waiting_tokens {
+                        // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                        // to add a new batch even though its size might be small
+                        None
                     } else {
-                        metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
+                        // Minimum batch size
+                        Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                    };
+
+                    let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+
+                    // Only try and get a new batch if we are under the max time limit for this request
+                    let time_elapsed = start_time.elapsed();
+                    max_time_limit_reached = time_elapsed > max_time_limit;
+                    if !max_time_limit_reached {
+                        // println!("ASDFASDF batching_task: time_elapsed is {}, getting new batch", time_elapsed.as_secs());
+                        // Try to get a new batch
+                        if let Some((mut new_entries, new_batch, span)) = queue
+                            .next_batch(min_size, max_batch_prefill_tokens, token_budget)
+                            .await
+                        {
+                            println!(
+                                "ASDFASDF batching_task: new batch added to {} after {}ms\n\tnew_entries.len(): {}\n\tnew_batch.requests.len(): {}\n\n======", 
+                                adapter_id,
+                                time_elapsed.as_millis(), 
+                                new_entries.len(), 
+                                new_batch.requests.len()
+                            );
+                            // Tracking metrics
+                            if min_size.is_some() {
+                                metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
+                            } else {
+                                metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
+                            }
+
+                            entries.iter_mut().for_each(|(_, entry)| {
+                                // Create a new span to add the info that this entry is waiting
+                                // because a new batch is being computed
+                                let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                                // Add relationships
+                                span.follows_from(&entry_waiting_span);
+                                entry_waiting_span.follows_from(&span);
+                                // Update entry
+                                entry.temp_span = Some(entry_waiting_span);
+                            });
+
+                            // Generate one token for this new batch to have the attention past in cache
+                            let new_cached_batch =
+                                prefill(&mut client, new_batch, &mut new_entries, &generation_health)
+                                    .instrument(span)
+                                    .await;
+                            // Reset waiting counter
+                            waiting_tokens = 1;
+                            // Extend current batch with the new batch
+                            if let Some(new_cached_batch) = new_cached_batch {
+                                entries.extend(new_entries);
+                                batches.push(new_cached_batch);
+                            }
+                        }
                     }
 
+                    // Create span for this batch to add context to inference calls
+                    let next_batch_size = entries.len();
+                    let next_batch_span =
+                        info_span!(parent: None, "batch", batch_size = next_batch_size);
                     entries.iter_mut().for_each(|(_, entry)| {
-                        // Create a new span to add the info that this entry is waiting
-                        // because a new batch is being computed
-                        let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                        // Create a new span to link the batch back to this entry
+                        let entry_batch_span = info_span!(parent: &entry.span, "infer");
                         // Add relationships
-                        span.follows_from(&entry_waiting_span);
-                        entry_waiting_span.follows_from(&span);
+                        next_batch_span.follows_from(&entry_batch_span);
+                        entry_batch_span.follows_from(&next_batch_span);
                         // Update entry
-                        entry.temp_span = Some(entry_waiting_span);
+                        entry.temp_span = Some(entry_batch_span);
                     });
 
-                    // Generate one token for this new batch to have the attention past in cache
-                    let new_cached_batch =
-                        prefill(&mut client, new_batch, &mut new_entries, &generation_health)
-                            .instrument(span)
-                            .await;
-                    // Reset waiting counter
-                    waiting_tokens = 1;
-                    // Extend current batch with the new batch
-                    if let Some(new_cached_batch) = new_cached_batch {
-                        entries.extend(new_entries);
-                        batches.push(new_cached_batch);
-                    }
+                    cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
+                        .instrument(next_batch_span)
+                        .await;
+                    waiting_tokens += 1;
                 }
+                metrics::gauge!("tgi_batch_current_size", 0.0);
+                metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
 
-                // Create span for this batch to add context to inference calls
-                let next_batch_size = entries.len();
-                let next_batch_span =
-                    info_span!(parent: None, "batch", batch_size = next_batch_size);
-                entries.iter_mut().for_each(|(_, entry)| {
-                    // Create a new span to link the batch back to this entry
-                    let entry_batch_span = info_span!(parent: &entry.span, "infer");
-                    // Add relationships
-                    next_batch_span.follows_from(&entry_batch_span);
-                    entry_batch_span.follows_from(&next_batch_span);
-                    // Update entry
-                    entry.temp_span = Some(entry_batch_span);
-                });
-
-                cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
-                    .instrument(next_batch_span)
-                    .await;
-                waiting_tokens += 1;
+                if max_time_limit_reached {
+                    break;
+                }
             }
-            metrics::gauge!("tgi_batch_current_size", 0.0);
-            metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
         }
-    }
+    }  
 }
 
 #[instrument(skip_all)]
