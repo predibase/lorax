@@ -18,6 +18,7 @@ from text_generation_server.models import Model, get_model
 from text_generation_server.pb import generate_pb2_grpc, generate_pb2
 from text_generation_server.tracing import UDSOpenTelemetryAioServerInterceptor
 from text_generation_server.utils import weight_files
+from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
 class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
@@ -109,7 +110,7 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         
     async def DownloadAdapter(self, request, context):
         adapter_id = request.adapter_id
-        if adapter_id == "__base_model__":
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
             logger.info("No adapter to download for base model. Skipping.")
             return generate_pb2.DownloadAdapterResponse(
                 adapter_id=request.adapter_id,

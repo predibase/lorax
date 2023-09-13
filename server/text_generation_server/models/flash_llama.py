@@ -27,6 +27,7 @@ from text_generation_server.utils import (
     weight_files,
     Weights,
 )
+from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 tracer = trace.get_tracer(__name__)
 
@@ -79,7 +80,7 @@ class FlashLlama(FlashCausalLM):
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
         self.dynamic_adapter_loading_enabled = True
-        self.adapter_id = "__base_model__"
+        self.adapter_id = BASE_MODEL_ADAPTER_ID
         if len(adapter_id) > 0:
             logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
             merged_weight_filenames = create_merged_weight_files(
@@ -154,7 +155,7 @@ class FlashLlama(FlashCausalLM):
         if adapter_id == self.adapter_id:
             return
         
-        if adapter_id == "__base_model__":
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
             # if the adapter_id is the base model, then just reset the weights
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):

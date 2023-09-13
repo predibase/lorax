@@ -21,6 +21,11 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
+/// "adapter ID" for the base model. The base model does not have an adapter ID,
+/// but we reason about it in the same way. This must match the base model ID
+/// used in the Python server.
+pub const BASE_MODEL_ADAPTER_ID: &str = "__base_model__";
+
 /// Inference struct
 #[derive(Clone)]
 pub struct Infer {
@@ -94,7 +99,7 @@ impl Infer {
                 err
             })?;
 
-        let adapter_id = request.parameters.adapter_id.clone().unwrap_or("__base_model__".to_string());
+        let adapter_id = request.parameters.adapter_id.clone().unwrap_or(BASE_MODEL_ADAPTER_ID.to_string());
 
         // Validate request
         let valid_request = self.validation.validate(request).await.map_err(|err| {
@@ -297,18 +302,6 @@ async fn adapter_manager_task(
     let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
     let mut adapter_id_vec: Vec<String> = Vec::new();
     let mut adapter_id_index: usize = 0;
-
-    // Add __base_model__ as default adapter so that the first
-    // NextQueue command is guaranteed to get the __base_model__ queue
-    let adapter_id = "__base_model__".to_string();
-    let queue = Arc::new(Queue::new(
-        adapter_id.clone(),
-        client.clone(),
-        requires_padding,
-        block_size,
-    ));
-    queue_map.insert(adapter_id.clone(), queue.clone());
-    adapter_id_vec.append(&mut vec![adapter_id.clone()]);
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {

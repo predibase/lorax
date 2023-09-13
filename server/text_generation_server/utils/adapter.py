@@ -14,6 +14,9 @@ from tqdm import tqdm
 from text_generation_server.utils.sources.hub import weight_files
 
 
+BASE_MODEL_ADAPTER_ID = "__base_model__"
+
+
 def compute_delta_weight(
     lora_A: torch.Tensor, 
     lora_B: torch.Tensor, 
