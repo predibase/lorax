@@ -293,6 +293,8 @@ impl AdapterManager {
     }
 }
 
+/// Background task that manages the queues of the various adapters
+/// TODO(geoffrey): add tracing (span object) to the various commands
 async fn adapter_manager_task(
     client: ShardedClient,
     requires_padding: bool,

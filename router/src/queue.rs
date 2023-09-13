@@ -72,6 +72,7 @@ impl Queue {
         self.queue_sender
             .send(QueueCommand::LoadAdapter {
                 response_sender,
+                span: Span::current()
             })
             .unwrap();
         response_receiver.await.unwrap()
@@ -83,6 +84,7 @@ impl Queue {
         self.queue_sender
             .send(QueueCommand::IsEmpty {
                 response_sender,
+                span: Span::current()
             })
             .unwrap();
         response_receiver.await.unwrap()
@@ -120,6 +122,7 @@ impl Queue {
         self.queue_sender
             .send(QueueCommand::IsErrored {
                 response_sender,
+                span: Span::current()
             }).unwrap();
         response_receiver.await.unwrap()
     }
@@ -130,6 +133,7 @@ impl Queue {
         self.queue_sender
             .send(QueueCommand::Terminate {
                 response_sender,
+                span: Span::current()
             }).unwrap();
         response_receiver.await.unwrap()
     }
@@ -168,7 +172,8 @@ async fn queue_task(
                 state.append(*entry);
             }),
             QueueCommand::LoadAdapter {
-                response_sender
+                response_sender,
+                span  // TODO(geoffrey): not sure how to use this with async fn
             } => {
                 if err_msg.is_some() {
                     response_sender.send(()).unwrap();
@@ -188,15 +193,16 @@ async fn queue_task(
                 }
             }
             QueueCommand::IsEmpty { 
-                response_sender
-            } => {
+                response_sender,
+                span
+            } => span.in_scope(|| {
                 if err_msg.is_some() {
                     response_sender.send(true).unwrap();
                 } else {
                     let response = state.is_empty();
                     response_sender.send(response).unwrap();
                 }
-            }
+            }),
             QueueCommand::NextBatch {
                 min_size,
                 prefill_token_budget,
@@ -213,20 +219,31 @@ async fn queue_task(
                 metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
             }),
             QueueCommand::IsErrored{
-                response_sender
-            } => {
+                response_sender,
+                span
+            } => span.in_scope(|| {
                 response_sender.send(err_msg.is_some()).unwrap();
-            }
+            }),
             QueueCommand::Terminate {
-                response_sender
+                response_sender,
+                span,
             } => {
                 tracing::info!("terminating adapter queue for {}", adapter_id);
-                for entry in state.entries.drain(..) {
-                    let (_, entry) = entry;
-                    if let Some(err_msg) = err_msg.clone() {
-                        entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
-                    }
-                }
+
+                // Create an asynchronous closure
+                let span_closure = async move {
+                    span.in_scope(|| {
+                        for entry in state.entries.drain(..) {
+                            let (_, entry) = entry;
+                            if let Some(err_msg) = err_msg.clone() {
+                                entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
+                            }
+                        }
+                    });
+                };
+
+                // Await the closure and break the loop
+                tokio::spawn(span_closure).await.expect("spawn failed");
                 response_sender.send(()).unwrap();
                 break;
             }
@@ -418,9 +435,11 @@ enum QueueCommand {
     Append(Box<Entry>, Span),
     LoadAdapter {
         response_sender: oneshot::Sender<()>,
+        span: Span,
     },
     IsEmpty {
         response_sender: oneshot::Sender<bool>,
+        span: Span,
     },
     NextBatch {
         min_size: Option<usize>,
@@ -431,9 +450,11 @@ enum QueueCommand {
     },
     IsErrored {
         response_sender: oneshot::Sender<bool>,
+        span: Span,
     },
     Terminate {
         response_sender: oneshot::Sender<()>,
+        span: Span,
     },
 }
 
