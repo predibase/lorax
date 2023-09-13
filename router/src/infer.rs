@@ -6,15 +6,15 @@ use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
-use nohash_hasher::{BuildNoHashHasher, IntMap};
-use std::collections::{HashMap, VecDeque};
+use nohash_hasher::IntMap;
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Duration;
 use text_generation_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, Request, ShardedClient,
+    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
@@ -40,407 +40,10 @@ struct Shared {
     batching_task: Notify,
 }
 
-type NextBatch = (IntMap<u64, Entry>, Batch, Span);
-
-enum AdapterQueueCommand {
-    Append(Box<Entry>),
-    LoadAdapter {
-        response_sender: oneshot::Sender<()>,
-    },
-    IsEmpty {
-        response_sender: oneshot::Sender<bool>,
-    },
-    NextBatch {
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-        response_sender: oneshot::Sender<Option<NextBatch>>,
-        span: Span,
-    },
-    IsErrored {
-        response_sender: oneshot::Sender<bool>,
-    },
-    Terminate {
-        response_sender: oneshot::Sender<()>,
-    },
-}
-
-struct AdapterQueue {
-    adapter_id: String,
-    sender: flume::Sender<AdapterQueueCommand>,
-}
-
-impl AdapterQueue {
-    pub(crate) fn new(adapter_id: String, client: ShardedClient, requires_padding: bool, block_size: u32) -> Self {
-        let (sender, receiver) = flume::unbounded();
-
-        tokio::spawn(adapter_queue_task(
-            adapter_id.clone(),
-            client,
-            requires_padding,
-            block_size,
-            receiver,
-        ));
-        Self {
-            adapter_id,
-            sender,
-        }
-    }
-
-    pub(crate) fn append(&self, entry: Box<Entry>) {
-        self.sender.send(AdapterQueueCommand::Append(entry)).unwrap();
-    }
-
-    pub(crate) async fn load_adapter(&self) {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.sender
-            .send(AdapterQueueCommand::LoadAdapter {
-                response_sender,
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn is_empty(&self) -> bool {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.sender
-            .send(AdapterQueueCommand::IsEmpty {
-                response_sender,
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn next_batch(
-        &self,
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-    ) -> Option<NextBatch> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        // Send next batch command to the background task managing the state
-        println!("ASDFASDF AdapterQueue::next_batch: sending next_batch command to background task");
-        self.sender
-            .send(AdapterQueueCommand::NextBatch {
-                min_size,
-                prefill_token_budget,
-                token_budget,
-                response_sender,
-                span: Span::current(),
-            }).unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn is_errored(&self) -> bool {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.sender
-            .send(AdapterQueueCommand::IsErrored {
-                response_sender,
-            }).unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn terminate(&self) {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.sender
-            .send(AdapterQueueCommand::Terminate {
-                response_sender,
-            }).unwrap();
-        response_receiver.await.unwrap()
-    }
-}
-
-struct State {
-    /// Queue entries organized in a Vec
-    entries: VecDeque<(u64, Entry)>,
-
-    /// Id of the next entry
-    next_id: u64,
-
-    /// Id of the next batch
-    next_batch_id: u64,
-
-    /// Whether the model is using padding
-    requires_padding: bool,
-
-    /// Paged Attention block size
-    block_size: u32,
-}
-
-impl State {
-    fn new(requires_padding: bool, block_size: u32) -> Self {
-        Self {
-            entries: VecDeque::with_capacity(128),
-            next_id: 0,
-            next_batch_id: 0,
-            requires_padding,
-            block_size,
-        }
-    }
-
-    /// Append an entry to the queue
-    fn append(&mut self, mut entry: Entry) {
-        // Create a span that will live as long as the entry is in the queue waiting to be batched
-        let queue_span = info_span!(parent: &entry.span, "queued");
-        entry.temp_span = Some(queue_span);
-
-        // Push entry in the queue
-        self.entries.push_back((self.next_id, entry));
-        self.next_id += 1;
-    }
-
-    // Is empty
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    // Len
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    // Get the next batch
-    fn next_batch(
-        &mut self,
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-    ) -> Option<NextBatch> {
-        if self.entries.is_empty() {
-            return None;
-        }
-
-        // Check if we have enough entries
-        if let Some(min_size) = min_size {
-            if self.entries.len() < min_size {
-                return None;
-            }
-        }
-
-        // Create span for this batch to add context to inference calls
-        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
-        next_batch_span.follows_from(&Span::current());
-
-        let mut batch_requests = Vec::with_capacity(self.entries.len());
-        let mut batch_entries =
-            IntMap::with_capacity_and_hasher(self.entries.len(), BuildNoHashHasher::default());
-
-        let mut max_input_length = 0;
-        let mut prefill_tokens: u32 = 0;
-        let mut decode_tokens: u32 = 0;
-
-        // Pop entries starting from the front of the queue
-        while let Some((id, mut entry)) = self.entries.pop_front() {
-            // Filter entries where the response receiver was dropped (== entries where the request
-            // was dropped by the client)
-            if entry.response_tx.is_disconnected() {
-                metrics::increment_counter!("tgi_request_failure", "err" => "dropped");
-                continue;
-            }
-
-            if self.requires_padding {
-                // We pad to max input length in the Python shards
-                // We need to take these padding tokens into the equation
-                max_input_length = max_input_length.max(entry.request.input_length);
-                prefill_tokens = (batch_requests.len() + 1) as u32 * max_input_length
-            } else {
-                // pad to block size
-                prefill_tokens += ((entry.request.input_length + self.block_size - 1)
-                    / self.block_size)
-                    * self.block_size;
-            }
-
-            if self.requires_padding {
-                decode_tokens += entry.request.stopping_parameters.max_new_tokens;
-            } else {
-                // pad to block size
-                decode_tokens +=
-                    ((entry.request.stopping_parameters.max_new_tokens + self.block_size - 1)
-                        / self.block_size)
-                        * self.block_size;
-            }
-
-            if prefill_tokens > prefill_token_budget
-                || (prefill_tokens + decode_tokens) > token_budget
-            {
-                // Entry is over budget
-                // Add it back to the front
-                self.entries.push_front((id, entry));
-                break;
-            }
-
-            // Create a new span to link the batch back to this entry
-            let entry_batch_span = info_span!(parent: &entry.span, "infer");
-            // Add relationships
-            next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(&next_batch_span);
-            // Update entry
-            entry.temp_span = Some(entry_batch_span);
-
-            batch_requests.push(Request {
-                id,
-                prefill_logprobs: entry.request.decoder_input_details,
-                inputs: entry.request.inputs.clone(),
-                truncate: entry.request.truncate,
-                parameters: Some(entry.request.parameters.clone()),
-                stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-            });
-            // Set batch_time
-            entry.batch_time = Some(Instant::now());
-            // Insert in batch_entries IntMap
-            batch_entries.insert(id, entry);
-        }
-
-        // Empty batch
-        if batch_requests.is_empty() {
-            return None;
-        }
-
-        // Check if our batch is big enough
-        if let Some(min_size) = min_size {
-            // Batch is too small
-            if batch_requests.len() < min_size {
-                // Add back entries to the queue in the correct order
-                for r in batch_requests.into_iter().rev() {
-                    let id = r.id;
-                    let entry = batch_entries.remove(&id).unwrap();
-                    self.entries.push_front((id, entry));
-                }
-
-                return None;
-            }
-        }
-
-        // Final batch size
-        let size = batch_requests.len() as u32;
-        next_batch_span.record("batch_size", size);
-
-        let batch = Batch {
-            id: self.next_batch_id,
-            requests: batch_requests,
-            size,
-            max_tokens: (prefill_tokens + decode_tokens),
-        };
-        // Increment batch id
-        self.next_batch_id += 1;
-
-        metrics::histogram!("tgi_batch_next_size", batch.size as f64);
-
-        Some((batch_entries, batch, next_batch_span))
-    }
-}
-
-async fn adapter_queue_task(
-    adapter_id: String,
-    mut client: ShardedClient,
-    requires_padding: bool,
-    block_size: u32,
-    receiver: flume::Receiver<AdapterQueueCommand>,
-) {
-    let mut state = State::new(requires_padding, block_size);
-    let mut err_msg: Option<String> = None;
-
-    // download the adapter
-    match client.download_adapter(adapter_id.clone()).await {
-        Ok(adapter_id) => {
-            println!("ASDFASDF adapter_queue_task: adapter {} downloaded", adapter_id);
-        }
-        // If we have a download error, we send an error to the entry response
-        Err(error) => {
-            println!("ASDFASDF adapter_queue_task: error downloading adapter");
-            metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-            err_msg = Some(error.to_string());
-        }
-    }
-
-    while let Ok(cmd) = receiver.recv_async().await {
-        match cmd {
-            AdapterQueueCommand::Append(entry) => {
-                // no-op if adapter errored
-                if err_msg.is_some() {
-                    continue;
-                }
-                state.append(*entry);
-                println!("ASDFASDF adapter_queue_task: {} queue length: {}", adapter_id, state.len());
-            }
-            AdapterQueueCommand::LoadAdapter {
-                response_sender
-            } => {
-                if err_msg.is_some() {
-                    response_sender.send(()).unwrap();
-                    continue;
-                }
-                match client.load_adapter(adapter_id.clone()).await {
-                    Ok(adapter_id) => {
-                        println!("ASDFASDF adapter_queue_task: adapter {} loaded", adapter_id);
-                        response_sender.send(()).unwrap();
-                    }
-                    // If we have a load error, we send an error to the entry response
-                    Err(error) => {
-                        println!("ASDFASDF adapter_queue_task: error loading adapter");
-                        metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
-                        err_msg = Some(error.to_string());
-                        response_sender.send(()).unwrap();
-                    }
-                }
-            }
-            AdapterQueueCommand::IsEmpty { 
-                response_sender
-            } => {
-                if err_msg.is_some() {
-                    response_sender.send(true).unwrap();
-                } else {
-                    let response = state.is_empty();
-                    response_sender.send(response).unwrap();
-                }
-            }
-            AdapterQueueCommand::NextBatch {
-                min_size,
-                prefill_token_budget,
-                token_budget,
-                response_sender,
-                span,
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(None).unwrap();
-                    return;
-                } else {
-                    let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
-                    response_sender.send(next_batch).unwrap();
-                    metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
-                }
-            }),
-            AdapterQueueCommand::IsErrored{
-                response_sender
-            } => {
-                response_sender.send(err_msg.is_some()).unwrap();
-            }
-            AdapterQueueCommand::Terminate {
-                response_sender
-            } => {
-                println!("ASDFASDF adapter_queue_task: terminating adapter queue {}", adapter_id);
-                for entry in state.entries.drain(..) {
-                    let (_, entry) = entry;
-                    if let Some(err_msg) = err_msg.clone() {
-                        entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
-                    }
-                }
-                response_sender.send(()).unwrap();
-                break;
-            }
-        }
-    }
-}
-
 enum AdapterManagerCommand {
-    Append(String, Box<Entry>),
+    Append(String, Entry),
     NextQueue {
-        response_sender: oneshot::Sender<Option<Arc<AdapterQueue>>>,
+        response_sender: oneshot::Sender<Option<Arc<Queue>>>,
     },
     RemoveQueue {
         adapter_id: String,
@@ -476,10 +79,10 @@ impl AdapterManager {
     pub(crate) fn process(&self, adapter_id: String, entry: Entry) {
         // only blocks until the message is sent
         // the adapter manager task will handle the actual processing
-        self.sender.send(AdapterManagerCommand::Append(adapter_id, Box::new(entry))).unwrap();
+        self.sender.send(AdapterManagerCommand::Append(adapter_id, entry)).unwrap();
     }
 
-    pub(crate) async fn next_queue(&self) -> Option<Arc<AdapterQueue>> {
+    pub(crate) async fn next_queue(&self) -> Option<Arc<Queue>> {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
@@ -505,14 +108,14 @@ async fn adapter_manager_task(
     block_size: u32,
     receiver: flume::Receiver<AdapterManagerCommand>,
 ) {
-    let mut queue_map: HashMap<String, Arc<AdapterQueue>> = HashMap::new();
+    let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
     let mut adapter_id_vec: Vec<String> = Vec::new();
     let mut adapter_id_index: usize = 0;
 
     // Add __base_model__ as default adapter so that the first
     // NextQueue command is guaranteed to get the __base_model__ queue
     let adapter_id = "__base_model__".to_string();
-    let queue = Arc::new(AdapterQueue::new(
+    let queue = Arc::new(Queue::new(
         adapter_id.clone(),
         client.clone(),
         requires_padding,
@@ -528,11 +131,11 @@ async fn adapter_manager_task(
                 // println!("ASDFASDF inside adapter_manager_task. adapter_id: {}", adapter_id);
 
                 // check if queue_map has adapter_id as key
-                // if not, then add a new AdapterQueue and download the adapter
+                // if not, then add a new Queue and download the adapter
                 let queue;
                 if !queue_map.contains_key(&adapter_id) {
                     // println!("ASDFASDF adapter_manager_task: creating new queue");
-                    queue = Arc::new(AdapterQueue::new(
+                    queue = Arc::new(Queue::new(
                         adapter_id.clone(),
                         client.clone(),
                         requires_padding,
@@ -550,7 +153,7 @@ async fn adapter_manager_task(
             AdapterManagerCommand::NextQueue {
                 response_sender,
             } => {
-                let queue: Option<Arc<AdapterQueue>>;
+                let queue: Option<Arc<Queue>>;
                 if !queue_map.is_empty() {
                     adapter_id_index = (adapter_id_index + 1) % adapter_id_vec.len();
                     let adapter_id = adapter_id_vec[adapter_id_index].clone();
@@ -592,7 +195,7 @@ async fn batcher_task(
 ) {
     loop {
         if let Some(queue) = adapter_manager.next_queue().await {
-            let adapter_id = queue.adapter_id.clone();
+            let adapter_id = queue.adapter_id().to_string();
             if queue.is_errored().await {
                 adapter_manager.remove_queue(adapter_id).await;
                 continue

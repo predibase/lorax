@@ -236,7 +236,6 @@ fn main() -> Result<(), RouterError> {
                     max_supported_batch_total_tokens
                 }
             };
-            // let max_supported_batch_total_tokens: u32 = 4096;
             tracing::info!("Setting max batch total tokens to {max_supported_batch_total_tokens}");
             tracing::info!("Connected");
 
