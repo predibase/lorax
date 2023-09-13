@@ -310,17 +310,13 @@ async fn adapter_manager_task(
     queue_map.insert(adapter_id.clone(), queue.clone());
     adapter_id_vec.append(&mut vec![adapter_id.clone()]);
 
-    println!("ASDFASDF adapter_manager_task: ready to receive requests");
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterManagerCommand::Append(adapter_id, entry) => {
-                // println!("ASDFASDF inside adapter_manager_task. adapter_id: {}", adapter_id);
-
                 // check if queue_map has adapter_id as key
                 // if not, then add a new Queue and download the adapter
                 let queue;
                 if !queue_map.contains_key(&adapter_id) {
-                    // println!("ASDFASDF adapter_manager_task: creating new queue");
                     queue = Arc::new(Queue::new(
                         adapter_id.clone(),
                         client.clone(),
@@ -347,13 +343,7 @@ async fn adapter_manager_task(
                 } else {
                     queue = None;
                 }
-                // log error if response_sender.send fails
-                match response_sender.send(queue) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        println!("ASDFASDF adapter_manager_task: response_sender.send(queue) failed");
-                    }
-                }
+                let _ = response_sender.send(queue);
             }
             AdapterManagerCommand::RemoveQueue {
                 adapter_id,
@@ -403,14 +393,6 @@ async fn batching_task(
                 .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
                 .await
             {
-                // print how much time has passed since start_time
-                println!(
-                    "======\n\nASDFASDF batching_task: next_batch called for {} after {}ms\n\tentries.len(): {}\n\tbatch.requests.len(): {}\n\n======", 
-                    adapter_id,
-                    start_time.elapsed().as_millis(), 
-                    entries.len(), 
-                    batch.requests.len()
-                );
                 let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
                     .instrument(span)
                     .await;
@@ -441,19 +423,11 @@ async fn batching_task(
                     let time_elapsed = start_time.elapsed();
                     max_time_limit_reached = time_elapsed > max_time_limit;
                     if !max_time_limit_reached {
-                        // println!("ASDFASDF batching_task: time_elapsed is {}, getting new batch", time_elapsed.as_secs());
                         // Try to get a new batch
                         if let Some((mut new_entries, new_batch, span)) = queue
                             .next_batch(min_size, max_batch_prefill_tokens, token_budget)
                             .await
                         {
-                            println!(
-                                "ASDFASDF batching_task: new batch added to {} after {}ms\n\tnew_entries.len(): {}\n\tnew_batch.requests.len(): {}\n\n======", 
-                                adapter_id,
-                                time_elapsed.as_millis(), 
-                                new_entries.len(), 
-                                new_batch.requests.len()
-                            );
                             // Tracking metrics
                             if min_size.is_some() {
                                 metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");

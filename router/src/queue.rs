@@ -100,7 +100,6 @@ impl Queue {
         let (response_sender, response_receiver) = oneshot::channel();
         // Send next batch command to the background task managing the state
         // Unwrap is safe here
-        println!("ASDFASDF AdapterQueue::next_batch: sending next_batch command to background task");
         self.queue_sender
             .send(QueueCommand::NextBatch {
                 min_size,
@@ -150,11 +149,10 @@ async fn queue_task(
     // download the adapter
     match client.download_adapter(adapter_id.clone()).await {
         Ok(adapter_id) => {
-            println!("ASDFASDF adapter_queue_task: adapter {} downloaded", adapter_id);
+            tracing::info!("adapter {} downloaded", adapter_id);
         }
         // if we have a download error, we send an error to the entry response
         Err(error) => {
-            println!("ASDFASDF adapter_queue_task: error downloading adapter");
             metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
             err_msg = Some(error.to_string());
         }
@@ -168,7 +166,6 @@ async fn queue_task(
                     return;
                 }
                 state.append(*entry);
-                println!("ASDFASDF adapter_queue_task: {} queue length: {}", adapter_id, state.entries.len());
             }),
             QueueCommand::LoadAdapter {
                 response_sender
@@ -179,12 +176,11 @@ async fn queue_task(
                 }
                 match client.load_adapter(adapter_id.clone()).await {
                     Ok(adapter_id) => {
-                        println!("ASDFASDF adapter_queue_task: adapter {} loaded", adapter_id);
+                        tracing::info!("adapter {} loaded", adapter_id);
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
-                        println!("ASDFASDF adapter_queue_task: error loading adapter");
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
                         err_msg = Some(error.to_string());
                         response_sender.send(()).unwrap();
@@ -224,7 +220,7 @@ async fn queue_task(
             QueueCommand::Terminate {
                 response_sender
             } => {
-                println!("ASDFASDF adapter_queue_task: terminating adapter queue {}", adapter_id);
+                tracing::info!("terminating adapter queue for {}", adapter_id);
                 for entry in state.entries.drain(..) {
                     let (_, entry) = entry;
                     if let Some(err_msg) = err_msg.clone() {
