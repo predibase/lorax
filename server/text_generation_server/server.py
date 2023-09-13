@@ -106,6 +106,7 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         
     async def DownloadAdapter(self, request, context):
         from filelock import FileLock
+        from peft import PeftConfig
         
         adapter_id = request.adapter_id
         print("ASDFASDF SERVER DownloadAdapter called: ", adapter_id)
@@ -121,6 +122,9 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         adapter_id_filename = adapter_id.replace('/', '--')
         with FileLock(adapter_id_filename + ".lock"):
             try:
+                print("ASDFASDF validating adapter: ", adapter_id)
+                PeftConfig.from_pretrained(adapter_id)
+                
                 print("ASDFASDF beginning to download adapter: ", adapter_id)
                 start_t = time.time()
                 download_weights(adapter_id)
