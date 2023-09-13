@@ -421,7 +421,7 @@ async fn batching_task(
 
                 let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
 
-                // Only try and get a new batch if we are under the max time limit for this request
+                // Only get a new batch if under the time limit for this queue
                 let time_elapsed = start_time.elapsed();
                 max_time_limit_reached = time_elapsed > max_time_limit;
                 if !max_time_limit_reached {
