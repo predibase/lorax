@@ -59,6 +59,7 @@ def merge_adapter_weights(
         module_mapping.items(), desc="Merging adapter weights", total=len(module_mapping)):
 
         # TODO: support adapter types beyond LoRA
+        # TODO: put this on GPU if it is available. This should greatly speedup compute_delta_weight
         lora_A = adapter_weights[adapter_weight_names["lora_A"]]
         lora_B = adapter_weights[adapter_weight_names["lora_B"]]
         delta_weight = compute_delta_weight(
