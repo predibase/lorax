@@ -17,7 +17,7 @@ use text_generation_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
-use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -30,6 +30,200 @@ pub struct Infer {
     adapter_manager: AdapterManager,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
+}
+
+impl Infer {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        client: ShardedClient,
+        validation: Validation,
+        waiting_served_ratio: f32,
+        max_batch_prefill_tokens: u32,
+        max_batch_total_tokens: u32,
+        max_waiting_tokens: usize,
+        max_concurrent_requests: usize,
+        max_time_limit: Duration,
+        requires_padding: bool,
+        generation_health: Arc<AtomicBool>,
+    ) -> Self {
+        // Routes requests to the appropriate adapter queue
+        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16);
+
+        // Spawn batching background task that contains all the inference logic
+        tokio::spawn(batching_task(
+            client,
+            waiting_served_ratio,
+            max_batch_prefill_tokens,
+            max_batch_total_tokens,
+            max_waiting_tokens,
+            max_time_limit,
+            generation_health,
+            adapter_manager.clone(),
+        ));
+
+        // Inference limit with a semaphore
+        let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
+
+        Self {
+            validation,
+            adapter_manager,
+            limit_concurrent_requests: semaphore,
+        }
+    }
+
+    /// Add a new request to the queue and return a stream of InferStreamResponse
+    #[instrument(skip(self))]
+    pub(crate) async fn generate_stream(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<
+        (
+            OwnedSemaphorePermit,
+            RecvStream<Result<InferStreamResponse, InferError>>,
+        ),
+        InferError,
+    > {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("tgi_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        let adapter_id = request.parameters.adapter_id.clone().unwrap_or("__base_model__".to_string());
+
+        // Validate request
+        let valid_request = self.validation.validate(request).await.map_err(|err| {
+            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
+            tracing::error!("{err}");
+            err
+        })?;
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = flume::unbounded();
+
+        // Process the request by sending it to the queue associated with `adapter_id`
+        self.adapter_manager.process(adapter_id, Entry {
+            request: valid_request,
+            response_tx,
+            span: Span::current(),
+            temp_span: None,
+            queue_time: Instant::now(),
+            batch_time: None,
+        });
+
+        // Return stream
+        Ok((permit, response_rx.into_stream()))
+    }
+
+    /// Add a new request to the queue and return a InferResponse
+    #[instrument(skip(self))]
+    pub(crate) async fn generate(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<InferResponse, InferError> {
+        // Create stream and keep semaphore permit as long as generate lives
+        let (_permit, mut stream) = self.generate_stream(request).await?;
+
+        // Return values
+        let mut result_prefill = Vec::new();
+        let mut result_tokens = Vec::new();
+        let mut result_generated_text = None;
+        let mut result_start = None;
+        let mut result_queued = None;
+
+        // Iterate on stream
+        while let Some(response) = stream.next().await {
+            match response? {
+                // Add prefill tokens
+                InferStreamResponse::Prefill(tokens) => {
+                    // Create Token objects
+                    // We do that here instead of in the Python code as Rust for loops are faster
+                    result_prefill = tokens
+                        .ids
+                        .into_iter()
+                        .zip(tokens.logprobs.into_iter())
+                        .zip(tokens.texts.into_iter())
+                        .map(|((id, logprob), text)| PrefillToken { id, text, logprob })
+                        .collect();
+                }
+                // Push last token
+                InferStreamResponse::Token(token) => result_tokens.push(token),
+                // Final message
+                // Set return values
+                InferStreamResponse::End {
+                    token,
+                    generated_text,
+                    start,
+                    queued,
+                } => {
+                    result_tokens.push(token);
+                    result_generated_text = Some(generated_text);
+                    result_start = Some(start);
+                    result_queued = Some(queued)
+                }
+            }
+        }
+
+        // Check that we received a `InferStreamResponse::End` message
+        if let (Some(generated_text), Some(queued), Some(start)) =
+            (result_generated_text, result_queued, result_start)
+        {
+            Ok(InferResponse {
+                prefill: result_prefill,
+                tokens: result_tokens,
+                generated_text,
+                queued,
+                start,
+            })
+        } else {
+            let err = InferError::IncompleteGeneration;
+            metrics::increment_counter!("tgi_request_failure", "err" => "incomplete");
+            tracing::error!("{err}");
+            Err(err)
+        }
+    }
+    /// Add best_of new requests to the queue and return a InferResponse of the sequence with
+    /// the highest log probability per token
+    #[instrument(skip(self))]
+    pub(crate) async fn generate_best_of(
+        &self,
+        request: GenerateRequest,
+        best_of: usize,
+    ) -> Result<(InferResponse, Vec<InferResponse>), InferError> {
+        // validate  best_of parameter separately
+        let best_of = self.validation.validate_best_of(best_of)?;
+
+        // create multiple generate requests
+        let mut infer_responses: Vec<InferResponse> =
+            try_join_all((0..best_of).map(|_| self.generate(request.clone()))).await?;
+
+        // get the sequence with the highest log probability per token
+        let mut max_index = 0;
+        let mut max_logprob: f32 = f32::MIN;
+
+        for (i, response) in infer_responses.iter().enumerate() {
+            // mean logprobs of the generated tokens
+            let sequence_logprob = response
+                .tokens
+                .iter()
+                .map(|token| token.logprob)
+                .sum::<f32>()
+                / response.tokens.len() as f32;
+
+            // set best sequence
+            if sequence_logprob > max_logprob {
+                max_index = i;
+                max_logprob = sequence_logprob;
+            }
+        }
+        let best_response = infer_responses.remove(max_index);
+        Ok((best_response, infer_responses))
+    }
 }
 
 enum AdapterManagerCommand {
@@ -175,205 +369,11 @@ async fn adapter_manager_task(
     }
 }
 
-impl Infer {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        client: ShardedClient,
-        validation: Validation,
-        waiting_served_ratio: f32,
-        max_batch_prefill_tokens: u32,
-        max_batch_total_tokens: u32,
-        max_waiting_tokens: usize,
-        max_concurrent_requests: usize,
-        max_time_limit: Duration,
-        requires_padding: bool,
-        generation_health: Arc<AtomicBool>,
-    ) -> Self {
-        // Infer shared state
-        // let queue = Queue::new(requires_padding, 16);
-
-        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16);
-
-        // Spawn batching background task that contains all the inference logic
-        tokio::spawn(batching_task(
-            client,
-            waiting_served_ratio,
-            max_batch_prefill_tokens,
-            max_batch_total_tokens,
-            max_waiting_tokens,
-            max_time_limit,
-            generation_health,
-            adapter_manager.clone(),
-        ));
-
-        // Inference limit with a semaphore
-        let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
-
-        Self {
-            validation,
-            adapter_manager,
-            limit_concurrent_requests: semaphore,
-        }
-    }
-
-    /// Add a new request to the queue and return a stream of InferStreamResponse
-    #[instrument(skip(self))]
-    pub(crate) async fn generate_stream(
-        &self,
-        request: GenerateRequest,
-    ) -> Result<
-        (
-            OwnedSemaphorePermit,
-            RecvStream<Result<InferStreamResponse, InferError>>,
-        ),
-        InferError,
-    > {
-        // Limit concurrent requests by acquiring a permit from the semaphore
-        let permit = self
-            .clone()
-            .limit_concurrent_requests
-            .try_acquire_owned()
-            .map_err(|err| {
-                metrics::increment_counter!("tgi_request_failure", "err" => "overloaded");
-                tracing::error!("{err}");
-                err
-            })?;
-
-        let adapter_id = request.parameters.adapter_id.clone().unwrap_or("__base_model__".to_string());
-
-        // Validate request
-        let valid_request = self.validation.validate(request).await.map_err(|err| {
-            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
-            tracing::error!("{err}");
-            err
-        })?;
-
-        // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
-
-        self.adapter_manager.process(adapter_id, Entry {
-            request: valid_request,
-            response_tx,
-            span: Span::current(),
-            temp_span: None,
-            queue_time: Instant::now(),
-            batch_time: None,
-        });
-
-        // Return stream
-        Ok((permit, response_rx.into_stream()))
-    }
-
-    /// Add a new request to the queue and return a InferResponse
-    #[instrument(skip(self))]
-    pub(crate) async fn generate(
-        &self,
-        request: GenerateRequest,
-    ) -> Result<InferResponse, InferError> {
-        // Create stream and keep semaphore permit as long as generate lives
-        let (_permit, mut stream) = self.generate_stream(request).await?;
-
-        // Return values
-        let mut result_prefill = Vec::new();
-        let mut result_tokens = Vec::new();
-        let mut result_generated_text = None;
-        let mut result_start = None;
-        let mut result_queued = None;
-
-        // Iterate on stream
-        while let Some(response) = stream.next().await {
-            match response? {
-                // Add prefill tokens
-                InferStreamResponse::Prefill(tokens) => {
-                    // Create Token objects
-                    // We do that here instead of in the Python code as Rust for loops are faster
-                    result_prefill = tokens
-                        .ids
-                        .into_iter()
-                        .zip(tokens.logprobs.into_iter())
-                        .zip(tokens.texts.into_iter())
-                        .map(|((id, logprob), text)| PrefillToken { id, text, logprob })
-                        .collect();
-                }
-                // Push last token
-                InferStreamResponse::Token(token) => result_tokens.push(token),
-                // Final message
-                // Set return values
-                InferStreamResponse::End {
-                    token,
-                    generated_text,
-                    start,
-                    queued,
-                } => {
-                    result_tokens.push(token);
-                    result_generated_text = Some(generated_text);
-                    result_start = Some(start);
-                    result_queued = Some(queued)
-                }
-            }
-        }
-
-        // Check that we received a `InferStreamResponse::End` message
-        if let (Some(generated_text), Some(queued), Some(start)) =
-            (result_generated_text, result_queued, result_start)
-        {
-            Ok(InferResponse {
-                prefill: result_prefill,
-                tokens: result_tokens,
-                generated_text,
-                queued,
-                start,
-            })
-        } else {
-            let err = InferError::IncompleteGeneration;
-            metrics::increment_counter!("tgi_request_failure", "err" => "incomplete");
-            tracing::error!("{err}");
-            Err(err)
-        }
-    }
-    /// Add best_of new requests to the queue and return a InferResponse of the sequence with
-    /// the highest log probability per token
-    #[instrument(skip(self))]
-    pub(crate) async fn generate_best_of(
-        &self,
-        request: GenerateRequest,
-        best_of: usize,
-    ) -> Result<(InferResponse, Vec<InferResponse>), InferError> {
-        // validate  best_of parameter separately
-        let best_of = self.validation.validate_best_of(best_of)?;
-
-        // create multiple generate requests
-        let mut infer_responses: Vec<InferResponse> =
-            try_join_all((0..best_of).map(|_| self.generate(request.clone()))).await?;
-
-        // get the sequence with the highest log probability per token
-        let mut max_index = 0;
-        let mut max_logprob: f32 = f32::MIN;
-
-        for (i, response) in infer_responses.iter().enumerate() {
-            // mean logprobs of the generated tokens
-            let sequence_logprob = response
-                .tokens
-                .iter()
-                .map(|token| token.logprob)
-                .sum::<f32>()
-                / response.tokens.len() as f32;
-
-            // set best sequence
-            if sequence_logprob > max_logprob {
-                max_index = i;
-                max_logprob = sequence_logprob;
-            }
-        }
-        let best_response = infer_responses.remove(max_index);
-        Ok((best_response, infer_responses))
-    }
-}
-
 /// Batching logic
 /// Will be launched in a background Tokio task
 ///
-/// Batches requests and sends them to the inference server
+/// Grabs a queue from the adapter manager.
+/// Then, batches requests and sends them to the inference server
 #[allow(clippy::too_many_arguments)]
 async fn batching_task(
     mut client: ShardedClient,
