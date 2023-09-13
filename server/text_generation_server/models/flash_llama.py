@@ -1,8 +1,12 @@
 import time
+from filelock import FileLock
 from functools import lru_cache
 
 import torch
 import torch.distributed
+
+from peft import LoraConfig
+from safetensors.torch import load_file
 
 from loguru import logger
 from opentelemetry import trace
@@ -162,11 +166,11 @@ class FlashLlama(FlashCausalLM):
                     f"{prefix}.{i}.self_attn.v_proj"]
             self.adapter_id = adapter_id
         else:
-            start_t = time.time()
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = self._load_module_map(adapter_id, weight_names)
-            print("ASDFASDF loaded module map in {} seconds".format(time.time() - start_t))
             
+            # TODO(geoffrey): merge this with function
+            # text_generation_server/utils/adapter.py::merge_adapter_weights
             def compute_merged_weight(weight_name):
                 # ensure the delta has the same dtype and device as the original weight
                 orig_weight = self.orig_weights[weight_name]
@@ -199,19 +203,14 @@ class FlashLlama(FlashCausalLM):
 
     @lru_cache(maxsize=5)
     def _load_module_map(self, adapter_id, weight_names):
-        from filelock import FileLock
-        
-        from peft import LoraConfig
-        from safetensors.torch import load_file
-        
-        from text_generation_server.utils.hub import weight_files
-        
+        # TODO(geoffrey): refactor this and merge parts of this function with
+        # text_generation_server/utils/adapter.py::create_merged_weight_files        
         with FileLock(adapter_id.replace('/', '--') + ".lock"):
             adapter_filenames = weight_files(adapter_id, extension=".safetensors")
             adapter_config = LoraConfig.from_pretrained(adapter_id)
             if adapter_config.base_model_name_or_path != self.model_id:
                 raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
-                                f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+                                 f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
             
             # load adapter weights from all shards (should have relatively small memory footprint)
             adapter_weights = {}

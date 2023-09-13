@@ -1,6 +1,8 @@
 import asyncio
 import os
 import torch
+from filelock import FileLock
+from peft import PeftConfig
 
 from grpc import aio
 from loguru import logger
@@ -10,6 +12,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from text_generation_server.cache import Cache
+from text_generation_server.cli import download_weights
 from text_generation_server.interceptor import ExceptionInterceptor
 from text_generation_server.models import Model, get_model
 from text_generation_server.pb import generate_pb2_grpc, generate_pb2
@@ -105,52 +108,40 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         )
         
     async def DownloadAdapter(self, request, context):
-        from filelock import FileLock
-        from peft import PeftConfig
-        
         adapter_id = request.adapter_id
-        print("ASDFASDF SERVER DownloadAdapter called: ", adapter_id)
         if adapter_id == "__base_model__":
-            print("No adapter to download for base model. Skipping.")
+            logger.info("No adapter to download for base model. Skipping.")
             return generate_pb2.DownloadAdapterResponse(
                 adapter_id=request.adapter_id,
             )
 
-        import time
-        from text_generation_server.cli import download_weights
-
         adapter_id_filename = adapter_id.replace('/', '--')
         with FileLock(adapter_id_filename + ".lock"):
             try:
-                print("ASDFASDF validating adapter: ", adapter_id)
                 PeftConfig.from_pretrained(adapter_id)
-                
-                print("ASDFASDF beginning to download adapter: ", adapter_id)
-                start_t = time.time()
                 download_weights(adapter_id)
-                print("ASDFASDF completed downloading adapter: ", adapter_id, " in ", time.time() - start_t, " seconds")
                 return generate_pb2.DownloadAdapterResponse(
                     adapter_id=request.adapter_id,
                 )
-            except Exception as e:
-                print("ASDFASDF error downloading adapter: ", adapter_id, " error: ", e)
+            except Exception:
+                logger.exception("Error when downloading adapter")
+
                 # delete safetensors files if there is an issue downloading or converting 
                 # the weights to prevent cache hits by subsequent calls
                 filepaths = weight_files(adapter_id)
                 for filepath in filepaths:
                     os.remove(filepath)
-                raise e
+                raise
 
     async def LoadAdapter(self, request, context):
-        print("ASDFASDF SERVER LoadAdapter called: ", request.adapter_id)
         try:
             self.model.load_adapter(request.adapter_id)
             return generate_pb2.LoadAdapterResponse(
                 adapter_id=request.adapter_id,
             )
-        except Exception as e:
-            print("ASDFASDF error loading adapter: ", request.adapter_id, " error: ", e)
-            raise e
+        except Exception:
+            logger.exception("Error when loading adapter")
+            raise
 
 
 def serve(
