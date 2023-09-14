@@ -348,7 +348,11 @@ async fn adapter_manager_task(
                 queue_map.remove(&adapter_id);
                 adapter_id_vec.retain(|id| id != &adapter_id);
                 // ensure that adapter ID index is within bounds
-                adapter_id_index = adapter_id_index % adapter_id_vec.len();
+                if adapter_id_vec.len() > 0 {
+                    adapter_id_index = adapter_id_index % adapter_id_vec.len();
+                } else {
+                    adapter_id_index = 0;
+                }
             }
         }
     }
