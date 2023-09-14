@@ -108,16 +108,16 @@ def _download_weights(
     ) is not None
 
     if not is_local_model:
-            # TODO: Combine into class that takes the source as input
-            # Try to download weights from the hub
-            try:
-                model_source.download_model_assets()
-                return
-            # No weights found on the hub with this extension
-            except utils.EntryNotFoundError as e:
-                # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
-                if not extension == ".safetensors" or not auto_convert:
-                    raise e
+        # TODO: Combine into class that takes the source as input
+        # Try to download weights from the hub
+        try:
+            model_source.download_model_assets()
+            return
+        # No weights found on the hub with this extension
+        except utils.EntryNotFoundError as e:
+            # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
+            if not extension == ".safetensors" or not auto_convert:
+                raise e
 
     # Try to see if there are local pytorch weights
     try:
