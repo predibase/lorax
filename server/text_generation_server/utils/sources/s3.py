@@ -67,8 +67,10 @@ def download_files_from_s3(
         local_file_path = get_s3_model_local_path(model_id) / filename
         # ensure cache dir exists and create it if needed
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
-        bucket_file_name = f"{model_id}/{filename}"
-        bucket.download_file(bucket_file_name, str(local_file_path))
+        model_id_path = Path(model_id)
+        bucket_file_name = model_id_path / filename
+        logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
+        bucket.download_file(str(bucket_file_name), str(local_file_path))
         # TODO: add support for revision
         logger.info(
             f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}."
