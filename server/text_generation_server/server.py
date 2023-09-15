@@ -129,9 +129,13 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
 
                 # delete safetensors files if there is an issue downloading or converting 
                 # the weights to prevent cache hits by subsequent calls
-                filepaths = weight_files(adapter_id)
-                for filepath in filepaths:
-                    os.remove(filepath)
+                try:
+                    filepaths = weight_files(adapter_id)
+                    for filepath in filepaths:
+                        os.remove(filepath)
+                except Exception as e:
+                    logger.exception(f"Error cleaning up safetensors files after "
+                                     f"download error: {e}\nIgnoring.")
                 raise
 
     async def LoadAdapter(self, request, context):

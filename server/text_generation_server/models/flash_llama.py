@@ -118,25 +118,27 @@ class FlashLlama(FlashCausalLM):
             world_size=world_size,
         )
 
+        # holds the original weights and the devices they were on as a tuple
+        # the original weights are stored in CPU memory, but placed into `device`
+        # as needed. Only needed when dynamic_adapter_loading_enabled is True.
         self.orig_weights = None
         if self.dynamic_adapter_loading_enabled:
-            # if the model is a "base model" (i.e. initialized with no adapter)
-            # then 
             # TODO(geoffrey): generalize to non-q_proj and non-v_proj layers
             self.orig_weights = {}
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):
                 d_qkv, _ = layer.self_attn.query_key_value.linear.weight.shape
                 d_q = d_qkv // 3  # break up d_qkv into 3 parts
-                
-                # replace the q_proj and v_proj weights with the new ones (skip the key slice)
-                orig_q_proj = layer.self_attn.query_key_value.linear.weight[:d_q].clone()
+
+                orig_q_proj = layer.self_attn.query_key_value.linear.weight[:d_q]
+                orig_q_proj_device = orig_q_proj.device
                 weight_name = f"{prefix}.{i}.self_attn.q_proj"
-                self.orig_weights[weight_name] = orig_q_proj
+                self.orig_weights[weight_name] = (orig_q_proj.cpu(), orig_q_proj_device)
                 
-                orig_v_proj = layer.self_attn.query_key_value.linear.weight[2*d_q:].clone()
+                orig_v_proj = layer.self_attn.query_key_value.linear.weight[2*d_q:]
+                orig_v_proj_device = orig_v_proj.device
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
-                self.orig_weights[weight_name] = orig_v_proj
+                self.orig_weights[weight_name] = (orig_v_proj.cpu(), orig_v_proj_device)
     
     def load_adapter(self, adapter_id):
         """
@@ -163,11 +165,13 @@ class FlashLlama(FlashCausalLM):
             for i, layer in enumerate(self.model.model.layers):
                 qkv_d, _ = layer.self_attn.query_key_value.linear.weight.shape
                 q_d = qkv_d // 3  # break up qkv_d into 3 parts
-                layer.self_attn.query_key_value.linear.weight[:q_d] = self.orig_weights[
-                    f"{prefix}.{i}.self_attn.q_proj"]
-                layer.self_attn.query_key_value.linear.weight[2*q_d:] = self.orig_weights[
-                    f"{prefix}.{i}.self_attn.v_proj"]
-            self.adapter_id = adapter_id
+                
+                # place the original weights (on their original device) back into the model
+                q_proj, q_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.q_proj"]
+                layer.self_attn.query_key_value.linear.weight[:q_d] = q_proj.to(q_proj_device)
+                v_proj, v_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.v_proj"]
+                layer.self_attn.query_key_value.linear.weight[2*q_d:] = v_proj.to(v_proj_device)
+                self.adapter_id = adapter_id
         else:
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = self._load_module_map(adapter_id, weight_names)
@@ -175,10 +179,12 @@ class FlashLlama(FlashCausalLM):
             # TODO(geoffrey): merge this with function
             # text_generation_server/utils/adapter.py::merge_adapter_weights
             def compute_merged_weight(weight_name):
+                # load the original weights from CPU back onto the device they were on
+                orig_weight, orig_device = self.orig_weights[weight_name]
+                orig_weight = orig_weight.to(orig_device)
                 # ensure the delta has the same dtype and device as the original weight
-                orig_weight = self.orig_weights[weight_name]
-                lora_A = module_map[weight_name]["lora_A"].to(orig_weight.device, orig_weight.dtype)
-                lora_B = module_map[weight_name]["lora_B"].to(orig_weight.device, orig_weight.dtype)
+                lora_A = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
+                lora_B = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
                 delta_weight = compute_delta_weight(
                     lora_A, 
                     lora_B, 
@@ -208,17 +214,16 @@ class FlashLlama(FlashCausalLM):
     def _load_module_map(self, adapter_id, weight_names):
         # TODO(geoffrey): refactor this and merge parts of this function with
         # text_generation_server/utils/adapter.py::create_merged_weight_files        
-        with FileLock(adapter_id.replace('/', '--') + ".lock"):
-            adapter_filenames = weight_files(adapter_id, extension=".safetensors")
-            adapter_config = LoraConfig.from_pretrained(adapter_id)
-            if adapter_config.base_model_name_or_path != self.model_id:
-                raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
-                                 f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
-            
-            # load adapter weights from all shards (should have relatively small memory footprint)
-            adapter_weights = {}
-            for filename in adapter_filenames:
-                adapter_weights.update(load_file(filename))
+        adapter_filenames = weight_files(adapter_id, extension=".safetensors")
+        adapter_config = LoraConfig.from_pretrained(adapter_id)
+        if adapter_config.base_model_name_or_path != self.model_id:
+            raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
+                                f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+        
+        # load adapter weights from all shards (should have relatively small memory footprint)
+        adapter_weights = {}
+        for filename in adapter_filenames:
+            adapter_weights.update(load_file(filename))
             
         # map the model weights to the relevant adapter weights (LoRA A and B matrices)
         module_map = {}
