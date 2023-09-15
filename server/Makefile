@@ -24,7 +24,8 @@ install: gen-server install-torch
 	pip install -e ".[bnb, accelerate]"
 
 run-dev:
-	SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=2 text_generation_server/cli.py serve meta-llama/Llama-2-7b-hf --sharded
+	SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=2 text_generation_server/cli.py serve meta-llama/Llama-2-7b-hf --sharded \
+		--adapter-id bb32aefd-5a8b-425e-8b13-1b207fb06621/f8733e4dd6d44f7d9d99349f3304ede8/artifacts/model/model_weights/ --adapter-source s3
 
 export-requirements:
 	poetry export -o requirements.txt -E bnb -E quantize --without-hashes

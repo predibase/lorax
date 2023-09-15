@@ -142,25 +142,24 @@ class FlashLlama(FlashCausalLM):
                 self.orig_weights[weight_name] = (orig_v_proj.cpu(), orig_v_proj_device)
     
     def load_adapter(self, adapter_id, adapter_source):
-        """
-        Another scheme could be to find every FlashLlamaAttention layer and
-        replace the q_proj and v_proj weights with the new ones.
-        
-        You can do this by doing
-        
-        d, _ = self_attn.query_key_value.linear.weight.shape
-        self_attn.query_key_value.linear.weight[:2*d] = new_q_proj
-        self_attn.query_key_value.linear.weight[3*d:] = new_v_proj  # skip `key` slice
+        """Physically loads the adapter weights into the model.
+
+        `adapter_id` must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded into model.
+        Otherwise, the adapter weights are merged into the model weights on the fly.
         """
         if not self.dynamic_adapter_loading_enabled:
-            raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                             f"and therefore does not support dynamic adapter loading. "
-                             f"Please initialize a new model instance from the base model in "
-                             f"order to use the dynamic adapter loading feature.")
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        # If we are doing dynamic adapter loading, then we need to reset the weights
         if adapter_id == self.adapter_id:
             return
-        
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
+        elif adapter_id == BASE_MODEL_ADAPTER_ID:
             # if the adapter_id is the base model, then just reset the weights
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):

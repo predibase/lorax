@@ -79,7 +79,7 @@ def create_merged_weight_files(
     adapter_source: str = "hub",
 ) -> List[Path]:
     """Creates merged weight files for the given adapter ID and filenames."""
-    source = get_model_source(adapter_source, adapter_id, revision="", extension=".safetensors")
+    source = get_model_source(adapter_source, adapter_id)
     adapter_filenames = source.weight_files()
 
     adapter_path = get_config_path(adapter_id, adapter_source)
