@@ -24,6 +24,7 @@ from text_generation_server.utils import (
     create_merged_weight_files,
     get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
+    sources,
     weight_files,
     Weights,
 )
@@ -140,7 +141,7 @@ class FlashLlama(FlashCausalLM):
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (orig_v_proj.cpu(), orig_v_proj_device)
     
-    def load_adapter(self, adapter_id):
+    def load_adapter(self, adapter_id, adapter_source):
         """
         Another scheme could be to find every FlashLlamaAttention layer and
         replace the q_proj and v_proj weights with the new ones.
@@ -174,7 +175,7 @@ class FlashLlama(FlashCausalLM):
                 self.adapter_id = adapter_id
         else:
             weight_names = tuple(self.orig_weights.keys())
-            module_map, adapter_config = self._load_module_map(adapter_id, weight_names)
+            module_map, adapter_config = self._load_module_map(adapter_id, adapter_source, weight_names)
             
             # TODO(geoffrey): merge this with function
             # text_generation_server/utils/adapter.py::merge_adapter_weights
@@ -211,16 +212,18 @@ class FlashLlama(FlashCausalLM):
             self.adapter_id = adapter_id
 
     @lru_cache(maxsize=5)
-    def _load_module_map(self, adapter_id, weight_names):
+    def _load_module_map(self, adapter_id, adapter_source, weight_names):
         # TODO(geoffrey): refactor this and merge parts of this function with
-        # text_generation_server/utils/adapter.py::create_merged_weight_files        
-        adapter_filenames = weight_files(adapter_id, extension=".safetensors")
-        adapter_config = LoraConfig.from_pretrained(adapter_id)
+        # text_generation_server/utils/adapter.py::create_merged_weight_files       
+        source = sources.get_model_source(adapter_source, adapter_id, extension=".safetensors")
+        config_path = sources.get_config_path(adapter_id, adapter_source)
+        adapter_config = LoraConfig.from_pretrained(config_path)
         if adapter_config.base_model_name_or_path != self.model_id:
             raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
                                 f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
-        
+
         # load adapter weights from all shards (should have relatively small memory footprint)
+        adapter_filenames = source.weight_files()
         adapter_weights = {}
         for filename in adapter_filenames:
             adapter_weights.update(load_file(filename))

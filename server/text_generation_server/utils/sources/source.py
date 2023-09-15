@@ -1,20 +1,14 @@
 import os
 from typing import Optional, List
 from pathlib import Path
-from loguru import logger
-
-from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
 
 def try_to_load_from_cache(
-    model_id: str, revision: Optional[str], filename: str
+    repo_cache: Path, revision: Optional[str], filename: str
 ) -> Optional[Path]:
     """Try to load a file from the Hugging Face cache"""
     if revision is None:
         revision = "main"
-
-    object_id = model_id.replace("/", "--")
-    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}"
 
     if not repo_cache.is_dir():
         # No cache for this model

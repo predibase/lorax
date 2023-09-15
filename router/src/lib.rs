@@ -1,5 +1,6 @@
 mod health;
 /// Text Generation Inference Webserver
+mod adapter;
 mod infer;
 mod queue;
 pub mod server;
@@ -66,6 +67,9 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "arnavgrg/codealpaca-qlora")]
     pub adapter_id: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "hub")]
+    pub adapter_source: Option<String>,
     #[serde(default)]
     #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 1)]
     pub best_of: Option<usize>,
@@ -147,6 +151,7 @@ fn default_max_new_tokens() -> u32 {
 fn default_parameters() -> GenerateParameters {
     GenerateParameters {
         adapter_id: None,
+        adapter_source: None,
         best_of: None,
         temperature: None,
         repetition_penalty: None,

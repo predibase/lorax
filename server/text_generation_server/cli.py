@@ -152,8 +152,9 @@ def _download_weights(
             from transformers import AutoConfig
             import transformers
 
+            config_path = sources.get_config_path(model_id, source)
             config = AutoConfig.from_pretrained(
-                model_id,
+                config_path,
                 revision=revision,
             )
             architecture = config.architectures[0]

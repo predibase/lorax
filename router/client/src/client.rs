@@ -1,6 +1,7 @@
 /// Single shard Client
 use crate::pb::generate::v1::text_generation_service_client::TextGenerationServiceClient;
 use crate::pb::generate::v1::*;
+use crate::ClientError;
 use crate::Result;
 use grpc_metadata::InjectTelemetryContext;
 use std::cmp::min;
@@ -175,15 +176,37 @@ impl Client {
         Ok((response.generations, response.batch))
     }
 
-    pub async fn download_adapter(&mut self, adapter_id: String) -> Result<String> {
-        let request = tonic::Request::new(DownloadAdapterRequest { adapter_id }).inject_context();
-        let response = self.stub.download_adapter(request).await?.into_inner();
-        Ok(response.adapter_id)
+    /// Downloads the weights for an adapter.
+    pub async fn download_adapter(&mut self, adapter_id: String, adapter_source: String) -> Result<String> {
+        if let Some(adapter_source_enum) = AdapterSource::from_str_name(adapter_source.to_uppercase().as_str()) {
+            let request = tonic::Request::new(
+                DownloadAdapterRequest { 
+                    adapter_id, 
+                    adapter_source: adapter_source_enum.into()
+                }).inject_context();
+            let response = self.stub.download_adapter(request).await?.into_inner();
+            Ok(response.adapter_id)
+        } else {
+            let err_string = format!("Invalid source '{}' when downloading adapter '{}'", adapter_source, adapter_id);
+            tracing::error!(err_string);
+            Err(ClientError::Generation(err_string).into())
+        }
     }
 
-    pub async fn load_adapter(&mut self, adapter_id: String) -> Result<String> {
-        let request = tonic::Request::new(LoadAdapterRequest { adapter_id }).inject_context();
-        let response = self.stub.load_adapter(request).await?.into_inner();
-        Ok(response.adapter_id)
+    /// Physically loads the weights into the model for an adapter
+    pub async fn load_adapter(&mut self, adapter_id: String, adapter_source: String) -> Result<String> {
+        if let Some(adapter_source_enum) = AdapterSource::from_str_name(adapter_source.to_uppercase().as_str()) {
+            let request = tonic::Request::new(
+                LoadAdapterRequest { 
+                    adapter_id, 
+                    adapter_source: adapter_source_enum.into()
+                }).inject_context();
+            let response = self.stub.load_adapter(request).await?.into_inner();
+            Ok(response.adapter_id)
+        } else {
+            let err_string = format!("Invalid source '{}' when loading adapter '{}'", adapter_source, adapter_id);
+            tracing::error!(err_string);
+            Err(ClientError::Generation(err_string).into())
+        }
     }
 }

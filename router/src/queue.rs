@@ -1,3 +1,4 @@
+use crate::adapter::Adapter;
 use crate::infer::InferError;
 use crate::infer::InferStreamResponse;
 use crate::validation::ValidGenerateRequest;
@@ -29,31 +30,31 @@ pub(crate) struct Entry {
 /// Request Queue
 #[derive(Debug, Clone)]
 pub(crate) struct Queue {
-    /// adapter ID associated with this queue
-    adapter_id: String,
+    /// adapter associated with this queue
+    adapter: Adapter,
     /// Channel to communicate with the background queue task
     queue_sender: flume::Sender<QueueCommand>,
 }
 
 impl Queue {
-    pub(crate) fn new(adapter_id: String, client: ShardedClient, requires_padding: bool, block_size: u32) -> Self {
+    pub(crate) fn new(adapter: Adapter, client: ShardedClient, requires_padding: bool, block_size: u32) -> Self {
         // Create channel
         let (queue_sender, queue_receiver) = flume::unbounded();
 
         // Launch background queue task
         tokio::spawn(queue_task(
-            adapter_id.clone(),
+            adapter.clone(),
             client,
             requires_padding,
             block_size,
             queue_receiver,
         ));
-        Self { adapter_id, queue_sender }
+        Self { adapter, queue_sender }
     }
     
     /// Return adapter ID
-    pub(crate) fn adapter_id(&self) -> &str {
-        &self.adapter_id
+    pub(crate) fn adapter(&self) -> &Adapter {
+        &self.adapter
     }
 
     /// Append an entry to the queue
@@ -141,7 +142,7 @@ impl Queue {
 
 // Background task responsible of the queue state
 async fn queue_task(
-    adapter_id: String,
+    adapter: Adapter,
     mut client: ShardedClient,
     requires_padding: bool,
     block_size: u32,
@@ -151,9 +152,12 @@ async fn queue_task(
     let mut err_msg: Option<String> = None;
 
     // download the adapter
-    match client.download_adapter(adapter_id.clone()).await {
-        Ok(adapter_id) => {
-            tracing::info!("adapter {} downloaded", adapter_id);
+    match client.download_adapter(
+        adapter.id().to_string(), 
+        adapter.source().to_string(),
+    ).await {
+        Ok(_) => {
+            tracing::info!("adapter {} downloaded", adapter.id());
         }
         // if we have a download error, we send an error to the entry response
         Err(error) => {
@@ -173,15 +177,18 @@ async fn queue_task(
             }),
             QueueCommand::LoadAdapter {
                 response_sender,
-                span  // TODO(geoffrey): not sure how to use this with async fn
+                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msg.is_some() {
                     response_sender.send(()).unwrap();
                     continue;
                 }
-                match client.load_adapter(adapter_id.clone()).await {
-                    Ok(adapter_id) => {
-                        tracing::info!("adapter {} loaded", adapter_id);
+                match client.load_adapter(
+                    adapter.id().to_string(),
+                    adapter.source().to_string(),
+                ).await {
+                    Ok(_) => {
+                        tracing::info!("adapter {} loaded", adapter.id());
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
@@ -228,7 +235,7 @@ async fn queue_task(
                 response_sender,
                 span,
             } => {
-                tracing::info!("terminating adapter queue for {}", adapter_id);
+                tracing::info!("terminating adapter queue for {}", adapter.id());
 
                 // Create an asynchronous closure
                 let span_closure = async move {

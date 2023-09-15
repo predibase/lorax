@@ -210,22 +210,37 @@ message WarmupResponse {
     optional uint32 max_supported_total_tokens = 1;
 }
 
+enum AdapterSource {
+    /// Adapters loaded using the HuggingFace Hub
+    HUB = 0;
+    /// Adapters loaded via remote filesystem path
+    S3 = 1;
+}
+
 message DownloadAdapterRequest {
     /// Adapter ID
     string adapter_id = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
 }
 
 message DownloadAdapterResponse {
     /// Adapter ID
     string adapter_id = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
 }
 
 message LoadAdapterRequest {
     /// Adapter ID
     string adapter_id = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
 }
 
 message LoadAdapterResponse {
     /// Adapter ID
     string adapter_id = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
 }

@@ -1,7 +1,7 @@
 import asyncio
 import os
+import shutil
 import torch
-from filelock import FileLock
 from peft import PeftConfig
 
 from grpc import aio
@@ -17,7 +17,7 @@ from text_generation_server.interceptor import ExceptionInterceptor
 from text_generation_server.models import Model, get_model
 from text_generation_server.pb import generate_pb2_grpc, generate_pb2
 from text_generation_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from text_generation_server.utils import weight_files
+from text_generation_server.utils import HUB, S3, get_config_path, get_local_dir
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
@@ -113,36 +113,46 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             logger.info("No adapter to download for base model. Skipping.")
             return generate_pb2.DownloadAdapterResponse(
-                adapter_id=request.adapter_id,
+                adapter_id=adapter_id,
+                adapter_source=request.adapter_source,
             )
 
-        adapter_id_filename = adapter_id.replace('/', '--')
-        with FileLock(adapter_id_filename + ".lock"):
-            try:
-                PeftConfig.from_pretrained(adapter_id)
-                download_weights(adapter_id)
-                return generate_pb2.DownloadAdapterResponse(
-                    adapter_id=request.adapter_id,
-                )
-            except Exception:
-                logger.exception("Error when downloading adapter")
+        adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+        try:
+            # fail fast if ID is not an adapter (i.e. it is a full model)
+            # TODO(geoffrey): do this for S3– can't do it this way because the
+            # files are not yet downloaded locally at this point.
+            if adapter_source == HUB:
+                config_path = get_config_path(adapter_id, adapter_source)
+                PeftConfig.from_pretrained(config_path)
 
-                # delete safetensors files if there is an issue downloading or converting 
-                # the weights to prevent cache hits by subsequent calls
-                try:
-                    filepaths = weight_files(adapter_id)
-                    for filepath in filepaths:
-                        os.remove(filepath)
-                except Exception as e:
-                    logger.exception(f"Error cleaning up safetensors files after "
-                                     f"download error: {e}\nIgnoring.")
-                raise
+            download_weights(adapter_id, source=adapter_source)
+            return generate_pb2.DownloadAdapterResponse(
+                adapter_id=adapter_id,
+                adapter_source=request.adapter_source,
+            )
+        except Exception:
+            logger.exception("Error when downloading adapter")
+
+            # delete safetensors files if there is an issue downloading or converting 
+            # the weights to prevent cache hits by subsequent calls
+            try:
+                local_path = get_local_dir(adapter_id, adapter_source)
+                shutil.rmtree(local_path)
+            except Exception as e:
+                logger.warning(f"Error cleaning up safetensors files after "
+                               f"download error: {e}\nIgnoring.")
+            raise
 
     async def LoadAdapter(self, request, context):
         try:
-            self.model.load_adapter(request.adapter_id)
+            adapter_id = request.adapter_id
+            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+            self.model.load_adapter(adapter_id, adapter_source)
+            
             return generate_pb2.LoadAdapterResponse(
-                adapter_id=request.adapter_id,
+                adapter_id=adapter_id,
+                adapter_source=request.adapter_source,
             )
         except Exception:
             logger.exception("Error when loading adapter")
@@ -233,3 +243,12 @@ def serve(
     asyncio.run(
         serve_inner(model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code)
     )
+
+
+def _adapter_source_enum_to_string(adapter_source: int) -> str:
+    if adapter_source == generate_pb2.AdapterSource.HUB:
+        return HUB
+    elif adapter_source == generate_pb2.AdapterSource.S3:
+        return S3
+    else:
+        raise ValueError(f"Unknown adapter source {adapter_source}")

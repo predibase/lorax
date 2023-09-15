@@ -18,7 +18,7 @@ from text_generation_server.models.galactica import GalacticaSharded
 from text_generation_server.models.santacoder import SantaCoder
 from text_generation_server.models.t5 import T5Sharded
 from text_generation_server.models.gpt_neox import GPTNeoxSharded
-from text_generation_server.utils.sources import get_s3_model_local_path
+from text_generation_server.utils.sources import get_s3_model_local_dir
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -129,7 +129,7 @@ def get_model(
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
         logger.info(f"Using the local files since we are coming from s3")
-        model_path = get_s3_model_local_path(model_id)
+        model_path = get_s3_model_local_dir(model_id)
         logger.info(f"model_path: {model_path}")
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_path, revision=revision, trust_remote_code=trust_remote_code

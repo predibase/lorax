@@ -33,7 +33,7 @@ def _get_bucket_resource():
     return s3.Bucket(bucket)
 
 
-def get_s3_model_local_path(model_id: str):
+def get_s3_model_local_dir(model_id: str):
     object_id = model_id.replace("/", "--")
     repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
     return repo_cache
@@ -58,13 +58,14 @@ def download_files_from_s3(
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
     def download_file(filename):
-        local_file = try_to_load_from_cache(model_id, revision, filename)
+        repo_cache = get_s3_model_local_dir(model_id)
+        local_file = try_to_load_from_cache(repo_cache, revision, filename)
         if local_file is not None:
             logger.info(f"File {filename} already present in cache.")
             return Path(local_file)
         logger.info(f"Download file: {filename}")
         start_time = time.time()
-        local_file_path = get_s3_model_local_path(model_id) / filename
+        local_file_path = get_s3_model_local_dir(model_id) / filename
         # ensure cache dir exists and create it if needed
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         model_id_path = Path(model_id)
@@ -102,8 +103,9 @@ def weight_files_s3(
 ) -> List[Path]:
     """Get the local files"""
     # Local model
-    if Path(model_id).exists() and Path(model_id).is_dir():
-        local_files = list(Path(model_id).glob(f"*{extension}"))
+    local_path = get_s3_model_local_dir(model_id)
+    if local_path.exists() and local_path.is_dir():
+        local_files = list(local_path.glob(f"*{extension}"))
         if not local_files:
             raise FileNotFoundError(
                 f"No local weights found in {model_id} with extension {extension}"
@@ -124,10 +126,11 @@ def weight_files_s3(
             f"{Path(f).stem.lstrip('pytorch_')}.safetensors" for f in pt_filenames
         ]
 
+    repo_cache = get_s3_model_local_dir(model_id)
     files = []
     for filename in filenames:
         cache_file = try_to_load_from_cache(
-            model_id, revision, filename
+            repo_cache, revision, filename
         )
         if cache_file is None:
             raise LocalEntryNotFoundError(
@@ -142,13 +145,17 @@ def weight_files_s3(
 
 def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safetensors"):
     model_files = bucket.objects.filter(Prefix=model_id)
-    filenames = [f.key.removeprefix(model_id).lstrip("/") for f in model_files]
+    # ensure that only one model is retrieved by filtering on the first dir of the path
+    total_models = set([Path(f.key).parts[0] for f in model_files])
+    if len(total_models) > 1:
+        raise ValueError(f"Multiple models found for model_id {model_id}")
+
     # need to filter out the empty name
-    filenames = [f for f in filenames if len(f)]
+    filenames = [f.key.removeprefix(model_id).lstrip("/") for f in model_files]
     logger.info(filenames)
     download_files_from_s3(bucket, filenames, model_id)
     logger.info(f"Downloaded {len(filenames)} files")
-    logger.info(f"Contents of the cache folder: {os.listdir(get_s3_model_local_path(model_id))}")
+    logger.info(f"Contents of the cache folder: {os.listdir(get_s3_model_local_dir(model_id))}")
 
     # Raise an error if none of the files we downloaded have the correct extension
     filenames_with_extension = [f for f in model_files if f.key.endswith(extension)]
@@ -159,15 +166,17 @@ def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safete
         )
 
 
-
 class S3ModelSource(BaseModelSource):
     def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
+        if len(model_id) < 5:
+            raise ValueError(f"model_id '{model_id}' is too short for prefix filtering")
+
         # TODO: add support for revisions of the same model
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
         self.bucket = _get_bucket_resource()
-    
+
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
         return weight_s3_files(self.bucket, self.model_id, extension)
@@ -181,3 +190,6 @@ class S3ModelSource(BaseModelSource):
 
     def download_model_assets(self):
         return download_model_from_s3(self.bucket, self.model_id, self.extension)
+
+    def get_local_path(self, model_id: str):
+        return get_s3_model_local_dir(model_id)

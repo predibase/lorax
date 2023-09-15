@@ -1,4 +1,5 @@
 /// Batching and inference logic
+use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
 use crate::validation::{Validation, ValidationError};
 use crate::{Entry, Queue, Token};
 use crate::{GenerateRequest, PrefillToken};
@@ -20,11 +21,6 @@ use thiserror::Error;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
-
-/// "adapter ID" for the base model. The base model does not have an adapter ID,
-/// but we reason about it in the same way. This must match the base model ID
-/// used in the Python server.
-pub const BASE_MODEL_ADAPTER_ID: &str = "__base_model__";
 
 /// Inference struct
 #[derive(Clone)]
@@ -99,7 +95,19 @@ impl Infer {
                 err
             })?;
 
-        let adapter_id = request.parameters.adapter_id.clone().unwrap_or(BASE_MODEL_ADAPTER_ID.to_string());
+        let mut adapter_id = request.parameters.adapter_id.clone();
+        if adapter_id.is_none() {
+            adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
+        }
+        let mut adapter_source = request.parameters.adapter_source.clone();
+        if adapter_source.is_none() {
+            adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
+        }
+
+        let adapter = Adapter::new(
+            adapter_id.unwrap(),
+            adapter_source.unwrap(),
+        );
 
         // Validate request
         let valid_request = self.validation.validate(request).await.map_err(|err| {
@@ -111,8 +119,8 @@ impl Infer {
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = flume::unbounded();
 
-        // Process the request by sending it to the queue associated with `adapter_id`
-        self.adapter_manager.process(adapter_id, Entry {
+        // Process the request by sending it to the queue associated with `adapter`
+        self.adapter_manager.process(adapter, Entry {
             request: valid_request,
             response_tx,
             span: Span::current(),
@@ -232,12 +240,12 @@ impl Infer {
 }
 
 enum AdapterManagerCommand {
-    Append(String, Entry),
+    Append(Adapter, Entry),
     NextQueue {
         response_sender: oneshot::Sender<Option<Arc<Queue>>>,
     },
     RemoveQueue {
-        adapter_id: String,
+        adapter: Adapter,
     }
 }
 
@@ -267,10 +275,10 @@ impl AdapterManager {
         }
     }
 
-    pub(crate) fn process(&self, adapter_id: String, entry: Entry) {
+    pub(crate) fn process(&self, adapter: Adapter, entry: Entry) {
         // only blocks until the message is sent
         // the adapter manager task will handle the actual processing
-        self.sender.send(AdapterManagerCommand::Append(adapter_id, entry)).unwrap();
+        self.sender.send(AdapterManagerCommand::Append(adapter, entry)).unwrap();
     }
 
     pub(crate) async fn next_queue(&self) -> Option<Arc<Queue>> {
@@ -284,10 +292,10 @@ impl AdapterManager {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn remove_queue(&self, adapter_id: String) {
+    pub(crate) async fn remove_queue(&self, adapter: Adapter) {
         self.sender
             .send(AdapterManagerCommand::RemoveQueue {
-                adapter_id,
+                adapter
             })
             .unwrap();
     }
@@ -302,26 +310,27 @@ async fn adapter_manager_task(
     receiver: flume::Receiver<AdapterManagerCommand>,
 ) {
     let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
-    let mut adapter_id_vec: Vec<String> = Vec::new();
-    let mut adapter_id_index: usize = 0;
+    let mut adapter_key_vec: Vec<String> = Vec::new();
+    let mut adapter_key_index: usize = 0;
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
-            AdapterManagerCommand::Append(adapter_id, entry) => {
-                // check if queue_map has adapter_id as key
+            AdapterManagerCommand::Append(adapter, entry) => {
+                // check if queue_map has adapter_key as key
                 // if not, then add a new Queue and download the adapter
                 let queue;
-                if !queue_map.contains_key(&adapter_id) {
+                let adapter_key = adapter.as_string();
+                if !queue_map.contains_key(&adapter_key) {
                     queue = Arc::new(Queue::new(
-                        adapter_id.clone(),
+                        adapter.clone(),
                         client.clone(),
                         requires_padding,
                         block_size,
                     ));
-                    queue_map.insert(adapter_id.clone(), queue.clone());
-                    adapter_id_vec.append(&mut vec![adapter_id.clone()]);
+                    queue_map.insert(adapter_key.clone(), queue.clone());
+                    adapter_key_vec.append(&mut vec![adapter_key.clone()]);
                 } else {
-                    queue = queue_map.get(&adapter_id).unwrap().clone();
+                    queue = queue_map.get(&adapter_key).unwrap().clone();
                 }
 
                 // ensure that append completes before sending batcher message
@@ -332,26 +341,27 @@ async fn adapter_manager_task(
             } => {
                 let queue: Option<Arc<Queue>>;
                 if !queue_map.is_empty() {
-                    adapter_id_index = (adapter_id_index + 1) % adapter_id_vec.len();
-                    let adapter_id = adapter_id_vec[adapter_id_index].clone();
-                    queue = Some(queue_map.get(&adapter_id).unwrap().clone());
+                    adapter_key_index = (adapter_key_index + 1) % adapter_key_vec.len();
+                    let adapter_key = adapter_key_vec[adapter_key_index].clone();
+                    queue = Some(queue_map.get(&adapter_key).unwrap().clone());
                 } else {
                     queue = None;
                 }
                 let _ = response_sender.send(queue);
             }
             AdapterManagerCommand::RemoveQueue {
-                adapter_id,
+                adapter
             } => {
-                let queue = queue_map.get(&adapter_id).unwrap().clone();
+                let adapter_key = adapter.as_string();
+                let queue = queue_map.get(&adapter_key).unwrap().clone();
                 queue.terminate().await;
-                queue_map.remove(&adapter_id);
-                adapter_id_vec.retain(|id| id != &adapter_id);
+                queue_map.remove(&adapter_key);
+                adapter_key_vec.retain(|id| id != &adapter_key);
                 // ensure that adapter ID index is within bounds
-                if adapter_id_vec.len() > 0 {
-                    adapter_id_index = adapter_id_index % adapter_id_vec.len();
+                if adapter_key_vec.len() > 0 {
+                    adapter_key_index = adapter_key_index % adapter_key_vec.len();
                 } else {
-                    adapter_id_index = 0;
+                    adapter_key_index = 0;
                 }
             }
         }
@@ -382,9 +392,9 @@ async fn batching_task(
         }
 
         let queue = queue_option.unwrap();
-        let adapter_id = queue.adapter_id().to_string();
+        let adapter = queue.adapter().clone();
         if queue.is_errored().await {
-            adapter_manager.remove_queue(adapter_id).await;
+            adapter_manager.remove_queue(adapter).await;
             continue
         }
         if queue.is_empty().await {

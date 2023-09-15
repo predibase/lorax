@@ -19,6 +19,12 @@ from .source import BaseModelSource, try_to_load_from_cache
 WEIGHTS_CACHE_OVERRIDE = os.getenv("WEIGHTS_CACHE_OVERRIDE", None)
 
 
+def get_hub_model_local_dir(model_id: str) -> Path:
+    object_id = model_id.replace("/", "--")
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}"
+    return repo_cache
+
+
 def weight_hub_files(
     model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"
 ) -> List[str]:
@@ -83,10 +89,11 @@ def weight_files(
             files.append(p)
         return files
 
+    repo_cache = get_hub_model_local_dir(model_id)
     files = []
     for filename in filenames:
         cache_file = try_to_load_from_cache(
-            model_id, revision=revision, filename=filename
+            repo_cache, revision=revision, filename=filename
         )
         if cache_file is None:
             raise LocalEntryNotFoundError(
@@ -105,7 +112,8 @@ def download_weights(
     """Download the safetensors files from the hub"""
 
     def download_file(filename, tries=5, backoff: int = 5):
-        local_file = try_to_load_from_cache(model_id, revision, filename)
+        repo_cache = get_hub_model_local_dir(model_id)
+        local_file = try_to_load_from_cache(repo_cache, revision, filename)
         if local_file is not None:
             logger.info(f"File {filename} already present in cache.")
             return Path(local_file)
