@@ -194,9 +194,9 @@ def download_weights(
         backtrace=True,
         diagnose=False,
     )
+    _download_weights(model_id, revision, extension, auto_convert, source)
     if adapter_id:
         _download_weights(adapter_id, revision, extension, auto_convert, adapter_source)
-    _download_weights(model_id, revision, extension, auto_convert, source)
 
 
 @app.command()
