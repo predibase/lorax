@@ -7,6 +7,11 @@ on:
       - 'main'
     tags:
       - 'v*'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ master ]
+    paths:
+      - '.github/workflows/build.yaml'
 
 jobs:
   start-runner:
@@ -57,6 +62,9 @@ jobs:
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
       security-events: write
+    env:
+      AWS_REGION: us-west-2
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -67,6 +75,13 @@ jobs:
       - name: Inject slug/short variables
         uses: rlespinasse/github-slug-action@v4.4.1
       
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1.6.2
@@ -82,7 +97,7 @@ jobs:
       - build-and-push-image
     runs-on: ubuntu-latest
     env:
-      AWS_REGION: us-east-2
+      AWS_REGION: us-west-2
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
