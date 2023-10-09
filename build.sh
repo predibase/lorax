@@ -37,6 +37,28 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 # Push to ECR
 docker push ${ECR_REPO}/${IMAGE_NAME}:${TAG}
 
-# Optional: Tag and push as 'latest'
-docker tag ${IMAGE_NAME}:${TAG} ${ECR_REPO}/${IMAGE_NAME}:latest
-docker push ${ECR_REPO}/${IMAGE_NAME}:latest
+
+latest_flag=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --latest)
+            latest_flag=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Check if the --latest flag has been passed
+if $latest_flag; then
+    # Tag and push as 'latest'
+    docker tag ${IMAGE_NAME}:${TAG} ${ECR_REPO}/${IMAGE_NAME}:latest
+    docker push ${ECR_REPO}/${IMAGE_NAME}:latest
+else
+    echo "The --latest flag has not been passed. Skipping push to ECR as latest."
+fi

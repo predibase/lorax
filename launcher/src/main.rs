@@ -301,6 +301,10 @@ struct Args {
     /// Display a lot of information about your runtime environment
     #[clap(long, short, action)]
     env: bool,
+
+    /// Download model weights only
+    #[clap(long, env)]
+    download_only: bool,
 }
 
 #[derive(Debug)]
@@ -1132,6 +1136,11 @@ fn main() -> Result<(), LauncherError> {
 
     // Download and convert model weights
     download_convert_model(args.model_id.to_string(), &args, running.clone())?;
+
+    // we're just downloading the model
+    if args.download_only {
+        return Ok(());
+    }
 
     if !running.load(Ordering::SeqCst) {
         // Launcher was asked to stop
