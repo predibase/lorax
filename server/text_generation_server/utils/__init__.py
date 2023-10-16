@@ -1,4 +1,8 @@
-from text_generation_server.utils.adapter import compute_delta_weight, create_merged_weight_files
+from text_generation_server.utils.adapter import (
+    compute_delta_weight, 
+    create_merged_weight_files,
+    load_module_map,
+)
 from text_generation_server.utils.convert import convert_file, convert_files
 from text_generation_server.utils.dist import initialize_torch_distributed
 from text_generation_server.utils.weights import Weights, get_start_stop_idxs_for_rank
@@ -33,6 +37,7 @@ from text_generation_server.utils.tokens import (
 __all__ = [
     "compute_delta_weight",
     "create_merged_weight_files",
+    "load_module_map",
     "convert_file",
     "convert_files",
     "get_model_source",

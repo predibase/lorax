@@ -1,12 +1,5 @@
-import time
-from filelock import FileLock
-from functools import lru_cache
-
 import torch
 import torch.distributed
-
-from peft import LoraConfig
-from safetensors.torch import load_file
 
 from loguru import logger
 from opentelemetry import trace
@@ -24,7 +17,7 @@ from text_generation_server.utils import (
     create_merged_weight_files,
     get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
-    sources,
+    load_module_map,
     weight_files,
     Weights,
 )
@@ -142,11 +135,6 @@ class FlashLlama(FlashCausalLM):
                 self.orig_weights[weight_name] = (orig_v_proj.cpu(), orig_v_proj_device)
     
     def load_adapter(self, adapter_id, adapter_source):
-        """Physically loads the adapter weights into the model.
-
-        `adapter_id` must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded into model.
-        Otherwise, the adapter weights are merged into the model weights on the fly.
-        """
         if not self.dynamic_adapter_loading_enabled:
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 return
@@ -174,7 +162,7 @@ class FlashLlama(FlashCausalLM):
                 self.adapter_id = adapter_id
         else:
             weight_names = tuple(self.orig_weights.keys())
-            module_map, adapter_config = self._load_module_map(adapter_id, adapter_source, weight_names)
+            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
             
             # TODO(geoffrey): merge this with function
             # text_generation_server/utils/adapter.py::merge_adapter_weights
@@ -209,29 +197,3 @@ class FlashLlama(FlashCausalLM):
                 layer.self_attn.query_key_value.linear.weight[2*d_q:] = compute_merged_weight(
                     f"{prefix}.{i}.self_attn.v_proj")
             self.adapter_id = adapter_id
-
-    @lru_cache(maxsize=5)
-    def _load_module_map(self, adapter_id, adapter_source, weight_names):
-        # TODO(geoffrey): refactor this and merge parts of this function with
-        # text_generation_server/utils/adapter.py::create_merged_weight_files       
-        source = sources.get_model_source(adapter_source, adapter_id, extension=".safetensors")
-        config_path = sources.get_config_path(adapter_id, adapter_source)
-        adapter_config = LoraConfig.from_pretrained(config_path)
-        if adapter_config.base_model_name_or_path != self.model_id:
-            raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{self.model_id}'. "
-                                f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
-
-        # load adapter weights from all shards (should have relatively small memory footprint)
-        adapter_filenames = source.weight_files()
-        adapter_weights = {}
-        for filename in adapter_filenames:
-            adapter_weights.update(load_file(filename))
-            
-        # map the model weights to the relevant adapter weights (LoRA A and B matrices)
-        module_map = {}
-        for weight_name in weight_names:
-            module_map[weight_name] = {
-                "lora_A": adapter_weights[f"base_model.model.{weight_name}.lora_A.weight"],
-                "lora_B": adapter_weights[f"base_model.model.{weight_name}.lora_B.weight"],
-            }
-        return module_map, adapter_config

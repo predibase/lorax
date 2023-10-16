@@ -65,6 +65,16 @@ if FLASH_ATTENTION:
     __all__.append(FlashRWSharded)
     __all__.append(FlashSantacoderSharded)
     __all__.append(FlashLlama)
+    
+MISTRAL = True
+try:
+    from text_generation_server.models.flash_mistral import FlashMistral
+except ImportError as e:
+    logger.warning(f"Could not import Mistral model: {e}")
+    MISTRAL = False
+
+if MISTRAL:
+    __all__.append(FlashMistral)
 
 
 def get_model(
@@ -182,12 +192,12 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    elif model_type == "mpt":
+    if model_type == "mpt":
         return MPTSharded(
             model_id, revision, quantize=quantize, trust_remote_code=trust_remote_code
         )
 
-    elif model_type == "gpt_neox":
+    if model_type == "gpt_neox":
         if FLASH_ATTENTION:
             return FlashNeoXSharded(
                 model_id,
@@ -213,7 +223,7 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
 
-    elif model_type == "llama":
+    if model_type == "llama":
         if FLASH_ATTENTION:
             return FlashLlama(
                 model_id,
@@ -266,7 +276,20 @@ def get_model(
                     trust_remote_code=trust_remote_code,
                 )
 
-    elif model_type == "opt":
+    if model_type == "mistral":
+        if MISTRAL:
+            return FlashMistral(
+                model_id,
+                adapter_id,
+                adapter_source,
+                revision,
+                quantize=quantize,
+                dtype=dtype,
+                trust_remote_code=trust_remote_code,
+            )
+        raise NotImplementedError("Mistral model requires flash attention v2")
+
+    if model_type == "opt":
         return OPTSharded(
             model_id,
             revision,
@@ -275,7 +298,7 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
-    elif model_type == "t5":
+    if model_type == "t5":
         return T5Sharded(
             model_id,
             revision,

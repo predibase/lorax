@@ -33,7 +33,7 @@ import dropout_layer_norm
 import vllm_cache_ops
 import vllm_attention_ops
 
-from text_generation_server.utils.flash_attn import attention
+from text_generation_server.utils.flash_attn import attention, HAS_FLASH_ATTN_V2
 from text_generation_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
@@ -43,28 +43,33 @@ from text_generation_server.utils.layers import (
     get_linear,
 )
 
+if not HAS_FLASH_ATTN_V2:
+    raise ImportError("Mistral model requires flash attn v2")
 
-class LlamaConfig(PretrainedConfig):
+
+class MistralConfig(PretrainedConfig):
+    model_type = "mistral"
+
     def __init__(
         self,
         vocab_size=32000,
         hidden_size=4096,
-        intermediate_size=11008,
+        intermediate_size=14336,
         num_hidden_layers=32,
         num_attention_heads=32,
-        num_key_value_heads=None,
+        num_key_value_heads=8,
         hidden_act="silu",
-        max_position_embeddings=2048,
+        max_position_embeddings=4096 * 32,
         initializer_range=0.02,
         rms_norm_eps=1e-6,
         use_cache=True,
-        pad_token_id=0,
+        pad_token_id=None,
         bos_token_id=1,
         eos_token_id=2,
         pretraining_tp=1,
         tie_word_embeddings=False,
-        rope_scaling=None,
         rope_theta=10000.0,
+        sliding_window=4096,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -73,6 +78,7 @@ class LlamaConfig(PretrainedConfig):
         self.intermediate_size = intermediate_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
+        self.sliding_window = sliding_window
 
         # for backward compatibility
         if num_key_value_heads is None:
@@ -84,7 +90,6 @@ class LlamaConfig(PretrainedConfig):
         self.rms_norm_eps = rms_norm_eps
         self.pretraining_tp = pretraining_tp
         self.use_cache = use_cache
-        self.rope_scaling = rope_scaling
         self.rope_theta = rope_theta
 
         super().__init__(
@@ -96,7 +101,7 @@ class LlamaConfig(PretrainedConfig):
         )
 
 
-class LlamaRMSNorm(nn.Module):
+class MistralRMSNorm(nn.Module):
     def __init__(self, prefix, weights, eps=1e-6):
         """
         LlamaRMSNorm is equivalent to T5LayerNorm
@@ -172,7 +177,7 @@ def _load_gqa(config, prefix: str, weights):
         dim=0,
     )
 
-    if config.quantize not in ["gptq"]:
+    if config.quantize not in ["gptq", "awq"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.hidden_size // config.num_attention_heads
@@ -188,7 +193,7 @@ def _load_gqa(config, prefix: str, weights):
     )
 
 
-class FlashLlamaAttention(torch.nn.Module):
+class MistralAttention(torch.nn.Module):
     def __init__(
         self,
         prefix: str,
@@ -196,6 +201,9 @@ class FlashLlamaAttention(torch.nn.Module):
         weights,
     ):
         super().__init__()
+        self.max_past = (
+            config.sliding_window if config.sliding_window is not None else 0
+        )
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
@@ -232,6 +240,27 @@ class FlashLlamaAttention(torch.nn.Module):
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
 
+    def get_query_key_value_weights(self, clone=True):
+        """Gets the query, key, and value weights from the attention layer.
+        
+        If `clone`, then the weights are cloned before being returned.
+        
+        NOTE: if not `clone`, then the weights are returned as views, meaning
+        that changes to the weights will be reflected in the attention layer.
+        """
+        query, key, value = self.query_key_value.linear.weight.split(
+            [
+                self.head_size * self.num_heads,
+                self.head_size * self.num_key_value_heads,
+                self.head_size * self.num_key_value_heads,
+            ],
+            dim=0,
+        )
+
+        if clone:
+            return query.clone(), key.clone(), value.clone()
+        return query, key, value
+
     def forward(
         self,
         hidden_states,
@@ -243,6 +272,7 @@ class FlashLlamaAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        prefill_cache_indices,
     ):
         qkv = self.query_key_value(hidden_states)
         query, kv = qkv.split(
@@ -258,8 +288,13 @@ class FlashLlamaAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
+        if prefill_cache_indices is not None:
+            kv_to_cache = kv[prefill_cache_indices]
+        else:
+            kv_to_cache = kv
+
         vllm_cache_ops.reshape_and_cache(
-            kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
+            kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
         )
 
         # output tensor
@@ -276,6 +311,7 @@ class FlashLlamaAttention(torch.nn.Module):
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
+                window_size_left=self.max_past,
             )
         # Decode
         else:
@@ -297,7 +333,7 @@ class FlashLlamaAttention(torch.nn.Module):
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
 
 
-class LlamaMLP(nn.Module):
+class MistralMLP(nn.Module):
     def __init__(self, prefix, config, weights):
         super().__init__()
         act = config.hidden_act
@@ -335,19 +371,19 @@ class LlamaMLP(nn.Module):
         return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1])
 
 
-class FlashLlamaLayer(nn.Module):
+class MistralLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
-        self.self_attn = FlashLlamaAttention(
+        self.self_attn = MistralAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights
         )
-        self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
+        self.mlp = MistralMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
 
-        self.input_layernorm = LlamaRMSNorm(
+        self.input_layernorm = MistralRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
         )
-        self.post_attention_layernorm = LlamaRMSNorm(
+        self.post_attention_layernorm = MistralRMSNorm(
             prefix=f"{prefix}.post_attention_layernorm",
             weights=weights,
             eps=config.rms_norm_eps,
@@ -365,6 +401,7 @@ class FlashLlamaLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
+        prefill_cache_indices,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -379,6 +416,7 @@ class FlashLlamaLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            prefill_cache_indices,
         )
 
         # faster post attention rms norm
@@ -391,7 +429,7 @@ class FlashLlamaLayer(nn.Module):
         return mlp_output, attn_res
 
 
-class FlashLlamaModel(torch.nn.Module):
+class MistralModel(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
@@ -403,7 +441,7 @@ class FlashLlamaModel(torch.nn.Module):
         )
         self.layers = nn.ModuleList(
             [
-                FlashLlamaLayer(
+                MistralLayer(
                     layer_id,
                     config,
                     weights,
@@ -411,7 +449,7 @@ class FlashLlamaModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(
+        self.norm = MistralRMSNorm(
             prefix="model.norm", weights=weights, eps=config.rms_norm_eps
         )
 
@@ -431,6 +469,7 @@ class FlashLlamaModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
 
@@ -453,6 +492,7 @@ class FlashLlamaModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                prefill_cache_indices,
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -460,16 +500,19 @@ class FlashLlamaModel(torch.nn.Module):
         return hidden_states
 
 
-class FlashLlamaForCausalLM(torch.nn.Module):
+class FlashMistralForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
-        self.model = FlashLlamaModel(config, weights)
+        self.model = MistralModel(config, weights)
         self.lm_head = TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
         )
+        self.max_past = config.sliding_window
+        if self.max_past is None:
+            raise ValueError("max_past cannot be None")
 
     def forward(
         self,
@@ -481,8 +524,18 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        prefill_cache_indices: Optional[torch.Tensor],
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        if prefill_cache_indices is not None:
+            # Slots also need to be sliced as it has the same size as the whole kv tensor
+            slots = slots[prefill_cache_indices]
+        else:
+            # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
+            # kernel requires the true values
+            max_s = min(self.max_past, max_s)
+            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+
         hidden_states = self.model(
             input_ids,
             position_ids,
@@ -492,6 +545,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            prefill_cache_indices,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]

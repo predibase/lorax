@@ -28,6 +28,7 @@ except ImportError:
 
 from typing import Optional
 
+
 # Monkey patching
 @classmethod
 def load_layer_norm(cls, prefix, weights, eps):
@@ -139,7 +140,6 @@ class Linear8bitLt(nn.Module):
                 self.weight.data = self.state.CxB
         return out
 
-
 def get_linear(weight, bias, quantize):
     if quantize is None:
         linear = FastLinear(weight, bias)
@@ -207,8 +207,7 @@ class TensorParallelHead(SuperLayer):
             weight = weights.get_tensor(f"{prefix}.weight")
             should_gather = False
 
-        # GPTQ doesn't quantize heads (nor embeddings)
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "eetq"]:
             quantize = None
         else:
             quantize = config.quantize
@@ -250,6 +249,17 @@ class TensorParallelHead(SuperLayer):
 
 
 class TensorParallelColumnLinear(SuperLayer):
+    @classmethod
+    def load_qkv(cls, config, prefix: str, weights, bias: bool):
+        """Specific method when the QKV was joined after the fact"""
+        weight = weights.get_weights_col_packed_qkv(prefix, quantize=config.quantize)
+        if bias:
+            raise NotImplementedError("packed_qkv only implemented for baichuan")
+        else:
+            bias = None
+        linear = get_linear(weight, bias, config.quantize)
+        return cls(linear)
+
     @classmethod
     def load(cls, config, prefix: str, weights, bias: bool):
         return cls.load_multi(config, [prefix], weights, bias, dim=0)
@@ -376,33 +386,83 @@ try:
     from flash_attn.layers.rotary import RotaryEmbedding
     import rotary_emb
 
-    class PositionRotaryEmbedding(nn.Module):
-        def __init__(self, inv_freq):
-            super().__init__()
+    def _create_inv_freq(dim, base, device):
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
+        )
+        return inv_freq
 
+    def _get_rope_config(config):
+        if os.getenv("ROPE_SCALING", None) is not None:
+            rope_scaling = {
+                "type": os.environ["ROPE_SCALING"],
+                "factor": float(os.environ["ROPE_FACTOR"]),
+            }
+            return rope_scaling
+        return getattr(config, "rope_scaling", None)
+
+    class PositionRotaryEmbedding(nn.Module):
+        def __init__(self, inv_freq, scaling_factor):
+            super().__init__()
             self.inv_freq = inv_freq
             self._seq_len_cached = 0
             self._cos_cached = None
             self._sin_cached = None
             self._cos_k_cached = None
             self._sin_k_cached = None
+            self.scaling_factor = scaling_factor
+            self.dynamic_args = None
 
         @classmethod
-        def static(cls, dim, base, device):
-            inv_freq = 1.0 / (
-                base
-                ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
-            )
-            return cls(inv_freq)
+        def static(cls, config, dim, base, device):
+            inv_freq = _create_inv_freq(dim, base, device)
+            scaling_factor = None
+            rope_scaling = _get_rope_config(config)
+            if rope_scaling is not None:
+                scaling_factor = rope_scaling["factor"]
+                if rope_scaling["type"] == "linear":
+                    pass
+                elif rope_scaling["type"] == "dynamic":
+                    return DynamicPositionRotaryEmbedding(
+                        dim=dim,
+                        max_position_embeddings=config.max_position_embeddings,
+                        base=base,
+                        device=inv_freq.device,
+                        scaling_factor=scaling_factor,
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"rope scaling type {rope_scaling['type']} is not implemented or invalid"
+                    )
+            return cls(inv_freq, scaling_factor)
 
         @classmethod
-        def load(cls, prefix, weights):
+        def load(cls, config, prefix, weights):
             # XXX: Always load this in float32 !
             dtype = weights.dtype
             weights.dtype = torch.float32
             inv_freq = weights.get_tensor(f"{prefix}.inv_freq")
             weights.dtype = dtype
-            return cls(inv_freq)
+
+            scaling_factor = None
+            rope_scaling = _get_rope_config(config)
+            if rope_scaling is not None:
+                scaling_factor = rope_scaling["factor"]
+                if rope_scaling["type"] == "linear":
+                    pass
+                elif rope_scaling["type"] == "dynamic":
+                    return DynamicPositionRotaryEmbedding(
+                        dim=2 * inv_freq.shape[0],
+                        max_position_embeddings=config.max_position_embeddings,
+                        base=10000.0,
+                        device=inv_freq.device,
+                        scaling_factor=scaling_factor,
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"rope scaling type {rope_scaling['type']} is not implemented or invalid"
+                    )
+            return cls(inv_freq, scaling_factor)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
@@ -414,8 +474,11 @@ try:
             ):
                 self._seq_len_cached = seqlen
                 t = torch.arange(seqlen, device=device, dtype=self.inv_freq.dtype)
+                if self.scaling_factor is not None:
+                    t /= self.scaling_factor
                 # Don't do einsum, it converts fp32 to fp16
                 # freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+
                 freqs = torch.outer(t, self.inv_freq.to(device=t.device))
                 self._cos_cached = torch.cos(freqs).to(dtype)
                 self._sin_cached = torch.sin(freqs).to(dtype)
@@ -440,6 +503,39 @@ try:
 
             rotary_emb.apply_rotary(x1, x2, cos, sin, x1, x2, False)
             return x
+
+    class DynamicPositionRotaryEmbedding(PositionRotaryEmbedding):
+        def __init__(self, dim, max_position_embeddings, base, device, scaling_factor):
+            inv_freq = _create_inv_freq(dim, base, device)
+            super().__init__(inv_freq, scaling_factor)
+            self.dim = dim
+            self.max_position_embeddings = max_position_embeddings
+            self.base = base
+
+        def _update_cos_sin_cache(self, dtype, device, seqlen):
+            # Reset the tables if the sequence length has changed,
+            # or if we're on a new device (possibly due to tracing for instance)
+            if (
+                seqlen > self._seq_len_cached
+                or self._cos_cached.device != device
+                or self._cos_cached.dtype != dtype
+            ):
+                if seqlen > self.max_position_embeddings:
+                    newbase = self.base * (
+                        (self.scaling_factor * seqlen / self.max_position_embeddings)
+                        - (self.scaling_factor - 1)
+                    ) ** (self.dim / (self.dim - 2))
+                    self.inv_freq = _create_inv_freq(
+                        self.dim, newbase, self.inv_freq.device
+                    )
+                self._seq_len_cached = seqlen
+                t = torch.arange(seqlen, device=device, dtype=self.inv_freq.dtype)
+                # Don't do einsum, it converts fp32 to fp16
+                # freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+
+                freqs = torch.outer(t, self.inv_freq.to(device=t.device))
+                self._cos_cached = torch.cos(freqs).to(dtype)
+                self._sin_cached = torch.sin(freqs).to(dtype)
 
 except ImportError:
     pass

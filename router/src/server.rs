@@ -593,6 +593,7 @@ pub async fn run(
         max_concurrent_requests,
         Duration::from_secs(2),
         shard_info.requires_padding,
+        shard_info.window_size,
         generation_health,
     );
 

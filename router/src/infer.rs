@@ -45,10 +45,11 @@ impl Infer {
         max_concurrent_requests: usize,
         max_time_limit: Duration,
         requires_padding: bool,
+        window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
     ) -> Self {
         // Routes requests to the appropriate adapter queue
-        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16);
+        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16, window_size);
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -259,6 +260,7 @@ impl AdapterManager {
         client: ShardedClient,
         requires_padding: bool,
         block_size: u32,
+        window_size: Option<u32>,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -267,6 +269,7 @@ impl AdapterManager {
             client,
             requires_padding,
             block_size,
+            window_size,
             receiver,
         ));
 
@@ -307,6 +310,7 @@ async fn adapter_manager_task(
     client: ShardedClient,
     requires_padding: bool,
     block_size: u32,
+    window_size: Option<u32>,
     receiver: flume::Receiver<AdapterManagerCommand>,
 ) {
     let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
@@ -326,6 +330,7 @@ async fn adapter_manager_task(
                         client.clone(),
                         requires_padding,
                         block_size,
+                        window_size,
                     ));
                     queue_map.insert(adapter_key.clone(), queue.clone());
                     adapter_key_vec.append(&mut vec![adapter_key.clone()]);
