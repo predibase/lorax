@@ -1,22 +1,18 @@
 <div align="center">
 
-![image](https://github.com/huggingface/text-generation-inference/assets/3841370/38ba1531-ea0d-4851-b31a-a6d4ddc944b0)
+![image](https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent)
 
-# Text Generation Inference
+# LoRA Exchange (LoRAX)
 
-<a href="https://github.com/huggingface/text-generation-inference">
+<a href="https://github.com/predibase/lorax">
   <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/huggingface/text-generation-inference?style=social">
 </a>
-<a href="https://github.com/huggingface/text-generation-inference/blob/main/LICENSE">
-  <img alt="License" src="https://img.shields.io/github/license/huggingface/text-generation-inference">
-</a>
-<a href="https://huggingface.github.io/text-generation-inference">
-  <img alt="Swagger API documentation" src="https://img.shields.io/badge/API-Swagger-informational">
+<a href="https://github.com/predibase/lorax/blob/main/LICENSE">
+  <img alt="License" src="https://img.shields.io/github/license/predibase/lorax">
 </a>
 </div>
 
-A Rust, Python and gRPC server for text generation inference. Used in production at [HuggingFace](https://huggingface.co)
-to power LLMs api-inference widgets.
+The LLM inference server that speaks for the GPUs!
 
 ## Table of contents
 
