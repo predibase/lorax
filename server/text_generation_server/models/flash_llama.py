@@ -182,7 +182,7 @@ class FlashLlama(FlashCausalLM):
                     adapter_config.r
                 )
                 start, stop = get_start_stop_idxs_for_rank(delta_weight.shape[0], self.process_group.rank(), self.process_group.size())
-                return orig_weight + delta_weight[start:stop]
+                return delta_weight[start:stop]
             
             prefix = "model.layers"
             for i, layer in tqdm(
@@ -197,7 +197,7 @@ class FlashLlama(FlashCausalLM):
                 d_qkv, _ = orig_layer.linear.weight.shape
                 d_q = d_qkv // 3  # break up d_qkv into 3 parts
 
-                lora_t = torch.zeros_like(orig_layer.linear.weight)
+                lora_t = torch.zeros_like(orig_layer.linear.weight).to(orig_layer.linear.weight.device, orig_layer.linear.weight.dtype)
                 lora_t[:d_q] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj", orig_layer)
                 lora_t[2*d_q:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj", orig_layer)
 
