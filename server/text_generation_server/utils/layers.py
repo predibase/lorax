@@ -277,6 +277,26 @@ class TensorParallelColumnLinear(SuperLayer):
             bias = None
         linear = get_linear(weight, bias, config.quantize)
         return cls(linear)
+    
+
+class TensorParallelLoraLinear(SuperLayer):
+    def __init__(self, linear, process_group, orig_layer):
+        super().__init__(linear)
+        self.process_group = process_group
+        self.orig_layer = orig_layer
+
+    @classmethod
+    def load(cls, weight, process_group, orig_layer):
+        return cls(
+            get_linear(weight, bias=None, quantize=None),
+            process_group=process_group,
+            orig_layer=orig_layer
+        )
+    
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        orig_out = self.orig_layer(input)
+        out = super().forward(input)
+        return orig_out + out
 
 
 class TensorParallelRowLinear(SuperLayer):

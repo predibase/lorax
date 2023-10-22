@@ -22,6 +22,7 @@ from text_generation_server.utils import (
     Weights,
 )
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from text_generation_server.utils.layers import TensorParallelLoraLinear
 
 tracer = trace.get_tracer(__name__)
 
@@ -166,10 +167,10 @@ class FlashLlama(FlashCausalLM):
             
             # TODO(geoffrey): merge this with function
             # text_generation_server/utils/adapter.py::merge_adapter_weights
-            def compute_merged_weight(weight_name):
-                # load the original weights from CPU back onto the device they were on
-                orig_weight, orig_device = self.orig_weights[weight_name]
-                orig_weight = orig_weight.to(orig_device)
+            def compute_merged_weight(weight_name, orig_layer):
+                orig_weight = orig_layer.linear.weight
+                orig_device = orig_weight.device
+
                 # ensure the delta has the same dtype and device as the original weight
                 lora_A = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
                 lora_B = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
@@ -189,11 +190,21 @@ class FlashLlama(FlashCausalLM):
                 desc=f"Merging weights for adapter {adapter_id}",
                 total=len(self.model.model.layers)
             ):
-                d_qkv, _ = layer.self_attn.query_key_value.linear.weight.shape
+                orig_layer = layer.self_attn.query_key_value
+                if isinstance(orig_layer, TensorParallelLoraLinear):
+                    orig_layer = orig_layer.orig_layer
+
+                d_qkv, _ = orig_layer.linear.weight.shape
                 d_q = d_qkv // 3  # break up d_qkv into 3 parts
-                
-                layer.self_attn.query_key_value.linear.weight[:d_q] = compute_merged_weight(
-                    f"{prefix}.{i}.self_attn.q_proj")
-                layer.self_attn.query_key_value.linear.weight[2*d_q:] = compute_merged_weight(
-                    f"{prefix}.{i}.self_attn.v_proj")
+
+                lora_t = torch.zeros_like(orig_layer.linear.weight)
+                lora_t[:d_q] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj", orig_layer)
+                lora_t[2*d_q:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj", orig_layer)
+
+                layer.self_attn.query_key_value = TensorParallelLoraLinear.load(
+                    lora_t,
+                    self.process_group,
+                    orig_layer
+                )
+
             self.adapter_id = adapter_id
