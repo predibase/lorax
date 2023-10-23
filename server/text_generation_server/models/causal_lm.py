@@ -80,6 +80,7 @@ class CausalLMBatch(Batch):
         max_truncation = 0
         padding_right_offset = 0
         max_decode_tokens = 0
+        adapter_id = None
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             inputs.append(r.inputs)
@@ -93,6 +94,7 @@ class CausalLMBatch(Batch):
             padding_right_offset = max(
                 padding_right_offset, stopping_criteria.max_new_tokens
             )
+            adapter_id = r.parameters.adapter_id
 
         tokenized_inputs = tokenizer(
             inputs,

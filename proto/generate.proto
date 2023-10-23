@@ -71,6 +71,8 @@ message NextTokenChooserParameters {
     float repetition_penalty = 7;
     /// token watermarking using "A Watermark for Large Language Models"
     bool watermark = 8;
+    /// adapter to use with lora exchange
+    string adapter_id = 9;
 }
 
 message StoppingCriteriaParameters {
