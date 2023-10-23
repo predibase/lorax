@@ -43,6 +43,11 @@ class CausalLMBatch(Batch):
     next_token_choosers: List[NextTokenChooser]
     stopping_criterias: List[StoppingCriteria]
 
+    # Adapter metadata for each request
+    adapter_ids: List[str]
+    adapter_idx_mapping: Dict[str, int]
+    adapter_indices: torch.Tensor
+
     # Metadata used for padding
     max_input_length: int
     padding_right_offset: int
@@ -80,7 +85,7 @@ class CausalLMBatch(Batch):
         max_truncation = 0
         padding_right_offset = 0
         max_decode_tokens = 0
-        adapter_id = None
+        adapter_ids = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             inputs.append(r.inputs)
@@ -94,7 +99,7 @@ class CausalLMBatch(Batch):
             padding_right_offset = max(
                 padding_right_offset, stopping_criteria.max_new_tokens
             )
-            adapter_id = r.parameters.adapter_id
+            adapter_ids.append(r.parameters.adapter_id)
 
         tokenized_inputs = tokenizer(
             inputs,
