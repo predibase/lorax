@@ -194,12 +194,13 @@ impl Client {
     }
 
     /// Physically loads the weights into the model for an adapter
-    pub async fn load_adapter(&mut self, adapter_id: String, adapter_source: String) -> Result<String> {
+    pub async fn load_adapter(&mut self, adapter_id: String, adapter_source: String, adapter_index: u32) -> Result<String> {
         if let Some(adapter_source_enum) = AdapterSource::from_str_name(adapter_source.to_uppercase().as_str()) {
             let request = tonic::Request::new(
                 LoadAdapterRequest { 
                     adapter_id, 
-                    adapter_source: adapter_source_enum.into()
+                    adapter_source: adapter_source_enum.into(),
+                    adapter_index
                 }).inject_context();
             let response = self.stub.load_adapter(request).await?.into_inner();
             Ok(response.adapter_id)

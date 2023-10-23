@@ -44,8 +44,6 @@ class CausalLMBatch(Batch):
     stopping_criterias: List[StoppingCriteria]
 
     # Adapter metadata for each request
-    adapter_ids: List[str]
-    adapter_idx_mapping: Dict[str, int]
     adapter_indices: torch.Tensor
 
     # Metadata used for padding
@@ -85,7 +83,7 @@ class CausalLMBatch(Batch):
         max_truncation = 0
         padding_right_offset = 0
         max_decode_tokens = 0
-        adapter_ids = []
+        adapter_indices_list = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             inputs.append(r.inputs)
@@ -99,7 +97,9 @@ class CausalLMBatch(Batch):
             padding_right_offset = max(
                 padding_right_offset, stopping_criteria.max_new_tokens
             )
-            adapter_ids.append(r.parameters.adapter_id)
+            adapter_indices_list.append(r.adapter_index)
+
+        adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
 
         tokenized_inputs = tokenizer(
             inputs,
@@ -148,6 +148,7 @@ class CausalLMBatch(Batch):
             max_input_length=max_input_length.item(),
             padding_right_offset=padding_right_offset,
             max_tokens=max_tokens,
+            adapter_indices=adapter_indices,
         )
 
     @tracer.start_as_current_span("filter")

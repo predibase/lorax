@@ -157,7 +157,7 @@ async fn queue_task(
     window_size: Option<u32>,
     receiver: flume::Receiver<QueueCommand>,
 ) {
-    let mut state = State::new(requires_padding, block_size, window_size);
+    let mut state = State::new(requires_padding, block_size, window_size, adapter.index());
     let mut err_msg: Option<String> = None;
 
     // download the adapter
@@ -195,6 +195,7 @@ async fn queue_task(
                 match client.load_adapter(
                     adapter.id().to_string(),
                     adapter.source().to_string(),
+                    adapter.index(),
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} loaded", adapter.id());
@@ -287,10 +288,13 @@ struct State {
 
     /// Sliding window
     window_size: Option<u32>,
+
+    /// Adapter index
+    adapter_index: u32,
 }
 
 impl State {
-    fn new(requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
+    fn new(requires_padding: bool, block_size: u32, window_size: Option<u32>, adapter_index: u32) -> Self {
         Self {
             entries: VecDeque::with_capacity(128),
             next_id: 0,
@@ -298,6 +302,7 @@ impl State {
             requires_padding,
             block_size,
             window_size,
+            adapter_index,
         }
     }
 
@@ -408,6 +413,7 @@ impl State {
                 truncate: entry.request.truncate,
                 parameters: Some(entry.request.parameters.clone()),
                 stopping_parameters: Some(entry.request.stopping_parameters.clone()),
+                adapter_index: self.adapter_index,
             });
             // Set batch_time
             entry.batch_time = Some(Instant::now());

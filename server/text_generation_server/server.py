@@ -148,11 +148,13 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         try:
             adapter_id = request.adapter_id
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
-            self.model.load_adapter(adapter_id, adapter_source)
+            adapter_index = request.adapter_index
+            self.model.load_adapter(adapter_id, adapter_source, adapter_index)
             
             return generate_pb2.LoadAdapterResponse(
                 adapter_id=adapter_id,
                 adapter_source=request.adapter_source,
+                adapter_index=adapter_index,
             )
         except Exception:
             logger.exception("Error when loading adapter")

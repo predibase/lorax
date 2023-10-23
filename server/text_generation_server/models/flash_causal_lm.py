@@ -626,7 +626,7 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
-    def load_adapter(self, adapter_id, adapter_source):
+    def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.
 
         adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded 

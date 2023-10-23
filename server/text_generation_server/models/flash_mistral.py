@@ -386,7 +386,7 @@ class FlashMistral(FlashCausalLM):
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
 
-    def load_adapter(self, adapter_id, adapter_source):
+    def load_adapter(self, adapter_id, adapter_source, adapter_index):
         # NOTE: this implementation of `load_adapter` looks VERY similar to the 
         # one in FlashLlama, but we duplicate it here because they are 
         # fundamentally different models, and we want to make it easy to fix

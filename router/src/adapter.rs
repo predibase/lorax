@@ -15,11 +15,13 @@ pub(crate) struct Adapter {
     id: String,
     /// source (enforced at proto level)
     source: String,
+    /// index of the adapter
+    index: u32,
 }
 
 impl Adapter {
-    pub(crate) fn new(id: String, source: String) -> Self {
-        Self { id, source }
+    pub(crate) fn new(id: String, source: String, index: u32) -> Self {
+        Self { id, source, index }
     }
 
     pub(crate) fn id(&self) -> &str {
@@ -28,6 +30,10 @@ impl Adapter {
 
     pub(crate) fn source(&self) -> &str {
         &self.source
+    }
+
+    pub(crate) fn index(&self) -> u32 {
+        self.index
     }
 
     pub(crate) fn as_string(&self) -> String {

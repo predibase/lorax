@@ -29,6 +29,10 @@ pub struct Infer {
     validation: Validation,
     /// Manages the queues of the various adapters
     adapter_manager: AdapterManager,
+    /// Maps adapter ID to a unique index
+    adapter_to_index: HashMap<String, u32>,
+    // Thread-safe incrementing of the adapter index
+    adapter_counter: Arc<Mutex<u32>>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
 }
@@ -50,6 +54,9 @@ impl Infer {
     ) -> Self {
         // Routes requests to the appropriate adapter queue
         let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16, window_size);
+
+        let adapter_to_index = HashMap::new();
+        let adapter_counter = Arc::new(Mutex::new(0));
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -105,9 +112,20 @@ impl Infer {
             adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
         }
 
+        let adapter_idx;
+        if self.adapter_to_index.contains_key(&adapter_id) {
+            adapter_idx = self.adapter_to_index.get(&adapter_id);
+        } else {
+            let mut counter = self.adapter_counter.lock().unwrap();
+            self.adapter_to_index.insert(adapter_id.clone(), *counter);
+            adapter_idx = *counter;
+            *counter += 1;
+        }
+
         let adapter = Adapter::new(
             adapter_id.unwrap(),
             adapter_source.unwrap(),
+            adapter_idx,
         );
 
         // Validate request
