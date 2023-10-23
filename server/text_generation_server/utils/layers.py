@@ -279,24 +279,35 @@ class TensorParallelColumnLinear(SuperLayer):
         return cls(linear)
     
 
-class TensorParallelLoraLinear(SuperLayer):
-    def __init__(self, linear, process_group, orig_layer):
-        super().__init__(linear)
+class TensorParallelLoraLinear(nn.Module):
+    def __init__(self, q_layers, v_layers, adapter_config, process_group, orig_layer):
+        super().__init__()
+        self.q_lora_a, self.q_lora_b = q_layers
+        self.v_lora_a, self.v_lora_b = v_layers
         self.process_group = process_group
         self.orig_layer = orig_layer
+        self.scaling = self.adapter_config.lora_alpha / self.adapter_config.r
+
+        d_qkv, _ = orig_layer.linear.weight.shape
+        self.d_q = d_qkv // 3  # break up d_qkv into 3 parts
 
     @classmethod
-    def load(cls, weight, process_group, orig_layer):
+    def load(cls, q_weights, v_weights, adapter_config, process_group, orig_layer):
         return cls(
-            get_linear(weight, bias=None, quantize=None),
+            (get_linear(q_weights[0], bias=None, quantize=None), get_linear(q_weights[1], bias=None, quantize=None)),
+            (get_linear(v_weights[0], bias=None, quantize=None), get_linear(v_weights[1], bias=None, quantize=None)),
+            adapter_config=adapter_config,
             process_group=process_group,
             orig_layer=orig_layer
         )
     
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        orig_out = self.orig_layer(input)
-        out = super().forward(input)
-        return orig_out + out
+        result = self.orig_layer(input)
+
+        result[:self.d_q] += self.q_lora_b(self.q_lora_a(input)) * self.scaling
+        result[2*self.d_q:] += self.q_lora_b(self.q_lora_a(input)) * self.scaling
+
+        return result
 
 
 class TensorParallelRowLinear(SuperLayer):

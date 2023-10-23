@@ -174,6 +174,8 @@ class FlashLlama(FlashCausalLM):
                 # ensure the delta has the same dtype and device as the original weight
                 lora_A = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
                 lora_B = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
+                print("!!! lora_A.shape", lora_A.shape)
+                print("!!! lora_B.shape", lora_B.shape)
                 delta_weight = compute_delta_weight(
                     lora_A, 
                     lora_B, 
@@ -194,15 +196,29 @@ class FlashLlama(FlashCausalLM):
                 if isinstance(orig_layer, TensorParallelLoraLinear):
                     orig_layer = orig_layer.orig_layer
 
-                d_qkv, _ = orig_layer.linear.weight.shape
-                d_q = d_qkv // 3  # break up d_qkv into 3 parts
+                # d_qkv, _ = orig_layer.linear.weight.shape
+                # d_q = d_qkv // 3  # break up d_qkv into 3 parts
 
-                lora_t = torch.zeros_like(orig_layer.linear.weight).to(orig_layer.linear.weight.device, orig_layer.linear.weight.dtype)
-                lora_t[:d_q] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj", orig_layer)
-                lora_t[2*d_q:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj", orig_layer)
+                # lora_t = torch.zeros_like(orig_layer.linear.weight).to(orig_layer.linear.weight.device, orig_layer.linear.weight.dtype)
+                # print("!!! lora_t.shape", lora_t.shape)
+                # lora_t[:d_q] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj", orig_layer)
+                # lora_t[2*d_q:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj", orig_layer)
+
+                orig_weight = orig_layer.linear.weight
+                orig_device = orig_weight.device
+
+                weight_name = f"{prefix}.{i}.self_attn.q_proj"
+                q_lora_a = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
+                q_lora_b = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
+
+                weight_name = f"{prefix}.{i}.self_attn.v_proj"
+                v_lora_a = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
+                v_lora_b = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
 
                 layer.self_attn.query_key_value = TensorParallelLoraLinear.load(
-                    lora_t,
+                    (q_lora_a, q_lora_b),
+                    (v_lora_a, v_lora_b),
+                    adapter_config,
                     self.process_group,
                     orig_layer
                 )
