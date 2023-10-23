@@ -160,13 +160,14 @@ impl ShardedClient {
         &mut self,
         adapter_id: String,
         adapter_source: String,
+        adapter_index: u32,
     ) -> Result<String> {
         // Load the adapter in all clients since there is sharding done between them
         let futures: Vec<_> = self
             .clients
             .iter_mut()
             .map(|client| Box::pin(
-                client.load_adapter(adapter_id.clone(), adapter_source.clone())))
+                client.load_adapter(adapter_id.clone(), adapter_source.clone(), adapter_index)))
             .collect();
 
         match join_all(futures).await.into_iter().collect::<Result<Vec<String>>>() {

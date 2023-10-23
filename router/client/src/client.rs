@@ -125,12 +125,14 @@ impl Client {
                     seed: 0,
                     repetition_penalty: 1.2,
                     watermark: true,
+                    adapter_id: "".to_string(),
                 }),
                 stopping_parameters: Some(StoppingCriteriaParameters {
                     max_new_tokens: 2,
                     stop_sequences: vec![],
                     ignore_eos_token: false,
                 }),
+                adapter_index: 0,
                 prefill_logprobs: true,
             });
             n_tokens += max_input_length;
