@@ -304,17 +304,7 @@ class TensorParallelLoraLinear(nn.Module):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         result = self.orig_layer(input)
 
-        print("!!! result shape: ", result.shape, self.d_q)
-        print("!!! input shape: ", input.shape)
-        print("!!! q_lora_a shape: ", self.q_lora_a.weight.shape)
-        print("!!! q_lora_b shape: ", self.q_lora_b.weight.shape)
-
-        x1 = self.q_lora_a(input)
-        print("!!! x1 shape: ", x1.shape)
-        x2 = self.q_lora_b(x1)
-        print("!!! x2 shape: ", x2.shape)
-
-        result[:, :self.d_q] += x2 * self.scaling
+        result[:, :self.d_q] += self.q_lora_b(self.q_lora_a(input)) * self.scaling
         result[:, 2*self.d_q:] += self.v_lora_b(self.v_lora_a(input)) * self.scaling
 
         return result
