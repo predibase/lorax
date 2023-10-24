@@ -44,12 +44,14 @@ impl Health {
                     seed: 0,
                     repetition_penalty: 1.0,
                     watermark: false,
+                    adapter_id: "".to_string(),
                 }),
                 stopping_parameters: Some(StoppingCriteriaParameters {
                     max_new_tokens: 1,
                     stop_sequences: vec![],
                     ignore_eos_token: false,
                 }),
+                adapter_index: 0,
             };
             let batch = Batch {
                 id: BATCH_ID,

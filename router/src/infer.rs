@@ -18,7 +18,7 @@ use text_generation_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -76,6 +76,8 @@ impl Infer {
         Self {
             validation,
             adapter_manager,
+            adapter_to_index,
+            adapter_counter,
             limit_concurrent_requests: semaphore,
         }
     }
@@ -113,11 +115,11 @@ impl Infer {
         }
 
         let adapter_idx;
-        if self.adapter_to_index.contains_key(&adapter_id) {
-            adapter_idx = self.adapter_to_index.get(&adapter_id);
+        if self.adapter_to_index.contains_key(&adapter_id.clone().unwrap()) {
+            adapter_idx = *self.adapter_to_index.get(&adapter_id.clone().unwrap()).unwrap();
         } else {
-            let mut counter = self.adapter_counter.lock().unwrap();
-            self.adapter_to_index.insert(adapter_id.clone(), *counter);
+            let mut counter = self.adapter_counter.lock().await;
+            self.adapter_to_index.insert(adapter_id.clone().unwrap(), *counter);
             adapter_idx = *counter;
             *counter += 1;
         }

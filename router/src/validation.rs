@@ -141,6 +141,7 @@ impl Validation {
             truncate,
             seed,
             watermark,
+            adapter_id,
             decoder_input_details,
             ..
         } = request.parameters;
@@ -233,6 +234,8 @@ impl Validation {
             })
             .unwrap_or(Ok(None))?;
 
+        let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
+
         // Validate inputs
         let (inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
@@ -247,6 +250,7 @@ impl Validation {
             do_sample,
             seed,
             watermark,
+            adapter_id,
         };
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens,
