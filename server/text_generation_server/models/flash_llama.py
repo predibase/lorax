@@ -136,6 +136,7 @@ class FlashLlama(FlashCausalLM):
                 self.orig_weights[weight_name] = (orig_v_proj.cpu(), orig_v_proj_device)
     
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
+        print("!!! loading adapter index", adapter_index)
         if not self.dynamic_adapter_loading_enabled:
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 return
