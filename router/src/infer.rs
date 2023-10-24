@@ -30,9 +30,7 @@ pub struct Infer {
     /// Manages the queues of the various adapters
     adapter_manager: AdapterManager,
     /// Maps adapter ID to a unique index
-    adapter_to_index: HashMap<String, u32>,
-    // Thread-safe incrementing of the adapter index
-    adapter_counter: Arc<Mutex<u32>>,
+    adapter_to_index: Arc<Mutex<HashMap<String, u32>>>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
 }
@@ -55,8 +53,7 @@ impl Infer {
         // Routes requests to the appropriate adapter queue
         let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16, window_size);
 
-        let adapter_to_index = HashMap::new();
-        let adapter_counter = Arc::new(Mutex::new(0));
+        let adapter_to_index = Arc::new(Mutex::new(HashMap::new()));
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -77,7 +74,6 @@ impl Infer {
             validation,
             adapter_manager,
             adapter_to_index,
-            adapter_counter,
             limit_concurrent_requests: semaphore,
         }
     }
@@ -115,13 +111,14 @@ impl Infer {
         }
 
         let adapter_idx;
-        if self.adapter_to_index.contains_key(&adapter_id.clone().unwrap()) {
-            adapter_idx = *self.adapter_to_index.get(&adapter_id.clone().unwrap()).unwrap();
-        } else {
-            let mut counter = self.adapter_counter.lock().await;
-            self.adapter_to_index.insert(adapter_id.clone().unwrap(), *counter);
-            adapter_idx = *counter;
-            *counter += 1;
+        {
+            let mut adapter_to_index = self.adapter_to_index.lock().await;
+            if adapter_to_index.contains_key(&adapter_id.clone().unwrap()) {
+                adapter_idx = *adapter_to_index.get(&adapter_id.clone().unwrap()).unwrap();
+            } else {
+                adapter_idx = adapter_to_index.len() as u32;
+                adapter_to_index.insert(adapter_id.clone().unwrap(), adapter_idx);
+            }
         }
 
         let adapter = Adapter::new(
