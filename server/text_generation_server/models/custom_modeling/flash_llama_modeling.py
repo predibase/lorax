@@ -38,6 +38,7 @@ from text_generation_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
+    TensorParallelMultiAdapterLinear,
     PositionRotaryEmbedding,
     TensorParallelHead,
     get_linear,
@@ -147,9 +148,14 @@ class LlamaRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-
+        
 
 def load_attention(config, prefix, weights):
+    base_layer = load_attention_multi(config, prefix, weights)
+    return TensorParallelMultiAdapterLinear.load(base_layer)
+
+
+def load_attention_multi(config, prefix, weights):
     if config.num_attention_heads != config.num_key_value_heads:
         return _load_gqa(config, prefix, weights)
     else:

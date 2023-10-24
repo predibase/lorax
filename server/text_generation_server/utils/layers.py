@@ -4,7 +4,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List
+from typing import List, Tuple
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -279,38 +279,65 @@ class TensorParallelColumnLinear(SuperLayer):
         return cls(linear)
     
 
-class TensorParallelLoraLinear(nn.Module):
-    def __init__(self, q_layers, v_layers, adapter_config, process_group, orig_layer, adapter_index):
+class TensorParallelMultiAdapterLinear(nn.Module):
+    def __init__(self, base_layer):
+        super().__init__()
+        self.base_layer = base_layer
+
+        d_qkv, _ = base_layer.linear.weight.shape
+        self.d_q = d_qkv // 3  # break up d_qkv into 3 parts
+
+        self.adapter_layers = []
+
+    @classmethod
+    def load(cls, base_layer):
+        return TensorParallelMultiAdapterLinear(base_layer)
+
+    def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
+        adapter_layer = TensorParallelAdapterLinear.load(
+            q_weights,
+            v_weights,
+            adapter_config=adapter_config,
+            process_group=process_group,
+            adapter_index=adapter_index,
+        )
+        self.adapter_layers.append(adapter_layer)
+    
+    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> torch.Tensor:
+        result = self.base_layer(input)
+
+        for adapter_layer in self.adapter_layers:
+            result_q, result_v = adapter_layer(input, adapter_indices)
+            result[:, :self.d_q] += result_q
+            result[:, 2*self.d_q:] += result_v
+
+        return result
+    
+
+class TensorParallelAdapterLinear(nn.Module):
+    def __init__(self, q_layers, v_layers, adapter_config, process_group, adapter_index):
         super().__init__()
         self.q_lora_a, self.q_lora_b = q_layers
         self.v_lora_a, self.v_lora_b = v_layers
         self.process_group = process_group
-        self.orig_layer = orig_layer
         self.adapter_index = adapter_index
         self.scaling = adapter_config.lora_alpha / adapter_config.r
 
-        d_qkv, _ = orig_layer.linear.weight.shape
-        self.d_q = d_qkv // 3  # break up d_qkv into 3 parts
-
     @classmethod
-    def load(cls, q_weights, v_weights, adapter_config, process_group, orig_layer, adapter_index):
+    def load(cls, q_weights, v_weights, adapter_config, process_group, adapter_index):
         return cls(
             (get_linear(q_weights[0], bias=None, quantize=None), get_linear(q_weights[1], bias=None, quantize=None)),
             (get_linear(v_weights[0], bias=None, quantize=None), get_linear(v_weights[1], bias=None, quantize=None)),
             adapter_config=adapter_config,
             process_group=process_group,
-            orig_layer=orig_layer,
             adapter_index=adapter_index,
         )
     
-    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> torch.Tensor:
-        result = self.orig_layer(input)
-
-        adapter_mask = (adapter_indices == self.adapter_index).to(result.dtype)
-        result[:, :self.d_q] += self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
-        result[:, 2*self.d_q:] += self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
-
-        return result
+    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype)
+        result_q = self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
+        result_v = self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
+        return result_q, result_v
 
 
 class TensorParallelRowLinear(SuperLayer):

@@ -22,7 +22,6 @@ from text_generation_server.utils import (
     Weights,
 )
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from text_generation_server.utils.layers import TensorParallelLoraLinear
 
 tracer = trace.get_tracer(__name__)
 
@@ -122,15 +121,15 @@ class FlashLlama(FlashCausalLM):
             self.orig_weights = {}
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):
-                d_qkv, _ = layer.self_attn.query_key_value.linear.weight.shape
+                d_qkv, _ = layer.self_attn.query_key_value.base_layer.linear.weight.shape
                 d_q = d_qkv // 3  # break up d_qkv into 3 parts
 
-                orig_q_proj = layer.self_attn.query_key_value.linear.weight[:d_q]
+                orig_q_proj = layer.self_attn.query_key_value.base_layer.linear.weight[:d_q]
                 orig_q_proj_device = orig_q_proj.device
                 weight_name = f"{prefix}.{i}.self_attn.q_proj"
                 self.orig_weights[weight_name] = (orig_q_proj.cpu(), orig_q_proj_device)
                 
-                orig_v_proj = layer.self_attn.query_key_value.linear.weight[2*d_q:]
+                orig_v_proj = layer.self_attn.query_key_value.base_layer.linear.weight[2*d_q:]
                 orig_v_proj_device = orig_v_proj.device
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (orig_v_proj.cpu(), orig_v_proj_device)
@@ -153,39 +152,18 @@ class FlashLlama(FlashCausalLM):
             # if the adapter_id is the base model, then just reset the weights
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):
-                qkv_d, _ = layer.self_attn.query_key_value.linear.weight.shape
+                qkv_d, _ = layer.self_attn.query_key_value.base_layer.linear.weight.shape
                 q_d = qkv_d // 3  # break up qkv_d into 3 parts
                 
                 # place the original weights (on their original device) back into the model
                 q_proj, q_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.q_proj"]
-                layer.self_attn.query_key_value.linear.weight[:q_d] = q_proj.to(q_proj_device)
+                layer.self_attn.query_key_value.base_layer.linear.weight[:q_d] = q_proj.to(q_proj_device)
                 v_proj, v_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.v_proj"]
-                layer.self_attn.query_key_value.linear.weight[2*q_d:] = v_proj.to(v_proj_device)
+                layer.self_attn.query_key_value.base_layer.linear.weight[2*q_d:] = v_proj.to(v_proj_device)
                 self.adapter_id = adapter_id
         else:
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
-            
-            # TODO(geoffrey): merge this with function
-            # text_generation_server/utils/adapter.py::merge_adapter_weights
-            def compute_merged_weight(weight_name, orig_layer):
-                orig_weight = orig_layer.linear.weight
-                orig_device = orig_weight.device
-
-                # ensure the delta has the same dtype and device as the original weight
-                lora_A = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
-                lora_B = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
-                print("!!! lora_A.shape", lora_A.shape)
-                print("!!! lora_B.shape", lora_B.shape)
-                delta_weight = compute_delta_weight(
-                    lora_A, 
-                    lora_B, 
-                    adapter_config.fan_in_fan_out, 
-                    adapter_config.lora_alpha, 
-                    adapter_config.r
-                )
-                start, stop = get_start_stop_idxs_for_rank(delta_weight.shape[0], self.process_group.rank(), self.process_group.size())
-                return delta_weight[start:stop]
             
             prefix = "model.layers"
             for i, layer in tqdm(
@@ -193,35 +171,24 @@ class FlashLlama(FlashCausalLM):
                 desc=f"Merging weights for adapter {adapter_id}",
                 total=len(self.model.model.layers)
             ):
-                orig_layer = layer.self_attn.query_key_value
-                if isinstance(orig_layer, TensorParallelLoraLinear):
-                    orig_layer = orig_layer.orig_layer
-
-                # d_qkv, _ = orig_layer.linear.weight.shape
-                # d_q = d_qkv // 3  # break up d_qkv into 3 parts
-
-                # lora_t = torch.zeros_like(orig_layer.linear.weight).to(orig_layer.linear.weight.device, orig_layer.linear.weight.dtype)
-                # print("!!! lora_t.shape", lora_t.shape)
-                # lora_t[:d_q] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj", orig_layer)
-                # lora_t[2*d_q:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj", orig_layer)
-
-                orig_weight = orig_layer.linear.weight
-                orig_device = orig_weight.device
+                layer = layer.self_attn.query_key_value
+                base_weight = layer.base_layer.linear.weight
+                base_device = base_weight.device
 
                 weight_name = f"{prefix}.{i}.self_attn.q_proj"
-                q_lora_a = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
-                q_lora_b = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
+                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
-                v_lora_a = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
-                v_lora_b = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
+                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
-                layer.self_attn.query_key_value = TensorParallelLoraLinear.load(
+                # TODO(travis): remove adapter
+                layer.add_adapter(
                     (q_lora_a, q_lora_b),
                     (v_lora_a, v_lora_b),
                     adapter_config,
                     self.process_group,
-                    orig_layer,
                     adapter_index,
                 )
 
