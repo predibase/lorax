@@ -83,6 +83,9 @@ class FlashCausalLMBatch(Batch):
     next_token_chooser: HeterogeneousNextTokenChooser
     stopping_criterias: List[StoppingCriteria]
 
+    # Adapter metadata for each request
+    adapter_indices: torch.Tensor
+
     # Number of blocks in this batch
     blocks: int
     # Maximum number of blocks
@@ -134,6 +137,7 @@ class FlashCausalLMBatch(Batch):
 
         next_token_chooser_parameters = []
         stopping_criterias = []
+        adapter_indices_list = []
 
         # Cumulative length
         cumulative_length = 0
@@ -177,6 +181,8 @@ class FlashCausalLMBatch(Batch):
             max_new_tokens = stopping_criteria.max_new_tokens
             stopping_criterias.append(stopping_criteria)
 
+            adapter_indices_list.append(r.adapter_index)
+
             # Paged attention
             # Remove one as the first token des not have a past
             total_tokens = input_length + max_new_tokens - 1
@@ -218,6 +224,9 @@ class FlashCausalLMBatch(Batch):
             max_seqlen = max(max_seqlen, input_length)
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
+
+        adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
+        print("!!! adapter_indices", adapter_indices)
 
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
@@ -297,6 +306,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
+            adapter_indices=adapter_indices,
         )
 
     @tracer.start_as_current_span("filter")
