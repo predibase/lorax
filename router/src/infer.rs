@@ -112,6 +112,7 @@ impl Infer {
 
         let adapter_idx;
         {
+            // TODO(travis): can optimize concurrency here using RWLock
             let mut adapter_to_index = self.adapter_to_index.lock().await;
             if adapter_to_index.contains_key(&adapter_id.clone().unwrap()) {
                 adapter_idx = *adapter_to_index.get(&adapter_id.clone().unwrap()).unwrap();
