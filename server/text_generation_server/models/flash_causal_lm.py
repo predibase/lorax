@@ -723,6 +723,7 @@ class FlashCausalLM(Model):
             slots=batch.slots[batch.slot_indices],
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
+            adapter_indices=batch.adapter_indices,
             lm_head_indices=batch.prefill_head_indices,
         )
 

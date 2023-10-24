@@ -280,32 +280,35 @@ class TensorParallelColumnLinear(SuperLayer):
     
 
 class TensorParallelLoraLinear(nn.Module):
-    def __init__(self, q_layers, v_layers, adapter_config, process_group, orig_layer):
+    def __init__(self, q_layers, v_layers, adapter_config, process_group, orig_layer, adapter_index):
         super().__init__()
         self.q_lora_a, self.q_lora_b = q_layers
         self.v_lora_a, self.v_lora_b = v_layers
         self.process_group = process_group
         self.orig_layer = orig_layer
+        self.adapter_index = adapter_index
         self.scaling = adapter_config.lora_alpha / adapter_config.r
 
         d_qkv, _ = orig_layer.linear.weight.shape
         self.d_q = d_qkv // 3  # break up d_qkv into 3 parts
 
     @classmethod
-    def load(cls, q_weights, v_weights, adapter_config, process_group, orig_layer):
+    def load(cls, q_weights, v_weights, adapter_config, process_group, orig_layer, adapter_index):
         return cls(
             (get_linear(q_weights[0], bias=None, quantize=None), get_linear(q_weights[1], bias=None, quantize=None)),
             (get_linear(v_weights[0], bias=None, quantize=None), get_linear(v_weights[1], bias=None, quantize=None)),
             adapter_config=adapter_config,
             process_group=process_group,
-            orig_layer=orig_layer
+            orig_layer=orig_layer,
+            adapter_index=adapter_index,
         )
     
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> torch.Tensor:
         result = self.orig_layer(input)
 
-        result[:, :self.d_q] += self.q_lora_b(self.q_lora_a(input)) * self.scaling
-        result[:, 2*self.d_q:] += self.v_lora_b(self.v_lora_a(input)) * self.scaling
+        adapter_mask = (adapter_indices == self.adapter_index).to(result.dtype)
+        result[:, :self.d_q] += self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
+        result[:, 2*self.d_q:] += self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
 
         return result
 

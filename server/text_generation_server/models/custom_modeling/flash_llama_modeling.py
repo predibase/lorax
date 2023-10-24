@@ -243,10 +243,11 @@ class FlashLlamaAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_indices,
     ):
         # print("!!! hidden_states shape:", hidden_states.shape)
         # print("!!! query_key_value shape:", self.query_key_value.linear.weight.shape)
-        qkv = self.query_key_value(hidden_states)
+        qkv = self.query_key_value(hidden_states, adapter_indices)
         # print("!!! QKV shape:", qkv.shape)
         query, kv = qkv.split(
             [
@@ -371,6 +372,7 @@ class FlashLlamaLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_indices,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -385,6 +387,7 @@ class FlashLlamaLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_indices,
         )
 
         # faster post attention rms norm
@@ -437,6 +440,7 @@ class FlashLlamaModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_indices: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
 
@@ -459,6 +463,7 @@ class FlashLlamaModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                adapter_indices,
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -487,6 +492,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_indices: torch.Tensor,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = self.model(
@@ -498,6 +504,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_indices,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]

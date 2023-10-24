@@ -221,7 +221,8 @@ class FlashLlama(FlashCausalLM):
                     (v_lora_a, v_lora_b),
                     adapter_config,
                     self.process_group,
-                    orig_layer
+                    orig_layer,
+                    adapter_index,
                 )
 
             self.adapter_id = adapter_id
