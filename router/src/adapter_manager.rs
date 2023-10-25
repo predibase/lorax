@@ -226,14 +226,16 @@ impl AdapterManagerState {
         self.adapter_oldest_entries.remove(&adapter_key);
     }
 
-    fn update_queue_ages(&mut self) {
-        for queue in self.queue_map.values() {
-            queue.update_age();
+    async fn update_oldest_entries(&mut self) {
+        for adapter_key in self.active_adapters.iter() {
+            let queue = self.queue_map.get(adapter_key).unwrap().clone();
+            let oldest_entry = queue.peek().await;
+            self.adapter_oldest_entries.insert(adapter_key.clone(), oldest_entry);
         }
     }
 
     // Get the next batch
-    fn next_batch(
+    async fn next_batch(
         &mut self,
         min_size: Option<usize>,
         prefill_token_budget: u32,

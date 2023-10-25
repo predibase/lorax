@@ -120,6 +120,30 @@ impl Queue {
             }).unwrap();
         response_receiver.await.unwrap()
     }
+
+    pub(crate) async fn peek(&self) -> Option<Instant> {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.queue_sender
+            .send(QueueCommand::Peek {
+                response_sender,
+                span: Span::current()
+            })
+            .unwrap();
+        response_receiver.await.unwrap()
+    }
+
+    pub(crate) async fn pop(&self) -> Option<(u64, Entry, Option<Instant>)> {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.queue_sender
+            .send(QueueCommand::Pop {
+                response_sender,
+                span: Span::current()
+            })
+            .unwrap();
+        response_receiver.await.unwrap()
+    }
 }
 
 // Background task responsible of the queue state
