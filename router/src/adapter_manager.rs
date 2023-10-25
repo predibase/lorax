@@ -137,11 +137,17 @@ struct AdapterManagerState {
     /// Map of adapter key to queue
     queue_map: HashMap<String, Arc<Queue>>,
 
-    /// Vector of adapter keys
-    adapter_key_vec: Vec<String>,
+    /// Adapters that are currently not in use
+    inactive_adapters: VecDeque<String>,
 
-    /// Index of the adapter key
-    adapter_key_index: usize,
+    /// Adapters that are currently in use
+    active_adapters: VecDeque<String>,
+
+    /// Map of adapter key to the time of the oldest entry in its queue, or None if last empty
+    adapter_oldest_entries: HashMap<String, Option<Instant>>,
+
+    /// Number of adapters that can be active at a time
+    max_active_adapters: usize,
 
     /// Id of the next batch
     next_batch_id: u64,
@@ -159,14 +165,17 @@ struct AdapterManagerState {
 impl AdapterManagerState {
     fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
         let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
-        let mut adapter_key_vec: Vec<String> = Vec::new();
-        let mut adapter_key_index: usize = 0;
+        let mut inactive_adapters: VecDeque<String> = VecDeque::new();
+        let mut active_adapters: VecDeque<String> = VecDeque::new();
+        let mut adapter_oldest_entries: HashMap<String, Option<Instant>> = HashMap::new();
 
         Self {
             client,
             queue_map,
-            adapter_key_vec,
-            adapter_key_index,
+            inactive_adapters,
+            active_adapters,
+            adapter_oldest_entries,
+            max_active_adapters: 3,
             next_batch_id: 0,
             requires_padding,
             block_size,
@@ -189,7 +198,15 @@ impl AdapterManagerState {
                 self.window_size,
             ));
             self.queue_map.insert(adapter_key.clone(), queue.clone());
-            self.adapter_key_vec.append(&mut vec![adapter_key.clone()]);
+
+            // add the adapter to the active set if we're below the limit, otherwise
+            // add it to the inactive set
+            if self.active_adapters.len() < self.max_active_adapters {
+                self.active_adapters.push_back(adapter_key.clone());
+            } else {
+                self.inactive_adapters.push_back(adapter_key.clone());
+            }
+            self.adapter_oldest_entries.insert(adapter_key.clone(), None);
         } else {
             queue = self.queue_map.get(&adapter_key).unwrap().clone();
         }
@@ -204,12 +221,14 @@ impl AdapterManagerState {
         let queue = self.queue_map.get(&adapter_key).unwrap().clone();
         queue.terminate().await;
         self.queue_map.remove(&adapter_key);
-        self.adapter_key_vec.retain(|id| id != &adapter_key);
-        // ensure that adapter ID index is within bounds
-        if self.adapter_key_vec.len() > 0 {
-            self.adapter_key_index = self.adapter_key_index % self.adapter_key_vec.len();
-        } else {
-            self.adapter_key_index = 0;
+        self.active_adapters.retain(|id| id != &adapter_key);
+        self.inactive_adapters.retain(|id| id != &adapter_key);
+        self.adapter_oldest_entries.remove(&adapter_key);
+    }
+
+    fn update_queue_ages(&mut self) {
+        for queue in self.queue_map.values() {
+            queue.update_age();
         }
     }
 
