@@ -9,9 +9,6 @@ use tracing::{info_span, Span, instrument};
 
 enum AdapterManagerCommand {
     Append(Adapter, Entry),
-    NextQueue {
-        response_sender: oneshot::Sender<Option<Arc<Queue>>>,
-    },
     RemoveQueue {
         adapter: Adapter,
     },
@@ -56,17 +53,6 @@ impl AdapterManager {
         // only blocks until the message is sent
         // the adapter manager task will handle the actual processing
         self.sender.send(AdapterManagerCommand::Append(adapter, entry)).unwrap();
-    }
-
-    pub(crate) async fn next_queue(&self) -> Option<Arc<Queue>> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.sender
-            .send(AdapterManagerCommand::NextQueue {
-                response_sender,
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
     }
 
     pub(crate) async fn remove_queue(&self, adapter: Adapter) {
@@ -115,62 +101,17 @@ async fn adapter_manager_task(
     window_size: Option<u32>,
     receiver: flume::Receiver<AdapterManagerCommand>,
 ) {
-    let mut state = AdapterManagerState::new(requires_padding, block_size, window_size);
-    let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
-    let mut adapter_key_vec: Vec<String> = Vec::new();
-    let mut adapter_key_index: usize = 0;
+    let mut state = AdapterManagerState::new(client, requires_padding, block_size, window_size);
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterManagerCommand::Append(adapter, entry) => {
-                // check if queue_map has adapter_key as key
-                // if not, then add a new Queue and download the adapter
-                let queue;
-                let adapter_key = adapter.as_string();
-                if !queue_map.contains_key(&adapter_key) {
-                    queue = Arc::new(Queue::new(
-                        adapter.clone(),
-                        client.clone(),
-                        requires_padding,
-                        block_size,
-                        window_size,
-                    ));
-                    queue_map.insert(adapter_key.clone(), queue.clone());
-                    adapter_key_vec.append(&mut vec![adapter_key.clone()]);
-                } else {
-                    queue = queue_map.get(&adapter_key).unwrap().clone();
-                }
-
-                // ensure that append completes before sending batcher message
-                queue.append(entry);
-            }
-            AdapterManagerCommand::NextQueue {
-                response_sender,
-            } => {
-                let queue: Option<Arc<Queue>>;
-                if !queue_map.is_empty() {
-                    adapter_key_index = (adapter_key_index + 1) % adapter_key_vec.len();
-                    let adapter_key = adapter_key_vec[adapter_key_index].clone();
-                    queue = Some(queue_map.get(&adapter_key).unwrap().clone());
-                } else {
-                    queue = None;
-                }
-                let _ = response_sender.send(queue);
+                state.append(adapter, entry);
             }
             AdapterManagerCommand::RemoveQueue {
                 adapter
             } => {
-                let adapter_key = adapter.as_string();
-                let queue = queue_map.get(&adapter_key).unwrap().clone();
-                queue.terminate().await;
-                queue_map.remove(&adapter_key);
-                adapter_key_vec.retain(|id| id != &adapter_key);
-                // ensure that adapter ID index is within bounds
-                if adapter_key_vec.len() > 0 {
-                    adapter_key_index = adapter_key_index % adapter_key_vec.len();
-                } else {
-                    adapter_key_index = 0;
-                }
+                state.remove_queue()
             },
             AdapterManagerCommand::NextBatch {
                 min_size,
@@ -179,13 +120,8 @@ async fn adapter_manager_task(
                 response_sender,
                 span,
             } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(None).unwrap();
-                    return;
-                }
                 let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
                 response_sender.send(next_batch).unwrap();
-                metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
             }),
         }
     }
@@ -195,11 +131,17 @@ async fn adapter_manager_task(
 /// Queue State
 #[derive(Debug)]
 struct AdapterManagerState {
-    /// Queue entries organized in a Vec
-    entries: VecDeque<(u64, Entry)>,
+    /// Sharded client
+    client: ShardedClient,
 
-    /// Id of the next entry
-    next_id: u64,
+    /// Map of adapter key to queue
+    queue_map: HashMap<String, Arc<Queue>>,
+
+    /// Vector of adapter keys
+    adapter_key_vec: Vec<String>,
+
+    /// Index of the adapter key
+    adapter_key_index: usize,
 
     /// Id of the next batch
     next_batch_id: u64,
@@ -215,10 +157,16 @@ struct AdapterManagerState {
 }
 
 impl AdapterManagerState {
-    fn new(requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
+    fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
+        let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
+        let mut adapter_key_vec: Vec<String> = Vec::new();
+        let mut adapter_key_index: usize = 0;
+
         Self {
-            entries: VecDeque::with_capacity(128),
-            next_id: 0,
+            client,
+            queue_map,
+            adapter_key_vec,
+            adapter_key_index,
             next_batch_id: 0,
             requires_padding,
             block_size,
@@ -226,20 +174,43 @@ impl AdapterManagerState {
         }
     }
 
-    /// Append an entry to the queue
-    fn append(&mut self, mut entry: Entry) {
-        // Create a span that will live as long as the entry is in the queue waiting to be batched
-        let queue_span = info_span!(parent: &entry.span, "queued");
-        entry.temp_span = Some(queue_span);
+    /// Append entry to the appropriate queue
+    fn append(&mut self, adapter: Adapter, entry: Entry) {
+        // check if queue_map has adapter_key as key
+        // if not, then add a new Queue and download the adapter
+        let queue;
+        let adapter_key = adapter.as_string();
+        if !self.queue_map.contains_key(&adapter_key) {
+            queue = Arc::new(Queue::new(
+                adapter.clone(),
+                self.client.clone(),
+                self.requires_padding,
+                self.block_size,
+                self.window_size,
+            ));
+            self.queue_map.insert(adapter_key.clone(), queue.clone());
+            self.adapter_key_vec.append(&mut vec![adapter_key.clone()]);
+        } else {
+            queue = self.queue_map.get(&adapter_key).unwrap().clone();
+        }
 
-        // Push entry in the queue
-        self.entries.push_back((self.next_id, entry));
-        self.next_id += 1;
+        // ensure that append completes before sending batcher message
+        queue.append(entry);
     }
 
-    // Is empty
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+    /// Remove queue
+    async fn remove_queue(&mut self, adapter: Adapter) {
+        let adapter_key = adapter.as_string();
+        let queue = self.queue_map.get(&adapter_key).unwrap().clone();
+        queue.terminate().await;
+        self.queue_map.remove(&adapter_key);
+        self.adapter_key_vec.retain(|id| id != &adapter_key);
+        // ensure that adapter ID index is within bounds
+        if self.adapter_key_vec.len() > 0 {
+            self.adapter_key_index = self.adapter_key_index % self.adapter_key_vec.len();
+        } else {
+            self.adapter_key_index = 0;
+        }
     }
 
     // Get the next batch

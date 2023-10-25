@@ -222,6 +222,7 @@ async fn queue_task(
                 } else {
                     let response = state.pop();
                     response_sender.send(response).unwrap();
+                    metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
                 }
             }),
             QueueCommand::Terminate {
@@ -260,9 +261,6 @@ struct State {
     /// Id of the next entry
     next_id: u64,
 
-    /// Id of the next batch
-    next_batch_id: u64,
-
     /// Whether the model is using padding
     requires_padding: bool,
 
@@ -281,7 +279,6 @@ impl State {
         Self {
             entries: VecDeque::with_capacity(128),
             next_id: 0,
-            next_batch_id: 0,
             requires_padding,
             block_size,
             window_size,
