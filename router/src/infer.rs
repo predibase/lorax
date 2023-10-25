@@ -1,7 +1,8 @@
 /// Batching and inference logic
 use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
+use crate::adapter_manager::AdapterManager;
 use crate::validation::{Validation, ValidationError};
-use crate::{Entry, Queue, Token};
+use crate::{Entry, Token};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -18,7 +19,7 @@ use text_generation_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError, oneshot};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -256,139 +257,6 @@ impl Infer {
         }
         let best_response = infer_responses.remove(max_index);
         Ok((best_response, infer_responses))
-    }
-}
-
-enum AdapterManagerCommand {
-    Append(Adapter, Entry),
-    NextQueue {
-        response_sender: oneshot::Sender<Option<Arc<Queue>>>,
-    },
-    RemoveQueue {
-        adapter: Adapter,
-    }
-}
-
-#[derive(Clone)]
-struct AdapterManager {
-    sender: flume::Sender<AdapterManagerCommand>,
-}
-
-impl AdapterManager {
-    pub(crate) fn new(
-        client: ShardedClient,
-        requires_padding: bool,
-        block_size: u32,
-        window_size: Option<u32>,
-    ) -> Self {
-        let (sender, receiver) = flume::unbounded();
-
-        // receives requests from the infer struct and sends them to the appropriate adapter queue
-        tokio::spawn(adapter_manager_task(
-            client,
-            requires_padding,
-            block_size,
-            window_size,
-            receiver,
-        ));
-
-        Self {
-            sender,
-        }
-    }
-
-    pub(crate) fn process(&self, adapter: Adapter, entry: Entry) {
-        // only blocks until the message is sent
-        // the adapter manager task will handle the actual processing
-        self.sender.send(AdapterManagerCommand::Append(adapter, entry)).unwrap();
-    }
-
-    pub(crate) async fn next_queue(&self) -> Option<Arc<Queue>> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.sender
-            .send(AdapterManagerCommand::NextQueue {
-                response_sender,
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn remove_queue(&self, adapter: Adapter) {
-        self.sender
-            .send(AdapterManagerCommand::RemoveQueue {
-                adapter
-            })
-            .unwrap();
-    }
-}
-
-/// Background task that manages the queues of the various adapters
-/// TODO(geoffrey): add tracing (span object) to the various commands
-async fn adapter_manager_task(
-    client: ShardedClient,
-    requires_padding: bool,
-    block_size: u32,
-    window_size: Option<u32>,
-    receiver: flume::Receiver<AdapterManagerCommand>,
-) {
-    let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
-    let mut adapter_key_vec: Vec<String> = Vec::new();
-    let mut adapter_key_index: usize = 0;
-
-    while let Ok(cmd) = receiver.recv_async().await {
-        match cmd {
-            AdapterManagerCommand::Append(adapter, entry) => {
-                // check if queue_map has adapter_key as key
-                // if not, then add a new Queue and download the adapter
-                let queue;
-                let adapter_key = adapter.as_string();
-                if !queue_map.contains_key(&adapter_key) {
-                    queue = Arc::new(Queue::new(
-                        adapter.clone(),
-                        client.clone(),
-                        requires_padding,
-                        block_size,
-                        window_size,
-                    ));
-                    queue_map.insert(adapter_key.clone(), queue.clone());
-                    adapter_key_vec.append(&mut vec![adapter_key.clone()]);
-                } else {
-                    queue = queue_map.get(&adapter_key).unwrap().clone();
-                }
-
-                // ensure that append completes before sending batcher message
-                queue.append(entry);
-            }
-            AdapterManagerCommand::NextQueue {
-                response_sender,
-            } => {
-                let queue: Option<Arc<Queue>>;
-                if !queue_map.is_empty() {
-                    adapter_key_index = (adapter_key_index + 1) % adapter_key_vec.len();
-                    let adapter_key = adapter_key_vec[adapter_key_index].clone();
-                    queue = Some(queue_map.get(&adapter_key).unwrap().clone());
-                } else {
-                    queue = None;
-                }
-                let _ = response_sender.send(queue);
-            }
-            AdapterManagerCommand::RemoveQueue {
-                adapter
-            } => {
-                let adapter_key = adapter.as_string();
-                let queue = queue_map.get(&adapter_key).unwrap().clone();
-                queue.terminate().await;
-                queue_map.remove(&adapter_key);
-                adapter_key_vec.retain(|id| id != &adapter_key);
-                // ensure that adapter ID index is within bounds
-                if adapter_key_vec.len() > 0 {
-                    adapter_key_index = adapter_key_index % adapter_key_vec.len();
-                } else {
-                    adapter_key_index = 0;
-                }
-            }
-        }
     }
 }
 

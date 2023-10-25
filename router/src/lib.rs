@@ -1,6 +1,7 @@
 mod health;
 /// Text Generation Inference Webserver
 mod adapter;
+mod adapter_manager;
 mod infer;
 mod queue;
 pub mod server;
