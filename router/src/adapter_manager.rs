@@ -1,9 +1,10 @@
 use crate::{Entry, Queue, adapter::Adapter};
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
-use text_generation_client::{ShardedClient, Batch};
+use text_generation_client::{ShardedClient, Batch, Request};
 use tokio::sync::oneshot;
-use tracing::{info_span, Span};
+use tokio::time::Instant;
+use tracing::{info_span, Span, instrument};
 
 
 enum AdapterManagerCommand {
@@ -13,7 +14,14 @@ enum AdapterManagerCommand {
     },
     RemoveQueue {
         adapter: Adapter,
-    }
+    },
+    NextBatch {
+        min_size: Option<usize>,
+        prefill_token_budget: u32,
+        token_budget: u32,
+        response_sender: oneshot::Sender<Option<NextBatch>>,
+        span: Span,
+    },
 }
 
 #[derive(Clone)]
@@ -67,6 +75,32 @@ impl AdapterManager {
                 adapter
             })
             .unwrap();
+    }
+
+    // Get the next batch
+    #[instrument(skip(self))]
+    pub(crate) async fn next_batch(
+        &self,
+        min_size: Option<usize>,
+        prefill_token_budget: u32,
+        token_budget: u32,
+    ) -> Option<NextBatch> {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        // Send next batch command to the background task managing the state
+        // Unwrap is safe here
+        self.sender
+            .send(AdapterManagerCommand::NextBatch {
+                min_size,
+                prefill_token_budget,
+                token_budget,
+                response_sender,
+                span: Span::current(),
+            })
+            .unwrap();
+        // Await on response channel
+        // Unwrap is safe here
+        response_receiver.await.unwrap()
     }
 }
 
@@ -137,7 +171,22 @@ async fn adapter_manager_task(
                 } else {
                     adapter_key_index = 0;
                 }
-            }
+            },
+            AdapterManagerCommand::NextBatch {
+                min_size,
+                prefill_token_budget,
+                token_budget,
+                response_sender,
+                span,
+            } => span.in_scope(|| {
+                if err_msg.is_some() {
+                    response_sender.send(None).unwrap();
+                    return;
+                }
+                let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
+                response_sender.send(next_batch).unwrap();
+                metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
+            }),
         }
     }
 }

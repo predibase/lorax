@@ -99,32 +99,6 @@ impl Queue {
         response_receiver.await.unwrap()
     }
 
-    // Get the next batch
-    #[instrument(skip(self))]
-    pub(crate) async fn next_batch(
-        &self,
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-    ) -> Option<NextBatch> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        // Send next batch command to the background task managing the state
-        // Unwrap is safe here
-        self.queue_sender
-            .send(QueueCommand::NextBatch {
-                min_size,
-                prefill_token_budget,
-                token_budget,
-                response_sender,
-                span: Span::current(),
-            })
-            .unwrap();
-        // Await on response channel
-        // Unwrap is safe here
-        response_receiver.await.unwrap()
-    }
-
     pub(crate) async fn is_errored(&self) -> bool {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
@@ -220,26 +194,35 @@ async fn queue_task(
                     response_sender.send(response).unwrap();
                 }
             }),
-            QueueCommand::NextBatch {
-                min_size,
-                prefill_token_budget,
-                token_budget,
-                response_sender,
-                span,
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(None).unwrap();
-                    return;
-                }
-                let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
-                response_sender.send(next_batch).unwrap();
-                metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
-            }),
             QueueCommand::IsErrored{
                 response_sender,
                 span
             } => span.in_scope(|| {
                 response_sender.send(err_msg.is_some()).unwrap();
+            }),
+            QueueCommand::Peek { 
+                response_sender,
+                span
+            } => span.in_scope(|| {
+                if err_msg.is_some() {
+                    response_sender.send(None).unwrap();
+                    return;
+                } else {
+                    let response = state.peek();
+                    response_sender.send(response).unwrap();
+                }
+            }),
+            QueueCommand::Pop { 
+                response_sender,
+                span
+            } => span.in_scope(|| {
+                if err_msg.is_some() {
+                    response_sender.send(None).unwrap();
+                    return;
+                } else {
+                    let response = state.pop();
+                    response_sender.send(response).unwrap();
+                }
             }),
             QueueCommand::Terminate {
                 response_sender,
@@ -321,6 +304,16 @@ impl State {
     fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    // Peeks at the front of the queue and returns timestamp of the oldest entry, if present
+    fn peek(&self) -> Option<Instant> {
+        self.entries.front().map(|(_, entry)| entry.queue_time)
+    }
+
+    // Pops the front of the queue and returns the oldest entry, if present
+    fn pop(&mut self) -> Option<(u64, Entry, Option<Instant>)> {
+        self.entries.pop_front().map(|(id, mut entry)| (id, entry, self.peek()))
+    }
 }
 
 type NextBatch = (IntMap<u64, Entry>, Batch, Span);
@@ -336,19 +329,20 @@ enum QueueCommand {
         response_sender: oneshot::Sender<bool>,
         span: Span,
     },
-    NextBatch {
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-        response_sender: oneshot::Sender<Option<NextBatch>>,
-        span: Span,
-    },
     IsErrored {
         response_sender: oneshot::Sender<bool>,
         span: Span,
     },
     Terminate {
         response_sender: oneshot::Sender<()>,
+        span: Span,
+    },
+    Peek {
+        response_sender: oneshot::Sender<Option<Instant>>,
+        span: Span,
+    },
+    Pop {
+        response_sender: oneshot::Sender<Option<(u64, Entry, Option<Instant>)>>,
         span: Span,
     },
 }
