@@ -1,3 +1,4 @@
+use crate::adapter;
 use crate::adapter::Adapter;
 use crate::infer::InferError;
 use crate::infer::InferStreamResponse;
@@ -31,55 +32,26 @@ pub(crate) struct Entry {
 /// Request AdapterLoader
 #[derive(Debug, Clone)]
 pub(crate) struct AdapterLoader {
-    /// adapter associated with this queue
-    adapter: Adapter,
-    /// Channel to communicate with the background queue task
-    queue_sender: flume::Sender<AdapterLoaderCommand>,
+    /// Channel to communicate with the background task
+    sender: flume::Sender<AdapterLoaderCommand>,
 }
 
 impl AdapterLoader {
-    pub(crate) fn new(
-        adapter: Adapter, 
-        client: ShardedClient, 
-        requires_padding: bool, 
-        block_size: u32, 
-        window_size: Option<u32>
-    ) -> Self {
+    pub(crate) fn new(client: ShardedClient) -> Self {
         // Create channel
-        let (queue_sender, queue_receiver) = flume::unbounded();
+        let (sender, receiver) = flume::unbounded();
 
         // Launch background queue task
-        tokio::spawn(queue_task(
-            adapter.clone(),
-            client,
-            requires_padding,
-            block_size,
-            window_size,
-            queue_receiver,
-        ));
-        Self { adapter, queue_sender }
-    }
-    
-    /// Return adapter ID
-    pub(crate) fn adapter(&self) -> &Adapter {
-        &self.adapter
+        tokio::spawn(loader_task(client, receiver));
+        Self { sender }
     }
 
-    /// Append an entry to the queue
-    #[instrument(skip_all)]
-    pub(crate) fn append(&self, entry: Entry) {
-        // Send append command to the background task managing the state
-        // Unwrap is safe here
-        self.queue_sender
-            .send(AdapterLoaderCommand::Append(Box::new(entry), Span::current()))
-            .unwrap();
-    }
-
-    pub(crate) async fn load_adapter(&self) {
+    pub(crate) async fn download_adapter(&self, adapter: Adapter) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(AdapterLoaderCommand::LoadAdapter {
+        self.sender
+            .send(AdapterLoaderCommand::DownloadAdapter {
+                adapter,
                 response_sender,
                 span: Span::current()
             })
@@ -87,11 +59,12 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn is_empty(&self) -> bool {
+    pub(crate) async fn load_adapter(&self, adapter: Adapter) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(AdapterLoaderCommand::IsEmpty {
+        self.sender
+            .send(AdapterLoaderCommand::LoadAdapter {
+                adapter,
                 response_sender,
                 span: Span::current()
             })
@@ -102,7 +75,7 @@ impl AdapterLoader {
     pub(crate) async fn is_errored(&self) -> bool {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
+        self.sender
             .send(AdapterLoaderCommand::IsErrored {
                 response_sender,
                 span: Span::current()
@@ -113,76 +86,49 @@ impl AdapterLoader {
     pub(crate) async fn terminate(&self) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
+        self.sender
             .send(AdapterLoaderCommand::Terminate {
                 response_sender,
                 span: Span::current()
             }).unwrap();
         response_receiver.await.unwrap()
     }
-
-    pub(crate) async fn peek(&self) -> Option<Instant> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(AdapterLoaderCommand::Peek {
-                response_sender,
-                span: Span::current()
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn pop(&self) -> Option<(u64, Entry, Option<Instant>)> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(AdapterLoaderCommand::Pop {
-                response_sender,
-                span: Span::current()
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
 }
 
-// Background task responsible of the queue state
-async fn queue_task(
-    adapter: Adapter,
+// Background task responsible of the loader state
+async fn loader_task(
     mut client: ShardedClient,
-    requires_padding: bool,
-    block_size: u32,
-    window_size: Option<u32>,
     receiver: flume::Receiver<AdapterLoaderCommand>,
 ) {
-    let mut state = State::new(requires_padding, block_size, window_size, adapter.index());
     let mut err_msg: Option<String> = None;
-
-    // download the adapter
-    match client.download_adapter(
-        adapter.id().to_string(), 
-        adapter.source().to_string(),
-    ).await {
-        Ok(_) => {
-            tracing::info!("adapter {} downloaded", adapter.id());
-        }
-        // if we have a download error, we send an error to the entry response
-        Err(error) => {
-            metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-            err_msg = Some(error.to_string());
-        }
-    }
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
-            AdapterLoaderCommand::Append(entry, span) => span.in_scope(|| {
-                // no-op if adapter errored
+            AdapterLoaderCommand::DownloadAdapter {
+                adapter,
+                response_sender,
+                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
+            } => {
                 if err_msg.is_some() {
-                    return;
+                    response_sender.send(()).unwrap();
+                    continue;
                 }
-                state.append(*entry);
-            }),
+                match client.download_adapter(
+                    adapter.id().to_string(), 
+                    adapter.source().to_string(),
+                ).await {
+                    Ok(_) => {
+                        tracing::info!("adapter {} downloaded", adapter.id());
+                    }
+                    // if we have a download error, we send an error to the entry response
+                    Err(error) => {
+                        metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
+                        err_msg = Some(error.to_string());
+                    }
+                }
+            },
             AdapterLoaderCommand::LoadAdapter {
+                adapter,
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -207,53 +153,17 @@ async fn queue_task(
                     }
                 }
             }
-            AdapterLoaderCommand::IsEmpty { 
-                response_sender,
-                span
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(true).unwrap();
-                } else {
-                    let response = state.is_empty();
-                    response_sender.send(response).unwrap();
-                }
-            }),
             AdapterLoaderCommand::IsErrored{
                 response_sender,
                 span
             } => span.in_scope(|| {
                 response_sender.send(err_msg.is_some()).unwrap();
             }),
-            AdapterLoaderCommand::Peek { 
-                response_sender,
-                span
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(None).unwrap();
-                    return;
-                } else {
-                    let response = state.peek();
-                    response_sender.send(response).unwrap();
-                }
-            }),
-            AdapterLoaderCommand::Pop { 
-                response_sender,
-                span
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(None).unwrap();
-                    return;
-                } else {
-                    let response = state.pop();
-                    response_sender.send(response).unwrap();
-                    metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
-                }
-            }),
             AdapterLoaderCommand::Terminate {
                 response_sender,
                 span,
             } => {
-                tracing::info!("terminating adapter queue for {}", adapter.id());
+                tracing::info!("terminating loader");
 
                 // Create an asynchronous closure
                 let span_closure = async move {
@@ -298,56 +208,18 @@ struct State {
     adapter_index: u32,
 }
 
-impl State {
-    fn new(requires_padding: bool, block_size: u32, window_size: Option<u32>, adapter_index: u32) -> Self {
-        Self {
-            entries: VecDeque::with_capacity(128),
-            next_id: 0,
-            requires_padding,
-            block_size,
-            window_size,
-            adapter_index,
-        }
-    }
-
-    /// Append an entry to the queue
-    fn append(&mut self, mut entry: Entry) {
-        // Create a span that will live as long as the entry is in the queue waiting to be batched
-        let queue_span = info_span!(parent: &entry.span, "queued");
-        entry.temp_span = Some(queue_span);
-
-        // Push entry in the queue
-        self.entries.push_back((self.next_id, entry));
-        self.next_id += 1;
-    }
-
-    // Is empty
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    // Peeks at the front of the queue and returns timestamp of the oldest entry, if present
-    fn peek(&self) -> Option<Instant> {
-        self.entries.front().map(|(_, entry)| entry.queue_time)
-    }
-
-    // Pops the front of the queue and returns the oldest entry, if present
-    fn pop(&mut self) -> Option<(u64, Entry, Option<Instant>)> {
-        self.entries.pop_front().map(|(id, mut entry)| (id, entry, self.peek()))
-    }
-}
-
 type NextBatch = (IntMap<u64, Entry>, Batch, Span);
 
 #[derive(Debug)]
 enum AdapterLoaderCommand {
-    Append(Box<Entry>, Span),
-    LoadAdapter {
+    DownloadAdapter {
+        adapter: Adapter,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
-    IsEmpty {
-        response_sender: oneshot::Sender<bool>,
+    LoadAdapter {
+        adapter: Adapter,
+        response_sender: oneshot::Sender<()>,
         span: Span,
     },
     IsErrored {
@@ -356,14 +228,6 @@ enum AdapterLoaderCommand {
     },
     Terminate {
         response_sender: oneshot::Sender<()>,
-        span: Span,
-    },
-    Peek {
-        response_sender: oneshot::Sender<Option<Instant>>,
-        span: Span,
-    },
-    Pop {
-        response_sender: oneshot::Sender<Option<(u64, Entry, Option<Instant>)>>,
         span: Span,
     },
 }

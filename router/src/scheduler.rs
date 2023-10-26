@@ -134,6 +134,9 @@ struct AdapterSchedulerState {
     /// Sharded client
     client: ShardedClient,
 
+    /// Async adapter loader
+    loader: AdapterLoader,
+
     /// Map of adapter key to queue
     queue_map: HashMap<String, QueueState>,
 
@@ -168,9 +171,11 @@ impl AdapterSchedulerState {
         let mut inactive_adapters = VecDeque::new();
         let mut active_adapters = VecDeque::new();
         let mut adapter_oldest_entries = HashMap::new();
+        let mut loader = AdapterLoader::new(client);
 
         Self {
             client,
+            loader,
             queue_map,
             inactive_adapters,
             active_adapters,
@@ -190,7 +195,7 @@ impl AdapterSchedulerState {
         let mut queue;
         let adapter_key = adapter.as_string();
         if !self.queue_map.contains_key(&adapter_key) {
-            queue = QueueState::new(adapter.index());
+            queue = QueueState::new(adapter);
             self.queue_map.insert(adapter_key.clone(), queue);
 
             // add the adapter to the active set if we're below the limit, otherwise
@@ -201,6 +206,10 @@ impl AdapterSchedulerState {
                 self.inactive_adapters.push_back(adapter_key.clone());
             }
             self.adapter_oldest_entries.insert(adapter_key.clone(), None);
+
+            // Download the adapter
+            // TODO(travis): make this non-blocking
+            self.loader.download_adapter(adapter.clone()).await;
         } else {
             queue = *self.queue_map.get(&adapter_key).unwrap();
         }
@@ -360,14 +369,14 @@ impl AdapterSchedulerState {
                 truncate: entry.request.truncate,
                 parameters: Some(entry.request.parameters.clone()),
                 stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-                adapter_index: queue.adapter_index,
+                adapter_index: queue.adapter.index(),
             });
             // Set batch_time
             entry.batch_time = Some(Instant::now());
             // Insert in batch_entries IntMap
             batch_entries.insert(id, entry);
             // Map from adapter index back to queue in case we need to add back entries below
-            adapter_index_to_queue.insert(queue.adapter_index, queue);
+            adapter_index_to_queue.insert(queue.adapter.index(), queue);
         }
 
         // Empty batch
@@ -421,15 +430,15 @@ struct QueueState {
     next_id: u64,
 
     /// Adapter index
-    adapter_index: u32,
+    adapter: Adapter,
 }
 
 impl QueueState {
-    fn new(adapter_index: u32) -> Self {
+    fn new(adapter: Adapter) -> Self {
         Self {
             entries: VecDeque::with_capacity(128),
             next_id: 0,
-            adapter_index,
+            adapter,
         }
     }
 
