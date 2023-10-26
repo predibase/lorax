@@ -135,7 +135,7 @@ struct AdapterManagerState {
     client: ShardedClient,
 
     /// Map of adapter key to queue
-    queue_map: HashMap<String, Arc<Queue>>,
+    queue_map: HashMap<String, QueueState>,
 
     /// Adapters that are currently not in use
     inactive_adapters: VecDeque<String>,
@@ -164,10 +164,10 @@ struct AdapterManagerState {
 
 impl AdapterManagerState {
     fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
-        let mut queue_map: HashMap<String, Arc<Queue>> = HashMap::new();
-        let mut inactive_adapters: VecDeque<String> = VecDeque::new();
-        let mut active_adapters: VecDeque<String> = VecDeque::new();
-        let mut adapter_oldest_entries: HashMap<String, Option<Instant>> = HashMap::new();
+        let mut queue_map = HashMap::new();
+        let mut inactive_adapters = VecDeque::new();
+        let mut active_adapters = VecDeque::new();
+        let mut adapter_oldest_entries = HashMap::new();
 
         Self {
             client,
@@ -187,17 +187,11 @@ impl AdapterManagerState {
     fn append(&mut self, adapter: Adapter, entry: Entry) {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
-        let queue;
+        let mut queue;
         let adapter_key = adapter.as_string();
         if !self.queue_map.contains_key(&adapter_key) {
-            queue = Arc::new(Queue::new(
-                adapter.clone(),
-                self.client.clone(),
-                self.requires_padding,
-                self.block_size,
-                self.window_size,
-            ));
-            self.queue_map.insert(adapter_key.clone(), queue.clone());
+            queue = QueueState::new(adapter.index());
+            self.queue_map.insert(adapter_key.clone(), queue);
 
             // add the adapter to the active set if we're below the limit, otherwise
             // add it to the inactive set
@@ -208,7 +202,7 @@ impl AdapterManagerState {
             }
             self.adapter_oldest_entries.insert(adapter_key.clone(), None);
         } else {
-            queue = self.queue_map.get(&adapter_key).unwrap().clone();
+            queue = *self.queue_map.get(&adapter_key).unwrap();
         }
 
         // ensure that append completes before sending batcher message
@@ -218,8 +212,6 @@ impl AdapterManagerState {
     /// Remove queue
     async fn remove_queue(&mut self, adapter: Adapter) {
         let adapter_key = adapter.as_string();
-        let queue = self.queue_map.get(&adapter_key).unwrap().clone();
-        queue.terminate().await;
         self.queue_map.remove(&adapter_key);
         self.active_adapters.retain(|id| id != &adapter_key);
         self.inactive_adapters.retain(|id| id != &adapter_key);
@@ -227,7 +219,7 @@ impl AdapterManagerState {
     }
 
     /// Updates the mapping from adapter to the age of its oldest entry, then returns the oldest active adapter
-    async fn get_oldest_active_adapter(&mut self) -> Option<String> {
+    fn get_oldest_active_adapter(&mut self) -> Option<String> {
         let mut oldest_timestamp = Instant::now();
         let mut oldest_adapter = None;
         for adapter_key in self.active_adapters.iter() {
@@ -235,7 +227,7 @@ impl AdapterManagerState {
             if adapter_oldest_entry.is_none() {
                 // no record found for oldest entry for this adapter, so check to see if anything has been added
                 let queue = self.queue_map.get(adapter_key).unwrap().clone();
-                adapter_oldest_entry = queue.peek().await;
+                adapter_oldest_entry = queue.peek();
                 self.adapter_oldest_entries.insert(adapter_key.clone(), adapter_oldest_entry);
             }
 
@@ -247,23 +239,25 @@ impl AdapterManagerState {
         oldest_adapter
     }
 
-    async fn next_entry(&mut self) -> Option<(u64, Entry)> {
+    fn next_entry(&mut self) -> Option<(u64, Entry)> {
         // Remove the first adapter from active set if we have reached the time limit.
         // Add the first inactivate adapter to the active set if there are no pending requests
         // for the removed adapter.
         // TODO(travis)
 
         // Get the adapter from the active set that has been waiting the longest.
-        let adapter = self.get_oldest_active_adapter().await;
+        let adapter = self.get_oldest_active_adapter();
         if adapter.is_none() {
             // No active adapter has any entries
             return None;
         }
 
+        // TODO(travis): update adapters to remove nones and cycle in other adapters
+
         // Pop the oldest entry from the queue
         let adapter_key = adapter.unwrap();
         let queue = self.queue_map.get(&adapter_key).unwrap().clone();
-        let (id, entry, next_oldest_entry) = queue.pop().await.unwrap();
+        let (id, entry, next_oldest_entry) = queue.pop().unwrap();
         self.adapter_oldest_entries.insert(adapter_key.clone(), next_oldest_entry);
         Some((id, entry))
     }
@@ -299,7 +293,7 @@ impl AdapterManagerState {
         let mut decode_tokens: u32 = 0;
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry)) = self.entries.pop_front() {
+        while let Some((id, mut entry)) = self.next_entry().await {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -403,5 +397,54 @@ impl AdapterManagerState {
         metrics::histogram!("tgi_batch_next_size", batch.size as f64);
 
         Some((batch_entries, batch, next_batch_span))
+    }
+}
+
+/// Queue State
+#[derive(Debug)]
+struct QueueState {
+    /// Queue entries organized in a Vec
+    entries: VecDeque<(u64, Entry)>,
+
+    /// Id of the next entry
+    next_id: u64,
+
+    /// Adapter index
+    adapter_index: u32,
+}
+
+impl QueueState {
+    fn new(adapter_index: u32) -> Self {
+        Self {
+            entries: VecDeque::with_capacity(128),
+            next_id: 0,
+            adapter_index,
+        }
+    }
+
+    /// Append an entry to the queue
+    fn append(&mut self, mut entry: Entry) {
+        // Create a span that will live as long as the entry is in the queue waiting to be batched
+        let queue_span = info_span!(parent: &entry.span, "queued");
+        entry.temp_span = Some(queue_span);
+
+        // Push entry in the queue
+        self.entries.push_back((self.next_id, entry));
+        self.next_id += 1;
+    }
+
+    // Is empty
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    // Peeks at the front of the queue and returns timestamp of the oldest entry, if present
+    fn peek(&self) -> Option<Instant> {
+        self.entries.front().map(|(_, entry)| entry.queue_time)
+    }
+
+    // Pops the front of the queue and returns the oldest entry, if present
+    fn pop(&mut self) -> Option<(u64, Entry, Option<Instant>)> {
+        self.entries.pop_front().map(|(id, mut entry)| (id, entry, self.peek()))
     }
 }
