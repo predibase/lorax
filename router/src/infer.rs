@@ -1,6 +1,6 @@
 /// Batching and inference logic
 use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
-use crate::scheduler::AdapterManager;
+use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{Entry, Token};
 use crate::{GenerateRequest, PrefillToken};
@@ -29,7 +29,7 @@ pub struct Infer {
     /// Validation
     validation: Validation,
     /// Manages the queues of the various adapters
-    adapter_manager: AdapterManager,
+    adapter_scheduler: AdapterScheduler,
     /// Maps adapter ID to a unique index
     adapter_to_index: Arc<Mutex<HashMap<String, u32>>>,
     /// Inference limit
@@ -52,7 +52,7 @@ impl Infer {
         generation_health: Arc<AtomicBool>,
     ) -> Self {
         // Routes requests to the appropriate adapter queue
-        let adapter_manager = AdapterManager::new(client.clone(), requires_padding, 16, window_size);
+        let adapter_scheduler = AdapterScheduler::new(client.clone(), requires_padding, 16, window_size);
 
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));
@@ -66,7 +66,7 @@ impl Infer {
             max_waiting_tokens,
             max_time_limit,
             generation_health,
-            adapter_manager.clone(),
+            adapter_scheduler.clone(),
         ));
 
         // Inference limit with a semaphore
@@ -74,7 +74,7 @@ impl Infer {
 
         Self {
             validation,
-            adapter_manager,
+            adapter_scheduler,
             adapter_to_index,
             limit_concurrent_requests: semaphore,
         }
@@ -141,7 +141,7 @@ impl Infer {
         let (response_tx, response_rx) = flume::unbounded();
 
         // Process the request by sending it to the queue associated with `adapter`
-        self.adapter_manager.process(adapter, Entry {
+        self.adapter_scheduler.process(adapter, Entry {
             request: valid_request,
             response_tx,
             span: Span::current(),
@@ -274,11 +274,11 @@ async fn batching_task(
     max_waiting_tokens: usize,
     max_time_limit: Duration,
     generation_health: Arc<AtomicBool>,
-    adapter_manager: AdapterManager,
+    adapter_scheduler: AdapterScheduler,
 ) {
     // Infinite loop
     loop {
-        let queue_option = adapter_manager.next_queue().await;
+        let queue_option = adapter_scheduler.next_queue().await;
         if queue_option.is_none() {
             continue;
         }
@@ -286,7 +286,7 @@ async fn batching_task(
         let queue = queue_option.unwrap();
         let adapter = queue.adapter().clone();
         if queue.is_errored().await {
-            adapter_manager.remove_queue(adapter).await;
+            adapter_scheduler.remove_queue(adapter).await;
             continue
         }
         if queue.is_empty().await {

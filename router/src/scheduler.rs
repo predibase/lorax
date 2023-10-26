@@ -7,7 +7,7 @@ use tokio::time::Instant;
 use tracing::{info_span, Span, instrument};
 
 
-enum AdapterManagerCommand {
+enum AdapterSchedulerCommand {
     Append(Adapter, Entry),
     RemoveQueue {
         adapter: Adapter,
@@ -22,11 +22,11 @@ enum AdapterManagerCommand {
 }
 
 #[derive(Clone)]
-pub(crate) struct AdapterManager {
-    sender: flume::Sender<AdapterManagerCommand>,
+pub(crate) struct AdapterScheduler {
+    sender: flume::Sender<AdapterSchedulerCommand>,
 }
 
-impl AdapterManager {
+impl AdapterScheduler {
     pub(crate) fn new(
         client: ShardedClient,
         requires_padding: bool,
@@ -36,7 +36,7 @@ impl AdapterManager {
         let (sender, receiver) = flume::unbounded();
 
         // receives requests from the infer struct and sends them to the appropriate adapter queue
-        tokio::spawn(adapter_manager_task(
+        tokio::spawn(adapter_scheduler_task(
             client,
             requires_padding,
             block_size,
@@ -52,12 +52,12 @@ impl AdapterManager {
     pub(crate) fn process(&self, adapter: Adapter, entry: Entry) {
         // only blocks until the message is sent
         // the adapter manager task will handle the actual processing
-        self.sender.send(AdapterManagerCommand::Append(adapter, entry)).unwrap();
+        self.sender.send(AdapterSchedulerCommand::Append(adapter, entry)).unwrap();
     }
 
     pub(crate) async fn remove_queue(&self, adapter: Adapter) {
         self.sender
-            .send(AdapterManagerCommand::RemoveQueue {
+            .send(AdapterSchedulerCommand::RemoveQueue {
                 adapter
             })
             .unwrap();
@@ -76,7 +76,7 @@ impl AdapterManager {
         // Send next batch command to the background task managing the state
         // Unwrap is safe here
         self.sender
-            .send(AdapterManagerCommand::NextBatch {
+            .send(AdapterSchedulerCommand::NextBatch {
                 min_size,
                 prefill_token_budget,
                 token_budget,
@@ -94,26 +94,26 @@ type NextBatch = (IntMap<u64, Entry>, Batch, Span);
 
 /// Background task that manages the queues of the various adapters
 /// TODO(geoffrey): add tracing (span object) to the various commands
-async fn adapter_manager_task(
+async fn adapter_scheduler_task(
     client: ShardedClient,
     requires_padding: bool,
     block_size: u32,
     window_size: Option<u32>,
-    receiver: flume::Receiver<AdapterManagerCommand>,
+    receiver: flume::Receiver<AdapterSchedulerCommand>,
 ) {
-    let mut state = AdapterManagerState::new(client, requires_padding, block_size, window_size);
+    let mut state = AdapterSchedulerState::new(client, requires_padding, block_size, window_size);
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
-            AdapterManagerCommand::Append(adapter, entry) => {
+            AdapterSchedulerCommand::Append(adapter, entry) => {
                 state.append(adapter, entry);
             }
-            AdapterManagerCommand::RemoveQueue {
+            AdapterSchedulerCommand::RemoveQueue {
                 adapter
             } => {
                 state.remove_queue()
             },
-            AdapterManagerCommand::NextBatch {
+            AdapterSchedulerCommand::NextBatch {
                 min_size,
                 prefill_token_budget,
                 token_budget,
@@ -130,7 +130,7 @@ async fn adapter_manager_task(
 
 /// Queue State
 #[derive(Debug)]
-struct AdapterManagerState {
+struct AdapterSchedulerState {
     /// Sharded client
     client: ShardedClient,
 
@@ -162,7 +162,7 @@ struct AdapterManagerState {
     window_size: Option<u32>,
 }
 
-impl AdapterManagerState {
+impl AdapterSchedulerState {
     fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
         let mut queue_map = HashMap::new();
         let mut inactive_adapters = VecDeque::new();
