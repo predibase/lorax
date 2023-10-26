@@ -226,12 +226,46 @@ impl AdapterManagerState {
         self.adapter_oldest_entries.remove(&adapter_key);
     }
 
-    async fn update_oldest_entries(&mut self) {
+    /// Updates the mapping from adapter to the age of its oldest entry, then returns the oldest active adapter
+    async fn get_oldest_active_adapter(&mut self) -> Option<String> {
+        let mut oldest_timestamp = Instant::now();
+        let mut oldest_adapter = None;
         for adapter_key in self.active_adapters.iter() {
-            let queue = self.queue_map.get(adapter_key).unwrap().clone();
-            let oldest_entry = queue.peek().await;
-            self.adapter_oldest_entries.insert(adapter_key.clone(), oldest_entry);
+            let mut adapter_oldest_entry = self.adapter_oldest_entries.get(adapter_key).unwrap().clone();
+            if adapter_oldest_entry.is_none() {
+                // no record found for oldest entry for this adapter, so check to see if anything has been added
+                let queue = self.queue_map.get(adapter_key).unwrap().clone();
+                adapter_oldest_entry = queue.peek().await;
+                self.adapter_oldest_entries.insert(adapter_key.clone(), adapter_oldest_entry);
+            }
+
+            if adapter_oldest_entry.is_some() && adapter_oldest_entry.unwrap() < oldest_timestamp {
+                oldest_timestamp = adapter_oldest_entry.unwrap();
+                oldest_adapter = Some(adapter_key.clone());
+            }
         }
+        oldest_adapter
+    }
+
+    async fn next_entry(&mut self) -> Option<(u64, Entry)> {
+        // Remove the first adapter from active set if we have reached the time limit.
+        // Add the first inactivate adapter to the active set if there are no pending requests
+        // for the removed adapter.
+        // TODO(travis)
+
+        // Get the adapter from the active set that has been waiting the longest.
+        let adapter = self.get_oldest_active_adapter().await;
+        if adapter.is_none() {
+            // No active adapter has any entries
+            return None;
+        }
+
+        // Pop the oldest entry from the queue
+        let adapter_key = adapter.unwrap();
+        let queue = self.queue_map.get(&adapter_key).unwrap().clone();
+        let (id, entry, next_oldest_entry) = queue.pop().await.unwrap();
+        self.adapter_oldest_entries.insert(adapter_key.clone(), next_oldest_entry);
+        Some((id, entry))
     }
 
     // Get the next batch
