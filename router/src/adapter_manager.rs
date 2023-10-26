@@ -239,7 +239,7 @@ impl AdapterManagerState {
         oldest_adapter
     }
 
-    fn next_entry(&mut self) -> Option<(u64, Entry)> {
+    fn next_entry(&mut self) -> Option<(u64, Entry, QueueState)> {
         // Remove the first adapter from active set if we have reached the time limit.
         // Add the first inactivate adapter to the active set if there are no pending requests
         // for the removed adapter.
@@ -259,7 +259,11 @@ impl AdapterManagerState {
         let queue = self.queue_map.get(&adapter_key).unwrap().clone();
         let (id, entry, next_oldest_entry) = queue.pop().unwrap();
         self.adapter_oldest_entries.insert(adapter_key.clone(), next_oldest_entry);
-        Some((id, entry))
+        Some((id, entry, *queue))
+    }
+
+    fn len(&self) -> usize {
+        self.queue_map.values().map(|queue| queue.entries.len()).sum()
     }
 
     // Get the next batch
@@ -269,13 +273,14 @@ impl AdapterManagerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        if self.entries.is_empty() {
+        let num_entries = self.len();
+        if num_entries == 0 {
             return None;
         }
 
         // Check if we have enough entries
         if let Some(min_size) = min_size {
-            if self.entries.len() < min_size {
+            if num_entries < min_size {
                 return None;
             }
         }
@@ -284,16 +289,18 @@ impl AdapterManagerState {
         let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
         next_batch_span.follows_from(&Span::current());
 
-        let mut batch_requests = Vec::with_capacity(self.entries.len());
+        let mut batch_requests = Vec::with_capacity(num_entries);
         let mut batch_entries =
-            IntMap::with_capacity_and_hasher(self.entries.len(), BuildNoHashHasher::default());
+            IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
+        
+        let mut adapter_index_to_queue = HashMap::with_capacity(self.active_adapters.len());
 
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry)) = self.next_entry().await {
+        while let Some((id, mut entry, queue)) = self.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -334,7 +341,7 @@ impl AdapterManagerState {
             {
                 // Entry is over budget
                 // Add it back to the front
-                self.entries.push_front((id, entry));
+                queue.entries.push_front((id, entry));
                 break;
             }
 
@@ -353,12 +360,14 @@ impl AdapterManagerState {
                 truncate: entry.request.truncate,
                 parameters: Some(entry.request.parameters.clone()),
                 stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-                adapter_index: self.adapter_index,
+                adapter_index: queue.adapter_index,
             });
             // Set batch_time
             entry.batch_time = Some(Instant::now());
             // Insert in batch_entries IntMap
             batch_entries.insert(id, entry);
+            // Map from adapter index back to queue in case we need to add back entries below
+            adapter_index_to_queue.insert(queue.adapter_index, queue);
         }
 
         // Empty batch
@@ -374,7 +383,9 @@ impl AdapterManagerState {
                 for r in batch_requests.into_iter().rev() {
                     let id = r.id;
                     let entry = batch_entries.remove(&id).unwrap();
-                    self.entries.push_front((id, entry));
+                    let adapter_index = r.adapter_index;
+                    let queue = adapter_index_to_queue.get(&adapter_index).unwrap();
+                    queue.entries.push_front((id, entry));
                 }
 
                 return None;
