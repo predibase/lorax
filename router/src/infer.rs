@@ -1,6 +1,6 @@
 /// Batching and inference logic
 use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
-use crate::adapter_manager::AdapterManager;
+use crate::scheduler::AdapterManager;
 use crate::validation::{Validation, ValidationError};
 use crate::{Entry, Token};
 use crate::{GenerateRequest, PrefillToken};
