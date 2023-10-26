@@ -1,4 +1,4 @@
-use crate::{Entry, Queue, adapter::Adapter};
+use crate::{Entry, AdapterLoader, adapter::Adapter};
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
@@ -128,7 +128,7 @@ async fn adapter_scheduler_task(
 }
 
 
-/// Queue State
+/// Scheduler State
 #[derive(Debug)]
 struct AdapterSchedulerState {
     /// Sharded client

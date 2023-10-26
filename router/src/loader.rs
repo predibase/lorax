@@ -11,7 +11,7 @@ use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Span};
 
-/// Queue entry
+/// AdapterLoader entry
 #[derive(Debug)]
 pub(crate) struct Entry {
     /// Request
@@ -28,16 +28,16 @@ pub(crate) struct Entry {
     pub batch_time: Option<Instant>,
 }
 
-/// Request Queue
+/// Request AdapterLoader
 #[derive(Debug, Clone)]
-pub(crate) struct Queue {
+pub(crate) struct AdapterLoader {
     /// adapter associated with this queue
     adapter: Adapter,
     /// Channel to communicate with the background queue task
-    queue_sender: flume::Sender<QueueCommand>,
+    queue_sender: flume::Sender<AdapterLoaderCommand>,
 }
 
-impl Queue {
+impl AdapterLoader {
     pub(crate) fn new(
         adapter: Adapter, 
         client: ShardedClient, 
@@ -71,7 +71,7 @@ impl Queue {
         // Send append command to the background task managing the state
         // Unwrap is safe here
         self.queue_sender
-            .send(QueueCommand::Append(Box::new(entry), Span::current()))
+            .send(AdapterLoaderCommand::Append(Box::new(entry), Span::current()))
             .unwrap();
     }
 
@@ -79,7 +79,7 @@ impl Queue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.queue_sender
-            .send(QueueCommand::LoadAdapter {
+            .send(AdapterLoaderCommand::LoadAdapter {
                 response_sender,
                 span: Span::current()
             })
@@ -91,7 +91,7 @@ impl Queue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.queue_sender
-            .send(QueueCommand::IsEmpty {
+            .send(AdapterLoaderCommand::IsEmpty {
                 response_sender,
                 span: Span::current()
             })
@@ -103,7 +103,7 @@ impl Queue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.queue_sender
-            .send(QueueCommand::IsErrored {
+            .send(AdapterLoaderCommand::IsErrored {
                 response_sender,
                 span: Span::current()
             }).unwrap();
@@ -114,7 +114,7 @@ impl Queue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.queue_sender
-            .send(QueueCommand::Terminate {
+            .send(AdapterLoaderCommand::Terminate {
                 response_sender,
                 span: Span::current()
             }).unwrap();
@@ -125,7 +125,7 @@ impl Queue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.queue_sender
-            .send(QueueCommand::Peek {
+            .send(AdapterLoaderCommand::Peek {
                 response_sender,
                 span: Span::current()
             })
@@ -137,7 +137,7 @@ impl Queue {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.queue_sender
-            .send(QueueCommand::Pop {
+            .send(AdapterLoaderCommand::Pop {
                 response_sender,
                 span: Span::current()
             })
@@ -153,7 +153,7 @@ async fn queue_task(
     requires_padding: bool,
     block_size: u32,
     window_size: Option<u32>,
-    receiver: flume::Receiver<QueueCommand>,
+    receiver: flume::Receiver<AdapterLoaderCommand>,
 ) {
     let mut state = State::new(requires_padding, block_size, window_size, adapter.index());
     let mut err_msg: Option<String> = None;
@@ -175,14 +175,14 @@ async fn queue_task(
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
-            QueueCommand::Append(entry, span) => span.in_scope(|| {
+            AdapterLoaderCommand::Append(entry, span) => span.in_scope(|| {
                 // no-op if adapter errored
                 if err_msg.is_some() {
                     return;
                 }
                 state.append(*entry);
             }),
-            QueueCommand::LoadAdapter {
+            AdapterLoaderCommand::LoadAdapter {
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -207,7 +207,7 @@ async fn queue_task(
                     }
                 }
             }
-            QueueCommand::IsEmpty { 
+            AdapterLoaderCommand::IsEmpty { 
                 response_sender,
                 span
             } => span.in_scope(|| {
@@ -218,13 +218,13 @@ async fn queue_task(
                     response_sender.send(response).unwrap();
                 }
             }),
-            QueueCommand::IsErrored{
+            AdapterLoaderCommand::IsErrored{
                 response_sender,
                 span
             } => span.in_scope(|| {
                 response_sender.send(err_msg.is_some()).unwrap();
             }),
-            QueueCommand::Peek { 
+            AdapterLoaderCommand::Peek { 
                 response_sender,
                 span
             } => span.in_scope(|| {
@@ -236,7 +236,7 @@ async fn queue_task(
                     response_sender.send(response).unwrap();
                 }
             }),
-            QueueCommand::Pop { 
+            AdapterLoaderCommand::Pop { 
                 response_sender,
                 span
             } => span.in_scope(|| {
@@ -249,7 +249,7 @@ async fn queue_task(
                     metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
                 }
             }),
-            QueueCommand::Terminate {
+            AdapterLoaderCommand::Terminate {
                 response_sender,
                 span,
             } => {
@@ -276,10 +276,10 @@ async fn queue_task(
     }
 }
 
-/// Queue State
+/// AdapterLoader State
 #[derive(Debug)]
 struct State {
-    /// Queue entries organized in a Vec
+    /// AdapterLoader entries organized in a Vec
     entries: VecDeque<(u64, Entry)>,
 
     /// Id of the next entry
@@ -340,7 +340,7 @@ impl State {
 type NextBatch = (IntMap<u64, Entry>, Batch, Span);
 
 #[derive(Debug)]
-enum QueueCommand {
+enum AdapterLoaderCommand {
     Append(Box<Entry>, Span),
     LoadAdapter {
         response_sender: oneshot::Sender<()>,
@@ -369,7 +369,7 @@ enum QueueCommand {
 }
 
 // TODO(geoffrey): revisit unit tests. They should work given the minimal changes
-// to existing functionality. The issue is that Queue now takes a ShardedClient,
+// to existing functionality. The issue is that AdapterLoader now takes a ShardedClient,
 // which I'm not yet sure how to mock out. They should also be extended to test
 // the new functionality.
 //
@@ -507,14 +507,14 @@ enum QueueCommand {
 
 //     #[tokio::test]
 //     async fn test_queue_append() {
-//         let queue = Queue::new(false, 1);
+//         let queue = AdapterLoader::new(false, 1);
 //         let (entry, _guard) = default_entry();
 //         queue.append(entry);
 //     }
 
 //     #[tokio::test]
 //     async fn test_queue_next_batch_empty() {
-//         let queue = Queue::new(false, 1);
+//         let queue = AdapterLoader::new(false, 1);
 
 //         assert!(queue.next_batch(None, 1, 1).await.is_none());
 //         assert!(queue.next_batch(Some(1), 1, 1).await.is_none());
@@ -522,7 +522,7 @@ enum QueueCommand {
 
 //     #[tokio::test]
 //     async fn test_queue_next_batch_min_size() {
-//         let queue = Queue::new(false, 1);
+//         let queue = AdapterLoader::new(false, 1);
 //         let (entry1, _guard1) = default_entry();
 //         let (entry2, _guard2) = default_entry();
 //         queue.append(entry1);
@@ -555,7 +555,7 @@ enum QueueCommand {
 
 //     #[tokio::test]
 //     async fn test_queue_next_batch_token_budget() {
-//         let queue = Queue::new(false, 1);
+//         let queue = AdapterLoader::new(false, 1);
 //         let (entry1, _guard1) = default_entry();
 //         let (entry2, _guard2) = default_entry();
 //         queue.append(entry1);
@@ -580,7 +580,7 @@ enum QueueCommand {
 
 //     #[tokio::test]
 //     async fn test_queue_next_batch_dropped_receiver() {
-//         let queue = Queue::new(false, 1);
+//         let queue = AdapterLoader::new(false, 1);
 //         let (entry, _) = default_entry();
 //         queue.append(entry);
 

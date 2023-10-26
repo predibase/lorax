@@ -8,7 +8,7 @@ pub mod server;
 mod validation;
 
 use infer::Infer;
-use loader::{Entry, Queue};
+use loader::{Entry, AdapterLoader};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validation::Validation;
