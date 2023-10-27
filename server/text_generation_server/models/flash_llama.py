@@ -193,3 +193,22 @@ class FlashLlama(FlashCausalLM):
                 )
 
             self.adapter_id = adapter_id
+
+    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        else:
+            for layer in self.model.model.layers:
+                layer = layer.self_attn.query_key_value
+                layer.remove_adapter(adapter_index)
+
+            self.adapter_id = BASE_MODEL_ADAPTER_ID

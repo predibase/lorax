@@ -302,6 +302,14 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             adapter_index=adapter_index,
         )
         self.adapter_layers.append(adapter_layer)
+
+    def remove_adapter(self, adapter_index):
+        # TODO(travis): return layers and cache them in CPU using LRU
+        self.adapter_layers = [
+            adapter_layer
+            for adapter_layer in self.adapter_layers
+            if adapter_layer.adapter_index != adapter_index
+        ]
     
     def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> torch.Tensor:
         result = self.base_layer(input)

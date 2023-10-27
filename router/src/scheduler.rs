@@ -1,8 +1,8 @@
-use crate::{Entry, AdapterLoader, adapter::Adapter};
-use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc};
+use crate::{Entry, AdapterLoader, adapter::Adapter, queue::QueueState};
+use std::{collections::{HashMap, VecDeque}, sync::{Arc, Mutex}};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tracing::{info_span, Span, instrument};
 
@@ -111,7 +111,7 @@ async fn adapter_scheduler_task(
             AdapterSchedulerCommand::RemoveQueue {
                 adapter
             } => {
-                state.remove_queue()
+                state.remove_queue(adapter);
             },
             AdapterSchedulerCommand::NextBatch {
                 min_size,
@@ -189,10 +189,10 @@ impl AdapterSchedulerState {
     }
 
     /// Append entry to the appropriate queue
-    async fn append(&mut self, adapter: &Adapter, entry: Entry) {
+    fn append(&mut self, adapter: Adapter, entry: Entry) {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
-        let mut queue_map = self.queue_map.lock().await;
+        let mut queue_map = self.queue_map.lock().unwrap();
 
         // let mut queue;
         let adapter_key = adapter.as_string();
@@ -208,9 +208,8 @@ impl AdapterSchedulerState {
             }
             self.adapter_oldest_entries.insert(adapter_key.clone(), None);
 
-            // Download the adapter
-            // TODO(travis): make this non-blocking
-            self.loader.download_adapter(adapter.clone()).await;
+            // Download the adapter async
+            self.loader.download_adapter(adapter.clone(), self.queue_map);
         }
 
         let queue = queue_map.get_mut(&adapter_key).unwrap();
@@ -221,8 +220,8 @@ impl AdapterSchedulerState {
     }
 
     /// Remove queue
-    async fn remove_queue(&mut self, adapter: Adapter) {
-        let mut queue_map = self.queue_map.lock().await;
+    fn remove_queue(&mut self, adapter: Adapter) {
+        let mut queue_map = self.queue_map.lock().unwrap();
 
         let adapter_key = adapter.as_string();
         queue_map.remove(&adapter_key);
@@ -239,7 +238,7 @@ impl AdapterSchedulerState {
             let mut adapter_oldest_entry = self.adapter_oldest_entries.get(adapter_key).unwrap().clone();
             if adapter_oldest_entry.is_none() {
                 // no record found for oldest entry for this adapter, so check to see if anything has been added
-                let queue = self.queue_map.get(adapter_key).unwrap().clone();
+                let queue = queue_map.get(adapter_key).unwrap().clone();
                 adapter_oldest_entry = queue.peek();
                 self.adapter_oldest_entries.insert(adapter_key.clone(), adapter_oldest_entry);
             }
@@ -282,9 +281,9 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        let mut queue_map = self.queue_map.lock().await;
+        let mut queue_map = self.queue_map.lock().unwrap();
 
-        let num_entries = queue_map.values().map(|queue| queue.entries.len()).sum();
+        let num_entries = queue_map.values().map(|queue| queue.entries().len()).sum();
         if num_entries == 0 {
             return None;
         }
@@ -352,7 +351,7 @@ impl AdapterSchedulerState {
             {
                 // Entry is over budget
                 // Add it back to the front
-                queue.entries.push_front((id, entry));
+                queue.entries().push_front((id, entry));
                 break;
             }
 
@@ -371,14 +370,14 @@ impl AdapterSchedulerState {
                 truncate: entry.request.truncate,
                 parameters: Some(entry.request.parameters.clone()),
                 stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-                adapter_index: queue.adapter.index(),
+                adapter_index: queue.adapter().index(),
             });
             // Set batch_time
             entry.batch_time = Some(Instant::now());
             // Insert in batch_entries IntMap
             batch_entries.insert(id, entry);
             // Map from adapter index back to queue in case we need to add back entries below
-            adapter_index_to_queue.insert(queue.adapter.index(), queue);
+            adapter_index_to_queue.insert(queue.adapter().index(), queue);
         }
 
         // Empty batch
@@ -396,7 +395,7 @@ impl AdapterSchedulerState {
                     let entry = batch_entries.remove(&id).unwrap();
                     let adapter_index = r.adapter_index;
                     let queue = adapter_index_to_queue.get(&adapter_index).unwrap();
-                    queue.entries.push_front((id, entry));
+                    queue.entries().push_front((id, entry));
                 }
 
                 return None;
@@ -419,54 +418,5 @@ impl AdapterSchedulerState {
         metrics::histogram!("tgi_batch_next_size", batch.size as f64);
 
         Some((batch_entries, batch, next_batch_span))
-    }
-}
-
-/// Queue State
-#[derive(Debug)]
-struct QueueState {
-    /// Queue entries organized in a Vec
-    entries: VecDeque<(u64, Entry)>,
-
-    /// Id of the next entry
-    next_id: u64,
-
-    /// Adapter index
-    adapter: Adapter,
-}
-
-impl QueueState {
-    fn new(adapter: Adapter) -> Self {
-        Self {
-            entries: VecDeque::with_capacity(128),
-            next_id: 0,
-            adapter,
-        }
-    }
-
-    /// Append an entry to the queue
-    fn append(&mut self, mut entry: Entry) {
-        // Create a span that will live as long as the entry is in the queue waiting to be batched
-        let queue_span = info_span!(parent: &entry.span, "queued");
-        entry.temp_span = Some(queue_span);
-
-        // Push entry in the queue
-        self.entries.push_back((self.next_id, entry));
-        self.next_id += 1;
-    }
-
-    // Is empty
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    // Peeks at the front of the queue and returns timestamp of the oldest entry, if present
-    fn peek(&self) -> Option<Instant> {
-        self.entries.front().map(|(_, entry)| entry.queue_time)
-    }
-
-    // Pops the front of the queue and returns the oldest entry, if present
-    fn pop(&mut self) -> Option<(u64, Entry, Option<Instant>)> {
-        self.entries.pop_front().map(|(id, mut entry)| (id, entry, self.peek()))
     }
 }

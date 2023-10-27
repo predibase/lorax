@@ -1,33 +1,11 @@
-use crate::adapter;
-use crate::adapter::Adapter;
+use crate::queue::AdapterStatus;
+use crate::{adapter::Adapter, queue::QueueState};
 use crate::infer::InferError;
-use crate::infer::InferStreamResponse;
-use crate::validation::ValidGenerateRequest;
-use nohash_hasher::{BuildNoHashHasher, IntMap};
-use std::cmp::min;
+use std::sync::Mutex;
+use std::{sync::Arc, collections::HashMap};
 use text_generation_client::ShardedClient;
-use std::collections::VecDeque;
-use text_generation_client::{Batch, Request};
 use tokio::sync::oneshot;
-use tokio::time::Instant;
-use tracing::{info_span, instrument, Span};
-
-/// AdapterLoader entry
-#[derive(Debug)]
-pub(crate) struct Entry {
-    /// Request
-    pub request: ValidGenerateRequest,
-    /// Response sender to communicate between the Infer struct and the batching_task
-    pub response_tx: flume::Sender<Result<InferStreamResponse, InferError>>,
-    /// Span that will live as long as entry
-    pub span: Span,
-    /// Temporary span used as a guard when logging inference, wait times...
-    pub temp_span: Option<Span>,
-    /// Instant when this entry was queued
-    pub queue_time: Instant,
-    /// Instant when this entry was added to a batch
-    pub batch_time: Option<Instant>,
-}
+use tracing::Span;
 
 /// Request AdapterLoader
 #[derive(Debug, Clone)]
@@ -46,12 +24,13 @@ impl AdapterLoader {
         Self { sender }
     }
 
-    pub(crate) async fn download_adapter(&self, adapter: Adapter) {
+    pub(crate) async fn download_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<String, QueueState>>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::DownloadAdapter {
                 adapter,
+                queue_map,
                 response_sender,
                 span: Span::current()
             })
@@ -59,12 +38,27 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn load_adapter(&self, adapter: Adapter) {
+    pub(crate) async fn load_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<String, QueueState>>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::LoadAdapter {
                 adapter,
+                queue_map,
+                response_sender,
+                span: Span::current()
+            })
+            .unwrap();
+        response_receiver.await.unwrap()
+    }
+
+    pub(crate) async fn offload_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<String, QueueState>>>) {
+        // Create response channel
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.sender
+            .send(AdapterLoaderCommand::OffloadAdapter {
+                adapter,
+                queue_map,
                 response_sender,
                 span: Span::current()
             })
@@ -106,6 +100,7 @@ async fn loader_task(
         match cmd {
             AdapterLoaderCommand::DownloadAdapter {
                 adapter,
+                queue_map,
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -119,6 +114,8 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} downloaded", adapter.id());
+                        let state = queue_map.lock().unwrap().get_mut(adapter.source());
+                        state.unwrap().set_status(AdapterStatus::Offloaded);
                     }
                     // if we have a download error, we send an error to the entry response
                     Err(error) => {
@@ -129,6 +126,7 @@ async fn loader_task(
             },
             AdapterLoaderCommand::LoadAdapter {
                 adapter,
+                queue_map,
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -143,11 +141,42 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} loaded", adapter.id());
+                        let state = queue_map.lock().unwrap().get_mut(adapter.source());
+                        state.unwrap().set_status(AdapterStatus::Active);
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
+                        err_msg = Some(error.to_string());
+                        response_sender.send(()).unwrap();
+                    }
+                }
+            }
+            AdapterLoaderCommand::OffloadAdapter {
+                adapter,
+                queue_map,
+                response_sender,
+                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
+            } => {
+                if err_msg.is_some() {
+                    response_sender.send(()).unwrap();
+                    continue;
+                }
+                match client.offload_adapter(
+                    adapter.id().to_string(),
+                    adapter.source().to_string(),
+                    adapter.index(),
+                ).await {
+                    Ok(_) => {
+                        tracing::info!("adapter {} offloaded", adapter.id());
+                        let state = queue_map.lock().unwrap().get_mut(adapter.source());
+                        state.unwrap().set_status(AdapterStatus::Offloaded);
+                        response_sender.send(()).unwrap();
+                    }
+                    // If we have a load error, we send an error to the entry response
+                    Err(error) => {
+                        metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
                         err_msg = Some(error.to_string());
                         response_sender.send(()).unwrap();
                     }
@@ -186,39 +215,23 @@ async fn loader_task(
     }
 }
 
-/// AdapterLoader State
-#[derive(Debug)]
-struct State {
-    /// AdapterLoader entries organized in a Vec
-    entries: VecDeque<(u64, Entry)>,
-
-    /// Id of the next entry
-    next_id: u64,
-
-    /// Whether the model is using padding
-    requires_padding: bool,
-
-    /// Paged Attention block size
-    block_size: u32,
-
-    /// Sliding window
-    window_size: Option<u32>,
-
-    /// Adapter index
-    adapter_index: u32,
-}
-
-type NextBatch = (IntMap<u64, Entry>, Batch, Span);
-
 #[derive(Debug)]
 enum AdapterLoaderCommand {
     DownloadAdapter {
         adapter: Adapter,
+        queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
     LoadAdapter {
         adapter: Adapter,
+        queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
+        response_sender: oneshot::Sender<()>,
+        span: Span,
+    },
+    OffloadAdapter {
+        adapter: Adapter,
+        queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },

@@ -4,11 +4,13 @@ mod adapter;
 mod scheduler;
 mod infer;
 mod loader;
+mod queue;
 pub mod server;
 mod validation;
 
 use infer::Infer;
-use loader::{Entry, AdapterLoader};
+use loader::AdapterLoader;
+use queue::Entry;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validation::Validation;

@@ -212,4 +212,22 @@ impl Client {
             Err(ClientError::Generation(err_string).into())
         }
     }
+
+    /// Offloads adapter the weights from GPU to CPU or disk
+    pub async fn offload_adapter(&mut self, adapter_id: String, adapter_source: String, adapter_index: u32) -> Result<String> {
+        if let Some(adapter_source_enum) = AdapterSource::from_str_name(adapter_source.to_uppercase().as_str()) {
+            let request = tonic::Request::new(
+                OffloadAdapterRequest { 
+                    adapter_id, 
+                    adapter_source: adapter_source_enum.into(),
+                    adapter_index
+                }).inject_context();
+            let response = self.stub.offload_adapter(request).await?.into_inner();
+            Ok(response.adapter_id)
+        } else {
+            let err_string = format!("Invalid source '{}' when loading adapter '{}'", adapter_source, adapter_id);
+            tracing::error!(err_string);
+            Err(ClientError::Generation(err_string).into())
+        }
+    }
 }

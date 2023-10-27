@@ -644,6 +644,10 @@ class FlashCausalLM(Model):
         weights on the fly.
         """
         raise NotImplementedError
+    
+    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
+        """Offloads the adapter weights from GPU to CPU or disk."""
+        raise NotImplementedError
 
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:

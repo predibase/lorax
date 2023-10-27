@@ -160,6 +160,22 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
             logger.exception("Error when loading adapter")
             raise
 
+    async def OffloadAdapter(self, request, context):
+        try:
+            adapter_id = request.adapter_id
+            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+            adapter_index = request.adapter_index
+            self.model.offload_adapter(adapter_id, adapter_source, adapter_index)
+            
+            return generate_pb2.OffloadAdapterResponse(
+                adapter_id=adapter_id,
+                adapter_source=request.adapter_source,
+                adapter_index=adapter_index,
+            )
+        except Exception:
+            logger.exception("Error when offloading adapter")
+            raise
+
 
 def serve(
     model_id: str,
