@@ -2,7 +2,7 @@ use crate::{Entry, AdapterLoader, adapter::Adapter};
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 use tokio::time::Instant;
 use tracing::{info_span, Span, instrument};
 
@@ -138,7 +138,7 @@ struct AdapterSchedulerState {
     loader: AdapterLoader,
 
     /// Map of adapter key to queue
-    queue_map: HashMap<String, QueueState>,
+    queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
 
     /// Adapters that are currently not in use
     inactive_adapters: VecDeque<String>,
@@ -167,7 +167,7 @@ struct AdapterSchedulerState {
 
 impl AdapterSchedulerState {
     fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
-        let mut queue_map = HashMap::new();
+        let mut queue_map = Arc::new(Mutex::new(HashMap::new()));
         let mut inactive_adapters = VecDeque::new();
         let mut active_adapters = VecDeque::new();
         let mut adapter_oldest_entries = HashMap::new();
@@ -189,14 +189,15 @@ impl AdapterSchedulerState {
     }
 
     /// Append entry to the appropriate queue
-    fn append(&mut self, adapter: Adapter, entry: Entry) {
+    async fn append(&mut self, adapter: &Adapter, entry: Entry) {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
-        let mut queue;
+        let mut queue_map = self.queue_map.lock().await;
+
+        // let mut queue;
         let adapter_key = adapter.as_string();
-        if !self.queue_map.contains_key(&adapter_key) {
-            queue = QueueState::new(adapter);
-            self.queue_map.insert(adapter_key.clone(), queue);
+        if !queue_map.contains_key(&adapter_key) {
+            queue_map.insert(adapter_key.clone(), QueueState::new(adapter.clone()));
 
             // add the adapter to the active set if we're below the limit, otherwise
             // add it to the inactive set
@@ -210,25 +211,28 @@ impl AdapterSchedulerState {
             // Download the adapter
             // TODO(travis): make this non-blocking
             self.loader.download_adapter(adapter.clone()).await;
-        } else {
-            queue = *self.queue_map.get(&adapter_key).unwrap();
         }
 
-        // ensure that append completes before sending batcher message
+        let queue = queue_map.get_mut(&adapter_key).unwrap();
         queue.append(entry);
+
+        // ensure that append completes before sending batcher message
+        // queue.append(entry);
     }
 
     /// Remove queue
     async fn remove_queue(&mut self, adapter: Adapter) {
+        let mut queue_map = self.queue_map.lock().await;
+
         let adapter_key = adapter.as_string();
-        self.queue_map.remove(&adapter_key);
+        queue_map.remove(&adapter_key);
         self.active_adapters.retain(|id| id != &adapter_key);
         self.inactive_adapters.retain(|id| id != &adapter_key);
         self.adapter_oldest_entries.remove(&adapter_key);
     }
 
     /// Updates the mapping from adapter to the age of its oldest entry, then returns the oldest active adapter
-    fn get_oldest_active_adapter(&mut self) -> Option<String> {
+    fn get_oldest_active_adapter(&mut self, queue_map: &HashMap<String, QueueState>) -> Option<String> {
         let mut oldest_timestamp = Instant::now();
         let mut oldest_adapter = None;
         for adapter_key in self.active_adapters.iter() {
@@ -248,14 +252,14 @@ impl AdapterSchedulerState {
         oldest_adapter
     }
 
-    fn next_entry(&mut self) -> Option<(u64, Entry, QueueState)> {
+    fn next_entry(&mut self, queue_map: &HashMap<String, QueueState>) -> Option<(u64, Entry, QueueState)> {
         // Remove the first adapter from active set if we have reached the time limit.
         // Add the first inactivate adapter to the active set if there are no pending requests
         // for the removed adapter.
         // TODO(travis)
 
         // Get the adapter from the active set that has been waiting the longest.
-        let adapter = self.get_oldest_active_adapter();
+        let adapter = self.get_oldest_active_adapter(queue_map);
         if adapter.is_none() {
             // No active adapter has any entries
             return None;
@@ -265,14 +269,10 @@ impl AdapterSchedulerState {
 
         // Pop the oldest entry from the queue
         let adapter_key = adapter.unwrap();
-        let queue = self.queue_map.get(&adapter_key).unwrap().clone();
+        let queue = queue_map.get(&adapter_key).unwrap().clone();
         let (id, entry, next_oldest_entry) = queue.pop().unwrap();
         self.adapter_oldest_entries.insert(adapter_key.clone(), next_oldest_entry);
         Some((id, entry, *queue))
-    }
-
-    fn len(&self) -> usize {
-        self.queue_map.values().map(|queue| queue.entries.len()).sum()
     }
 
     // Get the next batch
@@ -282,7 +282,9 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        let num_entries = self.len();
+        let mut queue_map = self.queue_map.lock().await;
+
+        let num_entries = queue_map.values().map(|queue| queue.entries.len()).sum();
         if num_entries == 0 {
             return None;
         }
@@ -309,7 +311,7 @@ impl AdapterSchedulerState {
         let mut decode_tokens: u32 = 0;
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry, queue)) = self.next_entry() {
+        while let Some((id, mut entry, queue)) = self.next_entry(&queue_map) {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
