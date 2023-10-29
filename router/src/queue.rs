@@ -45,6 +45,9 @@ pub(crate) struct QueueState {
 
     /// Adapter status
     status: AdapterStatus,
+
+    /// Timestamp when the adapter was last activated
+    activation_ts: Option<Instant>,
 }
 
 impl QueueState {
@@ -55,11 +58,8 @@ impl QueueState {
             next_id: 0,
             adapter,
             status,
+            activation_ts: None,
         }
-    }
-
-    pub(crate) fn set_status(&mut self, status: AdapterStatus) {
-        self.status = status;
     }
 
     /// Append an entry to the queue
@@ -94,5 +94,21 @@ impl QueueState {
 
     pub(crate) fn adapter(&self) -> &Adapter {
         &self.adapter
+    }
+
+    pub(crate) fn set_status(&mut self, status: AdapterStatus) {
+        self.status = status;
+    }
+
+    pub(crate) fn status(&self) -> &AdapterStatus {
+        &self.status
+    }
+
+    pub(crate) fn set_activation_ts(&mut self, ts: Instant) {
+        self.activation_ts = Some(ts);
+    }
+
+    pub(crate) fn activation_ts(&self) -> Option<Instant> {
+        self.activation_ts
     }
 }

@@ -24,7 +24,7 @@ impl AdapterLoader {
         Self { sender }
     }
 
-    pub(crate) async fn download_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<String, QueueState>>>) {
+    pub(crate) async fn download_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
@@ -38,7 +38,7 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn load_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<String, QueueState>>>) {
+    pub(crate) async fn load_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
@@ -52,7 +52,7 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn offload_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<String, QueueState>>>) {
+    pub(crate) async fn offload_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
@@ -114,7 +114,7 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} downloaded", adapter.id());
-                        let state = queue_map.lock().unwrap().get_mut(adapter.source());
+                        let state = queue_map.lock().unwrap().get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Offloaded);
                     }
                     // if we have a download error, we send an error to the entry response
@@ -141,7 +141,7 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} loaded", adapter.id());
-                        let state = queue_map.lock().unwrap().get_mut(adapter.source());
+                        let state = queue_map.lock().unwrap().get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Active);
                         response_sender.send(()).unwrap();
                     }
@@ -170,7 +170,7 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} offloaded", adapter.id());
-                        let state = queue_map.lock().unwrap().get_mut(adapter.source());
+                        let state = queue_map.lock().unwrap().get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Offloaded);
                         response_sender.send(()).unwrap();
                     }
@@ -219,19 +219,19 @@ async fn loader_task(
 enum AdapterLoaderCommand {
     DownloadAdapter {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
+        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
     LoadAdapter {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
+        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
     OffloadAdapter {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<String, QueueState>>>,
+        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
