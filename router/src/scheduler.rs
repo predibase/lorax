@@ -225,22 +225,40 @@ impl AdapterSchedulerState {
         self.tracked_adapters.remove(&adapter);
     }
 
-    /// Updates the mapping from adapter to the age of its oldest entry, then returns the oldest active adapter
     fn get_oldest_active_adapter(&mut self, queue_map: &HashMap<Adapter, QueueState>) -> Option<Adapter> {
-        let mut oldest_timestamp = Instant::now();
+        // Returns the adapter that maps to the queue whose front entry has the oldest activation timestamp, 
+        // but prefer queues that have not ben active past the maximum time limit
+        let now = Instant::now();
         let mut oldest_adapter = None;
+        let mut oldest_ts = Instant::now();
+        let mut oldest_within_limit_adapter = None;
+        let mut oldest_within_limit_ts = Instant::now();
         for adapter in self.active_adapters.iter() {
             let queue = queue_map.get(adapter).unwrap().clone();
-            if !queue.entries().is_empty() {
-                // queue is not empty, so it must have an oldest entry
-                let adapter_oldest_ts = queue.peek().unwrap();
-                if adapter_oldest_ts < oldest_timestamp {
-                    oldest_timestamp = adapter_oldest_ts;
+            if queue.is_empty() {
+                continue;
+            }
+
+            if let Some(ts) = queue.peek() {
+                if ts < oldest_ts {
+                    oldest_ts = ts;
                     oldest_adapter = Some(adapter.clone());
+                }
+
+                if ts < oldest_within_limit_ts && now.duration_since(queue.activation_ts().unwrap()) < self.max_active_time {
+                    oldest_within_limit_ts = ts;
+                    oldest_within_limit_adapter = Some(adapter.clone());
                 }
             }
         }
-        oldest_adapter
+
+        // Return the oldest adapter whose queue has been active for less than the limit if it exists,
+        // otherwise return the oldest adapter across all queues
+        if oldest_within_limit_adapter.is_some() {
+            oldest_within_limit_adapter
+        } else {
+            oldest_adapter
+        }
     }
 
     fn update_adapters(
