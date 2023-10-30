@@ -232,6 +232,27 @@ class FlashLlamaAttention(torch.nn.Module):
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
 
+    def get_query_key_value_weights(self, clone=True):
+        """Gets the query, key, and value weights from the attention layer.
+        
+        If `clone`, then the weights are cloned before being returned.
+        
+        NOTE: if not `clone`, then the weights are returned as views, meaning
+        that changes to the weights will be reflected in the attention layer.
+        """
+        query, key, value = self.query_key_value.linear.weight.split(
+            [
+                self.head_size * self.num_heads,
+                self.head_size * self.num_key_value_heads,
+                self.head_size * self.num_key_value_heads,
+            ],
+            dim=0,
+        )
+
+        if clone:
+            return query.clone(), key.clone(), value.clone()
+        return query, key, value
+
     def forward(
         self,
         hidden_states,
