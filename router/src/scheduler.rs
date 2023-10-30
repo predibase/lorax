@@ -146,6 +146,9 @@ struct AdapterSchedulerState {
     /// Adapters that are currently in use
     active_adapters: VecDeque<Adapter>,
 
+    /// Adapters that are currently being tracked as pending or active
+    tracked_adapters: HashSet<Adapter>,
+
     /// Number of adapters that can be active at a time
     max_active_adapters: usize,
 
@@ -170,6 +173,7 @@ impl AdapterSchedulerState {
         let mut queue_map = Arc::new(Mutex::new(HashMap::new()));
         let mut pending_adapters = VecDeque::new();
         let mut active_adapters = VecDeque::new();
+        let mut tracked_adapters = HashSet::new();
         let mut loader = AdapterLoader::new(client);
 
         Self {
@@ -178,6 +182,7 @@ impl AdapterSchedulerState {
             queue_map,
             pending_adapters,
             active_adapters,
+            tracked_adapters,
             max_active_adapters: 3,
             max_active_time: Duration::from_secs(2),
             next_batch_id: 0,
@@ -195,7 +200,10 @@ impl AdapterSchedulerState {
 
         if !queue_map.contains_key(&adapter) {
             queue_map.insert(adapter.clone(), QueueState::new(adapter.clone()));
+        }
 
+        if !self.tracked_adapters.contains(&adapter) {
+            self.tracked_adapters.insert(adapter.clone());
             self.pending_adapters.push_back(adapter.clone());
 
             // Download the adapter async
@@ -214,6 +222,7 @@ impl AdapterSchedulerState {
         queue_map.remove(&adapter);
         self.active_adapters.retain(|id| id != &adapter);
         self.pending_adapters.retain(|id| id != &adapter);
+        self.tracked_adapters.remove(&adapter);
     }
 
     /// Updates the mapping from adapter to the age of its oldest entry, then returns the oldest active adapter
@@ -243,7 +252,6 @@ impl AdapterSchedulerState {
         // Additionally, move any adapters that have been activate over the limit to pending
         let now = Instant::now();
         let mut adapters_to_remove = HashSet::new();
-        let mut adapters_to_pending = Vec::new();
         for adapter in self.active_adapters.iter() {
             let queue = queue_map.get(adapter).unwrap().clone();
             if adapters_in_use.contains(&queue.adapter()) {
@@ -251,7 +259,7 @@ impl AdapterSchedulerState {
                 continue
             }
 
-            if self.pending_adapters.len() <= adapters_to_remove.len() + adapters_to_pending.len() {
+            if self.pending_adapters.len() <= adapters_to_remove.len() {
                 // Only move adapters out of active if we have pending adapters ready to take their place
                 continue
             }
@@ -259,9 +267,6 @@ impl AdapterSchedulerState {
             if queue.entries().is_empty() {
                 // queue is empty and not in use, so move to removal set
                 adapters_to_remove.insert(adapter.clone());
-            } else if now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time {
-                // queue has been active for more than the allowed time limit, so move to pending queue
-                adapters_to_pending.push(adapter.clone());
             }
         }
 
@@ -269,10 +274,24 @@ impl AdapterSchedulerState {
         self.active_adapters.retain(|adapter| {
             !adapters_to_remove.contains(adapter)
         });
+        self.tracked_adapters.retain(|adapter| {
+            !adapters_to_remove.contains(adapter)
+        });
 
-        // Add all adapters in the pending set
-        for adapter in adapters_to_pending.iter() {
-            self.pending_adapters.push_back(adapter.clone());
+        // Move the front adapter from the active set if it has been active over the limit to pending.
+        // Do this after filtering out idle adapters as those should take priority over adapters that
+        // have been active over the limit.
+        if !self.active_adapters.is_empty() {
+            let adapter = self.active_adapters.front().unwrap();
+            let queue = queue_map.get(adapter).unwrap().clone();
+            if 
+                !adapters_in_use.contains(&queue.adapter()) &&
+                now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time && 
+                self.pending_adapters.len() >= 1
+            {
+                self.active_adapters.pop_front();
+                self.pending_adapters.push_back(adapter.clone());
+            }
         }
 
         // Add pending adapters to the active set until we reach the max
