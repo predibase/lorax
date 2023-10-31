@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
-use tokio::time::Instant;
+use tokio::{time::Instant, sync::Notify};
 use tracing::{info_span, Span};
 
 use crate::{adapter::Adapter, validation::ValidGenerateRequest, infer::{InferStreamResponse, InferError}};
@@ -22,13 +22,19 @@ pub(crate) struct Entry {
     pub batch_time: Option<Instant>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum AdapterStatus {
     Downloading,
-    Offloaded,
+    Downloaded,
     Loading,
-    Offloading,
-    Active,
+    Ready,
+    Errored,
+}
+
+#[derive(Debug)]
+pub(crate) struct AdapterEvent {
+    /// Adapter readniess task notifier
+    pub batching_task: Notify,
 }
 
 /// Queue State
@@ -48,10 +54,13 @@ pub(crate) struct QueueState {
 
     /// Timestamp when the adapter was last activated
     activation_ts: Option<Instant>,
+
+    /// Adapter event
+    event: Arc<AdapterEvent>,
 }
 
 impl QueueState {
-    pub(crate) fn new(adapter: Adapter) -> Self {
+    pub(crate) fn new(adapter: Adapter, event: Arc<AdapterEvent>) -> Self {
         let status = AdapterStatus::Downloading;
         Self {
             entries: VecDeque::with_capacity(128),
@@ -59,6 +68,7 @@ impl QueueState {
             adapter,
             status,
             activation_ts: None,
+            event,
         }
     }
 
@@ -98,6 +108,9 @@ impl QueueState {
 
     pub(crate) fn set_status(&mut self, status: AdapterStatus) {
         self.status = status;
+        if self.status == AdapterStatus::Ready {
+            self.event.batching_task.notify_one();
+        }
     }
 
     pub(crate) fn status(&self) -> &AdapterStatus {

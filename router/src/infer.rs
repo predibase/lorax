@@ -1,6 +1,7 @@
 /// Batching and inference logic
 use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
 use crate::loader::AdapterLoader;
+use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{Entry, Token};
@@ -20,7 +21,7 @@ use text_generation_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError, Notify};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -52,8 +53,12 @@ impl Infer {
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
     ) -> Self {
+        let adapter_event = Arc::new(AdapterEvent {
+            batching_task: Notify::new(),
+        });
+
         // Routes requests to the appropriate adapter queue
-        let adapter_scheduler = AdapterScheduler::new(client.clone(), requires_padding, 16, window_size);
+        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event, requires_padding, 16, window_size);
 
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));
@@ -66,6 +71,7 @@ impl Infer {
             max_batch_total_tokens,
             max_waiting_tokens,
             max_time_limit,
+            adapter_event,
             generation_health,
             adapter_scheduler.clone(),
         ));
@@ -274,33 +280,21 @@ async fn batching_task(
     max_batch_total_tokens: u32,
     max_waiting_tokens: usize,
     max_time_limit: Duration,
+    adapter_event: Arc<AdapterEvent>,
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
 ) {
     // Infinite loop
     loop {
-        let queue_option = adapter_scheduler.next_queue().await;
-        if queue_option.is_none() {
-            continue;
-        }
+        // Fire if a new request comes in or an adapter becomes ready
+        adapter_event.batching_task.notified().await;
 
-        let queue = queue_option.unwrap();
-        let adapter = queue.adapter().clone();
-        if queue.is_errored().await {
-            adapter_scheduler.remove_queue(adapter).await;
-            continue
-        }
-        if queue.is_empty().await {
-            continue;
-        }
-
-        queue.load_adapter().await;
         let start_time = Instant::now();
         let mut max_time_limit_reached = false;
         // Get the next batch from the queue
         // This batch might be smaller than the maximum batch size if there are not enough requests
         // waiting in the queue
-        while let Some((mut entries, batch, span)) = queue
+        while let Some((mut entries, batch, span)) = adapter_scheduler
             .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
             .await
         {

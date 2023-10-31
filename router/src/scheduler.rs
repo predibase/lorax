@@ -1,4 +1,4 @@
-use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{QueueState, self}};
+use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{QueueState, self, AdapterEvent}};
 use std::{collections::{HashMap, VecDeque, HashSet}, sync::{Arc, Mutex}, time::Duration};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
@@ -29,6 +29,7 @@ pub(crate) struct AdapterScheduler {
 impl AdapterScheduler {
     pub(crate) fn new(
         client: ShardedClient,
+        adapter_event: Arc<AdapterEvent>,
         requires_padding: bool,
         block_size: u32,
         window_size: Option<u32>,
@@ -38,6 +39,7 @@ impl AdapterScheduler {
         // receives requests from the infer struct and sends them to the appropriate adapter queue
         tokio::spawn(adapter_scheduler_task(
             client,
+            adapter_event,
             requires_padding,
             block_size,
             window_size,
@@ -96,6 +98,7 @@ type NextBatch = (IntMap<u64, Entry>, Batch, Span);
 /// TODO(geoffrey): add tracing (span object) to the various commands
 async fn adapter_scheduler_task(
     client: ShardedClient,
+    adapter_event: Arc<AdapterEvent>,
     requires_padding: bool,
     block_size: u32,
     window_size: Option<u32>,
@@ -106,7 +109,7 @@ async fn adapter_scheduler_task(
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterSchedulerCommand::Append(adapter, entry) => {
-                state.append(adapter, entry);
+                state.append(adapter, adapter_event, entry);
             }
             AdapterSchedulerCommand::RemoveQueue {
                 adapter
@@ -193,13 +196,13 @@ impl AdapterSchedulerState {
     }
 
     /// Append entry to the appropriate queue
-    fn append(&mut self, adapter: Adapter, entry: Entry) {
+    fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
         let mut queue_map = self.queue_map.lock().unwrap();
 
         if !queue_map.contains_key(&adapter) {
-            queue_map.insert(adapter.clone(), QueueState::new(adapter.clone()));
+            queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event));
         }
 
         if !self.tracked_adapters.contains(&adapter) {
@@ -213,6 +216,8 @@ impl AdapterSchedulerState {
         // ensure that append completes before sending batcher message
         let queue = queue_map.get_mut(&adapter).unwrap();
         queue.append(entry);
+
+        adapter_event.batching_task.notify_one()
     }
 
     /// Remove queue
@@ -235,7 +240,7 @@ impl AdapterSchedulerState {
         let mut oldest_within_limit_ts = Instant::now();
         for adapter in self.active_adapters.iter() {
             let queue = queue_map.get(adapter).unwrap().clone();
-            if queue.is_empty() {
+            if queue.is_empty() || queue.status() != &queue::AdapterStatus::Ready {
                 continue;
             }
 
@@ -342,13 +347,10 @@ impl AdapterSchedulerState {
             return None;
         }
 
-        // TODO(travis): update adapters to remove nones and cycle in other adapters
-
         // Pop the oldest entry from the queue
         let adapter_key = adapter.unwrap();
         let queue = queue_map.get(&adapter_key).unwrap().clone();
         let (id, entry, next_oldest_entry) = queue.pop().unwrap();
-        self.adapter_oldest_entries.insert(adapter_key.clone(), next_oldest_entry);
         Some((id, entry, *queue))
     }
 
