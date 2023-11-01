@@ -185,6 +185,8 @@ async fn loader_task(
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
+                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        state.unwrap().set_status(AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
                     }

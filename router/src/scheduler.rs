@@ -294,6 +294,9 @@ impl AdapterSchedulerState {
             if queue.entries().is_empty() {
                 // queue is empty and not in use, so move to removal set
                 adapters_to_remove.insert(adapter.clone());
+
+                // Start async offload process
+                self.loader.offload_adapter(adapter.clone(), self.queue_map);
             }
         }
 
@@ -318,6 +321,9 @@ impl AdapterSchedulerState {
             {
                 self.active_adapters.pop_front();
                 self.pending_adapters.push_back(adapter.clone());
+
+                // Start async offload process
+                self.loader.offload_adapter(adapter.clone(), self.queue_map);
             }
         }
 
