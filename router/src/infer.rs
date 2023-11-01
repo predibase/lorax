@@ -1,6 +1,5 @@
 /// Batching and inference logic
 use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
-use crate::loader::AdapterLoader;
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
@@ -138,7 +137,7 @@ impl Infer {
         );
 
         // Validate request
-        let valid_request = self.validation.validate(request, adapter).await.map_err(|err| {
+        let valid_request = self.validation.validate(request, adapter.clone()).await.map_err(|err| {
             metrics::increment_counter!("tgi_request_failure", "err" => "validation");
             tracing::error!("{err}");
             err
@@ -148,7 +147,7 @@ impl Infer {
         let (response_tx, response_rx) = flume::unbounded();
 
         // Process the request by sending it to the queue associated with `adapter`
-        self.adapter_scheduler.process(adapter, Entry {
+        self.adapter_scheduler.process(adapter.clone(), Entry {
             request: valid_request,
             response_tx,
             span: Span::current(),

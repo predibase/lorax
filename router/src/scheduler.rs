@@ -1,5 +1,5 @@
 use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{QueueState, self, AdapterEvent}};
-use std::{collections::{HashMap, VecDeque, HashSet}, sync::{Arc, Mutex}, time::Duration};
+use std::{collections::{HashMap, VecDeque, HashSet}, sync::{Arc, Mutex}, time::Duration, cmp::min};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
 use tokio::sync::oneshot;
@@ -108,12 +108,10 @@ async fn adapter_scheduler_task(
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterSchedulerCommand::Append(adapter, entry) => {
-                state.append(adapter, adapter_event, entry);
+                state.append(adapter, adapter_event.clone(), entry);
             }
-            AdapterSchedulerCommand::RemoveQueue {
-                adapter
-            } => {
-                state.remove_queue(adapter);
+            AdapterSchedulerCommand::RemoveErroredAdapters {} => {
+                state.remove_errored_adapters();
             },
             AdapterSchedulerCommand::NextBatch {
                 adapters_in_use,
@@ -226,10 +224,10 @@ impl AdapterSchedulerState {
         for adapter in self.tracked_adapters.iter() {
             let queue = queue_map.get(adapter).unwrap().clone();
             if queue.status() == &queue::AdapterStatus::Errored {
-                self.active_adapters.retain(|id| id != &adapter);
-                self.pending_adapters.retain(|id| id != &adapter);
+                self.active_adapters.retain(|id| id != adapter);
+                self.pending_adapters.retain(|id| id != adapter);
                 self.tracked_adapters.remove(&adapter);
-                self.loader.terminate(adapter, self.queue_map);
+                self.loader.terminate(*adapter, self.queue_map);
             }
         }
     }

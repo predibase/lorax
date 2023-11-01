@@ -1,7 +1,6 @@
 use crate::queue::AdapterStatus;
 use crate::{adapter::Adapter, queue::QueueState};
 use crate::infer::InferError;
-use std::hash::Hash;
 use std::sync::Mutex;
 use std::{sync::Arc, collections::HashMap};
 use text_generation_client::ShardedClient;
@@ -210,14 +209,15 @@ async fn loader_task(
                 // Create an asynchronous closure
                 let span_closure = async move {
                     span.in_scope(|| {
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
-                        for entry in state.entries.drain(..) {
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
+                        for entry in state.unwrap().drain() {
                             let (_, entry) = entry;
                             if let Some(err_msg) = err_msgs.get(&adapter) {
-                                entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
+                                entry.response_tx.send(Err(InferError::GenerationError(err_msg.clone()))).unwrap();
                             }
                         }
-                        queue_map.remove(&adapter);
+                        locked_map.remove(&adapter);
                     });
                 };
 

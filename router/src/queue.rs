@@ -102,6 +102,10 @@ impl QueueState {
         &self.entries
     }
 
+    pub(crate) fn drain(&mut self) -> std::collections::vec_deque::Drain<(u64, Entry)> {
+        self.entries.drain(..)
+    }
+
     pub(crate) fn adapter(&self) -> &Adapter {
         &self.adapter
     }
