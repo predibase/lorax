@@ -325,7 +325,7 @@ async fn batching_task(
 
                 let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
 
-                let mut adapters_in_use = entries
+                let adapters_in_use = entries
                     .iter()
                     .map(|(_, entry)| entry.request.adapter.clone())
                     .collect::<HashSet<_>>();

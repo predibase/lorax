@@ -117,13 +117,15 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} downloaded", adapter.id());
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Downloaded);
                     }
                     // if we have a download error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                     }
@@ -146,14 +148,16 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} loaded", adapter.id());
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Ready);
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
@@ -177,14 +181,16 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} offloaded", adapter.id());
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Downloaded);
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
-                        let state = queue_map.lock().unwrap().get_mut(&adapter);
+                        let mut locked_map = queue_map.lock().unwrap();
+                        let state = locked_map.get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
