@@ -67,22 +67,25 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn is_errored(&self) -> bool {
+    pub(crate) async fn is_errored(&self, adapter: Adapter) -> bool {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::IsErrored {
+                adapter,
                 response_sender,
                 span: Span::current()
             }).unwrap();
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn terminate(&self) {
+    pub(crate) async fn terminate(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::Terminate {
+                adapter,
+                queue_map,
                 response_sender,
                 span: Span::current()
             }).unwrap();
@@ -212,6 +215,7 @@ async fn loader_task(
                                 entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
                             }
                         }
+                        queue_map.remove(&adapter);
                     });
                 };
 

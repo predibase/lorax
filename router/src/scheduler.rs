@@ -9,9 +9,7 @@ use tracing::{info_span, Span, instrument};
 
 enum AdapterSchedulerCommand {
     Append(Adapter, Entry),
-    RemoveQueue {
-        adapter: Adapter,
-    },
+    RemoveErroredAdapters {},
     NextBatch {
         adapters_in_use: HashSet<Adapter>,
         min_size: Option<usize>,
@@ -58,11 +56,9 @@ impl AdapterScheduler {
         self.sender.send(AdapterSchedulerCommand::Append(adapter, entry)).unwrap();
     }
 
-    pub(crate) async fn remove_queue(&self, adapter: Adapter) {
+    pub(crate) async fn remove_errored_adapters(&self) {
         self.sender
-            .send(AdapterSchedulerCommand::RemoveQueue {
-                adapter
-            })
+            .send(AdapterSchedulerCommand::RemoveErroredAdapters {})
             .unwrap();
     }
 
@@ -224,14 +220,18 @@ impl AdapterSchedulerState {
         adapter_event.batching_task.notify_one()
     }
 
-    /// Remove queue
-    fn remove_queue(&mut self, adapter: Adapter) {
+    /// Remove any queues that are in an errored state
+    fn remove_errored_adapters(&mut self) {
         let mut queue_map = self.queue_map.lock().unwrap();
-
-        queue_map.remove(&adapter);
-        self.active_adapters.retain(|id| id != &adapter);
-        self.pending_adapters.retain(|id| id != &adapter);
-        self.tracked_adapters.remove(&adapter);
+        for adapter in self.tracked_adapters.iter() {
+            let queue = queue_map.get(adapter).unwrap().clone();
+            if queue.status() == &queue::AdapterStatus::Errored {
+                self.active_adapters.retain(|id| id != &adapter);
+                self.pending_adapters.retain(|id| id != &adapter);
+                self.tracked_adapters.remove(&adapter);
+                self.loader.terminate(adapter, self.queue_map);
+            }
+        }
     }
 
     fn get_oldest_active_adapter(&mut self, queue_map: &HashMap<Adapter, QueueState>) -> Option<Adapter> {

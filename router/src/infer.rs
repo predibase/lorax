@@ -311,6 +311,10 @@ async fn batching_task(
                 metrics::gauge!("tgi_batch_current_size", batch_size as f64);
                 metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
 
+                // Cleanup any adapters that are in an errored state
+                // TODO(travis): can execute this more efficiently by making it event-driven
+                adapter_scheduler.remove_errored_adapters().await;
+
                 let min_size = if waiting_tokens >= max_waiting_tokens {
                     // If we didn't onboard any new requests since >= max_waiting_tokens, we try
                     // to add a new batch even though its size might be small
