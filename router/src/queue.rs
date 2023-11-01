@@ -83,6 +83,11 @@ impl QueueState {
         self.next_id += 1;
     }
 
+    /// Prepend an entry to the front of the queue
+    pub(crate) fn push_front(&mut self, entry_id: u64, entry: Entry) {
+        self.entries.push_front((entry_id, entry));
+    }
+
     // Is empty
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()

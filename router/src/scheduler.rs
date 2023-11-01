@@ -267,6 +267,7 @@ impl AdapterSchedulerState {
         }
     }
 
+    /// Update the queues of pending and active adapters based on the current state
     fn update_adapters(
         &mut self, 
         adapters_in_use: &HashSet<Adapter>, 
@@ -333,7 +334,7 @@ impl AdapterSchedulerState {
             queue.set_activation_ts(now);
 
             // Start async loading process
-            self.loader.load_adapter(adapter.clone(), self.queue_map);
+            self.loader.load_adapter(adapter.clone(), self.queue_map.clone());
 
             self.active_adapters.push_back(adapter.clone());
         }
@@ -344,7 +345,6 @@ impl AdapterSchedulerState {
         adapters_in_use: &HashSet<Adapter>, 
         queue_map: &mut HashMap<Adapter, QueueState>,
     ) -> Option<(u64, Entry, QueueState)> {
-        // Update the queues of pending and active adapters based on the current state
         self.update_adapters(adapters_in_use, queue_map);
 
         // Get the adapter from the active set that has been waiting the longest.
@@ -369,7 +369,7 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        let mut queue_map = self.queue_map.lock().unwrap();
+        let mut queue_map = &mut self.queue_map.lock().unwrap();
 
         let num_entries = queue_map.values().map(|queue| queue.entries().len()).sum();
         if num_entries == 0 {
@@ -398,7 +398,7 @@ impl AdapterSchedulerState {
         let mut decode_tokens: u32 = 0;
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry, queue)) = self.next_entry(adapters_in_use, &queue_map) {
+        while let Some((id, mut entry, mut queue)) = self.next_entry(adapters_in_use, &mut queue_map) {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -439,7 +439,7 @@ impl AdapterSchedulerState {
             {
                 // Entry is over budget
                 // Add it back to the front
-                queue.entries().push_front((id, entry));
+                queue.push_front(id, entry);
                 break;
             }
 
@@ -482,8 +482,8 @@ impl AdapterSchedulerState {
                     let id = r.id;
                     let entry = batch_entries.remove(&id).unwrap();
                     let adapter_index = r.adapter_index;
-                    let queue = adapter_index_to_queue.get(&adapter_index).unwrap();
-                    queue.entries().push_front((id, entry));
+                    let queue = adapter_index_to_queue.get_mut(&adapter_index).unwrap();
+                    queue.push_front(id, entry);
                 }
 
                 return None;
