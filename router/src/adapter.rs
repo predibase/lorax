@@ -9,7 +9,7 @@ pub const BASE_MODEL_ADAPTER_ID: &str = "__base_model__";
 /// from within the proto definition, or lib.rs
 pub const DEFAULT_ADAPTER_SOURCE: &str = "hub";
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub(crate) struct Adapter {
     /// name of adapter
     id: String,

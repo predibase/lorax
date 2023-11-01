@@ -13,6 +13,7 @@ enum AdapterSchedulerCommand {
         adapter: Adapter,
     },
     NextBatch {
+        adapters_in_use: HashSet<Adapter>,
         min_size: Option<usize>,
         prefill_token_budget: u32,
         token_budget: u32,
@@ -69,6 +70,7 @@ impl AdapterScheduler {
     #[instrument(skip(self))]
     pub(crate) async fn next_batch(
         &self,
+        adapters_in_use: HashSet<Adapter>,
         min_size: Option<usize>,
         prefill_token_budget: u32,
         token_budget: u32,
@@ -79,6 +81,7 @@ impl AdapterScheduler {
         // Unwrap is safe here
         self.sender
             .send(AdapterSchedulerCommand::NextBatch {
+                adapters_in_use,
                 min_size,
                 prefill_token_budget,
                 token_budget,
@@ -117,13 +120,14 @@ async fn adapter_scheduler_task(
                 state.remove_queue(adapter);
             },
             AdapterSchedulerCommand::NextBatch {
+                adapters_in_use,
                 min_size,
                 prefill_token_budget,
                 token_budget,
                 response_sender,
                 span,
             } => span.in_scope(|| {
-                let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
+                let next_batch = state.next_batch(&adapters_in_use, min_size, prefill_token_budget, token_budget);
                 response_sender.send(next_batch).unwrap();
             }),
         }

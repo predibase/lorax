@@ -11,7 +11,7 @@ use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use nohash_hasher::IntMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -138,7 +138,7 @@ impl Infer {
         );
 
         // Validate request
-        let valid_request = self.validation.validate(request).await.map_err(|err| {
+        let valid_request = self.validation.validate(request, adapter).await.map_err(|err| {
             metrics::increment_counter!("tgi_request_failure", "err" => "validation");
             tracing::error!("{err}");
             err
@@ -289,13 +289,11 @@ async fn batching_task(
         // Fire if a new request comes in or an adapter becomes ready
         adapter_event.batching_task.notified().await;
 
-        let start_time = Instant::now();
-        let mut max_time_limit_reached = false;
         // Get the next batch from the queue
         // This batch might be smaller than the maximum batch size if there are not enough requests
         // waiting in the queue
         while let Some((mut entries, batch, span)) = adapter_scheduler
-            .next_batch(None, max_batch_prefill_tokens, max_batch_total_tokens)
+            .next_batch(HashSet::new(), None, max_batch_prefill_tokens, max_batch_total_tokens)
             .await
         {
             let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
@@ -324,45 +322,45 @@ async fn batching_task(
 
                 let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
 
-                // Only get a new batch if under the time limit for this queue
-                let time_elapsed = start_time.elapsed();
-                max_time_limit_reached = time_elapsed > max_time_limit;
-                if !max_time_limit_reached {
-                    // Try to get a new batch
-                    if let Some((mut new_entries, new_batch, span)) = queue
-                        .next_batch(min_size, max_batch_prefill_tokens, token_budget)
-                        .await
-                    {
-                        // Tracking metrics
-                        if min_size.is_some() {
-                            metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
-                        } else {
-                            metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
-                        }
+                let mut adapters_in_use = entries
+                    .iter()
+                    .map(|(_, entry)| entry.request.adapter.clone())
+                    .collect::<HashSet<_>>();
 
-                        entries.iter_mut().for_each(|(_, entry)| {
-                            // Create a new span to add the info that this entry is waiting
-                            // because a new batch is being computed
-                            let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
-                            // Add relationships
-                            span.follows_from(&entry_waiting_span);
-                            entry_waiting_span.follows_from(&span);
-                            // Update entry
-                            entry.temp_span = Some(entry_waiting_span);
-                        });
+                // Try to get a new batch
+                if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                    .next_batch(adapters_in_use, min_size, max_batch_prefill_tokens, token_budget)
+                    .await
+                {
+                    // Tracking metrics
+                    if min_size.is_some() {
+                        metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
+                    } else {
+                        metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
+                    }
 
-                        // Generate one token for this new batch to have the attention past in cache
-                        let new_cached_batch =
-                            prefill(&mut client, new_batch, &mut new_entries, &generation_health)
-                                .instrument(span)
-                                .await;
-                        // Reset waiting counter
-                        waiting_tokens = 1;
-                        // Extend current batch with the new batch
-                        if let Some(new_cached_batch) = new_cached_batch {
-                            entries.extend(new_entries);
-                            batches.push(new_cached_batch);
-                        }
+                    entries.iter_mut().for_each(|(_, entry)| {
+                        // Create a new span to add the info that this entry is waiting
+                        // because a new batch is being computed
+                        let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                        // Add relationships
+                        span.follows_from(&entry_waiting_span);
+                        entry_waiting_span.follows_from(&span);
+                        // Update entry
+                        entry.temp_span = Some(entry_waiting_span);
+                    });
+
+                    // Generate one token for this new batch to have the attention past in cache
+                    let new_cached_batch =
+                        prefill(&mut client, new_batch, &mut new_entries, &generation_health)
+                            .instrument(span)
+                            .await;
+                    // Reset waiting counter
+                    waiting_tokens = 1;
+                    // Extend current batch with the new batch
+                    if let Some(new_cached_batch) = new_cached_batch {
+                        entries.extend(new_entries);
+                        batches.push(new_cached_batch);
                     }
                 }
 
@@ -387,10 +385,6 @@ async fn batching_task(
             }
             metrics::gauge!("tgi_batch_current_size", 0.0);
             metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
-
-            if max_time_limit_reached {
-                break;
-            }
         }
     }
 }

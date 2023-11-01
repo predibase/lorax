@@ -1,3 +1,4 @@
+use crate::adapter::Adapter;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
@@ -127,6 +128,7 @@ impl Validation {
     pub(crate) async fn validate(
         &self,
         request: GenerateRequest,
+        adapter: Adapter,
     ) -> Result<ValidGenerateRequest, ValidationError> {
         let GenerateParameters {
             best_of,
@@ -267,6 +269,7 @@ impl Validation {
             truncate: truncate.unwrap_or(self.max_input_length) as u32,
             parameters,
             stopping_parameters,
+            adapter,
         })
     }
 
@@ -340,6 +343,7 @@ pub(crate) struct ValidGenerateRequest {
     pub decoder_input_details: bool,
     pub parameters: NextTokenChooserParameters,
     pub stopping_parameters: StoppingCriteriaParameters,
+    pub adapter: Adapter,
 }
 
 #[derive(Error, Debug)]
