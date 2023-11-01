@@ -171,11 +171,11 @@ struct AdapterSchedulerState {
 
 impl AdapterSchedulerState {
     fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
-        let mut queue_map = Arc::new(Mutex::new(HashMap::new()));
-        let mut pending_adapters = VecDeque::new();
-        let mut active_adapters = VecDeque::new();
-        let mut tracked_adapters = HashSet::new();
-        let mut loader = AdapterLoader::new(client);
+        let queue_map = Arc::new(Mutex::new(HashMap::new()));
+        let pending_adapters = VecDeque::new();
+        let active_adapters = VecDeque::new();
+        let tracked_adapters = HashSet::new();
+        let loader = AdapterLoader::new(client.clone());
 
         Self {
             client,
@@ -200,7 +200,7 @@ impl AdapterSchedulerState {
         let mut queue_map = self.queue_map.lock().unwrap();
 
         if !queue_map.contains_key(&adapter) {
-            queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event));
+            queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event.clone()));
         }
 
         if !self.tracked_adapters.contains(&adapter) {
@@ -208,7 +208,7 @@ impl AdapterSchedulerState {
             self.pending_adapters.push_back(adapter.clone());
 
             // Download the adapter async
-            self.loader.download_adapter(adapter.clone(), self.queue_map);
+            self.loader.download_adapter(adapter.clone(), self.queue_map.clone());
         }
 
         // ensure that append completes before sending batcher message
@@ -220,14 +220,13 @@ impl AdapterSchedulerState {
 
     /// Remove any queues that are in an errored state
     fn remove_errored_adapters(&mut self) {
-        let mut queue_map = self.queue_map.lock().unwrap();
-        for adapter in self.tracked_adapters.iter() {
-            let queue = queue_map.get(adapter).unwrap().clone();
+        let queue_map = self.queue_map.lock().unwrap();
+        for (adapter, queue) in queue_map.iter() {
             if queue.status() == &queue::AdapterStatus::Errored {
                 self.active_adapters.retain(|id| id != adapter);
                 self.pending_adapters.retain(|id| id != adapter);
                 self.tracked_adapters.remove(&adapter);
-                self.loader.terminate(*adapter, self.queue_map);
+                self.loader.terminate(adapter.clone(), self.queue_map.clone());
             }
         }
     }
@@ -271,7 +270,7 @@ impl AdapterSchedulerState {
     fn update_adapters(
         &mut self, 
         adapters_in_use: &HashSet<Adapter>, 
-        queue_map: &HashMap<Adapter, QueueState>,
+        queue_map: &mut HashMap<Adapter, QueueState>,
     ) {
         // Mark any active adapters that are Idle (have no active or pending requests) for removal
         // Additionally, move any adapters that have been activate over the limit to pending
@@ -294,7 +293,7 @@ impl AdapterSchedulerState {
                 adapters_to_remove.insert(adapter.clone());
 
                 // Start async offload process
-                self.loader.offload_adapter(adapter.clone(), self.queue_map);
+                self.loader.offload_adapter(adapter.clone(), self.queue_map.clone());
             }
         }
 
@@ -310,8 +309,8 @@ impl AdapterSchedulerState {
         // Do this after filtering out idle adapters as those should take priority over adapters that
         // have been active over the limit.
         if !self.active_adapters.is_empty() {
-            let adapter = self.active_adapters.front().unwrap();
-            let queue = queue_map.get(adapter).unwrap().clone();
+            let adapter = self.active_adapters.front().unwrap().clone();
+            let queue = queue_map.get(&adapter).unwrap().clone();
             if 
                 !adapters_in_use.contains(&queue.adapter()) &&
                 now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time && 
@@ -321,7 +320,7 @@ impl AdapterSchedulerState {
                 self.pending_adapters.push_back(adapter.clone());
 
                 // Start async offload process
-                self.loader.offload_adapter(adapter.clone(), self.queue_map);
+                self.loader.offload_adapter(adapter.clone(), self.queue_map.clone());
             }
         }
 
@@ -330,7 +329,7 @@ impl AdapterSchedulerState {
             let adapter = self.pending_adapters.pop_front().unwrap();
 
             // Update activation timestamp
-            let mut queue = queue_map.get_mut(&adapter).unwrap();
+            let queue = queue_map.get_mut(&adapter).unwrap();
             queue.set_activation_ts(now);
 
             // Start async loading process
@@ -343,7 +342,7 @@ impl AdapterSchedulerState {
     fn next_entry(
         &mut self, 
         adapters_in_use: &HashSet<Adapter>, 
-        queue_map: &HashMap<Adapter, QueueState>,
+        queue_map: &mut HashMap<Adapter, QueueState>,
     ) -> Option<(u64, Entry, QueueState)> {
         // Update the queues of pending and active adapters based on the current state
         self.update_adapters(adapters_in_use, queue_map);
@@ -357,8 +356,8 @@ impl AdapterSchedulerState {
 
         // Pop the oldest entry from the queue
         let adapter_key = adapter.unwrap();
-        let queue = queue_map.get(&adapter_key).unwrap().clone();
-        let (id, entry, next_oldest_entry) = queue.pop().unwrap();
+        let queue = queue_map.get(&adapter_key).unwrap();
+        let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
         Some((id, entry, *queue))
     }
 
