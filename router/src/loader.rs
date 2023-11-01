@@ -1,6 +1,7 @@
 use crate::queue::AdapterStatus;
 use crate::{adapter::Adapter, queue::QueueState};
 use crate::infer::InferError;
+use std::hash::Hash;
 use std::sync::Mutex;
 use std::{sync::Arc, collections::HashMap};
 use text_generation_client::ShardedClient;
@@ -94,7 +95,7 @@ async fn loader_task(
     mut client: ShardedClient,
     receiver: flume::Receiver<AdapterLoaderCommand>,
 ) {
-    let mut err_msg: Option<String> = None;
+    let mut err_msgs: HashMap<Adapter, String> = HashMap::new();
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
@@ -104,7 +105,7 @@ async fn loader_task(
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
-                if err_msg.is_some() {
+                if err_msgs.contains_key(&adapter) {
                     response_sender.send(()).unwrap();
                     continue;
                 }
@@ -122,7 +123,7 @@ async fn loader_task(
                         metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
                         let state = queue_map.lock().unwrap().get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Errored);
-                        err_msg = Some(error.to_string());
+                        err_msgs.insert(adapter, error.to_string());
                     }
                 }
             },
@@ -132,7 +133,7 @@ async fn loader_task(
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
-                if err_msg.is_some() {
+                if err_msgs.contains_key(&adapter) {
                     response_sender.send(()).unwrap();
                     continue;
                 }
@@ -152,7 +153,7 @@ async fn loader_task(
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
                         let state = queue_map.lock().unwrap().get_mut(&adapter);
                         state.unwrap().set_status(AdapterStatus::Errored);
-                        err_msg = Some(error.to_string());
+                        err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
                     }
                 }
@@ -163,7 +164,7 @@ async fn loader_task(
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
-                if err_msg.is_some() {
+                if err_msgs.contains_key(&adapter) {
                     response_sender.send(()).unwrap();
                     continue;
                 }
@@ -181,29 +182,33 @@ async fn loader_task(
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
-                        err_msg = Some(error.to_string());
+                        err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
                     }
                 }
             }
             AdapterLoaderCommand::IsErrored{
+                adapter,
                 response_sender,
                 span
             } => span.in_scope(|| {
-                response_sender.send(err_msg.is_some()).unwrap();
+                response_sender.send(err_msgs.contains_key(&adapter)).unwrap();
             }),
             AdapterLoaderCommand::Terminate {
+                adapter,
+                queue_map,
                 response_sender,
                 span,
             } => {
-                tracing::info!("terminating loader");
+                tracing::info!("terminating adapter {} loader", adapter.id());
 
                 // Create an asynchronous closure
                 let span_closure = async move {
                     span.in_scope(|| {
+                        let state = queue_map.lock().unwrap().get_mut(&adapter);
                         for entry in state.entries.drain(..) {
                             let (_, entry) = entry;
-                            if let Some(err_msg) = err_msg.clone() {
+                            if let Some(err_msg) = err_msgs.get(&adapter) {
                                 entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
                             }
                         }
@@ -240,10 +245,13 @@ enum AdapterLoaderCommand {
         span: Span,
     },
     IsErrored {
+        adapter: Adapter,
         response_sender: oneshot::Sender<bool>,
         span: Span,
     },
     Terminate {
+        adapter: Adapter,
+        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
