@@ -57,7 +57,7 @@ impl Infer {
         });
 
         // Routes requests to the appropriate adapter queue
-        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event, requires_padding, 16, window_size);
+        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event.clone(), requires_padding, 16, window_size);
 
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));

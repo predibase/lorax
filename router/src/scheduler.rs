@@ -1,5 +1,6 @@
 use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{QueueState, self, AdapterEvent}};
 use std::{collections::{HashMap, VecDeque, HashSet}, sync::{Arc, Mutex}, time::Duration, cmp::min};
+use std::ops::DerefMut;
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
 use tokio::sync::oneshot;
@@ -344,7 +345,7 @@ impl AdapterSchedulerState {
         &mut self, 
         adapters_in_use: &HashSet<Adapter>, 
         queue_map: &mut HashMap<Adapter, QueueState>,
-    ) -> Option<(u64, Entry, QueueState)> {
+    ) -> Option<(u64, Entry, Adapter)> {
         self.update_adapters(adapters_in_use, queue_map);
 
         // Get the adapter from the active set that has been waiting the longest.
@@ -355,10 +356,10 @@ impl AdapterSchedulerState {
         }
 
         // Pop the oldest entry from the queue
-        let adapter_key = adapter.unwrap();
-        let queue = queue_map.get(&adapter_key).unwrap();
+        let adapter = adapter.unwrap();
+        let queue = queue_map.get_mut(&adapter).unwrap();
         let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
-        Some((id, entry, *queue))
+        Some((id, entry, adapter))
     }
 
     // Get the next batch
@@ -391,14 +392,14 @@ impl AdapterSchedulerState {
         let mut batch_entries =
             IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
         
-        let mut adapter_index_to_queue = HashMap::with_capacity(self.active_adapters.len());
+        let mut index_to_adapter = HashMap::with_capacity(self.active_adapters.len());
 
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry, mut queue)) = self.next_entry(adapters_in_use, &mut queue_map) {
+        while let Some((id, mut entry, adapter)) = self.next_entry(adapters_in_use, queue_map_ref) {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -439,6 +440,7 @@ impl AdapterSchedulerState {
             {
                 // Entry is over budget
                 // Add it back to the front
+                let queue = queue_map.get_mut(&adapter).unwrap();
                 queue.push_front(id, entry);
                 break;
             }
@@ -458,14 +460,15 @@ impl AdapterSchedulerState {
                 truncate: entry.request.truncate,
                 parameters: Some(entry.request.parameters.clone()),
                 stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-                adapter_index: queue.adapter().index(),
+                adapter_index: adapter.index(),
             });
             // Set batch_time
             entry.batch_time = Some(Instant::now());
             // Insert in batch_entries IntMap
             batch_entries.insert(id, entry);
             // Map from adapter index back to queue in case we need to add back entries below
-            adapter_index_to_queue.insert(queue.adapter().index(), queue);
+            // let queue = queue_map.get_mut(&adapter).unwrap();
+            index_to_adapter.insert(adapter.index(), adapter);
         }
 
         // Empty batch
@@ -482,7 +485,8 @@ impl AdapterSchedulerState {
                     let id = r.id;
                     let entry = batch_entries.remove(&id).unwrap();
                     let adapter_index = r.adapter_index;
-                    let queue = adapter_index_to_queue.get_mut(&adapter_index).unwrap();
+                    let adapter = index_to_adapter.get_mut(&adapter_index).unwrap();
+                    let queue = queue_map.get_mut(adapter).unwrap();
                     queue.push_front(id, entry);
                 }
 

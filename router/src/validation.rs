@@ -472,7 +472,7 @@ mod tests {
                     do_sample: false,
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
         {
             Err(ValidationError::BestOfSampling) => (),
@@ -503,7 +503,7 @@ mod tests {
                     top_p: Some(1.0),
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
         {
             Err(ValidationError::TopP) => (),
@@ -518,7 +518,7 @@ mod tests {
                     max_new_tokens: 1,
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
         {
             Ok(_) => (),
@@ -533,7 +533,7 @@ mod tests {
                     max_new_tokens: 1,
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
             .unwrap();
         // top_p == 1.0 is invalid for users to ask for but it's the default resolved value.
