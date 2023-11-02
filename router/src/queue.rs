@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::{VecDeque, HashMap, HashSet}, sync::Arc, time::Duration};
 
 use tokio::{time::Instant, sync::Notify};
 use tracing::{info_span, Span};
@@ -26,7 +26,6 @@ pub(crate) struct Entry {
 pub(crate) enum AdapterStatus {
     Downloading,
     Downloaded,
-    Loading,
     Ready,
     Errored,
 }
@@ -100,7 +99,7 @@ impl QueueState {
 
     // Pops the front of the queue and returns the oldest entry, if present
     pub(crate) fn pop(&mut self) -> Option<(u64, Entry, Option<Instant>)> {
-        self.entries.pop_front().map(|(id, mut entry)| (id, entry, self.peek()))
+        self.entries.pop_front().map(|(id, entry)| (id, entry, self.peek()))
     }
 
     pub(crate) fn entries(&self) -> &VecDeque<(u64, Entry)> {
@@ -132,5 +131,235 @@ impl QueueState {
 
     pub(crate) fn activation_ts(&self) -> Option<Instant> {
         self.activation_ts
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct AdapterQueuesState {
+    /// Map of adapter key to queue
+    pub queue_map: HashMap<Adapter, QueueState>,
+
+    /// Adapters that are currently not in use, but have entries in queue
+    pending_adapters: VecDeque<Adapter>,
+
+    /// Adapters that are currently in use
+    active_adapters: VecDeque<Adapter>,
+
+    /// Adapters that are currently being tracked as pending or active
+    tracked_adapters: HashSet<Adapter>,
+
+    /// Number of adapters that can be active at a time
+    max_active_adapters: usize,
+
+    /// Maximum time an adapter is allowed to be active before exchanging out
+    max_active_time: Duration,
+}
+
+impl AdapterQueuesState {
+    pub(crate) fn new() -> Self {
+        let queue_map = HashMap::new();
+        let pending_adapters = VecDeque::new();
+        let active_adapters = VecDeque::new();
+        let tracked_adapters = HashSet::new();
+
+        Self {
+            queue_map,
+            pending_adapters,
+            active_adapters,
+            tracked_adapters,
+            max_active_adapters: 3,
+            max_active_time: Duration::from_secs(2),
+        }
+    }
+
+    /// Append entry to the appropriate queue
+    pub(crate) fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) -> bool {
+        // check if queue_map has adapter_key as key
+        // if not, then add a new Queue and download the adapter
+        if !self.queue_map.contains_key(&adapter) {
+            self.queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event.clone()));
+        }
+
+        let mut download = false;
+        if !self.tracked_adapters.contains(&adapter) {
+            self.tracked_adapters.insert(adapter.clone());
+            self.pending_adapters.push_back(adapter.clone());
+            download = true;
+        }
+
+        // ensure that append completes before sending batcher message
+        let queue = self.queue_map.get_mut(&adapter).unwrap();
+        queue.append(entry);
+
+        return download;
+    }
+
+    /// Removes adapter queue from the map
+    pub(crate) fn remove(&mut self, adapter: &Adapter) {
+        self.queue_map.remove(adapter);
+        self.active_adapters.retain(|id| id != adapter);
+        self.pending_adapters.retain(|id| id != adapter);
+        self.tracked_adapters.remove(&adapter);
+    }
+
+    /// Get any queues that are in an errored state
+    pub(crate) fn get_errored_adapters(&mut self) -> Vec<Adapter> {
+        let mut errored_adapters = Vec::new();
+        for (adapter, queue) in self.queue_map.iter() {
+            if queue.status() == &AdapterStatus::Errored {
+                errored_adapters.push(adapter.clone());
+            }
+        }
+        errored_adapters
+    }
+
+    pub(crate) fn set_status(&mut self, adapter: &Adapter, status: AdapterStatus) {
+        let queue = self.queue_map.get_mut(adapter).unwrap();
+        queue.set_status(status);
+    }
+
+    pub(crate) fn push_front(&mut self, adapter: &Adapter, entry_id: u64, entry: Entry) {
+        let queue = self.queue_map.get_mut(adapter).unwrap();
+        queue.push_front(entry_id, entry);
+    }
+
+    pub(crate) fn drain(&mut self, adapter: &Adapter) -> std::collections::vec_deque::Drain<(u64, Entry)> {
+        let queue = self.queue_map.get_mut(adapter).unwrap();
+        queue.drain()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.queue_map.values().map(|queue| queue.entries().len()).sum()
+    }
+
+    pub(crate) fn active_len(&self) -> usize {
+        self.active_adapters.len()
+    }
+
+    fn get_oldest_active_adapter(&mut self) -> Option<Adapter> {
+        // Returns the adapter that maps to the queue whose front entry has the oldest activation timestamp, 
+        // but prefer queues that have not ben active past the maximum time limit
+        let now = Instant::now();
+        let mut oldest_adapter = None;
+        let mut oldest_ts = Instant::now();
+        let mut oldest_within_limit_adapter = None;
+        let mut oldest_within_limit_ts = Instant::now();
+        for adapter in self.active_adapters.iter() {
+            let queue = self.queue_map.get(adapter).unwrap().clone();
+            if queue.is_empty() || queue.status() != &AdapterStatus::Ready {
+                continue;
+            }
+
+            if let Some(ts) = queue.peek() {
+                if ts < oldest_ts {
+                    oldest_ts = ts;
+                    oldest_adapter = Some(adapter.clone());
+                }
+
+                if ts < oldest_within_limit_ts && now.duration_since(queue.activation_ts().unwrap()) < self.max_active_time {
+                    oldest_within_limit_ts = ts;
+                    oldest_within_limit_adapter = Some(adapter.clone());
+                }
+            }
+        }
+
+        // Return the oldest adapter whose queue has been active for less than the limit if it exists,
+        // otherwise return the oldest adapter across all queues
+        if oldest_within_limit_adapter.is_some() {
+            oldest_within_limit_adapter
+        } else {
+            oldest_adapter
+        }
+    }
+
+    /// Update the queues of pending and active adapters based on the current state
+    fn update_adapters(&mut self, adapters_in_use: &HashSet<Adapter>) -> (Vec<Adapter>, Vec<Adapter>) {
+        let mut offload_adapters = Vec::new();
+        let mut load_adapters = Vec::new();
+
+        // Mark any active adapters that are Idle (have no active or pending requests) for removal
+        // Additionally, move any adapters that have been activate over the limit to pending
+        let now = Instant::now();
+        let mut adapters_to_remove = HashSet::new();
+        for adapter in self.active_adapters.iter() {
+            let queue = self.queue_map.get(adapter).unwrap().clone();
+            if adapters_in_use.contains(&queue.adapter()) {
+                // Cannot modify active adapters that are in use
+                continue
+            }
+
+            if self.pending_adapters.len() <= adapters_to_remove.len() {
+                // Only move adapters out of active if we have pending adapters ready to take their place
+                continue
+            }
+
+            if queue.entries().is_empty() {
+                // queue is empty and not in use, so move to removal set
+                adapters_to_remove.insert(adapter.clone());
+
+                // Start async offload process
+                offload_adapters.push(adapter.clone());
+            }
+        }
+
+        // Remove all adapters in the remove set
+        self.active_adapters.retain(|adapter| {
+            !adapters_to_remove.contains(adapter)
+        });
+        self.tracked_adapters.retain(|adapter| {
+            !adapters_to_remove.contains(adapter)
+        });
+
+        // Move the front adapter from the active set if it has been active over the limit to pending.
+        // Do this after filtering out idle adapters as those should take priority over adapters that
+        // have been active over the limit.
+        if !self.active_adapters.is_empty() {
+            let adapter = self.active_adapters.front().unwrap().clone();
+            let queue = self.queue_map.get(&adapter).unwrap().clone();
+            if 
+                !adapters_in_use.contains(&queue.adapter()) &&
+                now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time && 
+                self.pending_adapters.len() >= 1
+            {
+                self.active_adapters.pop_front();
+                self.pending_adapters.push_back(adapter.clone());
+
+                // Start async offload process
+                offload_adapters.push(adapter.clone());
+            }
+        }
+
+        // Add pending adapters to the active set until we reach the max
+        while self.active_adapters.len() < self.max_active_adapters && self.pending_adapters.len() > 0 {
+            let adapter = self.pending_adapters.pop_front().unwrap();
+
+            // Update activation timestamp
+            let queue = self.queue_map.get_mut(&adapter).unwrap();
+            queue.set_activation_ts(now);
+
+            // Start async loading process
+            load_adapters.push(adapter.clone());
+
+            self.active_adapters.push_back(adapter.clone());
+        }
+
+        (offload_adapters, load_adapters)
+    }
+
+    pub(crate) fn next_entry(&mut self, adapters_in_use: &HashSet<Adapter>) -> Option<(u64, Entry, Adapter, Vec<Adapter>, Vec<Adapter>)> {
+        let (offload_adapters, load_adapters) = self.update_adapters(adapters_in_use);
+
+        // Get the adapter from the active set that has been waiting the longest.
+        let adapter = self.get_oldest_active_adapter();
+        if adapter.is_none() {
+            // No active adapter has any entries
+            return None;
+        }
+
+        // Pop the oldest entry from the queue
+        let adapter = adapter.unwrap();
+        let queue = self.queue_map.get_mut(&adapter).unwrap();
+        let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
+        Some((id, entry, adapter, offload_adapters, load_adapters))
     }
 }

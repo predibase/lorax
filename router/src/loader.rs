@@ -1,4 +1,4 @@
-use crate::queue::AdapterStatus;
+use crate::queue::{AdapterStatus, AdapterQueuesState};
 use crate::{adapter::Adapter, queue::QueueState};
 use crate::infer::InferError;
 use std::sync::Mutex;
@@ -24,13 +24,13 @@ impl AdapterLoader {
         Self { sender }
     }
 
-    pub(crate) async fn download_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
+    pub(crate) async fn download_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::DownloadAdapter {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: Span::current()
             })
@@ -38,13 +38,13 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn load_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
+    pub(crate) async fn load_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::LoadAdapter {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: Span::current()
             })
@@ -52,13 +52,13 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn offload_adapter(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
+    pub(crate) async fn offload_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::OffloadAdapter {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: Span::current()
             })
@@ -78,13 +78,13 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn terminate(&self, adapter: Adapter, queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>) {
+    pub(crate) async fn terminate(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::Terminate {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: Span::current()
             }).unwrap();
@@ -103,7 +103,7 @@ async fn loader_task(
         match cmd {
             AdapterLoaderCommand::DownloadAdapter {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -117,23 +117,19 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} downloaded", adapter.id());
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        state.unwrap().set_status(AdapterStatus::Downloaded);
+                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Downloaded);
                     }
                     // if we have a download error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        state.unwrap().set_status(AdapterStatus::Errored);
+                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                     }
                 }
             },
             AdapterLoaderCommand::LoadAdapter {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -148,17 +144,13 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} loaded", adapter.id());
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        state.unwrap().set_status(AdapterStatus::Ready);
+                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Ready);
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        state.unwrap().set_status(AdapterStatus::Errored);
+                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
                     }
@@ -166,7 +158,7 @@ async fn loader_task(
             }
             AdapterLoaderCommand::OffloadAdapter {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
@@ -181,17 +173,13 @@ async fn loader_task(
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} offloaded", adapter.id());
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        state.unwrap().set_status(AdapterStatus::Downloaded);
+                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Downloaded);
                         response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        state.unwrap().set_status(AdapterStatus::Errored);
+                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         response_sender.send(()).unwrap();
                     }
@@ -206,7 +194,7 @@ async fn loader_task(
             }),
             AdapterLoaderCommand::Terminate {
                 adapter,
-                queue_map,
+                queues_state,
                 response_sender,
                 span,
             } => {
@@ -215,15 +203,14 @@ async fn loader_task(
                 // Create an asynchronous closure
                 let span_closure = async move {
                     span.in_scope(|| {
-                        let mut locked_map = queue_map.lock().unwrap();
-                        let state = locked_map.get_mut(&adapter);
-                        for entry in state.unwrap().drain() {
+                        let mut locked_state = queues_state.lock().unwrap();
+                        for entry in locked_state.drain(&adapter) {
                             let (_, entry) = entry;
                             if let Some(err_msg) = err_msgs.get(&adapter) {
                                 entry.response_tx.send(Err(InferError::GenerationError(err_msg.clone()))).unwrap();
                             }
                         }
-                        locked_map.remove(&adapter);
+                        locked_state.remove(&adapter);
                     });
                 };
 
@@ -240,19 +227,19 @@ async fn loader_task(
 enum AdapterLoaderCommand {
     DownloadAdapter {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
     LoadAdapter {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
     OffloadAdapter {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },
@@ -263,7 +250,7 @@ enum AdapterLoaderCommand {
     },
     Terminate {
         adapter: Adapter,
-        queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
         response_sender: oneshot::Sender<()>,
         span: Span,
     },

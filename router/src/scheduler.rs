@@ -1,6 +1,5 @@
-use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{QueueState, self, AdapterEvent}};
-use std::{collections::{HashMap, VecDeque, HashSet}, sync::{Arc, Mutex}, time::Duration, cmp::min};
-use std::ops::DerefMut;
+use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{AdapterEvent, AdapterQueuesState}};
+use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}, cmp::min};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
 use text_generation_client::{ShardedClient, Batch, Request};
 use tokio::sync::oneshot;
@@ -133,29 +132,11 @@ async fn adapter_scheduler_task(
 /// Scheduler State
 #[derive(Debug)]
 struct AdapterSchedulerState {
-    /// Sharded client
-    client: ShardedClient,
+    /// State for the adapter queues
+    queues_state: Arc<Mutex<AdapterQueuesState>>,
 
     /// Async adapter loader
     loader: AdapterLoader,
-
-    /// Map of adapter key to queue
-    queue_map: Arc<Mutex<HashMap<Adapter, QueueState>>>,
-
-    /// Adapters that are currently not in use, but have entries in queue
-    pending_adapters: VecDeque<Adapter>,
-
-    /// Adapters that are currently in use
-    active_adapters: VecDeque<Adapter>,
-
-    /// Adapters that are currently being tracked as pending or active
-    tracked_adapters: HashSet<Adapter>,
-
-    /// Number of adapters that can be active at a time
-    max_active_adapters: usize,
-
-    /// Maximum time an adapter is allowed to be active before exchanging out
-    max_active_time: Duration,
 
     /// Id of the next batch
     next_batch_id: u64,
@@ -172,21 +153,12 @@ struct AdapterSchedulerState {
 
 impl AdapterSchedulerState {
     fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
-        let queue_map = Arc::new(Mutex::new(HashMap::new()));
-        let pending_adapters = VecDeque::new();
-        let active_adapters = VecDeque::new();
-        let tracked_adapters = HashSet::new();
+        let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new()));
         let loader = AdapterLoader::new(client.clone());
 
         Self {
-            client,
+            queues_state,
             loader,
-            queue_map,
-            pending_adapters,
-            active_adapters,
-            tracked_adapters,
-            max_active_adapters: 3,
-            max_active_time: Duration::from_secs(2),
             next_batch_id: 0,
             requires_padding,
             block_size,
@@ -198,168 +170,25 @@ impl AdapterSchedulerState {
     fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
-        let mut queue_map = self.queue_map.lock().unwrap();
+        let mut queues_state = self.queues_state.lock().unwrap();
 
-        if !queue_map.contains_key(&adapter) {
-            queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event.clone()));
-        }
-
-        if !self.tracked_adapters.contains(&adapter) {
-            self.tracked_adapters.insert(adapter.clone());
-            self.pending_adapters.push_back(adapter.clone());
-
+        let download = queues_state.append(adapter.clone(), adapter_event.clone(), entry);
+        if download {
             // Download the adapter async
-            self.loader.download_adapter(adapter.clone(), self.queue_map.clone());
+            self.loader.download_adapter(adapter.clone(), self.queues_state.clone());
         }
-
-        // ensure that append completes before sending batcher message
-        let queue = queue_map.get_mut(&adapter).unwrap();
-        queue.append(entry);
 
         adapter_event.batching_task.notify_one()
     }
 
     /// Remove any queues that are in an errored state
     fn remove_errored_adapters(&mut self) {
-        let queue_map = self.queue_map.lock().unwrap();
-        for (adapter, queue) in queue_map.iter() {
-            if queue.status() == &queue::AdapterStatus::Errored {
-                self.active_adapters.retain(|id| id != adapter);
-                self.pending_adapters.retain(|id| id != adapter);
-                self.tracked_adapters.remove(&adapter);
-                self.loader.terminate(adapter.clone(), self.queue_map.clone());
-            }
+        let mut queues_state = self.queues_state.lock().unwrap();
+        let errored_adapters = queues_state.get_errored_adapters();
+        for adapter in errored_adapters {
+            // Start async offload process
+            self.loader.terminate(adapter.clone(), self.queues_state.clone());
         }
-    }
-
-    fn get_oldest_active_adapter(&mut self, queue_map: &HashMap<Adapter, QueueState>) -> Option<Adapter> {
-        // Returns the adapter that maps to the queue whose front entry has the oldest activation timestamp, 
-        // but prefer queues that have not ben active past the maximum time limit
-        let now = Instant::now();
-        let mut oldest_adapter = None;
-        let mut oldest_ts = Instant::now();
-        let mut oldest_within_limit_adapter = None;
-        let mut oldest_within_limit_ts = Instant::now();
-        for adapter in self.active_adapters.iter() {
-            let queue = queue_map.get(adapter).unwrap().clone();
-            if queue.is_empty() || queue.status() != &queue::AdapterStatus::Ready {
-                continue;
-            }
-
-            if let Some(ts) = queue.peek() {
-                if ts < oldest_ts {
-                    oldest_ts = ts;
-                    oldest_adapter = Some(adapter.clone());
-                }
-
-                if ts < oldest_within_limit_ts && now.duration_since(queue.activation_ts().unwrap()) < self.max_active_time {
-                    oldest_within_limit_ts = ts;
-                    oldest_within_limit_adapter = Some(adapter.clone());
-                }
-            }
-        }
-
-        // Return the oldest adapter whose queue has been active for less than the limit if it exists,
-        // otherwise return the oldest adapter across all queues
-        if oldest_within_limit_adapter.is_some() {
-            oldest_within_limit_adapter
-        } else {
-            oldest_adapter
-        }
-    }
-
-    /// Update the queues of pending and active adapters based on the current state
-    fn update_adapters(
-        &mut self, 
-        adapters_in_use: &HashSet<Adapter>, 
-        queue_map: &mut HashMap<Adapter, QueueState>,
-    ) {
-        // Mark any active adapters that are Idle (have no active or pending requests) for removal
-        // Additionally, move any adapters that have been activate over the limit to pending
-        let now = Instant::now();
-        let mut adapters_to_remove = HashSet::new();
-        for adapter in self.active_adapters.iter() {
-            let queue = queue_map.get(adapter).unwrap().clone();
-            if adapters_in_use.contains(&queue.adapter()) {
-                // Cannot modify active adapters that are in use
-                continue
-            }
-
-            if self.pending_adapters.len() <= adapters_to_remove.len() {
-                // Only move adapters out of active if we have pending adapters ready to take their place
-                continue
-            }
-
-            if queue.entries().is_empty() {
-                // queue is empty and not in use, so move to removal set
-                adapters_to_remove.insert(adapter.clone());
-
-                // Start async offload process
-                self.loader.offload_adapter(adapter.clone(), self.queue_map.clone());
-            }
-        }
-
-        // Remove all adapters in the remove set
-        self.active_adapters.retain(|adapter| {
-            !adapters_to_remove.contains(adapter)
-        });
-        self.tracked_adapters.retain(|adapter| {
-            !adapters_to_remove.contains(adapter)
-        });
-
-        // Move the front adapter from the active set if it has been active over the limit to pending.
-        // Do this after filtering out idle adapters as those should take priority over adapters that
-        // have been active over the limit.
-        if !self.active_adapters.is_empty() {
-            let adapter = self.active_adapters.front().unwrap().clone();
-            let queue = queue_map.get(&adapter).unwrap().clone();
-            if 
-                !adapters_in_use.contains(&queue.adapter()) &&
-                now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time && 
-                self.pending_adapters.len() >= 1
-            {
-                self.active_adapters.pop_front();
-                self.pending_adapters.push_back(adapter.clone());
-
-                // Start async offload process
-                self.loader.offload_adapter(adapter.clone(), self.queue_map.clone());
-            }
-        }
-
-        // Add pending adapters to the active set until we reach the max
-        while self.active_adapters.len() < self.max_active_adapters && self.pending_adapters.len() > 0 {
-            let adapter = self.pending_adapters.pop_front().unwrap();
-
-            // Update activation timestamp
-            let queue = queue_map.get_mut(&adapter).unwrap();
-            queue.set_activation_ts(now);
-
-            // Start async loading process
-            self.loader.load_adapter(adapter.clone(), self.queue_map.clone());
-
-            self.active_adapters.push_back(adapter.clone());
-        }
-    }
-
-    fn next_entry(
-        &mut self, 
-        adapters_in_use: &HashSet<Adapter>, 
-        queue_map: &mut HashMap<Adapter, QueueState>,
-    ) -> Option<(u64, Entry, Adapter)> {
-        self.update_adapters(adapters_in_use, queue_map);
-
-        // Get the adapter from the active set that has been waiting the longest.
-        let adapter = self.get_oldest_active_adapter(queue_map);
-        if adapter.is_none() {
-            // No active adapter has any entries
-            return None;
-        }
-
-        // Pop the oldest entry from the queue
-        let adapter = adapter.unwrap();
-        let queue = queue_map.get_mut(&adapter).unwrap();
-        let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
-        Some((id, entry, adapter))
     }
 
     // Get the next batch
@@ -370,9 +199,9 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        let mut queue_map = &mut self.queue_map.lock().unwrap();
+        let queues_state = &mut self.queues_state.lock().unwrap();
 
-        let num_entries = queue_map.values().map(|queue| queue.entries().len()).sum();
+        let num_entries = queues_state.len();
         if num_entries == 0 {
             return None;
         }
@@ -392,14 +221,22 @@ impl AdapterSchedulerState {
         let mut batch_entries =
             IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
         
-        let mut index_to_adapter = HashMap::with_capacity(self.active_adapters.len());
+        let mut index_to_adapter = HashMap::with_capacity(queues_state.active_len());
 
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry, adapter)) = self.next_entry(adapters_in_use, queue_map_ref) {
+        while let Some((id, mut entry, adapter, offload_adapters, load_adapters)) = queues_state.next_entry(adapters_in_use) {
+            // Background task to offload and load adapters
+            for adapter in offload_adapters {
+                self.loader.offload_adapter(adapter.clone(), self.queues_state.clone());
+            }
+            for adapter in load_adapters {
+                self.loader.load_adapter(adapter.clone(), self.queues_state.clone());
+            }
+
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -440,8 +277,7 @@ impl AdapterSchedulerState {
             {
                 // Entry is over budget
                 // Add it back to the front
-                let queue = queue_map.get_mut(&adapter).unwrap();
-                queue.push_front(id, entry);
+                queues_state.push_front(&adapter, id, entry);
                 break;
             }
 
@@ -486,8 +322,7 @@ impl AdapterSchedulerState {
                     let entry = batch_entries.remove(&id).unwrap();
                     let adapter_index = r.adapter_index;
                     let adapter = index_to_adapter.get_mut(&adapter_index).unwrap();
-                    let queue = queue_map.get_mut(adapter).unwrap();
-                    queue.push_front(id, entry);
+                    queues_state.push_front(adapter, id, entry);
                 }
 
                 return None;
