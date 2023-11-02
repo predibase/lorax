@@ -1,5 +1,5 @@
 use crate::queue::{AdapterStatus, AdapterQueuesState};
-use crate::{adapter::Adapter, queue::QueueState};
+use crate::adapter::Adapter;
 use crate::infer::InferError;
 use std::sync::Mutex;
 use std::{sync::Arc, collections::HashMap};
@@ -24,9 +24,9 @@ impl AdapterLoader {
         Self { sender }
     }
 
-    pub(crate) async fn download_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn download_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
+        let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::DownloadAdapter {
                 adapter,
@@ -35,12 +35,14 @@ impl AdapterLoader {
                 span: Span::current()
             })
             .unwrap();
-        response_receiver.await.unwrap()
+
+        // Don't block the caller
+        // response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn load_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn load_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
+        let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::LoadAdapter {
                 adapter,
@@ -49,12 +51,14 @@ impl AdapterLoader {
                 span: Span::current()
             })
             .unwrap();
-        response_receiver.await.unwrap()
+
+        // Don't block the caller
+        // response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn offload_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn offload_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
+        let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::OffloadAdapter {
                 adapter,
@@ -63,7 +67,9 @@ impl AdapterLoader {
                 span: Span::current()
             })
             .unwrap();
-        response_receiver.await.unwrap()
+
+        // Don't block the caller
+        // response_receiver.await.unwrap()
     }
 
     pub(crate) async fn is_errored(&self, adapter: Adapter) -> bool {
@@ -78,9 +84,9 @@ impl AdapterLoader {
         response_receiver.await.unwrap()
     }
 
-    pub(crate) async fn terminate(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn terminate(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
         // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
+        let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
             .send(AdapterLoaderCommand::Terminate {
                 adapter,
@@ -88,7 +94,9 @@ impl AdapterLoader {
                 response_sender,
                 span: Span::current()
             }).unwrap();
-        response_receiver.await.unwrap()
+
+        // Don't block the caller
+        // response_receiver.await.unwrap()
     }
 }
 
