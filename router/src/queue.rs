@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{collections::{VecDeque, HashMap, HashSet}, sync::Arc, time::Duration};
 
 use tokio::{time::Instant, sync::Notify};
@@ -28,6 +29,14 @@ pub(crate) enum AdapterStatus {
     Downloaded,
     Ready,
     Errored,
+}
+
+impl fmt::Display for AdapterStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+        // or, alternatively:
+        // fmt::Debug::fmt(self, f)
+    }
 }
 
 #[derive(Debug)]
@@ -116,9 +125,8 @@ impl QueueState {
 
     pub(crate) fn set_status(&mut self, status: AdapterStatus) {
         self.status = status;
-        if self.status == AdapterStatus::Ready {
-            self.event.batching_task.notify_one();
-        }
+        self.event.batching_task.notify_one();
+        tracing::info!("set adapter {} status to {}", self.adapter.id(), self.status);
     }
 
     pub(crate) fn status(&self) -> &AdapterStatus {
@@ -273,7 +281,7 @@ impl AdapterQueuesState {
     }
 
     /// Update the queues of pending and active adapters based on the current state
-    fn update_adapters(&mut self, adapters_in_use: &HashSet<Adapter>) -> (Vec<Adapter>, Vec<Adapter>) {
+    pub(crate) fn update_adapters(&mut self, adapters_in_use: &HashSet<Adapter>) -> (Vec<Adapter>, Vec<Adapter>) {
         let mut offload_adapters = Vec::new();
         let mut load_adapters = Vec::new();
 
@@ -346,9 +354,7 @@ impl AdapterQueuesState {
         (offload_adapters, load_adapters)
     }
 
-    pub(crate) fn next_entry(&mut self, adapters_in_use: &HashSet<Adapter>) -> Option<(u64, Entry, Adapter, Vec<Adapter>, Vec<Adapter>)> {
-        let (offload_adapters, load_adapters) = self.update_adapters(adapters_in_use);
-
+    pub(crate) fn next_entry(&mut self) -> Option<(u64, Entry, Adapter)> {
         // Get the adapter from the active set that has been waiting the longest.
         let adapter = self.get_oldest_active_adapter();
         if adapter.is_none() {
@@ -360,6 +366,6 @@ impl AdapterQueuesState {
         let adapter = adapter.unwrap();
         let queue = self.queue_map.get_mut(&adapter).unwrap();
         let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
-        Some((id, entry, adapter, offload_adapters, load_adapters))
+        Some((id, entry, adapter))
     }
 }

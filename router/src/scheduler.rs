@@ -227,16 +227,10 @@ impl AdapterSchedulerState {
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
 
-        // Pop entries starting from the front of the queue
-        while let Some((id, mut entry, adapter, offload_adapters, load_adapters)) = queues_state.next_entry(adapters_in_use) {
-            // Background task to offload and load adapters
-            for adapter in offload_adapters {
-                self.loader.offload_adapter(adapter.clone(), self.queues_state.clone());
-            }
-            for adapter in load_adapters {
-                self.loader.load_adapter(adapter.clone(), self.queues_state.clone());
-            }
+        let loader = &mut self.loader;
 
+        // Pop entries starting from the front of the queue
+        while let Some((id, mut entry, adapter)) = next_entry(queues_state, loader, adapters_in_use, self.queues_state.clone()) {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -346,4 +340,24 @@ impl AdapterSchedulerState {
 
         Some((batch_entries, batch, next_batch_span))
     }
+}
+
+
+fn next_entry(
+    queues_state: &mut AdapterQueuesState,
+    loader: &mut AdapterLoader,
+    adapters_in_use: &HashSet<Adapter>,
+    shared_state: Arc<Mutex<AdapterQueuesState>>,
+) -> Option<(u64, Entry, Adapter)> {
+    let (offload_adapters, load_adapters) = queues_state.update_adapters(adapters_in_use);
+    
+    // Background task to offload and load adapters
+    for adapter in offload_adapters {
+        loader.offload_adapter(adapter.clone(), shared_state.clone());
+    }
+    for adapter in load_adapters {
+        loader.load_adapter(adapter.clone(), shared_state.clone());
+    }
+
+    queues_state.next_entry()
 }
