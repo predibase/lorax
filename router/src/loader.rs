@@ -161,6 +161,7 @@ async fn loader_task(
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
+                        tracing::info!("!!! FAILED adapter {} offloaded", adapter.id());
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
                         queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
@@ -192,6 +193,7 @@ async fn loader_task(
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
+                        tracing::info!("!!! FAILED adapter {} offloaded", adapter.id());
                         metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
                         queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
@@ -214,24 +216,15 @@ async fn loader_task(
             } => {
                 tracing::info!("terminating adapter {} loader", adapter.id());
 
-                // Create an asynchronous closure
-                let span_closure = async move {
-                    span.in_scope(|| {
-                        let mut locked_state = queues_state.lock().unwrap();
-                        for entry in locked_state.drain(&adapter) {
-                            let (_, entry) = entry;
-                            if let Some(err_msg) = err_msgs.get(&adapter) {
-                                entry.response_tx.send(Err(InferError::GenerationError(err_msg.clone()))).unwrap();
-                            }
-                        }
-                        locked_state.remove(&adapter);
-                    });
-                };
-
-                // Await the closure and break the loop
-                tokio::spawn(span_closure).await.expect("spawn failed");
-                // response_sender.send(()).unwrap();
-                break;
+                let mut locked_state = queues_state.lock().unwrap();
+                for entry in locked_state.drain(&adapter) {
+                    let (_, entry) = entry;
+                    if let Some(err_msg) = err_msgs.get(&adapter) {
+                        entry.response_tx.send(Err(InferError::GenerationError(err_msg.clone()))).unwrap();
+                    }
+                }
+                err_msgs.remove(&adapter);
+                locked_state.remove(&adapter); 
             }
         }
     }

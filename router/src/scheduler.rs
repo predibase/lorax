@@ -349,6 +349,12 @@ fn next_entry(
     adapters_in_use: &HashSet<Adapter>,
     shared_state: Arc<Mutex<AdapterQueuesState>>,
 ) -> Option<(u64, Entry, Adapter)> {
+    let errored_adapters = queues_state.get_errored_adapters();
+    for adapter in errored_adapters {
+        // Start async offload process
+        loader.terminate(adapter.clone(), shared_state.clone());
+    }
+
     let (offload_adapters, load_adapters) = queues_state.update_adapters(adapters_in_use);
     
     // Background task to offload and load adapters

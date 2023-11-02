@@ -184,15 +184,15 @@ impl AdapterQueuesState {
     pub(crate) fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) -> bool {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
+        let mut download = false;
         if !self.queue_map.contains_key(&adapter) {
             self.queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event.clone()));
+            download = true;
         }
 
-        let mut download = false;
         if !self.tracked_adapters.contains(&adapter) {
             self.tracked_adapters.insert(adapter.clone());
             self.pending_adapters.push_back(adapter.clone());
-            download = true;
         }
 
         // ensure that append completes before sending batcher message
