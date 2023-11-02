@@ -116,6 +116,8 @@ async fn loader_task(
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
+                    metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
+                    queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                     // response_sender.send(()).unwrap();
                     continue;
                 }
@@ -142,6 +144,8 @@ async fn loader_task(
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
+                    metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
+                    queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                     // response_sender.send(()).unwrap();
                     continue;
                 }
@@ -171,6 +175,8 @@ async fn loader_task(
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
+                    metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
+                    queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                     // response_sender.send(()).unwrap();
                     continue;
                 }
