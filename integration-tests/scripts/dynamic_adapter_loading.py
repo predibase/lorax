@@ -93,31 +93,28 @@ completes the request.
 
 ### Response:
 """
+    adapters = [
+        # valid
+        "arnavgrg/codealpaca-qlora",
+        "justinxzhao/51318",
+        # None,
+
+        # # download error: bad adapter name
+        # "abc",
+
+        # # download error: NaN weights
+        # "justinxzhao/50451",
+
+        # # download error: not an adapter
+        # "kashif/llama-7b_stack-exchange_RM_peft-adapter-merged",
+
+        # # load error: wrong base model
+        # "AdapterHub/xmod-base-zh_TW",
+    ]
+
     args_list = []
     for i in range(200):
-        if i % 7 == 1:
-            # download error: bad adapter name
-            adapter_id = random.choice("abc")
-        elif i % 7 == 2:
-            # valid
-            adapter_id = "arnavgrg/codealpaca-qlora"
-        elif i % 7 == 3:
-            # download error: NaN weights
-            adapter_id = "justinxzhao/50451" 
-        elif i % 7 == 4:
-            # valid
-            adapter_id = "justinxzhao/51318"
-        elif i % 7 == 5:
-            # download error: not an adapter
-            adapter_id = "kashif/llama-7b_stack-exchange_RM_peft-adapter-merged" 
-        elif i % 7 == 6:
-            # load error: wrong base model
-            adapter_id = "AdapterHub/xmod-base-zh_TW" 
-        else:
-            # valid
-            adapter_id = None
-
-        adapter_id = "arnavgrg/codealpaca-qlora"
+        adapter_id = adapters[i % len(adapters)]
         args_list.append((prompt, adapter_id))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:

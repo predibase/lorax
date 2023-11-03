@@ -170,6 +170,8 @@ class CausalLMBatch(Batch):
         all_input_ids = []
         max_input_length = 0
 
+        # TODO(travis): adapter indices
+
         next_token_choosers = []
         stopping_criterias = []
 
