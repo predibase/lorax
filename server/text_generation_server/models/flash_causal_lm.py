@@ -181,7 +181,7 @@ class FlashCausalLMBatch(Batch):
             max_new_tokens = stopping_criteria.max_new_tokens
             stopping_criterias.append(stopping_criteria)
 
-            adapter_indices_list.append(r.adapter_index)
+            adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -225,8 +225,7 @@ class FlashCausalLMBatch(Batch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
-        adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
-        print("!!! adapter_indices", adapter_indices)
+        adapter_indices = torch.tensor(torch.cat(adapter_indices_list), dtype=torch.int64, device=device)
 
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
@@ -408,6 +407,7 @@ class FlashCausalLMBatch(Batch):
         # Index into tensors
         input_ids = self.input_ids[indices]
         position_ids = self.position_ids[indices]
+        adapter_indices = self.adapter_indices[indices]
         all_input_ids_tensor = self.all_input_ids_tensor[indices]
         block_tables_tensor = self.block_tables_tensor[indices]
         input_lengths_tensor = self.input_lengths_tensor[indices]
@@ -446,6 +446,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
+            adapter_indices=adapter_indices,
         )
 
     @classmethod
@@ -493,6 +494,9 @@ class FlashCausalLMBatch(Batch):
             (total_batch_size, max_length)
         )
 
+        total_indices_size = sum(b.adapter_indices.shape[0] for b in batches)
+        adapter_indices = batches[0].adapter_indices.new_empty(total_indices_size)
+
         start_slots = []
         block_tables = []
         all_input_ids = []
@@ -507,6 +511,7 @@ class FlashCausalLMBatch(Batch):
         # Cumulative length
         cumulative_batch_size = 0
         cumulative_slots = 0
+        cumulative_adapter_indices_size = 0
 
         for i, batch in enumerate(batches):
             requests.extend(batch.requests)
@@ -529,6 +534,12 @@ class FlashCausalLMBatch(Batch):
             slot_indices[start_index:end_index] = batch.slot_indices + cumulative_slots
             input_lengths_tensor[start_index:end_index] = batch.input_lengths_tensor
             slots[slots_start_index:slots_end_index] = batch.slots
+
+            # Copy over adapter indices
+            adapter_start_index = cumulative_adapter_indices_size
+            adapter_end_index = cumulative_adapter_indices_size + batch.adapter_indices.shape[0]
+            adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_indices
+            cumulative_adapter_indices_size = adapter_end_index
 
             all_input_ids_tensor[
                 start_index:end_index, : batch.all_input_ids_tensor.shape[1]
@@ -594,6 +605,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
+            adapter_indices=adapter_indices,
         )
 
     def __del__(self):
@@ -778,9 +790,12 @@ class FlashCausalLM(Model):
             batch.slot_indices = batch.slot_indices[batch.cu_seqlen_prefill[1:] - 1]
             # We do not need cu_seqlen_prefill anymore
             batch.cu_seqlen_prefill = None
+
+            next_adapter_indices = batch.adapter_indices.new_empty(len(batch))
         else:
             prefill_logprobs = None
             next_position_ids = batch.position_ids
+            next_adapter_indices = batch.adapter_indices
 
         # Cumulative length
         cumulative_length = 0
@@ -818,6 +833,10 @@ class FlashCausalLM(Model):
                 # In decode, we do not need this as we can just increment position ids
                 next_position_ids[i] = batch.position_ids[end_index - 1]
 
+                # Initialize adapter indices
+                # In decode, we only have one token per row in the batch, so grab last index
+                next_adapter_indices[i] = batch.adapter_indices[end_index - 1]
+
                 # Used to gather prefill logprobs
                 # Copy batch.input_ids to prefill_token_indices
                 if prefill_logprobs:
@@ -838,6 +857,9 @@ class FlashCausalLM(Model):
         # Set values in batch
         batch.input_ids = next_input_ids
         batch.position_ids = next_position_ids + 1
+        # print("!!! adapter_indices before", batch.adapter_indices)
+        batch.adapter_indices = next_adapter_indices
+        # print("!!! adapter_indices after", batch.adapter_indices)
         batch.input_lengths_tensor += 1
         batch.slot_indices += 1
 

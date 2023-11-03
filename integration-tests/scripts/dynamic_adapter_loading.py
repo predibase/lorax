@@ -116,6 +116,8 @@ completes the request.
         else:
             # valid
             adapter_id = None
+
+        adapter_id = "arnavgrg/codealpaca-qlora"
         args_list.append((prompt, adapter_id))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:

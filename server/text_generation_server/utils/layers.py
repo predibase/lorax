@@ -342,9 +342,16 @@ class TensorParallelAdapterLinear(nn.Module):
         )
     
     def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype)
-        result_q = self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
-        result_v = self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
+        adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype).view(-1, 1)
+        # TODO(travis): remove this
+        # print("!!! adapter mask", adapter_mask.shape)
+        # print("!!! input", input.shape)
+        # print("!!! lora_a, lora_b", self.q_lora_a.weight.shape, self.q_lora_b.weight.shape)
+        try:
+            result_q = self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
+            result_v = self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
+        except Exception as e:
+            raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={self.q_lora_a.weight.shape}, lora_b={self.q_lora_b.weight.shape}") from e
         return result_q, result_v
 
 

@@ -278,6 +278,7 @@ class CausalLMBatch(Batch):
         attention_mask = None
         position_ids = None
         past_key_values = []
+        adapter_indices = None
 
         # Used for slicing correctly inside the tensors
         # Equivalent to a cumsum on batch sizes
@@ -312,6 +313,11 @@ class CausalLMBatch(Batch):
                 input_ids = batch.input_ids.new_empty((total_batch_size, 1))
             # Copy to correct indices
             input_ids[start_index:end_index] = batch.input_ids
+
+            # Create adapter indices
+            if adapter_indices is None:
+                adapter_indices = batch.adapter_indices.new_empty((total_batch_size,))
+            adapter_indices[start_index:end_index] = batch.adapter_indices
 
             # Create padded tensor
             if attention_mask is None:
@@ -451,6 +457,7 @@ class CausalLMBatch(Batch):
             padding_right_offset=padding_right_offset,
             keys_head_dim_last=batches[0].keys_head_dim_last,
             max_tokens=max_tokens,
+            adapter_indices=adapter_indices,
         )
 
     def __len__(self):
