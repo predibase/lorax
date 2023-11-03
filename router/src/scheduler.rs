@@ -353,6 +353,7 @@ fn next_entry(
     for adapter in errored_adapters {
         // Start async offload process
         loader.terminate(adapter.clone(), shared_state.clone());
+        queues_state.untrack(&adapter);
     }
 
     let (offload_adapters, load_adapters) = queues_state.update_adapters(adapters_in_use);

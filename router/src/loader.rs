@@ -117,22 +117,39 @@ async fn loader_task(
             } => {
                 if err_msgs.contains_key(&adapter) {
                     metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-                    queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
+                    let mut locked_state = queues_state.lock().unwrap();
+                    if locked_state.has_adapter(&adapter) {
+                        // Above check guards against the case where the adapter was terminated between the initial
+                        // time of request and the time of adapter download
+                        locked_state.set_status(&adapter, AdapterStatus::Errored);
+                    }
                     // response_sender.send(()).unwrap();
                     continue;
                 }
+
                 match client.download_adapter(
                     adapter.id().to_string(), 
                     adapter.source().to_string(),
                 ).await {
                     Ok(_) => {
                         tracing::info!("adapter {} downloaded", adapter.id());
-                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Downloaded);
+                        let mut locked_state = queues_state.lock().unwrap();
+                        if locked_state.has_adapter(&adapter) {
+                            // Above check guards against the case where the adapter was terminated between the initial
+                            // time of request and the time of adapter download
+                            locked_state.set_status(&adapter, AdapterStatus::Downloaded);
+                        }
                     }
                     // if we have a download error, we send an error to the entry response
                     Err(error) => {
+                        tracing::info!("FAILED downloading adapter {}", adapter.id());
                         metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
+                        let mut locked_state = queues_state.lock().unwrap();
+                        if locked_state.has_adapter(&adapter) {
+                            // Above check guards against the case where the adapter was terminated between the initial
+                            // time of request and the time of adapter download
+                            locked_state.set_status(&adapter, AdapterStatus::Errored);
+                        }
                         err_msgs.insert(adapter, error.to_string());
                     }
                 }
@@ -145,7 +162,10 @@ async fn loader_task(
             } => {
                 if err_msgs.contains_key(&adapter) {
                     metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
-                    queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
+                    let mut locked_state = queues_state.lock().unwrap();
+                    if locked_state.has_adapter(&adapter) {
+                        locked_state.set_status(&adapter, AdapterStatus::Errored);
+                    }
                     // response_sender.send(()).unwrap();
                     continue;
                 }
@@ -161,7 +181,7 @@ async fn loader_task(
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
-                        tracing::info!("!!! FAILED adapter {} offloaded", adapter.id());
+                        tracing::info!("FAILED loading adapter {}", adapter.id());
                         metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
                         queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
@@ -177,7 +197,10 @@ async fn loader_task(
             } => {
                 if err_msgs.contains_key(&adapter) {
                     metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
-                    queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
+                    let mut locked_state = queues_state.lock().unwrap();
+                    if locked_state.has_adapter(&adapter) {
+                        locked_state.set_status(&adapter, AdapterStatus::Errored);
+                    }
                     // response_sender.send(()).unwrap();
                     continue;
                 }
@@ -193,7 +216,7 @@ async fn loader_task(
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
-                        tracing::info!("!!! FAILED adapter {} offloaded", adapter.id());
+                        tracing::info!("FAILED offloading adapter {}", adapter.id());
                         metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
                         queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
@@ -217,6 +240,11 @@ async fn loader_task(
                 tracing::info!("terminating adapter {} loader", adapter.id());
 
                 let mut locked_state = queues_state.lock().unwrap();
+                if !locked_state.has_adapter(&adapter) {
+                    err_msgs.remove(&adapter);
+                    continue;
+                }
+
                 for entry in locked_state.drain(&adapter) {
                     let (_, entry) = entry;
                     if let Some(err_msg) = err_msgs.get(&adapter) {

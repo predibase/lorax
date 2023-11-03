@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::{VecDeque, HashMap, HashSet}, sync::Arc, time::Duration};
+use std::{collections::{VecDeque, HashMap, HashSet}, sync::Arc, time::Duration, backtrace::Backtrace};
 
 use tokio::{time::Instant, sync::Notify};
 use tracing::{info_span, Span};
@@ -210,6 +210,17 @@ impl AdapterQueuesState {
         self.tracked_adapters.remove(&adapter);
     }
 
+    /// Removes the adapter queue from the tracked set and its queues
+    pub(crate) fn untrack(&mut self, adapter: &Adapter) {
+        self.active_adapters.retain(|id| id != adapter);
+        self.pending_adapters.retain(|id| id != adapter);
+        self.tracked_adapters.remove(&adapter);
+    }
+
+    pub(crate) fn has_adapter(&self, adapter: &Adapter) -> bool {
+        self.queue_map.contains_key(adapter)
+    }
+
     /// Get any queues that are in an errored state
     pub(crate) fn get_errored_adapters(&mut self) -> Vec<Adapter> {
         let mut errored_adapters = Vec::new();
@@ -222,7 +233,13 @@ impl AdapterQueuesState {
     }
 
     pub(crate) fn set_status(&mut self, adapter: &Adapter, status: AdapterStatus) {
-        let queue = self.queue_map.get_mut(adapter).unwrap();
+        let q = self.queue_map.get_mut(adapter);
+        if q.is_none() {
+            // TODO(travis): remove this
+            tracing::error!("adapter {} not found in queue_map", adapter.id());
+            println!("{:?}", Backtrace::force_capture());
+        }
+        let queue = q.unwrap();
         queue.set_status(status);
     }
 
