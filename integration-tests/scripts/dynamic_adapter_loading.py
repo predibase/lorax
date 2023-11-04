@@ -47,10 +47,12 @@ def query_tgi(args):
     prompt, adapter_id = args
     start_t = time.time()
     request_params = {
-        "max_new_tokens": 100,
-        "temperature": 0.01,
+        "max_new_tokens": 128,
+        "temperature": None,
+        "details": True,
     }
     if adapter_id is not None:
+        # request_params["adapter_source"] = "s3"
         request_params["adapter_id"] = adapter_id
         
     print("request_params", request_params)    
@@ -69,15 +71,19 @@ def query_tgi(args):
     try:
         with urlopen(request) as response:
             response_body = json.loads(response.read().decode("utf-8"))
-            end_t = time.time() - start_t
-    except Exception as e:
-        end_t = float('-inf')
+            ntokens = response_body["details"]["generated_tokens"]
+            duration_s = time.time() - start_t
+    except Exception:
+        print(f"exception in request: {adapter_id}")
+        return adapter_id, 0, None
 
-    print("adapter_id: {}\nCompleted in {:3f} seconds\n----".format(
-        adapter_id, 
-        end_t
+    print("adapter_id: {}\nCompleted {} in {:3f} seconds ({:3f} tokens / s)\n----".format(
+        adapter_id,
+        ntokens,
+        duration_s,
+        (ntokens / duration_s)
     ))
-    return adapter_id, end_t
+    return adapter_id, ntokens, duration_s
 
 
 
@@ -94,17 +100,28 @@ completes the request.
 ### Response:
 """
     adapters = [
-        # valid
-        "arnavgrg/codealpaca-qlora",
-        "arnavgrg/codealpaca-qlora-v2",
-        "arnavgrg/ludwig-webinar",
-        "arnavgrg/ludwig-webinar-1",
         "arnavgrg/codealpaca_v3",
-        "AbhishekkV19/llama2-code-ludwig",
-        "Junfeng/ludwig-lllama2-biznamegen",
-        "daochf/LudwigLlama2-PuceDS-v01",
-        "hessertaboada/ludwig-webinar",
-        "AmlanSamanta/ludwig-webinar",
+        "arnavgrg/codealpaca_v3_1",
+        "arnavgrg/codealpaca_v3_2",
+        "arnavgrg/codealpaca_v3_3",
+        "arnavgrg/codealpaca_v3_4",
+        "arnavgrg/codealpaca_v3_5",
+        "arnavgrg/codealpaca_v3_6",
+        "arnavgrg/codealpaca_v3_7",
+        "arnavgrg/codealpaca_v3_8",
+        "arnavgrg/codealpaca_v3_9",
+
+        # valid
+        # "arnavgrg/codealpaca-qlora",
+        # "arnavgrg/codealpaca-qlora-v2",
+        # "arnavgrg/ludwig-webinar",
+        # "arnavgrg/ludwig-webinar-1",
+        # "arnavgrg/codealpaca_v3",
+        # "arnavgrg/codealpaca_v3_1",
+        # "AbhishekkV19/llama2-code-ludwig",
+        # "daochf/LudwigLlama2-PuceDS-v01",
+        # "hessertaboada/ludwig-webinar",
+        # "AmlanSamanta/ludwig-webinar",
 
 
         # None,
@@ -123,18 +140,27 @@ completes the request.
     ]
 
     args_list = []
-    for i in range(10):
+    for i in range(100):
         adapter_id = adapters[i % len(adapters)]
         args_list.append((prompt, adapter_id))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         results = executor.map(query_tgi, args_list)
 
-    d = collections.defaultdict(list)
-    for adapter_id, end_t in results:
-        d[str(adapter_id)].append(end_t)
+    total_tokens = 0
+    total_duration_s = 0
+    for adapter_id, ntokens, duration_s in results:
+        if duration_s is None:
+            continue
+        total_tokens += ntokens
+        total_duration_s += duration_s
 
-    print({k: np.mean(v) for k, v in d.items()})
+    print(f"Avg Throughput: {total_tokens / total_duration_s} tokens / s")
+
+    # d = collections.defaultdict(list)
+    # for adapter_id, ntokens, duration_s in results:
+    #     d[str(adapter_id)].append(end_t)
+    # print({k: np.mean(v) for k, v in d.items()})
 
 
 if __name__ == '__main__':
