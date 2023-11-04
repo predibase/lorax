@@ -97,6 +97,15 @@ completes the request.
         # valid
         "arnavgrg/codealpaca-qlora",
         "arnavgrg/codealpaca-qlora-v2",
+        "arnavgrg/ludwig-webinar",
+        "arnavgrg/ludwig-webinar-1",
+        "arnavgrg/codealpaca_v3",
+        "AbhishekkV19/llama2-code-ludwig",
+        "Junfeng/ludwig-lllama2-biznamegen",
+        "daochf/LudwigLlama2-PuceDS-v01",
+        "hessertaboada/ludwig-webinar",
+        "AmlanSamanta/ludwig-webinar",
+
 
         # None,
 

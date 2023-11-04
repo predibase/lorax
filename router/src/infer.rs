@@ -504,7 +504,6 @@ async fn filter_batch(
 #[instrument(skip_all)]
 fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) {
     generations.into_iter().for_each(|generation| {
-        tracing::info!("!!! filter_send_generations generation {}", generation.request_id);
         let id = generation.request_id;
         // Get entry
         // We can `expect` here as the request id should always be in the entries
@@ -526,7 +525,6 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
             err
         }).unwrap_or(true);
         if stopped {
-            tracing::info!("!!! filter_send_generations stopped {}", id);
             entries.remove(&id).expect("ID not found in entries. This is a bug.");
         }
     });
