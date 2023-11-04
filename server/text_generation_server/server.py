@@ -17,7 +17,7 @@ from text_generation_server.interceptor import ExceptionInterceptor
 from text_generation_server.models import Model, get_model
 from text_generation_server.pb import generate_pb2_grpc, generate_pb2
 from text_generation_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from text_generation_server.utils import HUB, S3, get_config_path, get_local_dir
+from text_generation_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
@@ -134,14 +134,15 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         except Exception:
             logger.exception("Error when downloading adapter")
 
-            # delete safetensors files if there is an issue downloading or converting 
-            # the weights to prevent cache hits by subsequent calls
-            try:
-                local_path = get_local_dir(adapter_id, adapter_source)
-                shutil.rmtree(local_path)
-            except Exception as e:
-                logger.warning(f"Error cleaning up safetensors files after "
-                               f"download error: {e}\nIgnoring.")
+            if adapter_source != LOCAL:
+                # delete safetensors files if there is an issue downloading or converting 
+                # the weights to prevent cache hits by subsequent calls
+                try:
+                    local_path = get_local_dir(adapter_id, adapter_source)
+                    shutil.rmtree(local_path)
+                except Exception as e:
+                    logger.warning(f"Error cleaning up safetensors files after "
+                                f"download error: {e}\nIgnoring.")
             raise
 
     async def LoadAdapter(self, request, context):

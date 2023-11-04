@@ -52,7 +52,7 @@ def query_tgi(args):
         "details": True,
     }
     if adapter_id is not None:
-        # request_params["adapter_source"] = "s3"
+        request_params["adapter_source"] = "local"
         request_params["adapter_id"] = adapter_id
         
     print("request_params", request_params)    
