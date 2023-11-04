@@ -310,6 +310,7 @@ class FlashCausalLMBatch(Batch):
 
     @tracer.start_as_current_span("filter")
     def filter(self, request_ids: List[int]) -> "FlashCausalLMBatch":
+        print("!!! FILTER", request_ids)
         if len(request_ids) == 0:
             raise ValueError("Batch must have at least one request")
         # We assume that if len(requests) == len(self) then the requests are the same
@@ -749,6 +750,8 @@ class FlashCausalLM(Model):
     ) -> Tuple[List[Generation], Optional[FlashCausalLMBatch]]:
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
+
+        # print("!!! adapter_indices", batch.adapter_indices)
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch

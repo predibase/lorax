@@ -51,9 +51,6 @@ pub(crate) struct QueueState {
     /// Queue entries organized in a Vec
     entries: VecDeque<(u64, Entry)>,
 
-    /// Id of the next entry
-    next_id: u64,
-
     /// Adapter index
     adapter: Adapter,
 
@@ -72,7 +69,6 @@ impl QueueState {
         let status = AdapterStatus::Downloading;
         Self {
             entries: VecDeque::with_capacity(128),
-            next_id: 0,
             adapter,
             status,
             activation_ts: None,
@@ -81,14 +77,14 @@ impl QueueState {
     }
 
     /// Append an entry to the queue
-    pub(crate) fn append(&mut self, mut entry: Entry) {
+    pub(crate) fn append(&mut self, entry_id: u64, mut entry: Entry) {
         // Create a span that will live as long as the entry is in the queue waiting to be batched
         let queue_span = info_span!(parent: &entry.span, "queued");
         entry.temp_span = Some(queue_span);
 
         // Push entry in the queue
-        self.entries.push_back((self.next_id, entry));
-        self.next_id += 1;
+        self.entries.push_back((entry_id, entry));
+        
     }
 
     /// Prepend an entry to the front of the queue
@@ -161,6 +157,9 @@ pub(crate) struct AdapterQueuesState {
 
     /// Maximum time an adapter is allowed to be active before exchanging out
     max_active_time: Duration,
+
+    /// Id of the next entry
+    next_id: u64,
 }
 
 impl AdapterQueuesState {
@@ -177,6 +176,7 @@ impl AdapterQueuesState {
             tracked_adapters,
             max_active_adapters: 3,
             max_active_time: Duration::from_secs(2),
+            next_id: 0,
         }
     }
 
@@ -197,7 +197,8 @@ impl AdapterQueuesState {
 
         // ensure that append completes before sending batcher message
         let queue = self.queue_map.get_mut(&adapter).unwrap();
-        queue.append(entry);
+        queue.append(self.next_id, entry);
+        self.next_id += 1;
 
         return download;
     }

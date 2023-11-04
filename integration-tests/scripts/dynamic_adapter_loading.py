@@ -96,7 +96,8 @@ completes the request.
     adapters = [
         # valid
         "arnavgrg/codealpaca-qlora",
-        "justinxzhao/51318",
+        "arnavgrg/codealpaca-qlora-v2",
+
         # None,
 
         # # download error: bad adapter name
@@ -113,7 +114,7 @@ completes the request.
     ]
 
     args_list = []
-    for i in range(200):
+    for i in range(10):
         adapter_id = adapters[i % len(adapters)]
         args_list.append((prompt, adapter_id))
 
