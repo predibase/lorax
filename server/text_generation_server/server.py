@@ -265,9 +265,12 @@ def serve(
 
 
 def _adapter_source_enum_to_string(adapter_source: int) -> str:
+    # TODO(travis): refactor this to be less hacky
     if adapter_source == generate_pb2.AdapterSource.HUB:
         return HUB
     elif adapter_source == generate_pb2.AdapterSource.S3:
         return S3
+    elif adapter_source == generate_pb2.AdapterSource.LOCAL:
+        return LOCAL
     else:
         raise ValueError(f"Unknown adapter source {adapter_source}")

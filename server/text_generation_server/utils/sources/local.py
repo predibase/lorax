@@ -19,6 +19,14 @@ from .s3 import get_s3_model_local_dir
 from .source import BaseModelSource, try_to_load_from_cache
 
 
+def get_model_local_dir(model_id: str):
+    if os.path.isabs(model_id):
+        return Path(model_id)
+    
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / model_id
+    return repo_cache
+
+
 class LocalModelSource(BaseModelSource):
     def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
         if len(model_id) < 5:
@@ -36,7 +44,7 @@ class LocalModelSource(BaseModelSource):
         model_id = self.model_id
         extension = extension or self.extension
 
-        local_path = get_s3_model_local_dir(model_id)
+        local_path = get_model_local_dir(model_id)
         if local_path.exists() and local_path.is_dir():
             local_files = list(local_path.glob(f"*{extension}"))
             if not local_files:
@@ -56,4 +64,4 @@ class LocalModelSource(BaseModelSource):
         return []
 
     def get_local_path(self, model_id: str):
-        return get_s3_model_local_dir(model_id)
+        return get_model_local_dir(model_id)

@@ -86,6 +86,11 @@ def query_tgi(args):
     return adapter_id, ntokens, duration_s
 
 
+def get_local_path(model_id):
+    model_id = model_id.replace("/", "--")
+    return f"/data/models--{model_id}/snapshots/834b33af35ff5965ea3e4bc18b51ad5d65da7466"
+
+
 
 def main():
     prompt = """
@@ -100,16 +105,16 @@ completes the request.
 ### Response:
 """
     adapters = [
-        "arnavgrg/codealpaca_v3",
-        "arnavgrg/codealpaca_v3_1",
-        "arnavgrg/codealpaca_v3_2",
-        "arnavgrg/codealpaca_v3_3",
-        "arnavgrg/codealpaca_v3_4",
-        "arnavgrg/codealpaca_v3_5",
-        "arnavgrg/codealpaca_v3_6",
-        "arnavgrg/codealpaca_v3_7",
-        "arnavgrg/codealpaca_v3_8",
-        "arnavgrg/codealpaca_v3_9",
+        get_local_path("arnavgrg/codealpaca_v3"),
+        get_local_path("arnavgrg/codealpaca_v3_1"),
+        get_local_path("arnavgrg/codealpaca_v3_2"),
+        get_local_path("arnavgrg/codealpaca_v3_3"),
+        get_local_path("arnavgrg/codealpaca_v3_4"),
+        get_local_path("arnavgrg/codealpaca_v3_5"),
+        get_local_path("arnavgrg/codealpaca_v3_6"),
+        get_local_path("arnavgrg/codealpaca_v3_7"),
+        get_local_path("arnavgrg/codealpaca_v3_8"),
+        get_local_path("arnavgrg/codealpaca_v3_9"),
 
         # valid
         # "arnavgrg/codealpaca-qlora",

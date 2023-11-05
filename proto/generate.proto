@@ -222,6 +222,8 @@ enum AdapterSource {
     HUB = 0;
     /// Adapters loaded via remote filesystem path
     S3 = 1;
+    /// Adapters loaded via local filesystem path
+    LOCAL = 2;
 }
 
 message DownloadAdapterRequest {

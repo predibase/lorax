@@ -1,8 +1,7 @@
-from pathlib import Path
 from typing import Optional
 
 from .hub import EntryNotFoundError, LocalEntryNotFoundError, RevisionNotFoundError, get_hub_model_local_dir, weight_files, download_weights, weight_hub_files, HubModelSource
-from .local import LocalModelSource
+from .local import LocalModelSource, get_model_local_dir
 from .s3 import S3ModelSource, get_s3_model_local_dir
 
 HUB = "hub"
@@ -22,13 +21,13 @@ def get_model_source(source: str, model_id: str, revision: Optional[str] = None,
         raise ValueError(f"Unknown source {source}")
 
 
-def get_config_path(model_id: str, source: str) -> Path:
+def get_config_path(model_id: str, source: str) -> str:
     if source == HUB:
         return model_id
     elif source == S3:
-        return get_s3_model_local_dir(model_id)
+        return get_s3_model_local_dir(model_id).as_posix()
     elif source == LOCAL:
-        return get_s3_model_local_dir(model_id)
+        return get_model_local_dir(model_id).as_posix()
     else:
         raise ValueError(f"Unknown source {source}")
 
@@ -39,7 +38,7 @@ def get_local_dir(model_id: str, source: str):
     elif source == S3:
         return get_s3_model_local_dir(model_id)
     elif source == LOCAL:
-        return get_s3_model_local_dir(model_id)
+        return get_model_local_dir(model_id)
     else:
         raise ValueError(f"Unknown source {source}")
 
