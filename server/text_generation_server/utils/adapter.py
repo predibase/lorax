@@ -19,7 +19,7 @@ from text_generation_server.utils.sources import get_model_source, get_config_pa
 BASE_MODEL_ADAPTER_ID = "__base_model__"
 
 
-@lru_cache(maxsize=10)
+@lru_cache(maxsize=128)
 def load_module_map(model_id, adapter_id, adapter_source, weight_names):
     # TODO(geoffrey): refactor this and merge parts of this function with
     # text_generation_server/utils/adapter.py::create_merged_weight_files       

@@ -104,53 +104,63 @@ completes the request.
 
 ### Response:
 """
-    adapters = [
-        get_local_path("arnavgrg/codealpaca_v3"),
-        get_local_path("arnavgrg/codealpaca_v3_1"),
-        get_local_path("arnavgrg/codealpaca_v3_2"),
-        get_local_path("arnavgrg/codealpaca_v3_3"),
-        get_local_path("arnavgrg/codealpaca_v3_4"),
-        get_local_path("arnavgrg/codealpaca_v3_5"),
-        get_local_path("arnavgrg/codealpaca_v3_6"),
-        get_local_path("arnavgrg/codealpaca_v3_7"),
-        get_local_path("arnavgrg/codealpaca_v3_8"),
-        get_local_path("arnavgrg/codealpaca_v3_9"),
-
-        # valid
-        # "arnavgrg/codealpaca-qlora",
-        # "arnavgrg/codealpaca-qlora-v2",
-        # "arnavgrg/ludwig-webinar",
-        # "arnavgrg/ludwig-webinar-1",
-        # "arnavgrg/codealpaca_v3",
-        # "arnavgrg/codealpaca_v3_1",
-        # "AbhishekkV19/llama2-code-ludwig",
-        # "daochf/LudwigLlama2-PuceDS-v01",
-        # "hessertaboada/ludwig-webinar",
-        # "AmlanSamanta/ludwig-webinar",
-
-
-        # None,
-
-        # # download error: bad adapter name
-        # "abc",
-
-        # # download error: NaN weights
-        # "justinxzhao/50451",
-
-        # # download error: not an adapter
-        # "kashif/llama-7b_stack-exchange_RM_peft-adapter-merged",
-
-        # # load error: wrong base model
-        # "AdapterHub/xmod-base-zh_TW",
+    N = 8
+    adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
+        get_local_path(f"arnavgrg/codealpaca_v3_{i}")
+        for i in range(1, N)
     ]
 
+    # adapters = [None]
+
+    # adapters = [
+    #     get_local_path("arnavgrg/codealpaca_v3"),
+    #     get_local_path("arnavgrg/codealpaca_v3_1"),
+    #     get_local_path("arnavgrg/codealpaca_v3_2"),
+    #     get_local_path("arnavgrg/codealpaca_v3_3"),
+    #     get_local_path("arnavgrg/codealpaca_v3_4"),
+    #     get_local_path("arnavgrg/codealpaca_v3_5"),
+    #     get_local_path("arnavgrg/codealpaca_v3_6"),
+    #     get_local_path("arnavgrg/codealpaca_v3_7"),
+    #     # get_local_path("arnavgrg/codealpaca_v3_8"),
+    #     # get_local_path("arnavgrg/codealpaca_v3_9"),
+
+    #     # valid
+    #     # "arnavgrg/codealpaca-qlora",
+    #     # "arnavgrg/codealpaca-qlora-v2",
+    #     # "arnavgrg/ludwig-webinar",
+    #     # "arnavgrg/ludwig-webinar-1",
+    #     # "arnavgrg/codealpaca_v3",
+    #     # "arnavgrg/codealpaca_v3_1",
+    #     # "AbhishekkV19/llama2-code-ludwig",
+    #     # "daochf/LudwigLlama2-PuceDS-v01",
+    #     # "hessertaboada/ludwig-webinar",
+    #     # "AmlanSamanta/ludwig-webinar",
+
+
+    #     # None,
+
+    #     # # download error: bad adapter name
+    #     # "abc",
+
+    #     # # download error: NaN weights
+    #     # "justinxzhao/50451",
+
+    #     # # download error: not an adapter
+    #     # "kashif/llama-7b_stack-exchange_RM_peft-adapter-merged",
+
+    #     # # load error: wrong base model
+    #     # "AdapterHub/xmod-base-zh_TW",
+    # ]
+
     args_list = []
-    for i in range(100):
+    for i in range(500):
         adapter_id = adapters[i % len(adapters)]
         args_list.append((prompt, adapter_id))
 
+    start_t = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         results = executor.map(query_tgi, args_list)
+    span_s = time.time() - start_t
 
     total_tokens = 0
     total_duration_s = 0
@@ -160,7 +170,8 @@ completes the request.
         total_tokens += ntokens
         total_duration_s += duration_s
 
-    print(f"Avg Throughput: {total_tokens / total_duration_s} tokens / s")
+    print(f"Avg Latency: {total_duration_s / total_tokens} s / tokens")
+    print(f"Throughput: {total_tokens / span_s} tokens / s")
 
     # d = collections.defaultdict(list)
     # for adapter_id, ntokens, duration_s in results:
