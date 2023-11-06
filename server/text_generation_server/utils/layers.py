@@ -4,7 +4,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -311,10 +311,13 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             if adapter_layer.adapter_index != adapter_index
         ]
     
-    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor, adapter_set: Set[int]) -> torch.Tensor:
         result = self.base_layer(input)
 
         for adapter_layer in self.adapter_layers:
+            if adapter_layer.adapter_index not in adapter_set:
+                continue
+            
             result_q, result_v = adapter_layer(input, adapter_indices)
             result[:, :self.d_q] += result_q
             result[:, 2*self.d_q:] += result_v

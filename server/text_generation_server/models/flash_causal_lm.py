@@ -8,7 +8,7 @@ import numpy as np
 from dataclasses import dataclass
 from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
-from typing import Optional, Tuple, List, Type, Union, Dict
+from typing import Optional, Set, Tuple, List, Type, Union, Dict
 
 from text_generation_server.models import Model
 from text_generation_server.models.types import (
@@ -85,6 +85,7 @@ class FlashCausalLMBatch(Batch):
 
     # Adapter metadata for each request
     adapter_indices: torch.Tensor
+    adapter_set: Set[int]
 
     # Number of blocks in this batch
     blocks: int
@@ -138,6 +139,7 @@ class FlashCausalLMBatch(Batch):
         next_token_chooser_parameters = []
         stopping_criterias = []
         adapter_indices_list = []
+        adapter_set = set()
 
         # Cumulative length
         cumulative_length = 0
@@ -182,6 +184,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias.append(stopping_criteria)
 
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
+            adapter_set.add(r.adapter_index)
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -306,6 +309,7 @@ class FlashCausalLMBatch(Batch):
             blocks=blocks,
             max_blocks=max_blocks,
             adapter_indices=adapter_indices,
+            adapter_set=adapter_set,
         )
 
     @tracer.start_as_current_span("filter")
@@ -343,6 +347,7 @@ class FlashCausalLMBatch(Batch):
         read_offsets = []
 
         stopping_criterias = []
+        adapter_set = set()
 
         blocks = 0
         max_blocks = 0
@@ -368,6 +373,8 @@ class FlashCausalLMBatch(Batch):
 
             stopping_criteria = self.stopping_criterias[idx]
             stopping_criterias.append(stopping_criteria)
+
+            adapter_set.add(self.requests[idx].adapter_index)
 
             remaining_tokens = (
                 stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
@@ -447,6 +454,7 @@ class FlashCausalLMBatch(Batch):
             blocks=blocks,
             max_blocks=max_blocks,
             adapter_indices=adapter_indices,
+            adapter_set=adapter_set,
         )
 
     @classmethod
@@ -496,6 +504,7 @@ class FlashCausalLMBatch(Batch):
 
         total_indices_size = sum(b.adapter_indices.shape[0] for b in batches)
         adapter_indices = batches[0].adapter_indices.new_empty(total_indices_size)
+        adapter_set = set()
 
         start_slots = []
         block_tables = []
@@ -540,6 +549,7 @@ class FlashCausalLMBatch(Batch):
             adapter_end_index = cumulative_adapter_indices_size + batch.adapter_indices.shape[0]
             adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_indices
             cumulative_adapter_indices_size = adapter_end_index
+            adapter_set.update(batch.adapter_set)
 
             all_input_ids_tensor[
                 start_index:end_index, : batch.all_input_ids_tensor.shape[1]
@@ -606,6 +616,7 @@ class FlashCausalLMBatch(Batch):
             blocks=blocks,
             max_blocks=max_blocks,
             adapter_indices=adapter_indices,
+            adapter_set=adapter_set,
         )
 
     def __del__(self):
@@ -740,6 +751,7 @@ class FlashCausalLM(Model):
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
             adapter_indices=batch.adapter_indices,
+            adapter_set=batch.adapter_set,
             lm_head_indices=batch.prefill_head_indices,
         )
 

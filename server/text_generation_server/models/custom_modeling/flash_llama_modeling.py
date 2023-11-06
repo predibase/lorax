@@ -24,7 +24,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import Optional, List, Set, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
@@ -250,10 +250,11 @@ class FlashLlamaAttention(torch.nn.Module):
         input_lengths,
         max_s,
         adapter_indices,
+        adapter_set,
     ):
         # print("!!! hidden_states shape:", hidden_states.shape)
         # print("!!! query_key_value shape:", self.query_key_value.linear.weight.shape)
-        qkv = self.query_key_value(hidden_states, adapter_indices)
+        qkv = self.query_key_value(hidden_states, adapter_indices, adapter_set)
         # print("!!! QKV shape:", qkv.shape)
         query, kv = qkv.split(
             [
@@ -379,6 +380,7 @@ class FlashLlamaLayer(nn.Module):
         input_lengths,
         max_s,
         adapter_indices,
+        adapter_set,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -394,6 +396,7 @@ class FlashLlamaLayer(nn.Module):
             input_lengths,
             max_s,
             adapter_indices,
+            adapter_set,
         )
 
         # faster post attention rms norm
@@ -447,6 +450,7 @@ class FlashLlamaModel(torch.nn.Module):
         input_lengths: torch.Tensor,
         max_s: int,
         adapter_indices: torch.Tensor,
+        adapter_set: Set[int],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
 
@@ -470,6 +474,7 @@ class FlashLlamaModel(torch.nn.Module):
                 input_lengths,
                 max_s,
                 adapter_indices,
+                adapter_set,
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -499,6 +504,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         input_lengths: torch.Tensor,
         max_s: int,
         adapter_indices: torch.Tensor,
+        adapter_set: Set[int],
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = self.model(
@@ -511,6 +517,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             input_lengths,
             max_s,
             adapter_indices,
+            adapter_set,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
