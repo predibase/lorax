@@ -112,8 +112,7 @@ def get_model(
     model_type = config_dict["model_type"]
     if len(adapter_id) > 0 and model_type not in LORAX_ENABLED_MODEL_TYPES:
         raise ValueError(
-            f"adapter_id is only supported for models with type {LORAX_ENABLED_MODEL_TYPES} "
-            "and will be ignored for other models."
+            f"adapter_id is only supported for models with type {LORAX_ENABLED_MODEL_TYPES}."
         )
 
     if dtype is None:
