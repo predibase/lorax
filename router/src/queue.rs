@@ -378,7 +378,6 @@ impl AdapterQueuesState {
         if adapter.is_none() {
             // No active adapter has any entries
             tracing::debug!("No active adapter has any entries");
-            print_queue_state(self);
             return None;
         }
 
