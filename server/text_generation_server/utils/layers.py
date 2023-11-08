@@ -317,7 +317,7 @@ class TensorParallelMultiAdapterLinear(nn.Module):
         for adapter_layer in self.adapter_layers:
             if adapter_layer.adapter_index not in adapter_set:
                 continue
-            
+
             result_q, result_v = adapter_layer(input, adapter_indices)
             result[:, :self.d_q] += result_q
             result[:, 2*self.d_q:] += result_v
@@ -346,10 +346,6 @@ class TensorParallelAdapterLinear(nn.Module):
     
     def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype).view(-1, 1)
-        # TODO(travis): remove this
-        # print("!!! adapter mask", adapter_mask.shape)
-        # print("!!! input", input.shape)
-        # print("!!! lora_a, lora_b", self.q_lora_a.weight.shape, self.q_lora_b.weight.shape)
         try:
             result_q = self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
             result_v = self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask

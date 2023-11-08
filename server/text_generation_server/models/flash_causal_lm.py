@@ -762,7 +762,8 @@ class FlashCausalLM(Model):
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
 
-        print("!!! adapter_indices", batch.adapter_indices)
+        # Debugging for LoRAX
+        # print("!!! adapter_indices", batch.adapter_indices)
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
@@ -871,9 +872,7 @@ class FlashCausalLM(Model):
         # Set values in batch
         batch.input_ids = next_input_ids
         batch.position_ids = next_position_ids + 1
-        # print("!!! adapter_indices before", batch.adapter_indices)
         batch.adapter_indices = next_adapter_indices
-        # print("!!! adapter_indices after", batch.adapter_indices)
         batch.input_lengths_tensor += 1
         batch.slot_indices += 1
 

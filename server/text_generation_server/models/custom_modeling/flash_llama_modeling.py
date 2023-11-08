@@ -252,10 +252,7 @@ class FlashLlamaAttention(torch.nn.Module):
         adapter_indices,
         adapter_set,
     ):
-        # print("!!! hidden_states shape:", hidden_states.shape)
-        # print("!!! query_key_value shape:", self.query_key_value.linear.weight.shape)
         qkv = self.query_key_value(hidden_states, adapter_indices, adapter_set)
-        # print("!!! QKV shape:", qkv.shape)
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -305,10 +302,7 @@ class FlashLlamaAttention(torch.nn.Module):
                 max_s,
             )
 
-        # print("!!! attn_output shape:", attn_output.shape)
-        out = self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
-        # print("!!! o_proj shape:", out.shape)
-        return out
+        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
 
 
 class LlamaMLP(nn.Module):

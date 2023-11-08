@@ -283,9 +283,7 @@ async fn batching_task(
     // Infinite loop
     loop {
         // Fire if a new request comes in or an adapter becomes ready
-        tracing::info!("!!! wait for notify");
         adapter_event.batching_task.notified().await;
-        tracing::info!("!!! notified");
 
         // Get the next batch from the queue
         // This batch might be smaller than the maximum batch size if there are not enough requests
