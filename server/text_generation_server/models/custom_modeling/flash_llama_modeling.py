@@ -251,7 +251,7 @@ class FlashLlamaAttention(torch.nn.Module):
         NOTE: if not `clone`, then the weights are returned as views, meaning
         that changes to the weights will be reflected in the attention layer.
         """
-        query, key, value = self.query_key_value.linear.weight.split(
+        query, key, value = self.query_key_value.base_layer.linear.weight.split(
             [
                 self.head_size * self.num_heads,
                 self.head_size * self.num_key_value_heads,

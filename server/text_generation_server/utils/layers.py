@@ -322,7 +322,7 @@ class TensorParallelMultiAdapterLinear(nn.Module):
 
             result_q, result_v = adapter_layer(input, adapter_indices)
             result[:, :self.q_end] += result_q
-            result[:, self.v_end:] += result_v
+            result[:, self.k_end:] += result_v
 
         return result
     
