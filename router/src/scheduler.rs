@@ -228,10 +228,12 @@ impl AdapterSchedulerState {
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
 
+        // Update adapters
         let loader = &mut self.loader;
+        update_adapters(queues_state, loader, adapters_in_use, self.queues_state.clone());
 
         // Pop entries starting from the front of the queue
-        while let Some((id, mut entry, adapter)) = next_entry(queues_state, loader, adapters_in_use, self.queues_state.clone()) {
+        while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -344,12 +346,12 @@ impl AdapterSchedulerState {
 }
 
 
-fn next_entry(
+fn update_adapters(
     queues_state: &mut AdapterQueuesState,
     loader: &mut AdapterLoader,
     adapters_in_use: &HashSet<Adapter>,
     shared_state: Arc<Mutex<AdapterQueuesState>>,
-) -> Option<(u64, Entry, Adapter)> {
+) {
     let errored_adapters = queues_state.get_errored_adapters();
     for adapter in errored_adapters {
         // Start async offload process
@@ -369,6 +371,4 @@ fn next_entry(
     for adapter in load_adapters {
         loader.load_adapter(adapter.clone(), shared_state.clone());
     }
-
-    queues_state.next_entry()
 }
