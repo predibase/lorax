@@ -178,7 +178,8 @@ impl AdapterSchedulerState {
             self.loader.download_adapter(adapter.clone(), self.queues_state.clone());
         }
 
-        adapter_event.batching_task.notify_one()
+        tracing::info!("!!! NOTIFY new request submitted {}", adapter.id());
+        adapter_event.batching_task.notify_one();
     }
 
     /// Remove any queues that are in an errored state
@@ -355,6 +356,9 @@ fn next_entry(
         loader.terminate(adapter.clone(), shared_state.clone());
         queues_state.untrack(&adapter);
     }
+
+    // Prints the adapters in use
+    tracing::info!("!!! adapters in use: {:?}", adapters_in_use);
 
     let (offload_adapters, load_adapters) = queues_state.update_adapters(adapters_in_use);
     

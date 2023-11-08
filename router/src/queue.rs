@@ -121,6 +121,7 @@ impl QueueState {
 
     pub(crate) fn set_status(&mut self, status: AdapterStatus) {
         self.status = status;
+        tracing::info!("!!! NOTIFY set adapter {} status to {}", self.adapter.id(), self.status);
         self.event.batching_task.notify_one();
         tracing::info!("set adapter {} status to {}", self.adapter.id(), self.status);
     }
@@ -174,7 +175,7 @@ impl AdapterQueuesState {
             pending_adapters,
             active_adapters,
             tracked_adapters,
-            max_active_adapters: 1,
+            max_active_adapters: 2,
             max_active_time: Duration::from_secs(2),
             next_id: 0,
         }
@@ -190,7 +191,9 @@ impl AdapterQueuesState {
             download = true;
         }
 
+        tracing::info!("!!! APPEND REQ {}", adapter.id());
         if !self.tracked_adapters.contains(&adapter) {
+            tracing::info!("!!! TRACK REQ {}", adapter.id());
             self.tracked_adapters.insert(adapter.clone());
             self.pending_adapters.push_back(adapter.clone());
         }
@@ -205,6 +208,7 @@ impl AdapterQueuesState {
 
     /// Removes adapter queue from the map
     pub(crate) fn remove(&mut self, adapter: &Adapter) {
+        tracing::info!("!!! FULLY REMOVE {}", adapter.id());
         self.queue_map.remove(adapter);
         self.active_adapters.retain(|id| id != adapter);
         self.pending_adapters.retain(|id| id != adapter);
@@ -213,6 +217,7 @@ impl AdapterQueuesState {
 
     /// Removes the adapter queue from the tracked set and its queues
     pub(crate) fn untrack(&mut self, adapter: &Adapter) {
+        tracing::info!("!!! UNTRACK {}", adapter.id());
         self.active_adapters.retain(|id| id != adapter);
         self.pending_adapters.retain(|id| id != adapter);
         self.tracked_adapters.remove(&adapter);
@@ -247,6 +252,7 @@ impl AdapterQueuesState {
     pub(crate) fn push_front(&mut self, adapter: &Adapter, entry_id: u64, entry: Entry) {
         let queue = self.queue_map.get_mut(adapter).unwrap();
         queue.push_front(entry_id, entry);
+        tracing::info!("!!! PUSH FRONT {}", adapter.id());
     }
 
     pub(crate) fn drain(&mut self, adapter: &Adapter) -> std::collections::vec_deque::Drain<(u64, Entry)> {
@@ -329,6 +335,9 @@ impl AdapterQueuesState {
         }
 
         // Remove all adapters in the remove set
+        if !adapters_to_remove.is_empty() {
+            tracing::info!("!!! REMOVE FROM ACTIVE {}", adapter_set_to_string(&adapters_to_remove));
+        }
         self.active_adapters.retain(|adapter| {
             !adapters_to_remove.contains(adapter)
         });
@@ -377,6 +386,8 @@ impl AdapterQueuesState {
         let adapter = self.get_oldest_active_adapter();
         if adapter.is_none() {
             // No active adapter has any entries
+            tracing::info!("!!! no active adapter has any entries.");
+            print_queue_state(self);
             return None;
         }
 
@@ -386,4 +397,29 @@ impl AdapterQueuesState {
         let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
         Some((id, entry, adapter))
     }
+}
+
+/// Prints the entire contents of the queue state
+pub(crate) fn print_queue_state(queue_state: &AdapterQueuesState) {
+    for (adapter, queue) in queue_state.queue_map.iter() {
+        tracing::info!("adapter {} status={} activation_ts={} entries={}", adapter.id(), queue.status(), queue.activation_ts().map(|ts| ts.elapsed().as_secs()).unwrap_or(0), queue.entries().len());
+    }
+    tracing::info!("tracked={} pending={} active={}", adapter_set_to_string(&queue_state.tracked_adapters), adapters_to_string(&queue_state.pending_adapters), adapters_to_string(&queue_state.active_adapters));
+}
+
+/// Converts a VecDeque<Adapter> to a String for debugging
+fn adapters_to_string(adapters: &VecDeque<Adapter>) -> String {
+    let mut s = String::new();
+    for adapter in adapters.iter() {
+        s.push_str(&format!("{} ", adapter.id()));
+    }
+    s
+}
+
+fn adapter_set_to_string(adapters: &HashSet<Adapter>) -> String {
+    let mut s = String::new();
+    for adapter in adapters.iter() {
+        s.push_str(&format!("{} ", adapter.id()));
+    }
+    s
 }
