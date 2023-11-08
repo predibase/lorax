@@ -175,7 +175,7 @@ impl AdapterQueuesState {
             pending_adapters,
             active_adapters,
             tracked_adapters,
-            max_active_adapters: 2,
+            max_active_adapters: 32,
             max_active_time: Duration::from_secs(2),
             next_id: 0,
         }

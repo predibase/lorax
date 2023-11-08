@@ -104,53 +104,53 @@ completes the request.
 
 ### Response:
 """
-    NUM_REQUESTS = 10  #500
-    N = 5
+    NUM_REQUESTS = 500
+    N = 100
     adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
         get_local_path(f"arnavgrg/codealpaca_v3_{i}")
         for i in range(1, N)
     ]
 
-    # adapters = [None]
+    # adapters += [None]
 
-    # adapters = [
-    #     get_local_path("arnavgrg/codealpaca_v3"),
-    #     get_local_path("arnavgrg/codealpaca_v3_1"),
-    #     get_local_path("arnavgrg/codealpaca_v3_2"),
-    #     get_local_path("arnavgrg/codealpaca_v3_3"),
-    #     get_local_path("arnavgrg/codealpaca_v3_4"),
-    #     get_local_path("arnavgrg/codealpaca_v3_5"),
-    #     get_local_path("arnavgrg/codealpaca_v3_6"),
-    #     get_local_path("arnavgrg/codealpaca_v3_7"),
-    #     # get_local_path("arnavgrg/codealpaca_v3_8"),
-    #     # get_local_path("arnavgrg/codealpaca_v3_9"),
+    # adapters += [
+    # #     get_local_path("arnavgrg/codealpaca_v3"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_1"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_2"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_3"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_4"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_5"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_6"),
+    # #     get_local_path("arnavgrg/codealpaca_v3_7"),
+    # #     # get_local_path("arnavgrg/codealpaca_v3_8"),
+    # #     # get_local_path("arnavgrg/codealpaca_v3_9"),
 
-    #     # valid
-    #     # "arnavgrg/codealpaca-qlora",
-    #     # "arnavgrg/codealpaca-qlora-v2",
-    #     # "arnavgrg/ludwig-webinar",
-    #     # "arnavgrg/ludwig-webinar-1",
-    #     # "arnavgrg/codealpaca_v3",
-    #     # "arnavgrg/codealpaca_v3_1",
-    #     # "AbhishekkV19/llama2-code-ludwig",
-    #     # "daochf/LudwigLlama2-PuceDS-v01",
-    #     # "hessertaboada/ludwig-webinar",
-    #     # "AmlanSamanta/ludwig-webinar",
+    # #     # valid
+    # #     # "arnavgrg/codealpaca-qlora",
+    # #     # "arnavgrg/codealpaca-qlora-v2",
+    # #     # "arnavgrg/ludwig-webinar",
+    # #     # "arnavgrg/ludwig-webinar-1",
+    # #     # "arnavgrg/codealpaca_v3",
+    # #     # "arnavgrg/codealpaca_v3_1",
+    # #     # "AbhishekkV19/llama2-code-ludwig",
+    # #     # "daochf/LudwigLlama2-PuceDS-v01",
+    # #     # "hessertaboada/ludwig-webinar",
+    # #     # "AmlanSamanta/ludwig-webinar",
 
 
-    #     # None,
+    # #     # None,
 
-    #     # # download error: bad adapter name
-    #     # "abc",
+    # #     # # download error: bad adapter name
+    #     "abc",
 
-    #     # # download error: NaN weights
-    #     # "justinxzhao/50451",
+    # #     # # download error: NaN weights
+    #     "justinxzhao/50451",
 
-    #     # # download error: not an adapter
-    #     # "kashif/llama-7b_stack-exchange_RM_peft-adapter-merged",
+    # #     # # download error: not an adapter
+    #     "kashif/llama-7b_stack-exchange_RM_peft-adapter-merged",
 
-    #     # # load error: wrong base model
-    #     # "AdapterHub/xmod-base-zh_TW",
+    # #     # # load error: wrong base model
+    #     "AdapterHub/xmod-base-zh_TW",
     # ]
 
     args_list = []
