@@ -280,18 +280,20 @@ class TensorParallelColumnLinear(SuperLayer):
     
 
 class TensorParallelMultiAdapterLinear(nn.Module):
-    def __init__(self, base_layer):
+    def __init__(self, base_layer, splits):
         super().__init__()
         self.base_layer = base_layer
 
-        d_qkv, _ = base_layer.linear.weight.shape
-        self.d_q = d_qkv // 3  # break up d_qkv into 3 parts
+        # Offsets corresponding to q, k, v portions of the tensor
+        self.q_end = splits[0]
+        self.k_end = splits[0] + splits[1]
+        self.v_end = splits[0] + splits[1] + splits[2]
 
         self.adapter_layers = []
 
     @classmethod
-    def load(cls, base_layer):
-        return TensorParallelMultiAdapterLinear(base_layer)
+    def load(cls, base_layer, splits):
+        return TensorParallelMultiAdapterLinear(base_layer, splits)
 
     def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
         adapter_layer = TensorParallelAdapterLinear.load(
@@ -319,12 +321,13 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                 continue
 
             result_q, result_v = adapter_layer(input, adapter_indices)
-            result[:, :self.d_q] += result_q
-            result[:, 2*self.d_q:] += result_v
+            result[:, :self.q_end] += result_q
+            result[:, self.v_end:] += result_v
 
         return result
     
 
+# TODO(travis): make this tensor parallel
 class TensorParallelAdapterLinear(nn.Module):
     def __init__(self, q_layers, v_layers, adapter_config, process_group, adapter_index):
         super().__init__()

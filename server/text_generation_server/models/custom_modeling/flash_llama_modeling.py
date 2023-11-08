@@ -152,7 +152,12 @@ class LlamaRMSNorm(nn.Module):
 
 def load_attention(config, prefix, weights):
     base_layer = load_attention_multi(config, prefix, weights)
-    return TensorParallelMultiAdapterLinear.load(base_layer)
+    head_size = config.hidden_size // config.num_attention_heads
+    return TensorParallelMultiAdapterLinear.load(base_layer, splits=[
+        head_size * config.num_attention_heads,
+        head_size * config.num_key_value_heads,
+        head_size * config.num_key_value_heads,
+    ])
 
 
 def load_attention_multi(config, prefix, weights):
@@ -237,6 +242,27 @@ class FlashLlamaAttention(torch.nn.Module):
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
+
+    def get_query_key_value_weights(self, clone=True):
+        """Gets the query, key, and value weights from the attention layer.
+        
+        If `clone`, then the weights are cloned before being returned.
+        
+        NOTE: if not `clone`, then the weights are returned as views, meaning
+        that changes to the weights will be reflected in the attention layer.
+        """
+        query, key, value = self.query_key_value.linear.weight.split(
+            [
+                self.head_size * self.num_heads,
+                self.head_size * self.num_key_value_heads,
+                self.head_size * self.num_key_value_heads,
+            ],
+            dim=0,
+        )
+
+        if clone:
+            return query.clone(), key.clone(), value.clone()
+        return query, key, value
 
     def forward(
         self,
