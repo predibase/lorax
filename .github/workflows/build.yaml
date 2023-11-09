@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'main'
+      - 'INFRA-2132'
     tags:
       - 'v*'
   pull_request:
@@ -38,14 +38,14 @@ jobs:
         uses: philschmid/philschmid-ec2-github-runner@main
         with:
           mode: start
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           ec2-image-id: ${{ env.EC2_AMI_ID }}
           ec2-instance-type: ${{ env.EC2_INSTANCE_TYPE }}
           subnet-id: ${{ env.EC2_SUBNET_ID }}
           security-group-id: ${{ env.EC2_SECURITY_GROUP }}
           aws-resource-tags: > # optional, requires additional permissions
             [
-              {"Key": "Name", "Value": "ec2-tgi-github-runner"},
+              {"Key": "Name", "Value": "ec2-lorax-github-runner"},
               {"Key": "GitHubRepository", "Value": "${{ github.repository }}"}
             ]
 
