@@ -497,6 +497,8 @@ class FlashMistral(FlashCausalLM):
             slots=batch.slots[batch.slot_indices],
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
+            adapter_indices=batch.adapter_indices,
+            adapter_set=batch.adapter_set,
             prefill_cache_indices=batch.prefill_cache_indices,
             lm_head_indices=batch.prefill_head_indices,
         )
