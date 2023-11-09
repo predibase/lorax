@@ -1,4 +1,4 @@
-from text_generation_server.utils.hub import (
+from text_generation_server.utils.sources.hub import (
     download_weights,
     weight_hub_files,
     weight_files,
