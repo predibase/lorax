@@ -1,13 +1,16 @@
 mod health;
 /// Text Generation Inference Webserver
 mod adapter;
+mod scheduler;
 mod infer;
+mod loader;
 mod queue;
 pub mod server;
 mod validation;
 
 use infer::Infer;
-use queue::{Entry, Queue};
+use loader::AdapterLoader;
+use queue::Entry;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validation::Validation;

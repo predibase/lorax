@@ -43,6 +43,9 @@ class CausalLMBatch(Batch):
     next_token_choosers: List[NextTokenChooser]
     stopping_criterias: List[StoppingCriteria]
 
+    # Adapter metadata for each request
+    adapter_indices: torch.Tensor
+
     # Metadata used for padding
     max_input_length: int
     padding_right_offset: int
@@ -80,6 +83,7 @@ class CausalLMBatch(Batch):
         max_truncation = 0
         padding_right_offset = 0
         max_decode_tokens = 0
+        adapter_indices_list = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             inputs.append(r.inputs)
@@ -93,6 +97,9 @@ class CausalLMBatch(Batch):
             padding_right_offset = max(
                 padding_right_offset, stopping_criteria.max_new_tokens
             )
+            adapter_indices_list.append(r.adapter_index)
+
+        adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
 
         tokenized_inputs = tokenizer(
             inputs,
@@ -141,6 +148,7 @@ class CausalLMBatch(Batch):
             max_input_length=max_input_length.item(),
             padding_right_offset=padding_right_offset,
             max_tokens=max_tokens,
+            adapter_indices=adapter_indices,
         )
 
     @tracer.start_as_current_span("filter")
@@ -160,6 +168,8 @@ class CausalLMBatch(Batch):
         read_offsets = []
         all_input_ids = []
         max_input_length = 0
+
+        # TODO(travis): adapter indices
 
         next_token_choosers = []
         stopping_criterias = []
@@ -269,6 +279,7 @@ class CausalLMBatch(Batch):
         attention_mask = None
         position_ids = None
         past_key_values = []
+        adapter_indices = None
 
         # Used for slicing correctly inside the tensors
         # Equivalent to a cumsum on batch sizes
@@ -303,6 +314,11 @@ class CausalLMBatch(Batch):
                 input_ids = batch.input_ids.new_empty((total_batch_size, 1))
             # Copy to correct indices
             input_ids[start_index:end_index] = batch.input_ids
+
+            # Create adapter indices
+            if adapter_indices is None:
+                adapter_indices = batch.adapter_indices.new_empty((total_batch_size,))
+            adapter_indices[start_index:end_index] = batch.adapter_indices
 
             # Create padded tensor
             if attention_mask is None:
@@ -442,6 +458,7 @@ class CausalLMBatch(Batch):
             padding_right_offset=padding_right_offset,
             keys_head_dim_last=batches[0].keys_head_dim_last,
             max_tokens=max_tokens,
+            adapter_indices=adapter_indices,
         )
 
     def __len__(self):

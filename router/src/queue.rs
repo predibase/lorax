@@ -1,17 +1,12 @@
-use crate::adapter::Adapter;
-use crate::infer::InferError;
-use crate::infer::InferStreamResponse;
-use crate::validation::ValidGenerateRequest;
-use nohash_hasher::{BuildNoHashHasher, IntMap};
-use std::cmp::min;
-use text_generation_client::ShardedClient;
-use std::collections::VecDeque;
-use text_generation_client::{Batch, Request};
-use tokio::sync::oneshot;
-use tokio::time::Instant;
-use tracing::{info_span, instrument, Span};
+use core::fmt;
+use std::{collections::{VecDeque, HashMap, HashSet}, sync::Arc, time::Duration, backtrace::Backtrace};
 
-/// Queue entry
+use tokio::{time::Instant, sync::Notify};
+use tracing::{info_span, Span};
+
+use crate::{adapter::Adapter, validation::ValidGenerateRequest, infer::{InferStreamResponse, InferError}};
+
+/// AdapterLoader entry
 #[derive(Debug)]
 pub(crate) struct Entry {
     /// Request
@@ -28,678 +23,368 @@ pub(crate) struct Entry {
     pub batch_time: Option<Instant>,
 }
 
-/// Request Queue
-#[derive(Debug, Clone)]
-pub(crate) struct Queue {
-    /// adapter associated with this queue
-    adapter: Adapter,
-    /// Channel to communicate with the background queue task
-    queue_sender: flume::Sender<QueueCommand>,
+#[derive(Debug, PartialEq)]
+pub(crate) enum AdapterStatus {
+    Downloading,
+    Downloaded,
+    Ready,
+    Errored,
 }
 
-impl Queue {
-    pub(crate) fn new(
-        adapter: Adapter, 
-        client: ShardedClient, 
-        requires_padding: bool, 
-        block_size: u32, 
-        window_size: Option<u32>
-    ) -> Self {
-        // Create channel
-        let (queue_sender, queue_receiver) = flume::unbounded();
-
-        // Launch background queue task
-        tokio::spawn(queue_task(
-            adapter.clone(),
-            client,
-            requires_padding,
-            block_size,
-            window_size,
-            queue_receiver,
-        ));
-        Self { adapter, queue_sender }
-    }
-    
-    /// Return adapter ID
-    pub(crate) fn adapter(&self) -> &Adapter {
-        &self.adapter
-    }
-
-    /// Append an entry to the queue
-    #[instrument(skip_all)]
-    pub(crate) fn append(&self, entry: Entry) {
-        // Send append command to the background task managing the state
-        // Unwrap is safe here
-        self.queue_sender
-            .send(QueueCommand::Append(Box::new(entry), Span::current()))
-            .unwrap();
-    }
-
-    pub(crate) async fn load_adapter(&self) {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(QueueCommand::LoadAdapter {
-                response_sender,
-                span: Span::current()
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn is_empty(&self) -> bool {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(QueueCommand::IsEmpty {
-                response_sender,
-                span: Span::current()
-            })
-            .unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    // Get the next batch
-    #[instrument(skip(self))]
-    pub(crate) async fn next_batch(
-        &self,
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-    ) -> Option<NextBatch> {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        // Send next batch command to the background task managing the state
-        // Unwrap is safe here
-        self.queue_sender
-            .send(QueueCommand::NextBatch {
-                min_size,
-                prefill_token_budget,
-                token_budget,
-                response_sender,
-                span: Span::current(),
-            })
-            .unwrap();
-        // Await on response channel
-        // Unwrap is safe here
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn is_errored(&self) -> bool {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(QueueCommand::IsErrored {
-                response_sender,
-                span: Span::current()
-            }).unwrap();
-        response_receiver.await.unwrap()
-    }
-
-    pub(crate) async fn terminate(&self) {
-        // Create response channel
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.queue_sender
-            .send(QueueCommand::Terminate {
-                response_sender,
-                span: Span::current()
-            }).unwrap();
-        response_receiver.await.unwrap()
+impl fmt::Display for AdapterStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+        // or, alternatively:
+        // fmt::Debug::fmt(self, f)
     }
 }
 
-// Background task responsible of the queue state
-async fn queue_task(
-    adapter: Adapter,
-    mut client: ShardedClient,
-    requires_padding: bool,
-    block_size: u32,
-    window_size: Option<u32>,
-    receiver: flume::Receiver<QueueCommand>,
-) {
-    let mut state = State::new(requires_padding, block_size, window_size);
-    let mut err_msg: Option<String> = None;
-
-    // download the adapter
-    match client.download_adapter(
-        adapter.id().to_string(), 
-        adapter.source().to_string(),
-    ).await {
-        Ok(_) => {
-            tracing::info!("adapter {} downloaded", adapter.id());
-        }
-        // if we have a download error, we send an error to the entry response
-        Err(error) => {
-            metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
-            err_msg = Some(error.to_string());
-        }
-    }
-
-    while let Ok(cmd) = receiver.recv_async().await {
-        match cmd {
-            QueueCommand::Append(entry, span) => span.in_scope(|| {
-                // no-op if adapter errored
-                if err_msg.is_some() {
-                    return;
-                }
-                state.append(*entry);
-            }),
-            QueueCommand::LoadAdapter {
-                response_sender,
-                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
-            } => {
-                if err_msg.is_some() {
-                    response_sender.send(()).unwrap();
-                    continue;
-                }
-                match client.load_adapter(
-                    adapter.id().to_string(),
-                    adapter.source().to_string(),
-                ).await {
-                    Ok(_) => {
-                        tracing::info!("adapter {} loaded", adapter.id());
-                        response_sender.send(()).unwrap();
-                    }
-                    // If we have a load error, we send an error to the entry response
-                    Err(error) => {
-                        metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
-                        err_msg = Some(error.to_string());
-                        response_sender.send(()).unwrap();
-                    }
-                }
-            }
-            QueueCommand::IsEmpty { 
-                response_sender,
-                span
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(true).unwrap();
-                } else {
-                    let response = state.is_empty();
-                    response_sender.send(response).unwrap();
-                }
-            }),
-            QueueCommand::NextBatch {
-                min_size,
-                prefill_token_budget,
-                token_budget,
-                response_sender,
-                span,
-            } => span.in_scope(|| {
-                if err_msg.is_some() {
-                    response_sender.send(None).unwrap();
-                    return;
-                }
-                let next_batch = state.next_batch(min_size, prefill_token_budget, token_budget);
-                response_sender.send(next_batch).unwrap();
-                metrics::gauge!("tgi_queue_size", state.entries.len() as f64);
-            }),
-            QueueCommand::IsErrored{
-                response_sender,
-                span
-            } => span.in_scope(|| {
-                response_sender.send(err_msg.is_some()).unwrap();
-            }),
-            QueueCommand::Terminate {
-                response_sender,
-                span,
-            } => {
-                tracing::info!("terminating adapter queue for {}", adapter.id());
-
-                // Create an asynchronous closure
-                let span_closure = async move {
-                    span.in_scope(|| {
-                        for entry in state.entries.drain(..) {
-                            let (_, entry) = entry;
-                            if let Some(err_msg) = err_msg.clone() {
-                                entry.response_tx.send(Err(InferError::GenerationError(err_msg))).unwrap();
-                            }
-                        }
-                    });
-                };
-
-                // Await the closure and break the loop
-                tokio::spawn(span_closure).await.expect("spawn failed");
-                response_sender.send(()).unwrap();
-                break;
-            }
-        }
-    }
+#[derive(Debug)]
+pub(crate) struct AdapterEvent {
+    /// Adapter readniess task notifier
+    pub batching_task: Notify,
 }
 
 /// Queue State
 #[derive(Debug)]
-struct State {
+pub(crate) struct QueueState {
     /// Queue entries organized in a Vec
     entries: VecDeque<(u64, Entry)>,
 
-    /// Id of the next entry
-    next_id: u64,
+    /// Adapter index
+    adapter: Adapter,
 
-    /// Id of the next batch
-    next_batch_id: u64,
+    /// Adapter status
+    status: AdapterStatus,
 
-    /// Whether the model is using padding
-    requires_padding: bool,
+    /// Timestamp when the adapter was last activated
+    activation_ts: Option<Instant>,
 
-    /// Paged Attention block size
-    block_size: u32,
-
-    /// Sliding window
-    window_size: Option<u32>,
+    /// Adapter event
+    event: Arc<AdapterEvent>,
 }
 
-impl State {
-    fn new(requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
+impl QueueState {
+    pub(crate) fn new(adapter: Adapter, event: Arc<AdapterEvent>) -> Self {
+        let status = AdapterStatus::Downloading;
         Self {
             entries: VecDeque::with_capacity(128),
-            next_id: 0,
-            next_batch_id: 0,
-            requires_padding,
-            block_size,
-            window_size,
+            adapter,
+            status,
+            activation_ts: None,
+            event,
         }
     }
 
     /// Append an entry to the queue
-    fn append(&mut self, mut entry: Entry) {
+    pub(crate) fn append(&mut self, entry_id: u64, mut entry: Entry) {
         // Create a span that will live as long as the entry is in the queue waiting to be batched
         let queue_span = info_span!(parent: &entry.span, "queued");
         entry.temp_span = Some(queue_span);
 
         // Push entry in the queue
-        self.entries.push_back((self.next_id, entry));
-        self.next_id += 1;
+        self.entries.push_back((entry_id, entry));
+        
+    }
+
+    /// Prepend an entry to the front of the queue
+    pub(crate) fn push_front(&mut self, entry_id: u64, entry: Entry) {
+        self.entries.push_front((entry_id, entry));
     }
 
     // Is empty
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    // Get the next batch
-    fn next_batch(
-        &mut self,
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-    ) -> Option<NextBatch> {
-        if self.entries.is_empty() {
-            return None;
-        }
+    // Peeks at the front of the queue and returns timestamp of the oldest entry, if present
+    pub(crate) fn peek(&self) -> Option<Instant> {
+        self.entries.front().map(|(_, entry)| entry.queue_time)
+    }
 
-        // Check if we have enough entries
-        if let Some(min_size) = min_size {
-            if self.entries.len() < min_size {
-                return None;
-            }
-        }
+    // Pops the front of the queue and returns the oldest entry, if present
+    pub(crate) fn pop(&mut self) -> Option<(u64, Entry, Option<Instant>)> {
+        self.entries.pop_front().map(|(id, entry)| (id, entry, self.peek()))
+    }
 
-        // Create span for this batch to add context to inference calls
-        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
-        next_batch_span.follows_from(&Span::current());
+    pub(crate) fn entries(&self) -> &VecDeque<(u64, Entry)> {
+        &self.entries
+    }
 
-        let mut batch_requests = Vec::with_capacity(self.entries.len());
-        let mut batch_entries =
-            IntMap::with_capacity_and_hasher(self.entries.len(), BuildNoHashHasher::default());
+    pub(crate) fn drain(&mut self) -> std::collections::vec_deque::Drain<(u64, Entry)> {
+        self.entries.drain(..)
+    }
 
-        let mut max_input_length = 0;
-        let mut prefill_tokens: u32 = 0;
-        let mut decode_tokens: u32 = 0;
+    pub(crate) fn adapter(&self) -> &Adapter {
+        &self.adapter
+    }
 
-        // Pop entries starting from the front of the queue
-        while let Some((id, mut entry)) = self.entries.pop_front() {
-            // Filter entries where the response receiver was dropped (== entries where the request
-            // was dropped by the client)
-            if entry.response_tx.is_disconnected() {
-                metrics::increment_counter!("tgi_request_failure", "err" => "dropped");
-                continue;
-            }
+    pub(crate) fn set_status(&mut self, status: AdapterStatus) {
+        self.status = status;
+        self.event.batching_task.notify_one();
+        tracing::info!("set adapter {} status to {}", self.adapter.id(), self.status);
+    }
 
-            if self.requires_padding {
-                // We pad to max input length in the Python shards
-                // We need to take these padding tokens into the equation
-                max_input_length = max_input_length.max(entry.request.input_length);
-                prefill_tokens = (batch_requests.len() + 1) as u32 * max_input_length
-            } else {
-                // pad to block size
-                prefill_tokens += ((entry.request.input_length + self.block_size - 1)
-                    / self.block_size)
-                    * self.block_size;
-            }
+    pub(crate) fn status(&self) -> &AdapterStatus {
+        &self.status
+    }
 
-            if self.requires_padding {
-                decode_tokens += entry.request.stopping_parameters.max_new_tokens;
-            } else {
-                let max_new_tokens = match self.window_size {
-                    None => entry.request.stopping_parameters.max_new_tokens,
-                    Some(window_size) => min(
-                        window_size.saturating_sub(entry.request.input_length),
-                        entry.request.stopping_parameters.max_new_tokens,
-                    ),
-                };
+    pub(crate) fn set_activation_ts(&mut self, ts: Instant) {
+        self.activation_ts = Some(ts);
+    }
 
-                // pad to block size
-                decode_tokens +=
-                    ((max_new_tokens + self.block_size - 1) / self.block_size) * self.block_size;
-            }
-
-            if prefill_tokens > prefill_token_budget
-                || (prefill_tokens + decode_tokens) > token_budget
-            {
-                // Entry is over budget
-                // Add it back to the front
-                self.entries.push_front((id, entry));
-                break;
-            }
-
-            // Create a new span to link the batch back to this entry
-            let entry_batch_span = info_span!(parent: &entry.span, "infer");
-            // Add relationships
-            next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(&next_batch_span);
-            // Update entry
-            entry.temp_span = Some(entry_batch_span);
-
-            batch_requests.push(Request {
-                id,
-                prefill_logprobs: entry.request.decoder_input_details,
-                inputs: entry.request.inputs.clone(),
-                truncate: entry.request.truncate,
-                parameters: Some(entry.request.parameters.clone()),
-                stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-            });
-            // Set batch_time
-            entry.batch_time = Some(Instant::now());
-            // Insert in batch_entries IntMap
-            batch_entries.insert(id, entry);
-        }
-
-        // Empty batch
-        if batch_requests.is_empty() {
-            return None;
-        }
-
-        // Check if our batch is big enough
-        if let Some(min_size) = min_size {
-            // Batch is too small
-            if batch_requests.len() < min_size {
-                // Add back entries to the queue in the correct order
-                for r in batch_requests.into_iter().rev() {
-                    let id = r.id;
-                    let entry = batch_entries.remove(&id).unwrap();
-                    self.entries.push_front((id, entry));
-                }
-
-                return None;
-            }
-        }
-
-        // Final batch size
-        let size = batch_requests.len() as u32;
-        next_batch_span.record("batch_size", size);
-
-        let batch = Batch {
-            id: self.next_batch_id,
-            requests: batch_requests,
-            size,
-            max_tokens: (prefill_tokens + decode_tokens),
-        };
-        // Increment batch id
-        self.next_batch_id += 1;
-
-        metrics::histogram!("tgi_batch_next_size", batch.size as f64);
-
-        Some((batch_entries, batch, next_batch_span))
+    pub(crate) fn activation_ts(&self) -> Option<Instant> {
+        self.activation_ts
     }
 }
 
-type NextBatch = (IntMap<u64, Entry>, Batch, Span);
-
 #[derive(Debug)]
-enum QueueCommand {
-    Append(Box<Entry>, Span),
-    LoadAdapter {
-        response_sender: oneshot::Sender<()>,
-        span: Span,
-    },
-    IsEmpty {
-        response_sender: oneshot::Sender<bool>,
-        span: Span,
-    },
-    NextBatch {
-        min_size: Option<usize>,
-        prefill_token_budget: u32,
-        token_budget: u32,
-        response_sender: oneshot::Sender<Option<NextBatch>>,
-        span: Span,
-    },
-    IsErrored {
-        response_sender: oneshot::Sender<bool>,
-        span: Span,
-    },
-    Terminate {
-        response_sender: oneshot::Sender<()>,
-        span: Span,
-    },
+pub(crate) struct AdapterQueuesState {
+    /// Map of adapter key to queue
+    pub queue_map: HashMap<Adapter, QueueState>,
+
+    /// Adapters that are currently not in use, but have entries in queue
+    pending_adapters: VecDeque<Adapter>,
+
+    /// Adapters that are currently in use
+    active_adapters: VecDeque<Adapter>,
+
+    /// Adapters that are currently being tracked as pending or active
+    tracked_adapters: HashSet<Adapter>,
+
+    /// Number of adapters that can be active at a time
+    max_active_adapters: usize,
+
+    /// Maximum time an adapter is allowed to be active before exchanging out
+    max_active_time: Duration,
+
+    /// Id of the next entry
+    next_id: u64,
 }
 
-// TODO(geoffrey): revisit unit tests. They should work given the minimal changes
-// to existing functionality. The issue is that Queue now takes a ShardedClient,
-// which I'm not yet sure how to mock out. They should also be extended to test
-// the new functionality.
-//
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use text_generation_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
-//     use tracing::info_span;
+impl AdapterQueuesState {
+    pub(crate) fn new() -> Self {
+        let queue_map = HashMap::new();
+        let pending_adapters = VecDeque::new();
+        let active_adapters = VecDeque::new();
+        let tracked_adapters = HashSet::new();
 
-//     fn default_entry() -> (
-//         Entry,
-//         flume::Receiver<Result<InferStreamResponse, InferError>>,
-//     ) {
-//         let (response_tx, receiver_tx) = flume::unbounded();
+        Self {
+            queue_map,
+            pending_adapters,
+            active_adapters,
+            tracked_adapters,
+            max_active_adapters: 128,
+            max_active_time: Duration::from_secs(2),
+            next_id: 0,
+        }
+    }
 
-//         let entry = Entry {
-//             request: ValidGenerateRequest {
-//                 inputs: "".to_string(),
-//                 input_length: 0,
-//                 truncate: 0,
-//                 decoder_input_details: false,
-//                 parameters: NextTokenChooserParameters {
-//                     temperature: 0.0,
-//                     top_k: 0,
-//                     top_p: 0.0,
-//                     typical_p: 0.0,
-//                     do_sample: false,
-//                     seed: 0,
-//                     repetition_penalty: 0.0,
-//                     watermark: false,
-//                 },
-//                 stopping_parameters: StoppingCriteriaParameters {
-//                     ignore_eos_token: false,
-//                     max_new_tokens: 1,
-//                     stop_sequences: vec![],
-//                 },
-//             },
-//             response_tx,
-//             span: info_span!("entry"),
-//             temp_span: None,
-//             queue_time: Instant::now(),
-//             batch_time: None,
-//         };
-//         (entry, receiver_tx)
-//     }
+    /// Append entry to the appropriate queue
+    pub(crate) fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) -> bool {
+        // check if queue_map has adapter_key as key
+        // if not, then add a new Queue and download the adapter
+        let mut download = false;
+        if !self.queue_map.contains_key(&adapter) {
+            self.queue_map.insert(adapter.clone(), QueueState::new(adapter.clone(), adapter_event.clone()));
+            download = true;
+        }
 
-//     #[test]
-//     fn test_append() {
-//         let mut state = State::new(false, 1);
-//         let (entry, _guard) = default_entry();
+        if !self.tracked_adapters.contains(&adapter) {
+            self.tracked_adapters.insert(adapter.clone());
+            self.pending_adapters.push_back(adapter.clone());
+        }
 
-//         assert_eq!(state.next_id, 0);
-//         assert_eq!(state.entries.len(), 0);
+        // ensure that append completes before sending batcher message
+        let queue = self.queue_map.get_mut(&adapter).unwrap();
+        queue.append(self.next_id, entry);
+        self.next_id += 1;
 
-//         state.append(entry);
+        return download;
+    }
 
-//         assert_eq!(state.next_id, 1);
-//         assert_eq!(state.entries.len(), 1);
-//         let (id, _) = state.entries.remove(0).unwrap();
-//         assert_eq!(id, 0);
-//     }
+    /// Removes adapter queue from the map
+    pub(crate) fn remove(&mut self, adapter: &Adapter) {
+        self.queue_map.remove(adapter);
+        self.active_adapters.retain(|id| id != adapter);
+        self.pending_adapters.retain(|id| id != adapter);
+        self.tracked_adapters.remove(&adapter);
+    }
 
-//     #[test]
-//     fn test_next_batch_empty() {
-//         let mut state = State::new(false, 1);
+    /// Removes the adapter queue from the tracked set and its queues
+    pub(crate) fn untrack(&mut self, adapter: &Adapter) {
+        self.active_adapters.retain(|id| id != adapter);
+        self.pending_adapters.retain(|id| id != adapter);
+        self.tracked_adapters.remove(&adapter);
+    }
 
-//         assert!(state.next_batch(None, 1, 1).is_none());
-//         assert!(state.next_batch(Some(1), 1, 1).is_none());
-//     }
+    pub(crate) fn has_adapter(&self, adapter: &Adapter) -> bool {
+        self.queue_map.contains_key(adapter)
+    }
 
-//     #[test]
-//     fn test_next_batch_min_size() {
-//         let mut state = State::new(false, 1);
-//         let (entry1, _guard1) = default_entry();
-//         let (entry2, _guard2) = default_entry();
-//         state.append(entry1);
-//         state.append(entry2);
+    /// Get any queues that are in an errored state
+    pub(crate) fn get_errored_adapters(&mut self) -> Vec<Adapter> {
+        let mut errored_adapters = Vec::new();
+        for (adapter, queue) in self.queue_map.iter() {
+            if queue.status() == &AdapterStatus::Errored {
+                errored_adapters.push(adapter.clone());
+            }
+        }
+        errored_adapters
+    }
 
-//         let (entries, batch, _) = state.next_batch(None, 2, 2).unwrap();
-//         assert_eq!(entries.len(), 2);
-//         assert!(entries.contains_key(&0));
-//         assert!(entries.contains_key(&1));
-//         assert!(entries.get(&0).unwrap().batch_time.is_some());
-//         assert!(entries.get(&1).unwrap().batch_time.is_some());
-//         assert_eq!(batch.id, 0);
-//         assert_eq!(batch.size, 2);
+    pub(crate) fn set_status(&mut self, adapter: &Adapter, status: AdapterStatus) {
+        let q = self.queue_map.get_mut(adapter);
+        if q.is_none() {
+            // TODO(travis): remove this
+            tracing::error!("adapter {} not found in queue_map", adapter.id());
+            println!("{:?}", Backtrace::force_capture());
+        }
+        let queue = q.unwrap();
+        queue.set_status(status);
+    }
 
-//         assert_eq!(state.next_id, 2);
-//         assert_eq!(state.entries.len(), 0);
-//         assert_eq!(state.next_batch_id, 1);
+    pub(crate) fn push_front(&mut self, adapter: &Adapter, entry_id: u64, entry: Entry) {
+        let queue = self.queue_map.get_mut(adapter).unwrap();
+        queue.push_front(entry_id, entry);
+    }
 
-//         let (entry3, _guard3) = default_entry();
-//         state.append(entry3);
+    pub(crate) fn drain(&mut self, adapter: &Adapter) -> std::collections::vec_deque::Drain<(u64, Entry)> {
+        let queue = self.queue_map.get_mut(adapter).unwrap();
+        queue.drain()
+    }
 
-//         assert!(state.next_batch(Some(2), 2, 2).is_none());
+    pub(crate) fn len(&self) -> usize {
+        self.queue_map.values().map(|queue| queue.entries().len()).sum()
+    }
 
-//         assert_eq!(state.next_id, 3);
-//         assert_eq!(state.entries.len(), 1);
-//         let (id, _) = state.entries.remove(0).unwrap();
-//         assert_eq!(id, 2);
-//     }
+    pub(crate) fn active_len(&self) -> usize {
+        self.active_adapters.len()
+    }
 
-//     #[test]
-//     fn test_next_batch_token_budget() {
-//         let mut state = State::new(false, 1);
-//         let (entry1, _guard1) = default_entry();
-//         let (entry2, _guard2) = default_entry();
-//         state.append(entry1);
-//         state.append(entry2);
+    fn get_oldest_active_adapter(&mut self) -> Option<Adapter> {
+        // Returns the adapter that maps to the queue whose front entry has the oldest activation timestamp, 
+        // but prefer queues that have not ben active past the maximum time limit
+        let now = Instant::now();
+        let mut oldest_adapter = None;
+        let mut oldest_ts = Instant::now();
+        let mut oldest_within_limit_adapter = None;
+        let mut oldest_within_limit_ts = Instant::now();
+        for adapter in self.active_adapters.iter() {
+            let queue = self.queue_map.get(adapter).unwrap().clone();
+            if queue.is_empty() || queue.status() != &AdapterStatus::Ready {
+                continue;
+            }
 
-//         let (entries, batch, _) = state.next_batch(None, 1, 1).unwrap();
-//         assert_eq!(entries.len(), 1);
-//         assert!(entries.contains_key(&0));
-//         assert_eq!(batch.id, 0);
-//         assert_eq!(batch.size, 1);
+            if let Some(ts) = queue.peek() {
+                if ts < oldest_ts {
+                    oldest_ts = ts;
+                    oldest_adapter = Some(adapter.clone());
+                }
 
-//         assert_eq!(state.next_id, 2);
-//         assert_eq!(state.entries.len(), 1);
-//         assert_eq!(state.next_batch_id, 1);
+                if ts < oldest_within_limit_ts && now.duration_since(queue.activation_ts().unwrap()) < self.max_active_time {
+                    oldest_within_limit_ts = ts;
+                    oldest_within_limit_adapter = Some(adapter.clone());
+                }
+            }
+        }
 
-//         let (entry3, _guard3) = default_entry();
-//         state.append(entry3);
+        // Return the oldest adapter whose queue has been active for less than the limit if it exists,
+        // otherwise return the oldest adapter across all queues
+        if oldest_within_limit_adapter.is_some() {
+            oldest_within_limit_adapter
+        } else {
+            oldest_adapter
+        }
+    }
 
-//         let (entries, batch, _) = state.next_batch(None, 3, 3).unwrap();
-//         assert_eq!(entries.len(), 2);
-//         assert!(entries.contains_key(&1));
-//         assert!(entries.contains_key(&2));
-//         assert_eq!(batch.id, 1);
-//         assert_eq!(batch.size, 2);
+    /// Update the queues of pending and active adapters based on the current state
+    pub(crate) fn update_adapters(&mut self, adapters_in_use: &HashSet<Adapter>) -> (Vec<Adapter>, Vec<Adapter>) {
+        let mut offload_adapters = Vec::new();
+        let mut load_adapters = Vec::new();
 
-//         assert_eq!(state.next_id, 3);
-//         assert_eq!(state.entries.len(), 0);
-//         assert_eq!(state.next_batch_id, 2);
-//     }
+        // Mark any active adapters that are Idle (have no active or pending requests) for removal
+        // Additionally, move any adapters that have been activate over the limit to pending
+        let now = Instant::now();
+        let mut adapters_to_remove = HashSet::new();
+        for adapter in self.active_adapters.iter() {
+            let queue = self.queue_map.get(adapter).unwrap().clone();
+            if adapters_in_use.contains(&queue.adapter()) {
+                // Cannot modify active adapters that are in use
+                continue
+            }
 
-//     #[tokio::test]
-//     async fn test_queue_append() {
-//         let queue = Queue::new(false, 1);
-//         let (entry, _guard) = default_entry();
-//         queue.append(entry);
-//     }
+            if self.pending_adapters.len() <= adapters_to_remove.len() {
+                // Only move adapters out of active if we have pending adapters ready to take their place
+                continue
+            }
 
-//     #[tokio::test]
-//     async fn test_queue_next_batch_empty() {
-//         let queue = Queue::new(false, 1);
+            if queue.entries().is_empty() {
+                // queue is empty and not in use, so move to removal set
+                adapters_to_remove.insert(adapter.clone());
 
-//         assert!(queue.next_batch(None, 1, 1).await.is_none());
-//         assert!(queue.next_batch(Some(1), 1, 1).await.is_none());
-//     }
+                // Start async offload process
+                offload_adapters.push(adapter.clone());
+            }
+        }
 
-//     #[tokio::test]
-//     async fn test_queue_next_batch_min_size() {
-//         let queue = Queue::new(false, 1);
-//         let (entry1, _guard1) = default_entry();
-//         let (entry2, _guard2) = default_entry();
-//         queue.append(entry1);
-//         queue.append(entry2);
+        // Remove all adapters in the remove set
+        self.active_adapters.retain(|adapter| {
+            !adapters_to_remove.contains(adapter)
+        });
+        self.tracked_adapters.retain(|adapter| {
+            !adapters_to_remove.contains(adapter)
+        });
 
-//         let (entries, batch, _) = queue.next_batch(None, 2, 2).await.unwrap();
-//         assert_eq!(entries.len(), 2);
-//         assert!(entries.contains_key(&0));
-//         assert!(entries.contains_key(&1));
-//         assert!(entries.get(&0).unwrap().batch_time.is_some());
-//         assert!(entries.get(&1).unwrap().batch_time.is_some());
-//         assert_eq!(batch.id, 0);
-//         assert_eq!(batch.size, 2);
+        // Move the front adapter from the active set if it has been active over the limit to pending.
+        // Do this after filtering out idle adapters as those should take priority over adapters that
+        // have been active over the limit.
+        if !self.active_adapters.is_empty() {
+            let adapter = self.active_adapters.front().unwrap().clone();
+            let queue = self.queue_map.get(&adapter).unwrap().clone();
+            if 
+                !adapters_in_use.contains(&queue.adapter()) &&
+                now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time && 
+                self.pending_adapters.len() >= 1
+            {
+                self.active_adapters.pop_front();
+                self.pending_adapters.push_back(adapter.clone());
 
-//         let (entry3, _guard3) = default_entry();
-//         queue.append(entry3);
+                // Start async offload process
+                offload_adapters.push(adapter.clone());
+            }
+        }
 
-//         // Not enough requests pending
-//         assert!(queue.next_batch(Some(2), 2, 2).await.is_none());
-//         // Not enough token budget
-//         assert!(queue.next_batch(Some(1), 0, 0).await.is_none());
-//         // Ok
-//         let (entries2, batch2, _) = queue.next_batch(Some(1), 2, 2).await.unwrap();
-//         assert_eq!(entries2.len(), 1);
-//         assert!(entries2.contains_key(&2));
-//         assert!(entries2.get(&2).unwrap().batch_time.is_some());
-//         assert_eq!(batch2.id, 1);
-//         assert_eq!(batch2.size, 1);
-//     }
+        // Add pending adapters to the active set until we reach the max
+        while self.active_adapters.len() < self.max_active_adapters && self.pending_adapters.len() > 0 {
+            let adapter = self.pending_adapters.pop_front().unwrap();
 
-//     #[tokio::test]
-//     async fn test_queue_next_batch_token_budget() {
-//         let queue = Queue::new(false, 1);
-//         let (entry1, _guard1) = default_entry();
-//         let (entry2, _guard2) = default_entry();
-//         queue.append(entry1);
-//         queue.append(entry2);
+            // Update activation timestamp
+            let queue = self.queue_map.get_mut(&adapter).unwrap();
+            queue.set_activation_ts(now);
 
-//         let (entries, batch, _) = queue.next_batch(None, 1, 1).await.unwrap();
-//         assert_eq!(entries.len(), 1);
-//         assert!(entries.contains_key(&0));
-//         assert_eq!(batch.id, 0);
-//         assert_eq!(batch.size, 1);
+            // Start async loading process
+            load_adapters.push(adapter.clone());
 
-//         let (entry3, _guard3) = default_entry();
-//         queue.append(entry3);
+            self.active_adapters.push_back(adapter.clone());
+        }
 
-//         let (entries, batch, _) = queue.next_batch(None, 3, 3).await.unwrap();
-//         assert_eq!(entries.len(), 2);
-//         assert!(entries.contains_key(&1));
-//         assert!(entries.contains_key(&2));
-//         assert_eq!(batch.id, 1);
-//         assert_eq!(batch.size, 2);
-//     }
+        (offload_adapters, load_adapters)
+    }
 
-//     #[tokio::test]
-//     async fn test_queue_next_batch_dropped_receiver() {
-//         let queue = Queue::new(false, 1);
-//         let (entry, _) = default_entry();
-//         queue.append(entry);
+    pub(crate) fn next_entry(&mut self) -> Option<(u64, Entry, Adapter)> {
+        // Get the adapter from the active set that has been waiting the longest.
+        let adapter = self.get_oldest_active_adapter();
+        if adapter.is_none() {
+            // No active adapter has any entries
+            tracing::debug!("No active adapter has any entries");
+            return None;
+        }
 
-//         assert!(queue.next_batch(None, 1, 1).await.is_none());
-//     }
-// }
+        // Pop the oldest entry from the queue
+        let adapter = adapter.unwrap();
+        let queue = self.queue_map.get_mut(&adapter).unwrap();
+        let (id, entry, _next_oldest_entry) = queue.pop().unwrap();
+        Some((id, entry, adapter))
+    }
+}

@@ -17,7 +17,7 @@ from text_generation_server.interceptor import ExceptionInterceptor
 from text_generation_server.models import Model, get_model
 from text_generation_server.pb import generate_pb2_grpc, generate_pb2
 from text_generation_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from text_generation_server.utils import HUB, S3, get_config_path, get_local_dir
+from text_generation_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
@@ -134,28 +134,47 @@ class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
         except Exception:
             logger.exception("Error when downloading adapter")
 
-            # delete safetensors files if there is an issue downloading or converting 
-            # the weights to prevent cache hits by subsequent calls
-            try:
-                local_path = get_local_dir(adapter_id, adapter_source)
-                shutil.rmtree(local_path)
-            except Exception as e:
-                logger.warning(f"Error cleaning up safetensors files after "
-                               f"download error: {e}\nIgnoring.")
+            if adapter_source != LOCAL:
+                # delete safetensors files if there is an issue downloading or converting 
+                # the weights to prevent cache hits by subsequent calls
+                try:
+                    local_path = get_local_dir(adapter_id, adapter_source)
+                    shutil.rmtree(local_path)
+                except Exception as e:
+                    logger.warning(f"Error cleaning up safetensors files after "
+                                f"download error: {e}\nIgnoring.")
             raise
 
     async def LoadAdapter(self, request, context):
         try:
             adapter_id = request.adapter_id
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
-            self.model.load_adapter(adapter_id, adapter_source)
+            adapter_index = request.adapter_index
+            self.model.load_adapter(adapter_id, adapter_source, adapter_index)
             
             return generate_pb2.LoadAdapterResponse(
                 adapter_id=adapter_id,
                 adapter_source=request.adapter_source,
+                adapter_index=adapter_index,
             )
         except Exception:
             logger.exception("Error when loading adapter")
+            raise
+
+    async def OffloadAdapter(self, request, context):
+        try:
+            adapter_id = request.adapter_id
+            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+            adapter_index = request.adapter_index
+            self.model.offload_adapter(adapter_id, adapter_source, adapter_index)
+            
+            return generate_pb2.OffloadAdapterResponse(
+                adapter_id=adapter_id,
+                adapter_source=request.adapter_source,
+                adapter_index=adapter_index,
+            )
+        except Exception:
+            logger.exception("Error when offloading adapter")
             raise
 
 
@@ -246,9 +265,12 @@ def serve(
 
 
 def _adapter_source_enum_to_string(adapter_source: int) -> str:
+    # TODO(travis): refactor this to be less hacky
     if adapter_source == generate_pb2.AdapterSource.HUB:
         return HUB
     elif adapter_source == generate_pb2.AdapterSource.S3:
         return S3
+    elif adapter_source == generate_pb2.AdapterSource.LOCAL:
+        return LOCAL
     else:
         raise ValueError(f"Unknown adapter source {adapter_source}")

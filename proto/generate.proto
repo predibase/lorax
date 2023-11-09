@@ -23,6 +23,8 @@ service TextGenerationService {
     rpc DownloadAdapter (DownloadAdapterRequest) returns (DownloadAdapterResponse);
     /// Load adapter
     rpc LoadAdapter (LoadAdapterRequest) returns (LoadAdapterResponse);
+    /// Offload adapter
+    rpc OffloadAdapter (OffloadAdapterRequest) returns (OffloadAdapterResponse);
 }
 
 message HealthRequest {}
@@ -71,6 +73,8 @@ message NextTokenChooserParameters {
     float repetition_penalty = 7;
     /// token watermarking using "A Watermark for Large Language Models"
     bool watermark = 8;
+    /// adapter to use with lora exchange
+    string adapter_id = 9;
 }
 
 message StoppingCriteriaParameters {
@@ -96,6 +100,8 @@ message Request {
     StoppingCriteriaParameters stopping_parameters = 5;
     /// Return prefill logprobs
     bool prefill_logprobs = 6;
+    /// Adapter index
+    uint32 adapter_index = 7;
 }
 
 message Batch {
@@ -216,6 +222,8 @@ enum AdapterSource {
     HUB = 0;
     /// Adapters loaded via remote filesystem path
     S3 = 1;
+    /// Adapters loaded via local filesystem path
+    LOCAL = 2;
 }
 
 message DownloadAdapterRequest {
@@ -237,6 +245,8 @@ message LoadAdapterRequest {
     string adapter_id = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
+    /// Adapter index
+    uint32 adapter_index = 3;
 }
 
 message LoadAdapterResponse {
@@ -244,4 +254,24 @@ message LoadAdapterResponse {
     string adapter_id = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
+    /// Adapter index
+    uint32 adapter_index = 3;
+}
+
+message OffloadAdapterRequest {
+    /// Adapter ID
+    string adapter_id = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
+    /// Adapter index
+    uint32 adapter_index = 3;
+}
+
+message OffloadAdapterResponse {
+    /// Adapter ID
+    string adapter_id = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
+    /// Adapter index
+    uint32 adapter_index = 3;
 }

@@ -588,6 +588,10 @@
             "type": "boolean",
             "default": "false",
             "example": true
+          },
+          "adapter_id": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

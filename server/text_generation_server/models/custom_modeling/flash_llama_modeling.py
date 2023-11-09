@@ -24,7 +24,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import Optional, List, Set, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
@@ -38,6 +38,7 @@ from text_generation_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
+    TensorParallelMultiAdapterLinear,
     PositionRotaryEmbedding,
     TensorParallelHead,
     get_linear,
@@ -147,9 +148,19 @@ class LlamaRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-
+        
 
 def load_attention(config, prefix, weights):
+    base_layer = load_attention_multi(config, prefix, weights)
+    head_size = config.hidden_size // config.num_attention_heads
+    return TensorParallelMultiAdapterLinear.load(base_layer, splits=[
+        head_size * config.num_attention_heads,
+        head_size * config.num_key_value_heads,
+        head_size * config.num_key_value_heads,
+    ])
+
+
+def load_attention_multi(config, prefix, weights):
     if config.num_attention_heads != config.num_key_value_heads:
         return _load_gqa(config, prefix, weights)
     else:
@@ -240,7 +251,7 @@ class FlashLlamaAttention(torch.nn.Module):
         NOTE: if not `clone`, then the weights are returned as views, meaning
         that changes to the weights will be reflected in the attention layer.
         """
-        query, key, value = self.query_key_value.linear.weight.split(
+        query, key, value = self.query_key_value.base_layer.linear.weight.split(
             [
                 self.head_size * self.num_heads,
                 self.head_size * self.num_key_value_heads,
@@ -264,8 +275,10 @@ class FlashLlamaAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_indices,
+        adapter_set,
     ):
-        qkv = self.query_key_value(hidden_states)
+        qkv = self.query_key_value(hidden_states, adapter_indices, adapter_set)
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -386,6 +399,8 @@ class FlashLlamaLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_indices,
+        adapter_set,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -400,6 +415,8 @@ class FlashLlamaLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_indices,
+            adapter_set,
         )
 
         # faster post attention rms norm
@@ -452,6 +469,8 @@ class FlashLlamaModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_indices: torch.Tensor,
+        adapter_set: Set[int],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
 
@@ -474,6 +493,8 @@ class FlashLlamaModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                adapter_indices,
+                adapter_set,
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -502,6 +523,8 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_indices: torch.Tensor,
+        adapter_set: Set[int],
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = self.model(
@@ -513,6 +536,8 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_indices,
+            adapter_set,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]

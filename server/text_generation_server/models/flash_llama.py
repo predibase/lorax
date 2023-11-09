@@ -131,7 +131,7 @@ class FlashLlama(FlashCausalLM):
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
     
-    def load_adapter(self, adapter_id, adapter_source):
+    def load_adapter(self, adapter_id, adapter_source, adapter_index):
         if not self.dynamic_adapter_loading_enabled:
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 return
@@ -144,42 +144,9 @@ class FlashLlama(FlashCausalLM):
         # If we are doing dynamic adapter loading, then we need to reset the weights
         if adapter_id == self.adapter_id:
             return
-        elif adapter_id == BASE_MODEL_ADAPTER_ID:
-            # if the adapter_id is the base model, then just reset the weights
-            prefix = "model.layers"
-            for i, layer in enumerate(self.model.model.layers):
-                # replace the target matrices in place
-                q_proj, _, v_proj = layer.self_attn.get_query_key_value_weights(clone=False)
-
-                # place original weights (on their original device) by setting in place
-                orig_q_proj, orig_q_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.q_proj"]
-                q_proj[:] = orig_q_proj.to(orig_q_proj_device)
-                orig_v_proj, orig_v_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.v_proj"]
-                v_proj[:] = orig_v_proj.to(orig_v_proj_device)
-
-                self.adapter_id = adapter_id
-        else:
+        elif adapter_id != BASE_MODEL_ADAPTER_ID:
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
-            
-            # TODO(geoffrey): merge this with function
-            # text_generation_server/utils/adapter.py::merge_adapter_weights
-            def compute_merged_weight(weight_name):
-                # load the original weights from CPU back onto the device they were on
-                orig_weight, orig_device = self.orig_weights[weight_name]
-                orig_weight = orig_weight.to(orig_device)
-                # ensure the delta has the same dtype and device as the original weight
-                lora_A = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
-                lora_B = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
-                delta_weight = compute_delta_weight(
-                    lora_A, 
-                    lora_B, 
-                    adapter_config.fan_in_fan_out, 
-                    adapter_config.lora_alpha, 
-                    adapter_config.r
-                )
-                start, stop = get_start_stop_idxs_for_rank(delta_weight.shape[0], self.process_group.rank(), self.process_group.size())
-                return orig_weight + delta_weight[start:stop]
             
             prefix = "model.layers"
             for i, layer in tqdm(
@@ -187,8 +154,43 @@ class FlashLlama(FlashCausalLM):
                 desc=f"Merging weights for adapter {adapter_id}",
                 total=len(self.model.model.layers)
             ):
-                # replace the target matrices in place
-                q_proj, _, v_proj = layer.self_attn.get_query_key_value_weights(clone=False)
-                q_proj[:] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj")
-                v_proj[:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj")
+                layer = layer.self_attn.query_key_value
+                base_weight = layer.base_layer.linear.weight
+                base_device = base_weight.device
+
+                weight_name = f"{prefix}.{i}.self_attn.q_proj"
+                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                weight_name = f"{prefix}.{i}.self_attn.v_proj"
+                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                layer.add_adapter(
+                    (q_lora_a, q_lora_b),
+                    (v_lora_a, v_lora_b),
+                    adapter_config,
+                    self.process_group,
+                    adapter_index,
+                )
+
             self.adapter_id = adapter_id
+
+    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        else:
+            for layer in self.model.model.layers:
+                layer = layer.self_attn.query_key_value
+                layer.remove_adapter(adapter_index)
+
+            self.adapter_id = BASE_MODEL_ADAPTER_ID

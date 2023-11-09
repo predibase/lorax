@@ -4,7 +4,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List
+from typing import List, Set, Tuple
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -277,6 +277,84 @@ class TensorParallelColumnLinear(SuperLayer):
             bias = None
         linear = get_linear(weight, bias, config.quantize)
         return cls(linear)
+    
+
+class TensorParallelMultiAdapterLinear(nn.Module):
+    def __init__(self, base_layer, splits):
+        super().__init__()
+        self.base_layer = base_layer
+
+        # Offsets corresponding to q, k, v portions of the tensor
+        self.q_end = splits[0]
+        self.k_end = splits[0] + splits[1]
+        self.v_end = splits[0] + splits[1] + splits[2]
+
+        self.adapter_layers = []
+
+    @classmethod
+    def load(cls, base_layer, splits):
+        return TensorParallelMultiAdapterLinear(base_layer, splits)
+
+    def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
+        adapter_layer = TensorParallelAdapterLinear.load(
+            q_weights,
+            v_weights,
+            adapter_config=adapter_config,
+            process_group=process_group,
+            adapter_index=adapter_index,
+        )
+        self.adapter_layers.append(adapter_layer)
+
+    def remove_adapter(self, adapter_index):
+        # TODO(travis): return layers and cache them in CPU using LRU
+        self.adapter_layers = [
+            adapter_layer
+            for adapter_layer in self.adapter_layers
+            if adapter_layer.adapter_index != adapter_index
+        ]
+    
+    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor, adapter_set: Set[int]) -> torch.Tensor:
+        result = self.base_layer(input)
+
+        for adapter_layer in self.adapter_layers:
+            if adapter_layer.adapter_index not in adapter_set:
+                continue
+
+            result_q, result_v = adapter_layer(input, adapter_indices)
+            result[:, :self.q_end] += result_q
+            result[:, self.k_end:] += result_v
+
+        return result
+    
+
+# TODO(travis): make this tensor parallel
+class TensorParallelAdapterLinear(nn.Module):
+    def __init__(self, q_layers, v_layers, adapter_config, process_group, adapter_index):
+        super().__init__()
+        self.q_lora_a, self.q_lora_b = q_layers
+        self.v_lora_a, self.v_lora_b = v_layers
+        self.process_group = process_group
+        self.adapter_index = adapter_index
+        self.scaling = adapter_config.lora_alpha / adapter_config.r
+
+    @classmethod
+    def load(cls, q_weights, v_weights, adapter_config, process_group, adapter_index):
+        return cls(
+            (get_linear(q_weights[0], bias=None, quantize=None), get_linear(q_weights[1], bias=None, quantize=None)),
+            (get_linear(v_weights[0], bias=None, quantize=None), get_linear(v_weights[1], bias=None, quantize=None)),
+            adapter_config=adapter_config,
+            process_group=process_group,
+            adapter_index=adapter_index,
+        )
+    
+    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype).view(-1, 1)
+        try:
+            result_q = self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
+            result_v = self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
+        except Exception as e:
+            raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={self.q_lora_a.weight.shape}, lora_b={self.q_lora_b.weight.shape}") from e
+        return result_q, result_v
 
 
 class TensorParallelRowLinear(SuperLayer):

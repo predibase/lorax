@@ -1,3 +1,4 @@
+use crate::adapter::Adapter;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
@@ -127,6 +128,7 @@ impl Validation {
     pub(crate) async fn validate(
         &self,
         request: GenerateRequest,
+        adapter: Adapter,
     ) -> Result<ValidGenerateRequest, ValidationError> {
         let GenerateParameters {
             best_of,
@@ -141,6 +143,7 @@ impl Validation {
             truncate,
             seed,
             watermark,
+            adapter_id,
             decoder_input_details,
             ..
         } = request.parameters;
@@ -233,6 +236,8 @@ impl Validation {
             })
             .unwrap_or(Ok(None))?;
 
+        let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
+
         // Validate inputs
         let (inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
@@ -247,6 +252,7 @@ impl Validation {
             do_sample,
             seed,
             watermark,
+            adapter_id,
         };
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens,
@@ -263,6 +269,7 @@ impl Validation {
             truncate: truncate.unwrap_or(self.max_input_length) as u32,
             parameters,
             stopping_parameters,
+            adapter,
         })
     }
 
@@ -336,6 +343,7 @@ pub(crate) struct ValidGenerateRequest {
     pub decoder_input_details: bool,
     pub parameters: NextTokenChooserParameters,
     pub stopping_parameters: StoppingCriteriaParameters,
+    pub adapter: Adapter,
 }
 
 #[derive(Error, Debug)]
@@ -464,7 +472,7 @@ mod tests {
                     do_sample: false,
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
         {
             Err(ValidationError::BestOfSampling) => (),
@@ -495,7 +503,7 @@ mod tests {
                     top_p: Some(1.0),
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
         {
             Err(ValidationError::TopP) => (),
@@ -510,7 +518,7 @@ mod tests {
                     max_new_tokens: 1,
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
         {
             Ok(_) => (),
@@ -525,7 +533,7 @@ mod tests {
                     max_new_tokens: 1,
                     ..default_parameters()
                 },
-            })
+            }, Adapter::new("".to_string(), "hf".to_string(), 0))
             .await
             .unwrap();
         // top_p == 1.0 is invalid for users to ask for but it's the default resolved value.
