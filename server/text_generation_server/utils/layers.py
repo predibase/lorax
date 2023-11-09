@@ -26,6 +26,8 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
+from text_generation_server.utils.weights import shard_on_dim
+
 from typing import Optional
 
 
@@ -333,9 +335,18 @@ class TensorParallelAdapterLinear(nn.Module):
         super().__init__()
         self.q_lora_a, self.q_lora_b = q_layers
         self.v_lora_a, self.v_lora_b = v_layers
+
+        self.q_lora_a = shard_on_dim(self.q_lora_a, dim=1, process_group=process_group)
+        self.q_lora_b = shard_on_dim(self.q_lora_b, dim=1, process_group=process_group)
+
+        self.v_lora_a = shard_on_dim(self.v_lora_a, dim=1, process_group=process_group)
+        self.v_lora_b = shard_on_dim(self.v_lora_b, dim=1, process_group=process_group)
+
         self.process_group = process_group
+        self.world_size = process_group.size()
         self.adapter_index = adapter_index
         self.scaling = adapter_config.lora_alpha / adapter_config.r
+        self.r = adapter_config.r
 
     @classmethod
     def load(cls, q_weights, v_weights, adapter_config, process_group, adapter_index):
@@ -350,8 +361,31 @@ class TensorParallelAdapterLinear(nn.Module):
     def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype).view(-1, 1)
         try:
-            result_q = self.q_lora_b(self.q_lora_a(input)) * self.scaling * adapter_mask
-            result_v = self.v_lora_b(self.v_lora_a(input)) * self.scaling * adapter_mask
+            q_a_out = self.q_lora_a(input)
+            v_a_out = self.v_lora_a(input)
+
+            if self.world_size > 1:
+                # Tensor parallel implementation of X @ A@B, where A and B are sharded column-wise.
+                # We use an all-gather between X@A and (X@A)@B to ensure alignment across ranks.
+                #
+                # TODO(travis): this is not very efficient as we do an all gather for every adapter,
+                #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
+                #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
+                #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
+                q_a_world_out = input.new_empty((input.shape[0], self.r))
+                torch.distributed.all_gather_into_tensor(
+                    q_a_world_out, q_a_out, group=self.process_group
+                )
+                q_a_out = q_a_world_out
+
+                v_a_world_out = input.new_empty((input.shape[0], self.r))
+                torch.distributed.all_gather_into_tensor(
+                    v_a_world_out, q_a_out, group=self.process_group
+                )
+                v_a_out = v_a_world_out
+            
+            result_q = self.q_lora_b(q_a_out) * self.scaling * adapter_mask
+            result_v = self.v_lora_b(v_a_out) * self.scaling * adapter_mask
         except Exception as e:
             raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={self.q_lora_a.weight.shape}, lora_b={self.q_lora_b.weight.shape}") from e
         return result_q, result_v
