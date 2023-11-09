@@ -24,7 +24,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import Optional, List, Set, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
@@ -35,6 +35,7 @@ import vllm_attention_ops
 
 from text_generation_server.utils.flash_attn import attention, HAS_FLASH_ATTN_V2
 from text_generation_server.utils.layers import (
+    TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
@@ -152,9 +153,19 @@ class MistralRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-
+        
 
 def load_attention(config, prefix, weights):
+    base_layer = load_attention_multi(config, prefix, weights)
+    head_size = config.hidden_size // config.num_attention_heads
+    return TensorParallelMultiAdapterLinear.load(base_layer, splits=[
+        head_size * config.num_attention_heads,
+        head_size * config.num_key_value_heads,
+        head_size * config.num_key_value_heads,
+    ])
+
+
+def load_attention_multi(config, prefix, weights):
     if config.num_attention_heads != config.num_key_value_heads:
         return _load_gqa(config, prefix, weights)
     else:
@@ -272,9 +283,11 @@ class MistralAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_indices,
+        adapter_set,
         prefill_cache_indices,
     ):
-        qkv = self.query_key_value(hidden_states)
+        qkv = self.query_key_value(hidden_states, adapter_indices, adapter_set)
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -401,6 +414,8 @@ class MistralLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_indices,
+        adapter_set,
         prefill_cache_indices,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
@@ -416,6 +431,8 @@ class MistralLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_indices,
+            adapter_set,
             prefill_cache_indices,
         )
 
@@ -469,6 +486,8 @@ class MistralModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_indices: torch.Tensor,
+        adapter_set: Set[int],
         prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
@@ -492,6 +511,8 @@ class MistralModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                adapter_indices,
+                adapter_set,
                 prefill_cache_indices,
             )
 
@@ -524,6 +545,8 @@ class FlashMistralForCausalLM(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_indices: torch.Tensor,
+        adapter_set: Set[int],
         prefill_cache_indices: Optional[torch.Tensor],
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -545,6 +568,8 @@ class FlashMistralForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_indices,
+            adapter_set,
             prefill_cache_indices,
         )
         if lm_head_indices is not None:
