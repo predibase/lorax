@@ -144,21 +144,7 @@ class FlashLlama(FlashCausalLM):
         # If we are doing dynamic adapter loading, then we need to reset the weights
         if adapter_id == self.adapter_id:
             return
-        elif adapter_id == BASE_MODEL_ADAPTER_ID:
-            # TODO(travis): we should be able to remove this part of the code
-            # if the adapter_id is the base model, then just reset the weights
-            prefix = "model.layers"
-            for i, layer in enumerate(self.model.model.layers):
-                qkv_d, _ = layer.self_attn.query_key_value.base_layer.linear.weight.shape
-                q_d = qkv_d // 3  # break up qkv_d into 3 parts
-                
-                # place the original weights (on their original device) back into the model
-                q_proj, q_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.q_proj"]
-                layer.self_attn.query_key_value.base_layer.linear.weight[:q_d] = q_proj.to(q_proj_device)
-                v_proj, v_proj_device = self.orig_weights[f"{prefix}.{i}.self_attn.v_proj"]
-                layer.self_attn.query_key_value.base_layer.linear.weight[2*q_d:] = v_proj.to(v_proj_device)
-                self.adapter_id = adapter_id
-        else:
+        elif adapter_id != BASE_MODEL_ADAPTER_ID:
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
             
