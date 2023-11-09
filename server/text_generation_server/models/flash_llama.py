@@ -145,6 +145,7 @@ class FlashLlama(FlashCausalLM):
         if adapter_id == self.adapter_id:
             return
         elif adapter_id == BASE_MODEL_ADAPTER_ID:
+            # TODO(travis): we should be able to remove this part of the code
             # if the adapter_id is the base model, then just reset the weights
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):
@@ -179,7 +180,6 @@ class FlashLlama(FlashCausalLM):
                 v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
                 v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
-                # TODO(travis): remove adapter
                 layer.add_adapter(
                     (q_lora_a, q_lora_b),
                     (v_lora_a, v_lora_b),

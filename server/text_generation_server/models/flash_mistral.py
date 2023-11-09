@@ -94,6 +94,9 @@ class FlashMistralBatch(FlashCausalLMBatch):
         # TODO(geoffrey): re-add top_n_tokens functionality in a separate PR
         # top_n_tokens = []
 
+        adapter_indices_list = []
+        adapter_set = set()
+
         # Cumulative length
         cumulative_length = 0
         cumulative_max_length = 0
@@ -136,6 +139,9 @@ class FlashMistralBatch(FlashCausalLMBatch):
             max_new_tokens = stopping_criteria.max_new_tokens
             stopping_criterias.append(stopping_criteria)
             # top_n_tokens.append(r.top_n_tokens)
+
+            adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
+            adapter_set.add(r.adapter_index)
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -192,6 +198,8 @@ class FlashMistralBatch(FlashCausalLMBatch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
+        adapter_indices = torch.tensor(torch.cat(adapter_indices_list), dtype=torch.int64, device=device)
+        
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
         )
@@ -278,6 +286,8 @@ class FlashMistralBatch(FlashCausalLMBatch):
             # top_n_tokens_tensor=top_n_tokens_tensor,
             blocks=blocks,
             max_blocks=max_blocks,
+            adapter_indices=adapter_indices,
+            adapter_set=adapter_set,
             prefill_cache_indices=prefill_cache_indices,
         )
 
@@ -407,6 +417,7 @@ class FlashMistral(FlashCausalLM):
         if adapter_id == self.adapter_id:
             return
         elif adapter_id == BASE_MODEL_ADAPTER_ID:
+            # TODO(travis): we should be able to remove this part of the code
             # if the adapter_id is the base model, then just reset the weights
             prefix = "model.layers"
             for i, layer in enumerate(self.model.model.layers):
@@ -424,36 +435,52 @@ class FlashMistral(FlashCausalLM):
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
             
-            # TODO(geoffrey): merge this with function
-            # text_generation_server/utils/adapter.py::merge_adapter_weights
-            def compute_merged_weight(weight_name):
-                # load the original weights from CPU back onto the device they were on
-                orig_weight, orig_device = self.orig_weights[weight_name]
-                orig_weight = orig_weight.to(orig_device)
-                # ensure the delta has the same dtype and device as the original weight
-                lora_A = module_map[weight_name]["lora_A"].to(orig_device, orig_weight.dtype)
-                lora_B = module_map[weight_name]["lora_B"].to(orig_device, orig_weight.dtype)
-                delta_weight = compute_delta_weight(
-                    lora_A, 
-                    lora_B, 
-                    adapter_config.fan_in_fan_out, 
-                    adapter_config.lora_alpha, 
-                    adapter_config.r
-                )
-                start, stop = get_start_stop_idxs_for_rank(delta_weight.shape[0], self.process_group.rank(), self.process_group.size())
-                return orig_weight + delta_weight[start:stop]
-            
             prefix = "model.layers"
             for i, layer in tqdm(
                 enumerate(self.model.model.layers), 
                 desc=f"Merging weights for adapter {adapter_id}",
                 total=len(self.model.model.layers)
             ):
-                # replace the target matrices in place
-                q_proj, _, v_proj = layer.self_attn.get_query_key_value_weights(clone=False)
-                q_proj[:] = compute_merged_weight(f"{prefix}.{i}.self_attn.q_proj")
-                v_proj[:] = compute_merged_weight(f"{prefix}.{i}.self_attn.v_proj")
+                layer = layer.self_attn.query_key_value
+                base_weight = layer.base_layer.linear.weight
+                base_device = base_weight.device
+
+                weight_name = f"{prefix}.{i}.self_attn.q_proj"
+                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                weight_name = f"{prefix}.{i}.self_attn.v_proj"
+                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                layer.add_adapter(
+                    (q_lora_a, q_lora_b),
+                    (v_lora_a, v_lora_b),
+                    adapter_config,
+                    self.process_group,
+                    adapter_index,
+                )
+
             self.adapter_id = adapter_id
+
+    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        else:
+            for layer in self.model.model.layers:
+                layer = layer.self_attn.query_key_value
+                layer.remove_adapter(adapter_index)
+
+            self.adapter_id = BASE_MODEL_ADAPTER_ID
 
     @property
     def batch_type(self) -> Type[FlashMistralBatch]:
