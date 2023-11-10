@@ -104,17 +104,17 @@ completes the request.
 
 ### Response:
 """
-    NUM_REQUESTS = 10
-    # N = 10
-    # adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
-    #     get_local_path(f"arnavgrg/codealpaca_v3_{i}")
-    #     for i in range(1, N)
-    # ]
+    NUM_REQUESTS = 100
+    N = 10
+    adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
+        get_local_path(f"arnavgrg/codealpaca_v3_{i}")
+        for i in range(1, N)
+    ]
 
     # Mistral
-    adapters = [
-        "alexsherstinsky/mistralai-7B-v01-based-finetuned-using-ludwig-with-samsum-T4-sharded-4bit-notmerged",
-    ]
+    # adapters = [
+    #     "alexsherstinsky/mistralai-7B-v01-based-finetuned-using-ludwig-with-samsum-T4-sharded-4bit-notmerged",
+    # ]
 
     # adapters += [None]
 

@@ -5,6 +5,8 @@ import torch
 from loguru import logger
 from huggingface_hub import hf_hub_download
 import json
+import torch
+import torch.distributed
 
 
 class Weights:
@@ -254,3 +256,20 @@ def get_start_stop_idxs_for_rank(size, rank, world_size):
     start = rank * block_size
     stop = (rank + 1) * block_size
     return start, stop
+
+
+def shard_on_dim(t: torch.Tensor, dim: int, process_group: torch.distributed.ProcessGroup):
+    world_size = process_group.size()
+    rank = process_group.rank()
+    
+    size = t.shape[dim]
+    start, stop = get_start_stop_idxs_for_rank(size, rank, world_size)
+
+    if dim == 0:
+        tensor = t[start:stop]
+    elif dim == 1:
+        tensor = t[:, start:stop]
+    else:
+        raise NotImplementedError("Let's make that generic when needed")
+
+    return tensor

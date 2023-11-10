@@ -153,11 +153,11 @@ class LlamaRMSNorm(nn.Module):
 def load_attention(config, prefix, weights):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
-    return TensorParallelMultiAdapterLinear.load(base_layer, splits=[
+    return TensorParallelMultiAdapterLinear.load(base_layer, sizes=[
         head_size * config.num_attention_heads,
         head_size * config.num_key_value_heads,
         head_size * config.num_key_value_heads,
-    ])
+    ], process_group=weights.process_group)
 
 
 def load_attention_multi(config, prefix, weights):
