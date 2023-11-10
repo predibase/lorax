@@ -282,20 +282,20 @@ class TensorParallelColumnLinear(SuperLayer):
     
 
 class TensorParallelMultiAdapterLinear(nn.Module):
-    def __init__(self, base_layer, splits, process_group):
+    def __init__(self, base_layer, sizes, process_group):
         super().__init__()
         self.base_layer = base_layer
 
         # Offsets corresponding to q, k, v portions of the tensor
-        self.q_end = splits[0] // process_group.size()
-        self.k_end = (splits[0] + splits[1]) // process_group.size()
-        self.v_end = (splits[0] + splits[1] + splits[2]) // process_group.size()
+        self.q_end = sizes[0] // process_group.size()
+        self.k_end = (sizes[0] + sizes[1]) // process_group.size()
+        self.v_end = (sizes[0] + sizes[1] + sizes[2]) // process_group.size()
 
         self.adapter_layers = []
 
     @classmethod
-    def load(cls, base_layer, splits, process_group):
-        return TensorParallelMultiAdapterLinear(base_layer, splits, process_group)
+    def load(cls, base_layer, sizes, process_group):
+        return TensorParallelMultiAdapterLinear(base_layer, sizes, process_group)
 
     def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
         adapter_layer = TensorParallelAdapterLinear.load(
