@@ -345,12 +345,18 @@ class TensorParallelAdapterLinear(nn.Module):
     @classmethod
     def load(cls, q_weights, v_weights, adapter_config, process_group, adapter_index):
         return cls(
+            # q_proj
             (
+                # lora_a
                 get_linear(shard_on_dim(q_weights[0], dim=0, process_group=process_group), bias=None, quantize=None),
+                # lora_b
                 get_linear(shard_on_dim(q_weights[1], dim=0, process_group=process_group), bias=None, quantize=None),
             ),
+            # v_proj
             (
+                # lora_a
                 get_linear(shard_on_dim(v_weights[0], dim=0, process_group=process_group), bias=None, quantize=None),
+                # lora_b
                 get_linear(shard_on_dim(v_weights[1], dim=0, process_group=process_group), bias=None, quantize=None),
             ),
             adapter_config=adapter_config,
