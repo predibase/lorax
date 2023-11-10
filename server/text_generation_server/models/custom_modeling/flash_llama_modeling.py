@@ -157,7 +157,7 @@ def load_attention(config, prefix, weights):
         head_size * config.num_attention_heads,
         head_size * config.num_key_value_heads,
         head_size * config.num_key_value_heads,
-    ])
+    ], process_group=weights.process_group)
 
 
 def load_attention_multi(config, prefix, weights):

@@ -282,20 +282,20 @@ class TensorParallelColumnLinear(SuperLayer):
     
 
 class TensorParallelMultiAdapterLinear(nn.Module):
-    def __init__(self, base_layer, splits):
+    def __init__(self, base_layer, splits, process_group):
         super().__init__()
         self.base_layer = base_layer
 
         # Offsets corresponding to q, k, v portions of the tensor
-        self.q_end = splits[0]
-        self.k_end = splits[0] + splits[1]
-        self.v_end = splits[0] + splits[1] + splits[2]
+        self.q_end = splits[0] // process_group.size()
+        self.k_end = (splits[0] + splits[1]) // process_group.size()
+        self.v_end = (splits[0] + splits[1] + splits[2]) // process_group.size()
 
         self.adapter_layers = []
 
     @classmethod
-    def load(cls, base_layer, splits):
-        return TensorParallelMultiAdapterLinear(base_layer, splits)
+    def load(cls, base_layer, splits, process_group):
+        return TensorParallelMultiAdapterLinear(base_layer, splits, process_group)
 
     def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
         adapter_layer = TensorParallelAdapterLinear.load(
@@ -336,12 +336,6 @@ class TensorParallelAdapterLinear(nn.Module):
         self.q_lora_a, self.q_lora_b = q_layers
         self.v_lora_a, self.v_lora_b = v_layers
 
-        self.q_lora_a = shard_on_dim(self.q_lora_a, dim=1, process_group=process_group)
-        self.q_lora_b = shard_on_dim(self.q_lora_b, dim=1, process_group=process_group)
-
-        self.v_lora_a = shard_on_dim(self.v_lora_a, dim=1, process_group=process_group)
-        self.v_lora_b = shard_on_dim(self.v_lora_b, dim=1, process_group=process_group)
-
         self.process_group = process_group
         self.world_size = process_group.size()
         self.adapter_index = adapter_index
@@ -351,8 +345,14 @@ class TensorParallelAdapterLinear(nn.Module):
     @classmethod
     def load(cls, q_weights, v_weights, adapter_config, process_group, adapter_index):
         return cls(
-            (get_linear(q_weights[0], bias=None, quantize=None), get_linear(q_weights[1], bias=None, quantize=None)),
-            (get_linear(v_weights[0], bias=None, quantize=None), get_linear(v_weights[1], bias=None, quantize=None)),
+            (
+                get_linear(shard_on_dim(q_weights[0], dim=0, process_group=process_group), bias=None, quantize=None),
+                get_linear(shard_on_dim(q_weights[1], dim=0, process_group=process_group), bias=None, quantize=None),
+            ),
+            (
+                get_linear(shard_on_dim(v_weights[0], dim=0, process_group=process_group), bias=None, quantize=None),
+                get_linear(shard_on_dim(v_weights[1], dim=0, process_group=process_group), bias=None, quantize=None),
+            ),
             adapter_config=adapter_config,
             process_group=process_group,
             adapter_index=adapter_index,
@@ -372,17 +372,13 @@ class TensorParallelAdapterLinear(nn.Module):
                 #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
                 #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
                 #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
-                q_a_world_out = input.new_empty((input.shape[0], self.r))
-                torch.distributed.all_gather_into_tensor(
-                    q_a_world_out, q_a_out, group=self.process_group
-                )
-                q_a_out = q_a_world_out
+                gathered_tensors = [torch.empty_like(q_a_out) for _ in range(self.world_size)]
+                torch.distributed.all_gather(gathered_tensors, q_a_out)
+                q_a_out = torch.cat(gathered_tensors, dim=1)
 
-                v_a_world_out = input.new_empty((input.shape[0], self.r))
-                torch.distributed.all_gather_into_tensor(
-                    v_a_world_out, q_a_out, group=self.process_group
-                )
-                v_a_out = v_a_world_out
+                gathered_tensors = [torch.empty_like(v_a_out) for _ in range(self.world_size)]
+                torch.distributed.all_gather(gathered_tensors, v_a_out)
+                v_a_out = torch.cat(gathered_tensors, dim=1)
             
             result_q = self.q_lora_b(q_a_out) * self.scaling * adapter_mask
             result_v = self.v_lora_b(v_a_out) * self.scaling * adapter_mask

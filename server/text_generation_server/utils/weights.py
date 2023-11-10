@@ -262,7 +262,7 @@ def shard_on_dim(t: torch.Tensor, dim: int, process_group: torch.distributed.Pro
     world_size = process_group.size()
     rank = process_group.rank()
     
-    size = t.get_shape()[dim]
+    size = t.shape[dim]
     start, stop = get_start_stop_idxs_for_rank(size, rank, world_size)
 
     if dim == 0:
