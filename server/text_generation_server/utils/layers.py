@@ -323,49 +323,94 @@ class TensorParallelMultiAdapterLinear(nn.Module):
     def forward(self, input: torch.Tensor, adapter_meta: AdapterMetadata) -> torch.Tensor:
         result = self.base_layer(input)
 
+        def lora_ref_impl(
+            y: torch.Tensor,
+            x: torch.Tensor,
+            wa: torch.Tensor,
+            wb: torch.Tensor,
+            s: torch.IntTensor,
+            layer_idx: int,
+        ):
+            for i in range(len(wa)):
+                xi = x[s[i]:s[i + 1]]
+                wai = wa[i][layer_idx, :, :]
+                wbi = wb[i][layer_idx, :, :]
+                yi = y[s[i]:s[i + 1]]
+                tmp = (xi @ wai)
+                y[s[i]:s[i + 1]] = (yi + tmp @ wbi)
+
         if self.process_group.size() == 1:
             q_proj = torch.zeros_like(result[:, :self.q_end])
             v_proj = torch.zeros_like(result[:, self.k_end:])
 
             # TODO(travis): hack for testing
+            alpha = 16
             rank = 8
+            scaling = alpha / rank
             
             q_lora_a_ptr = adapter_meta.lora_a_ptrs.get(Q_PROJ)
             q_lora_b_ptr = adapter_meta.lora_b_ptrs.get(Q_PROJ)
             if q_lora_a_ptr is not None and q_lora_b_ptr is not None:
-                print("!!! y [B, H2] == q_proj", q_proj.shape)
-                print("!!! x [B, H1] == input", input.shape)
-                print("!!! wa_ptr [S] == q_lora_a_ptr", q_lora_a_ptr.shape)
-                print("!!! wb_ptr [S] == q_lora_b_ptr", q_lora_b_ptr.shape)
-                print("!!! s [S+1] == adapter_segments", adapter_meta.adapter_segments.shape)
-                print("!!! layer_id, rank", self.layer_id, rank)
+                if self.layer_id == 0:
+                    print("!!! y [B, H2] == q_proj", q_proj.shape)
+                    print("!!! x [B, H1] == input", input.shape)
+                    print("!!! wa_ptr [S] == q_lora_a_ptr", q_lora_a_ptr.shape)
+                    print("!!! wb_ptr [S] == q_lora_b_ptr", q_lora_b_ptr.shape)
+                    print("!!! s [S+1] == adapter_segments", adapter_meta.adapter_segments.shape, adapter_meta.adapter_segments)
+                    print("!!! layer_id, rank", self.layer_id, rank)
 
-                add_lora_sgmv_cutlass(
+                # add_lora_sgmv_cutlass(
+                #     q_proj,
+                #     input,
+                #     q_lora_a_ptr,
+                #     q_lora_b_ptr,
+                #     adapter_meta.adapter_segments,
+                #     self.layer_id,
+                #     rank,
+                # )
+
+                lora_ref_impl(
                     q_proj,
                     input,
-                    q_lora_a_ptr,
-                    q_lora_b_ptr,
+                    adapter_meta.lora_a[Q_PROJ],
+                    adapter_meta.lora_b[Q_PROJ],
                     adapter_meta.adapter_segments,
                     self.layer_id,
-                    rank,
                 )
 
-                result[:, :self.q_end] += q_proj
+                if self.layer_id == 0:
+                    print("!!! result", result[:, :self.q_end].sum())
+                    print("!!! q_proj", q_proj.sum())
+
+                result[:, :self.q_end] += q_proj * scaling
 
             v_lora_a_ptr = adapter_meta.lora_a_ptrs.get(V_PROJ)
             v_lora_b_ptr = adapter_meta.lora_b_ptrs.get(V_PROJ)
             if v_lora_a_ptr is not None and v_lora_b_ptr is not None:
-                add_lora_sgmv_cutlass(
+                # add_lora_sgmv_cutlass(
+                #     v_proj,
+                #     input,
+                #     v_lora_a_ptr,
+                #     v_lora_b_ptr,
+                #     adapter_meta.adapter_segments,
+                #     self.layer_id,
+                #     rank,
+                # )
+
+                lora_ref_impl(
                     v_proj,
                     input,
-                    v_lora_a_ptr,
-                    v_lora_b_ptr,
+                    adapter_meta.lora_a[V_PROJ],
+                    adapter_meta.lora_b[V_PROJ],
                     adapter_meta.adapter_segments,
                     self.layer_id,
-                    rank,
                 )
 
-                result[:, self.k_end:] += v_proj
+                if self.layer_id == 0:
+                    print("!!! result", result[:, self.k_end:].sum())
+                    print("!!! v_proj", v_proj.sum())
+
+                result[:, self.k_end:] += v_proj * scaling
             
             return result
         else:

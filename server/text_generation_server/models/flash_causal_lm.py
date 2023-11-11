@@ -36,6 +36,8 @@ class AdapterMetadata:
     segment_indices: List[int]
     lora_a_ptrs: Dict[str, torch.Tensor] = None
     lora_b_ptrs: Dict[str, torch.Tensor] = None
+    lora_a: Dict[str, List[torch.Tensor]] = None
+    lora_b: Dict[str, List[torch.Tensor]] = None
 
 
 
@@ -854,7 +856,7 @@ class FlashCausalLM(Model):
         batch.adapter_meta.lora_a_ptrs = {}
         batch.adapter_meta.lora_b_ptrs = {}
         for k, v in self.batched_lora_weights.items():
-            batch.adapter_meta.lora_a_ptrs[k], batch.adapter_meta.lora_b_ptrs[k] = v.get_ptrs(batch.adapter_meta.segment_indices)
+            batch.adapter_meta.lora_a_ptrs[k], batch.adapter_meta.lora_b_ptrs[k], batch.adapter_meta.lora_a[k], batch.adapter_meta.lora_b[k] = v.get_ptrs(batch.adapter_meta.segment_indices)
 
         try:
             out = self.forward(batch)
