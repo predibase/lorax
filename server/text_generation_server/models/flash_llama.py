@@ -152,11 +152,12 @@ class FlashLlama(FlashCausalLM):
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
 
-            q_lora_a_list = []
-            q_lora_b_list = []
+            nlayers = len(self.model.model.layers)
+            q_lora_a_list = [None] * nlayers
+            q_lora_b_list = [None] * nlayers
 
-            v_lora_a_list = []
-            v_lora_b_list = []
+            v_lora_a_list = [None] * nlayers
+            v_lora_b_list = [None] * nlayers
             
             prefix = "model.layers"
             for i, layer in tqdm(
@@ -176,11 +177,11 @@ class FlashLlama(FlashCausalLM):
                 v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
                 v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
-                q_lora_a_list.append(q_lora_a)
-                q_lora_b_list.append(q_lora_b)
+                q_lora_a_list[layer.layer_id] = q_lora_a
+                q_lora_b_list[layer.layer_id] = q_lora_b
 
-                v_lora_a_list.append(v_lora_a)
-                v_lora_b_list.append(v_lora_b)
+                v_lora_a_list[layer.layer_id] = v_lora_a
+                v_lora_b_list[layer.layer_id] = v_lora_b
 
                 # layer.add_adapter(
                 #     (q_lora_a, q_lora_b),
@@ -191,11 +192,11 @@ class FlashLlama(FlashCausalLM):
                 # )
 
             q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list)
-            q_lora_weights = self.batched_lora_weights.get(Q_PROJ)
+            q_lora_weights = self.batched_lora_weights[Q_PROJ]
             q_lora_weights.add_adapter(adapter_index, q_lora_merged)
 
             v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list)
-            v_lora_weights = self.batched_lora_weights.get(V_PROJ)
+            v_lora_weights = self.batched_lora_weights[V_PROJ]
             v_lora_weights.add_adapter(adapter_index, v_lora_merged)
 
             self.adapter_id = adapter_id

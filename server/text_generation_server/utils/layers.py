@@ -324,8 +324,8 @@ class TensorParallelMultiAdapterLinear(nn.Module):
         result = self.base_layer(input)
 
         if self.process_group.size() == 1:
-            q_proj = result[:, :self.q_end]
-            v_proj = result[:, self.k_end:]
+            q_proj = torch.zeros_like(result[:, :self.q_end])
+            v_proj = torch.zeros_like(result[:, self.k_end:])
 
             # TODO(travis): hack for testing
             rank = 8
@@ -333,6 +333,13 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             q_lora_a_ptr = adapter_meta.lora_a_ptrs.get(Q_PROJ)
             q_lora_b_ptr = adapter_meta.lora_b_ptrs.get(Q_PROJ)
             if q_lora_a_ptr is not None and q_lora_b_ptr is not None:
+                print("!!! y [B, H2] == q_proj", q_proj.shape)
+                print("!!! x [B, H1] == input", input.shape)
+                print("!!! wa_ptr [S] == q_lora_a_ptr", q_lora_a_ptr.shape)
+                print("!!! wb_ptr [S] == q_lora_b_ptr", q_lora_b_ptr.shape)
+                print("!!! s [S+1] == adapter_segments", adapter_meta.adapter_segments.shape)
+                print("!!! layer_id, rank", self.layer_id, rank)
+
                 add_lora_sgmv_cutlass(
                     q_proj,
                     input,
@@ -342,6 +349,8 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                     self.layer_id,
                     rank,
                 )
+
+                result[:, :self.q_end] += q_proj
 
             v_lora_a_ptr = adapter_meta.lora_a_ptrs.get(V_PROJ)
             v_lora_b_ptr = adapter_meta.lora_b_ptrs.get(V_PROJ)
@@ -355,6 +364,8 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                     self.layer_id,
                     rank,
                 )
+
+                result[:, self.k_end:] += v_proj
             
             return result
         else:
