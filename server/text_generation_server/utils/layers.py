@@ -355,6 +355,8 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                     self.layer_id,
                     rank,
                 )
+            
+            return result
         else:
             for adapter_layer in self.adapter_layers:
                 if adapter_layer.adapter_index not in adapter_meta.adapter_set:

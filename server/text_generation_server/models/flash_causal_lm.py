@@ -33,6 +33,7 @@ class AdapterMetadata:
     adapter_indices: torch.Tensor
     adapter_set: Set[int]
     adapter_segments: torch.Tensor
+    segment_indices: List[int]
     lora_a_ptrs: Dict[str, torch.Tensor] = None
     lora_b_ptrs: Dict[str, torch.Tensor] = None
 
@@ -147,8 +148,12 @@ class FlashCausalLMBatch(Batch):
 
         next_token_chooser_parameters = []
         stopping_criterias = []
+        
         adapter_indices_list = []
         adapter_set = set()
+        adapter_segment_indices = []
+        adapter_segments = [0]
+        adapter_segment_length = 0
 
         # Cumulative length
         cumulative_length = 0
@@ -194,6 +199,12 @@ class FlashCausalLMBatch(Batch):
 
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
             adapter_set.add(r.adapter_index)
+
+            adapter_segment_length += input_length
+            if not adapter_segment_indices or adapter_segment_indices[-1] != r.adapter_index:
+                adapter_segment_indices.append(r.adapter_index)
+                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                adapter_segment_length = 0
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -276,11 +287,7 @@ class FlashCausalLMBatch(Batch):
             input_lengths, dtype=torch.int32, device=device
         )
 
-        adapter_segments = torch.cumsum(
-            torch.tensor([0] + input_lengths, dtype=torch.int32, device=device),
-            dim=0,
-            dtype=torch.int32,
-        )
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         if all_prefill_logprobs:
             prefill_head_indices = None
@@ -327,6 +334,7 @@ class FlashCausalLMBatch(Batch):
                 adapter_indices=adapter_indices,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
             ),
         )
 
@@ -372,6 +380,10 @@ class FlashCausalLMBatch(Batch):
         # Cumulative length
         cumulative_max_length = 0
 
+        adapter_segment_indices = []
+        adapter_segments = [0]
+        adapter_segment_length = 0
+
         for i, request_id in enumerate(request_ids):
             idx = self.requests_idx_mapping[request_id]
             indices.append(idx)
@@ -393,6 +405,12 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias.append(stopping_criteria)
 
             adapter_set.add(self.requests[idx].adapter_index)
+
+            adapter_segment_length += 1
+            if not adapter_segment_indices or adapter_segment_indices[-1] != self.requests[idx].adapter_index:
+                adapter_segment_indices.append(self.requests[idx].adapter_index)
+                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                adapter_segment_length = 0
 
             remaining_tokens = (
                 stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
@@ -444,7 +462,7 @@ class FlashCausalLMBatch(Batch):
         # Move to GPU now that we have the whole tensor
         slot_indices = slot_indices.to(device)
 
-        adapter_segments = torch.arange(len(input_lengths) + 1, dtype=torch.int32, device=device)
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         return type(self)(
             batch_id=self.batch_id,
@@ -477,6 +495,7 @@ class FlashCausalLMBatch(Batch):
                 adapter_indices=adapter_indices,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
             ),
         )
 
@@ -526,8 +545,11 @@ class FlashCausalLMBatch(Batch):
         )
 
         total_indices_size = sum(b.adapter_meta.adapter_indices.shape[0] for b in batches)
+        
         adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
         adapter_set = set()
+        adapter_segment_indices = []
+        adapter_segment_tensors = []
 
         start_slots = []
         block_tables = []
@@ -574,6 +596,27 @@ class FlashCausalLMBatch(Batch):
             cumulative_adapter_indices_size = adapter_end_index
             adapter_set.update(batch.adapter_set)
 
+            # Update adapter segments
+            adapter_segments = batch.adapter_meta.adapter_segments
+            if adapter_segment_tensors:
+                # Because we have already processed at least one batch, remove the 0 start index
+                # from this batch denoting the beginning of the segment, then offset all segment
+                # positions by the value of the last segment in the previous batch to account for
+                # the concatenation.
+                adapter_segments = adapter_segments[1:] + adapter_segment_tensors[-1][-1]
+            
+            segment_indices = batch.adapter_meta.segment_indices
+            if adapter_segment_indices and adapter_segment_indices[-1] == segment_indices[-1]:
+                # If the last segment in the previous batch is the same as the first segment in this batch,
+                # then we merge them together into a single segment. In effect, this means removing it from
+                # the segment indices of this batch, and extending the segment span by removing the segment
+                # end index from the previous batch.
+                segment_indices = segment_indices[1:]
+                adapter_segment_tensors[-1] = adapter_segment_tensors[-1][:-1]
+            
+            adapter_segment_indices.extend(segment_indices)
+            adapter_segment_tensors.append(adapter_segments)
+
             all_input_ids_tensor[
                 start_index:end_index, : batch.all_input_ids_tensor.shape[1]
             ] = batch.all_input_ids_tensor[:, :max_length]
@@ -606,11 +649,7 @@ class FlashCausalLMBatch(Batch):
             device=batches[0].next_token_chooser.device,
         )
 
-        adapter_segments = torch.arange(
-            len(input_lengths) + 1,
-            dtype=torch.int32,
-            device=batches[0].adapter_meta.adapter_segments.device,
-        )
+        adapter_segments = torch.concat(adapter_segment_tensors)
 
         # Needed to avoid dropping blocks when the batches will go out of scope
         for b in batches:
@@ -648,6 +687,7 @@ class FlashCausalLMBatch(Batch):
                 adapter_indices=adapter_indices,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
             ),
         )
 
@@ -844,11 +884,11 @@ class FlashCausalLM(Model):
             # We do not need cu_seqlen_prefill anymore
             batch.cu_seqlen_prefill = None
 
-            next_adapter_indices = batch.adapter_indices.new_empty(len(batch))
+            next_adapter_indices = batch.adapter_meta.adapter_indices.new_empty(len(batch))
         else:
             prefill_logprobs = None
             next_position_ids = batch.position_ids
-            next_adapter_indices = batch.adapter_indices
+            next_adapter_indices = batch.adapter_meta.adapter_indices
 
         # Cumulative length
         cumulative_length = 0
@@ -888,7 +928,7 @@ class FlashCausalLM(Model):
 
                 # Initialize adapter indices
                 # In decode, we only have one token per row in the batch, so grab last index
-                next_adapter_indices[i] = batch.adapter_indices[end_index - 1]
+                next_adapter_indices[i] = batch.adapter_meta.adapter_indices[end_index - 1]
 
                 # Used to gather prefill logprobs
                 # Copy batch.input_ids to prefill_token_indices
@@ -910,7 +950,7 @@ class FlashCausalLM(Model):
         # Set values in batch
         batch.input_ids = next_input_ids
         batch.position_ids = next_position_ids + 1
-        batch.adapter_indices = next_adapter_indices
+        batch.adapter_meta.adapter_indices = next_adapter_indices
         batch.input_lengths_tensor += 1
         batch.slot_indices += 1
 
