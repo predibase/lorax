@@ -33,6 +33,7 @@ import dropout_layer_norm
 import vllm_cache_ops
 import vllm_attention_ops
 
+from text_generation_server.models.flash_causal_lm import AdapterMetadata
 from text_generation_server.utils.flash_attn import attention
 from text_generation_server.utils.layers import (
     TensorParallelRowLinear,
@@ -150,10 +151,10 @@ class LlamaRMSNorm(nn.Module):
             return normed_hidden_states, res
         
 
-def load_attention(config, prefix, weights):
+def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
-    return TensorParallelMultiAdapterLinear.load(base_layer, sizes=[
+    return TensorParallelMultiAdapterLinear.load(base_layer, layer_id, sizes=[
         head_size * config.num_attention_heads,
         head_size * config.num_key_value_heads,
         head_size * config.num_key_value_heads,
@@ -205,6 +206,7 @@ class FlashLlamaAttention(torch.nn.Module):
         prefix: str,
         config,
         weights,
+        layer_id: int,
     ):
         super().__init__()
         self.num_heads = config.num_attention_heads
@@ -230,7 +232,7 @@ class FlashLlamaAttention(torch.nn.Module):
             config.num_key_value_heads // weights.process_group.size()
         )
 
-        self.query_key_value = load_attention(config, prefix, weights)
+        self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
         self.o_proj = TensorParallelRowLinear.load(
             config,
@@ -275,10 +277,9 @@ class FlashLlamaAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
-        adapter_indices,
-        adapter_set,
+        adapter_meta,
     ):
-        qkv = self.query_key_value(hidden_states, adapter_indices, adapter_set)
+        qkv = self.query_key_value(hidden_states, adapter_meta)
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -374,7 +375,7 @@ class FlashLlamaLayer(nn.Module):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
         self.self_attn = FlashLlamaAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights
+            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
         self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
 
@@ -399,8 +400,7 @@ class FlashLlamaLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
-        adapter_indices,
-        adapter_set,
+        adapter_meta,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -415,8 +415,7 @@ class FlashLlamaLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
-            adapter_indices,
-            adapter_set,
+            adapter_meta,
         )
 
         # faster post attention rms norm
@@ -469,8 +468,7 @@ class FlashLlamaModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
-        adapter_indices: torch.Tensor,
-        adapter_set: Set[int],
+        adapter_meta: AdapterMetadata,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
 
@@ -493,8 +491,7 @@ class FlashLlamaModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
-                adapter_indices,
-                adapter_set,
+                adapter_meta,
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -523,8 +520,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
-        adapter_indices: torch.Tensor,
-        adapter_set: Set[int],
+        adapter_meta: AdapterMetadata,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = self.model(
@@ -536,8 +532,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
-            adapter_indices,
-            adapter_set,
+            adapter_meta,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]

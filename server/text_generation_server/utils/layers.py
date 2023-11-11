@@ -15,6 +15,7 @@ except ImportError:
     HAS_BITS_AND_BYTES = False
 
 from accelerate import init_empty_weights
+from punica.ops import add_lora_sgmv_cutlass
 
 from text_generation_server.utils.gptq.quant_linear import QuantLinear
 
@@ -26,6 +27,8 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
+from text_generation_server.models.flash_causal_lm import AdapterMetadata
+from text_generation_server.utils.lora import Q_PROJ, V_PROJ
 from text_generation_server.utils.weights import shard_on_dim
 
 from typing import Optional
@@ -282,9 +285,10 @@ class TensorParallelColumnLinear(SuperLayer):
     
 
 class TensorParallelMultiAdapterLinear(nn.Module):
-    def __init__(self, base_layer, sizes, process_group):
+    def __init__(self, base_layer, layer_id, sizes, process_group):
         super().__init__()
         self.base_layer = base_layer
+        self.layer_id = layer_id
 
         # Offsets corresponding to q, k, v portions of the tensor
         self.q_end = sizes[0] // process_group.size()
@@ -292,10 +296,11 @@ class TensorParallelMultiAdapterLinear(nn.Module):
         self.v_end = (sizes[0] + sizes[1] + sizes[2]) // process_group.size()
 
         self.adapter_layers = []
+        self.process_group = process_group
 
     @classmethod
-    def load(cls, base_layer, sizes, process_group):
-        return TensorParallelMultiAdapterLinear(base_layer, sizes, process_group)
+    def load(cls, base_layer, layer_id, sizes, process_group):
+        return TensorParallelMultiAdapterLinear(base_layer, layer_id, sizes, process_group)
 
     def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
         adapter_layer = TensorParallelAdapterLinear.load(
@@ -315,18 +320,51 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             if adapter_layer.adapter_index != adapter_index
         ]
     
-    def forward(self, input: torch.Tensor, adapter_indices: torch.Tensor, adapter_set: Set[int]) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, adapter_meta: AdapterMetadata) -> torch.Tensor:
         result = self.base_layer(input)
 
-        for adapter_layer in self.adapter_layers:
-            if adapter_layer.adapter_index not in adapter_set:
-                continue
+        if self.process_group.size() == 1:
+            q_proj = result[:, :self.q_end]
+            v_proj = result[:, self.k_end:]
 
-            result_q, result_v = adapter_layer(input, adapter_indices)
-            result[:, :self.q_end] += result_q
-            result[:, self.k_end:] += result_v
+            # TODO(travis): hack for testing
+            rank = 8
+            
+            q_lora_a_ptr = adapter_meta.lora_a_ptrs.get(Q_PROJ)
+            q_lora_b_ptr = adapter_meta.lora_b_ptrs.get(Q_PROJ)
+            if q_lora_a_ptr is not None and q_lora_b_ptr is not None:
+                add_lora_sgmv_cutlass(
+                    q_proj,
+                    input,
+                    q_lora_a_ptr,
+                    q_lora_b_ptr,
+                    adapter_meta.adapter_segments,
+                    self.layer_id,
+                    rank,
+                )
 
-        return result
+            v_lora_a_ptr = adapter_meta.lora_a_ptrs.get(V_PROJ)
+            v_lora_b_ptr = adapter_meta.lora_b_ptrs.get(V_PROJ)
+            if v_lora_a_ptr is not None and v_lora_b_ptr is not None:
+                add_lora_sgmv_cutlass(
+                    v_proj,
+                    input,
+                    v_lora_a_ptr,
+                    v_lora_b_ptr,
+                    adapter_meta.adapter_segments,
+                    self.layer_id,
+                    rank,
+                )
+        else:
+            for adapter_layer in self.adapter_layers:
+                if adapter_layer.adapter_index not in adapter_meta.adapter_set:
+                    continue
+
+                result_q, result_v = adapter_layer(input, adapter_meta.adapter_indices)
+                result[:, :self.q_end] += result_q
+                result[:, self.k_end:] += result_v
+
+            return result
     
 
 # TODO(travis): make this tensor parallel

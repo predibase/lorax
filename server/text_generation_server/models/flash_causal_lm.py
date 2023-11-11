@@ -29,6 +29,16 @@ from text_generation_server.utils.dist import MEMORY_FRACTION
 tracer = trace.get_tracer(__name__)
 
 @dataclass
+class AdapterMetadata:
+    adapter_indices: torch.Tensor
+    adapter_set: Set[int]
+    adapter_segments: torch.Tensor
+    lora_a_ptrs: Dict[str, torch.Tensor] = None
+    lora_b_ptrs: Dict[str, torch.Tensor] = None
+
+
+
+@dataclass
 class FlashCausalLMBatch(Batch):
     batch_id: int
     requests: List[generate_pb2.Request]
@@ -84,8 +94,7 @@ class FlashCausalLMBatch(Batch):
     stopping_criterias: List[StoppingCriteria]
 
     # Adapter metadata for each request
-    adapter_indices: torch.Tensor
-    adapter_set: Set[int]
+    adapter_meta: AdapterMetadata
 
     # Number of blocks in this batch
     blocks: int
@@ -267,6 +276,12 @@ class FlashCausalLMBatch(Batch):
             input_lengths, dtype=torch.int32, device=device
         )
 
+        adapter_segments = torch.cumsum(
+            torch.tensor([0] + input_lengths, dtype=torch.int32, device=device),
+            dim=0,
+            dtype=torch.int32,
+        )
+
         if all_prefill_logprobs:
             prefill_head_indices = None
             prefill_next_token_indices = cu_seqlen_prefill[1:] - 1
@@ -308,8 +323,11 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+            ),
         )
 
     @tracer.start_as_current_span("filter")
@@ -414,7 +432,7 @@ class FlashCausalLMBatch(Batch):
         # Index into tensors
         input_ids = self.input_ids[indices]
         position_ids = self.position_ids[indices]
-        adapter_indices = self.adapter_indices[indices]
+        adapter_indices = self.adapter_meta.adapter_indices[indices]
         all_input_ids_tensor = self.all_input_ids_tensor[indices]
         block_tables_tensor = self.block_tables_tensor[indices]
         input_lengths_tensor = self.input_lengths_tensor[indices]
@@ -425,6 +443,8 @@ class FlashCausalLMBatch(Batch):
 
         # Move to GPU now that we have the whole tensor
         slot_indices = slot_indices.to(device)
+
+        adapter_segments = torch.arange(len(input_lengths) + 1, dtype=torch.int32, device=device)
 
         return type(self)(
             batch_id=self.batch_id,
@@ -453,8 +473,11 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+            ),
         )
 
     @classmethod
@@ -502,8 +525,8 @@ class FlashCausalLMBatch(Batch):
             (total_batch_size, max_length)
         )
 
-        total_indices_size = sum(b.adapter_indices.shape[0] for b in batches)
-        adapter_indices = batches[0].adapter_indices.new_empty(total_indices_size)
+        total_indices_size = sum(b.adapter_meta.adapter_indices.shape[0] for b in batches)
+        adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
         adapter_set = set()
 
         start_slots = []
@@ -546,8 +569,8 @@ class FlashCausalLMBatch(Batch):
 
             # Copy over adapter indices
             adapter_start_index = cumulative_adapter_indices_size
-            adapter_end_index = cumulative_adapter_indices_size + batch.adapter_indices.shape[0]
-            adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_indices
+            adapter_end_index = cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
+            adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_meta.adapter_indices
             cumulative_adapter_indices_size = adapter_end_index
             adapter_set.update(batch.adapter_set)
 
@@ -583,6 +606,12 @@ class FlashCausalLMBatch(Batch):
             device=batches[0].next_token_chooser.device,
         )
 
+        adapter_segments = torch.arange(
+            len(input_lengths) + 1,
+            dtype=torch.int32,
+            device=batches[0].adapter_meta.adapter_segments.device,
+        )
+
         # Needed to avoid dropping blocks when the batches will go out of scope
         for b in batches:
             b.block_tables = None
@@ -615,8 +644,11 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+            ),
         )
 
     def __del__(self):
@@ -750,8 +782,7 @@ class FlashCausalLM(Model):
             slots=batch.slots[batch.slot_indices],
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
-            adapter_indices=batch.adapter_indices,
-            adapter_set=batch.adapter_set,
+            adapter_meta=batch.adapter_meta,
             lm_head_indices=batch.prefill_head_indices,
         )
 
@@ -777,6 +808,13 @@ class FlashCausalLM(Model):
             batch.block_tables = block_tables
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
+
+        # Assign pointers to LoRA weights
+        # TODO(travis): don't update this if indices haven't changed
+        batch.adapter_meta.lora_a_ptrs = {}
+        batch.adapter_meta.lora_b_ptrs = {}
+        for k, v in self.batched_lora_weights.items():
+            batch.adapter_meta.lora_a_ptrs[k], batch.adapter_meta.lora_b_ptrs[k] = v.get_ptrs(batch.adapter_meta.adapter_indices.tolist())
 
         try:
             out = self.forward(batch)
@@ -875,6 +913,15 @@ class FlashCausalLM(Model):
         batch.adapter_indices = next_adapter_indices
         batch.input_lengths_tensor += 1
         batch.slot_indices += 1
+
+        if prefill:
+            # segments during decoding are just increasing ints from 0
+            adapter_segments = batch.adapter_meta.adapter_segments
+            batch.adapter_meta.adapter_segments = torch.arange(
+                len(batch.input_lengths) + 1,
+                dtype=torch.int32,
+                device=adapter_segments.device,
+            )
 
         if prefill and prefill_logprobs:
             # Get prefill logprobs

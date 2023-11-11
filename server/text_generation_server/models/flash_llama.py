@@ -1,3 +1,4 @@
+from collections import defaultdict
 import torch
 import torch.distributed
 
@@ -5,7 +6,7 @@ from loguru import logger
 from opentelemetry import trace
 from transformers.models.llama import LlamaTokenizer, LlamaTokenizerFast
 from tqdm import tqdm
-from typing import Optional
+from typing import Dict, Optional
 
 from text_generation_server.models import FlashCausalLM
 from text_generation_server.models.custom_modeling.flash_llama_modeling import (
@@ -22,6 +23,7 @@ from text_generation_server.utils import (
     Weights,
 )
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from text_generation_server.utils.lora import Q_PROJ, V_PROJ, BatchedLoraWeights, MergedLoraWeights
 
 tracer = trace.get_tracer(__name__)
 
@@ -130,6 +132,8 @@ class FlashLlama(FlashCausalLM):
                 orig_v_proj_device = v_proj.device
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
+
+        self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
     
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         if not self.dynamic_adapter_loading_enabled:
@@ -147,6 +151,12 @@ class FlashLlama(FlashCausalLM):
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
+
+            q_lora_a_list = []
+            q_lora_b_list = []
+
+            v_lora_a_list = []
+            v_lora_b_list = []
             
             prefix = "model.layers"
             for i, layer in tqdm(
@@ -166,13 +176,27 @@ class FlashLlama(FlashCausalLM):
                 v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
                 v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
-                layer.add_adapter(
-                    (q_lora_a, q_lora_b),
-                    (v_lora_a, v_lora_b),
-                    adapter_config,
-                    self.process_group,
-                    adapter_index,
-                )
+                q_lora_a_list.append(q_lora_a)
+                q_lora_b_list.append(q_lora_b)
+
+                v_lora_a_list.append(v_lora_a)
+                v_lora_b_list.append(v_lora_b)
+
+                # layer.add_adapter(
+                #     (q_lora_a, q_lora_b),
+                #     (v_lora_a, v_lora_b),
+                #     adapter_config,
+                #     self.process_group,
+                #     adapter_index,
+                # )
+
+            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list)
+            q_lora_weights = self.batched_lora_weights.get(Q_PROJ)
+            q_lora_weights.add_adapter(adapter_index, q_lora_merged)
+
+            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list)
+            v_lora_weights = self.batched_lora_weights.get(V_PROJ)
+            v_lora_weights.add_adapter(adapter_index, v_lora_merged)
 
             self.adapter_id = adapter_id
 
@@ -191,6 +215,9 @@ class FlashLlama(FlashCausalLM):
         else:
             for layer in self.model.model.layers:
                 layer = layer.self_attn.query_key_value
-                layer.remove_adapter(adapter_index)
+                # layer.remove_adapter(adapter_index)
+
+            self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
+            self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
 
             self.adapter_id = BASE_MODEL_ADAPTER_ID
