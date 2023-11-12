@@ -177,11 +177,11 @@ class FlashLlama(FlashCausalLM):
                 v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
                 v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
-                q_lora_a_list[layer.layer_id] = q_lora_a
-                q_lora_b_list[layer.layer_id] = q_lora_b
+                q_lora_a_list[layer.layer_id] = q_lora_a.transpose(0, 1)
+                q_lora_b_list[layer.layer_id] = q_lora_b.transpose(0, 1)
 
-                v_lora_a_list[layer.layer_id] = v_lora_a
-                v_lora_b_list[layer.layer_id] = v_lora_b
+                v_lora_a_list[layer.layer_id] = v_lora_a.transpose(0, 1)
+                v_lora_b_list[layer.layer_id] = v_lora_b.transpose(0, 1)
 
                 # layer.add_adapter(
                 #     (q_lora_a, q_lora_b),

@@ -855,6 +855,8 @@ class FlashCausalLM(Model):
         # TODO(travis): don't update this if indices haven't changed
         batch.adapter_meta.lora_a_ptrs = {}
         batch.adapter_meta.lora_b_ptrs = {}
+        batch.adapter_meta.lora_a = {}
+        batch.adapter_meta.lora_b = {}
         for k, v in self.batched_lora_weights.items():
             batch.adapter_meta.lora_a_ptrs[k], batch.adapter_meta.lora_b_ptrs[k], batch.adapter_meta.lora_a[k], batch.adapter_meta.lora_b[k] = v.get_ptrs(batch.adapter_meta.segment_indices)
 
