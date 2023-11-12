@@ -359,56 +359,56 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                     print("!!! s [S+1] == adapter_segments", adapter_meta.adapter_segments.shape, adapter_meta.adapter_segments)
                     print("!!! layer_id, rank", self.layer_id, rank)
 
-                # add_lora_sgmv_cutlass(
-                #     q_proj,
-                #     input,
-                #     q_lora_a_ptr,
-                #     q_lora_b_ptr,
-                #     adapter_meta.adapter_segments,
-                #     self.layer_id,
-                #     rank,
-                # )
-
-                lora_ref_impl(
+                add_lora_sgmv_cutlass(
                     q_proj,
                     input,
-                    adapter_meta.lora_a[Q_PROJ],
-                    adapter_meta.lora_b[Q_PROJ],
+                    q_lora_a_ptr,
+                    q_lora_b_ptr,
                     adapter_meta.adapter_segments,
                     self.layer_id,
+                    rank,
                 )
 
-                if self.layer_id == 0:
-                    print("!!! result", result[:, :self.q_end].sum())
-                    print("!!! q_proj", q_proj.sum())
+                # lora_ref_impl(
+                #     q_proj,
+                #     input,
+                #     adapter_meta.lora_a[Q_PROJ],
+                #     adapter_meta.lora_b[Q_PROJ],
+                #     adapter_meta.adapter_segments,
+                #     self.layer_id,
+                # )
+
+                # if self.layer_id == 0:
+                #     print("!!! result", result[:, :self.q_end].sum())
+                #     print("!!! q_proj", q_proj.sum())
 
                 result[:, :self.q_end] += q_proj * scaling
 
             v_lora_a_ptr = adapter_meta.lora_a_ptrs.get(V_PROJ)
             v_lora_b_ptr = adapter_meta.lora_b_ptrs.get(V_PROJ)
             if v_lora_a_ptr is not None and v_lora_b_ptr is not None:
-                # add_lora_sgmv_cutlass(
-                #     v_proj,
-                #     input,
-                #     v_lora_a_ptr,
-                #     v_lora_b_ptr,
-                #     adapter_meta.adapter_segments,
-                #     self.layer_id,
-                #     rank,
-                # )
-
-                lora_ref_impl(
+                add_lora_sgmv_cutlass(
                     v_proj,
                     input,
-                    adapter_meta.lora_a[V_PROJ],
-                    adapter_meta.lora_b[V_PROJ],
+                    v_lora_a_ptr,
+                    v_lora_b_ptr,
                     adapter_meta.adapter_segments,
                     self.layer_id,
+                    rank,
                 )
 
-                if self.layer_id == 0:
-                    print("!!! result", result[:, self.k_end:].sum())
-                    print("!!! v_proj", v_proj.sum())
+                # lora_ref_impl(
+                #     v_proj,
+                #     input,
+                #     adapter_meta.lora_a[V_PROJ],
+                #     adapter_meta.lora_b[V_PROJ],
+                #     adapter_meta.adapter_segments,
+                #     self.layer_id,
+                # )
+
+                # if self.layer_id == 0:
+                #     print("!!! result", result[:, self.k_end:].sum())
+                #     print("!!! v_proj", v_proj.sum())
 
                 result[:, self.k_end:] += v_proj * scaling
             

@@ -191,6 +191,7 @@ class FlashLlama(FlashCausalLM):
                 #     adapter_index,
                 # )
 
+            print("!!! ADDING ADAPTER", adapter_index)
             q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list)
             q_lora_weights = self.batched_lora_weights[Q_PROJ]
             q_lora_weights.add_adapter(adapter_index, q_lora_merged)

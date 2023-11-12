@@ -290,6 +290,7 @@ class FlashCausalLMBatch(Batch):
         )
 
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
+        print("!!! CHECK FROM PB", adapter_segments.shape, len(adapter_segment_indices))
 
         if all_prefill_logprobs:
             prefill_head_indices = None
@@ -465,6 +466,7 @@ class FlashCausalLMBatch(Batch):
         slot_indices = slot_indices.to(device)
 
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
+        print("!!! CHECK FILTER", adapter_segments.shape, len(adapter_segment_indices))
 
         return type(self)(
             batch_id=self.batch_id,
@@ -596,7 +598,7 @@ class FlashCausalLMBatch(Batch):
             adapter_end_index = cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
             adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_meta.adapter_indices
             cumulative_adapter_indices_size = adapter_end_index
-            adapter_set.update(batch.adapter_set)
+            adapter_set.update(batch.adapter_meta.adapter_set)
 
             # Update adapter segments
             adapter_segments = batch.adapter_meta.adapter_segments
@@ -652,6 +654,7 @@ class FlashCausalLMBatch(Batch):
         )
 
         adapter_segments = torch.concat(adapter_segment_tensors)
+        print("!!! CHECK CONCATENATE", adapter_segments.shape, len(adapter_segment_indices))
 
         # Needed to avoid dropping blocks when the batches will go out of scope
         for b in batches:
@@ -858,6 +861,7 @@ class FlashCausalLM(Model):
         batch.adapter_meta.lora_a = {}
         batch.adapter_meta.lora_b = {}
         for k, v in self.batched_lora_weights.items():
+            print("!!! SEGMENTS", batch.adapter_meta.adapter_segments)
             batch.adapter_meta.lora_a_ptrs[k], batch.adapter_meta.lora_b_ptrs[k], batch.adapter_meta.lora_a[k], batch.adapter_meta.lora_b[k] = v.get_ptrs(batch.adapter_meta.segment_indices)
 
         try:
@@ -959,13 +963,23 @@ class FlashCausalLM(Model):
         batch.slot_indices += 1
 
         if prefill:
-            # segments during decoding are just increasing ints from 0
-            adapter_segments = batch.adapter_meta.adapter_segments
-            batch.adapter_meta.adapter_segments = torch.arange(
-                len(batch.input_lengths) + 1,
-                dtype=torch.int32,
-                device=adapter_segments.device,
+            # adjust segment lengths to account for all request lengths being 1 during decoding
+            adapter_segments = [0]
+            adapter_segment_length = 0
+            last_adapter_index = None
+            for r in batch.requests:
+                adapter_segment_length += 1
+                if last_adapter_index != r.adapter_index:
+                    adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                    adapter_segment_length = 0
+                    last_adapter_index = r.adapter_index
+
+            batch.adapter_meta.adapter_segments = torch.tensor(
+                adapter_segments, 
+                dtype=torch.int32, 
+                device=batch.adapter_meta.adapter_segments.device,
             )
+            print("!!! CHECK AFTER GENERATE TOKEN", batch.adapter_meta.adapter_segments.shape, len(batch.adapter_meta.segment_indices))
 
         if prefill and prefill_logprobs:
             # Get prefill logprobs
