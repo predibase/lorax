@@ -1,3 +1,4 @@
+from collections import defaultdict
 import math
 import itertools
 import torch
@@ -7,6 +8,7 @@ import numpy as np
 
 from dataclasses import dataclass
 from opentelemetry import trace
+from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 from typing import Optional, Set, Tuple, List, Type, Union, Dict
 
@@ -24,8 +26,9 @@ from text_generation_server.models.cache_manager import (
 )
 from text_generation_server.pb import generate_pb2
 from text_generation_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
+from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from text_generation_server.utils.dist import MEMORY_FRACTION
-from text_generation_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
+from text_generation_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 
 tracer = trace.get_tracer(__name__)
 
@@ -714,6 +717,10 @@ class FlashCausalLM(Model):
         self.num_kv_heads = num_kv_heads
         self.head_size = head_size
 
+        # This may be set to False in the subclass constructor
+        self.dynamic_adapter_loading_enabled = True
+        self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
+
         super(FlashCausalLM, self).__init__(
             model=model,
             tokenizer=tokenizer,
@@ -725,6 +732,9 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+    def supports_adapter_loading(self) -> bool:
+        return False
+
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.
 
@@ -732,11 +742,94 @@ class FlashCausalLM(Model):
         into model. Otherwise, the adapter weights are merged into the model 
         weights on the fly.
         """
-        raise NotImplementedError
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        # If we are doing dynamic adapter loading, then we need to reset the weights
+        if adapter_id == self.adapter_id:
+            return
+        elif adapter_id != BASE_MODEL_ADAPTER_ID:
+            weight_names = tuple(self.orig_weights.keys())
+            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
+
+            nlayers = len(self.model.model.layers)
+            q_lora_a_list = [None] * nlayers
+            q_lora_b_list = [None] * nlayers
+
+            v_lora_a_list = [None] * nlayers
+            v_lora_b_list = [None] * nlayers
+            
+            prefix = "model.layers"
+            for i, layer in tqdm(
+                enumerate(self.model.model.layers), 
+                desc=f"Merging weights for adapter {adapter_id}",
+                total=len(self.model.model.layers)
+            ):
+                layer = layer.self_attn.query_key_value
+                base_weight = layer.base_layer.linear.weight
+                base_device = base_weight.device
+
+                weight_name = f"{prefix}.{i}.self_attn.q_proj"
+                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                weight_name = f"{prefix}.{i}.self_attn.v_proj"
+                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                q_lora_a_list[layer.layer_id] = q_lora_a.transpose(0, 1)
+                q_lora_b_list[layer.layer_id] = q_lora_b.transpose(0, 1)
+
+                v_lora_a_list[layer.layer_id] = v_lora_a.transpose(0, 1)
+                v_lora_b_list[layer.layer_id] = v_lora_b.transpose(0, 1)
+
+                # layer.add_adapter(
+                #     (q_lora_a, q_lora_b),
+                #     (v_lora_a, v_lora_b),
+                #     adapter_config,
+                #     self.process_group,
+                #     adapter_index,
+                # )
+
+            print("!!! ADDING ADAPTER", adapter_index)
+            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list)
+            q_lora_weights = self.batched_lora_weights[Q_PROJ]
+            q_lora_weights.add_adapter(adapter_index, q_lora_merged)
+
+            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list)
+            v_lora_weights = self.batched_lora_weights[V_PROJ]
+            v_lora_weights.add_adapter(adapter_index, v_lora_merged)
+
+            self.adapter_id = adapter_id
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):
         """Offloads the adapter weights from GPU to CPU or disk."""
-        raise NotImplementedError
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        else:
+            for layer in self.model.model.layers:
+                layer = layer.self_attn.query_key_value
+                # layer.remove_adapter(adapter_index)
+
+            self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
+            self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
+
+            self.adapter_id = BASE_MODEL_ADAPTER_ID
 
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
