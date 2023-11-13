@@ -27,11 +27,8 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
-from text_generation_server.models.flash_causal_lm import AdapterMetadata
-from text_generation_server.utils.lora import Q_PROJ, V_PROJ
+from text_generation_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData
 from text_generation_server.utils.weights import shard_on_dim
-
-from typing import Optional
 
 
 # Monkey patching
@@ -320,105 +317,62 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             if adapter_layer.adapter_index != adapter_index
         ]
     
-    def forward(self, input: torch.Tensor, adapter_meta: AdapterMetadata) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
 
-        def lora_ref_impl(
-            y: torch.Tensor,
-            x: torch.Tensor,
-            wa: torch.Tensor,
-            wb: torch.Tensor,
-            s: torch.IntTensor,
-            layer_idx: int,
+        q_data = adapter_data.data.get(Q_PROJ)
+        v_data = adapter_data.data.get(V_PROJ)
+        if (
+            self.process_group.size() == 1 and 
+            (q_data is not None and q_data.can_vectorize) and 
+            (v_data is not None and v_data.can_vectorize)
         ):
-            for i in range(len(wa)):
-                xi = x[s[i]:s[i + 1]]
-                wai = wa[i][layer_idx, :, :]
-                wbi = wb[i][layer_idx, :, :]
-                yi = y[s[i]:s[i + 1]]
-                tmp = (xi @ wai)
-                y[s[i]:s[i + 1]] = (yi + tmp @ wbi)
-
-        if self.process_group.size() == 1 and adapter_meta.can_vectorize:
             q_proj = torch.zeros_like(result[:, :self.q_end])
             v_proj = torch.zeros_like(result[:, self.k_end:])
 
-            # TODO(travis): hack for testing
-            alpha = 16
-            rank = 8
-            scaling = alpha / rank
-            
-            q_lora_a_ptr = adapter_meta.lora_a_ptrs.get(Q_PROJ)
-            q_lora_b_ptr = adapter_meta.lora_b_ptrs.get(Q_PROJ)
+            q_lora_a_ptr = q_data.lora_a_ptr
+            q_lora_b_ptr = q_data.lora_b_ptr
             if q_lora_a_ptr is not None and q_lora_b_ptr is not None:
                 if self.layer_id == 0:
                     print("!!! y [B, H2] == q_proj", q_proj.shape)
                     print("!!! x [B, H1] == input", input.shape)
                     print("!!! wa_ptr [S] == q_lora_a_ptr", q_lora_a_ptr.shape)
                     print("!!! wb_ptr [S] == q_lora_b_ptr", q_lora_b_ptr.shape)
-                    print("!!! s [S+1] == adapter_segments", adapter_meta.adapter_segments.shape, adapter_meta.adapter_segments)
-                    print("!!! layer_id, rank", self.layer_id, rank)
+                    print("!!! s [S+1] == adapter_segments", adapter_data.meta.adapter_segments.shape, adapter_data.meta.adapter_segments)
+                    print("!!! layer_id, rank", self.layer_id, q_data.rank)
 
                 add_lora_sgmv_cutlass(
                     q_proj,
                     input,
                     q_lora_a_ptr,
                     q_lora_b_ptr,
-                    adapter_meta.adapter_segments,
+                    adapter_data.meta.adapter_segments,
                     self.layer_id,
-                    rank,
+                    q_data.rank,
                 )
+                result[:, :self.q_end] += q_proj * q_data.scaling
 
-                # lora_ref_impl(
-                #     q_proj,
-                #     input,
-                #     adapter_meta.lora_a[Q_PROJ],
-                #     adapter_meta.lora_b[Q_PROJ],
-                #     adapter_meta.adapter_segments,
-                #     self.layer_id,
-                # )
-
-                # if self.layer_id == 0:
-                #     print("!!! result", result[:, :self.q_end].sum())
-                #     print("!!! q_proj", q_proj.sum())
-
-                result[:, :self.q_end] += q_proj * scaling
-
-            v_lora_a_ptr = adapter_meta.lora_a_ptrs.get(V_PROJ)
-            v_lora_b_ptr = adapter_meta.lora_b_ptrs.get(V_PROJ)
+            v_lora_a_ptr = v_data.lora_a_ptr
+            v_lora_b_ptr = v_data.lora_b_ptr
             if v_lora_a_ptr is not None and v_lora_b_ptr is not None:
                 add_lora_sgmv_cutlass(
                     v_proj,
                     input,
                     v_lora_a_ptr,
                     v_lora_b_ptr,
-                    adapter_meta.adapter_segments,
+                    adapter_data.meta.adapter_segments,
                     self.layer_id,
-                    rank,
+                    v_data.rank,
                 )
-
-                # lora_ref_impl(
-                #     v_proj,
-                #     input,
-                #     adapter_meta.lora_a[V_PROJ],
-                #     adapter_meta.lora_b[V_PROJ],
-                #     adapter_meta.adapter_segments,
-                #     self.layer_id,
-                # )
-
-                # if self.layer_id == 0:
-                #     print("!!! result", result[:, self.k_end:].sum())
-                #     print("!!! v_proj", v_proj.sum())
-
-                result[:, self.k_end:] += v_proj * scaling
+                result[:, self.k_end:] += v_proj * v_data.scaling
             
             return result
         else:
             for adapter_layer in self.adapter_layers:
-                if adapter_layer.adapter_index not in adapter_meta.adapter_set:
+                if adapter_layer.adapter_index not in adapter_data.meta.adapter_set:
                     continue
 
-                result_q, result_v = adapter_layer(input, adapter_meta.adapter_indices)
+                result_q, result_v = adapter_layer(input, adapter_data.meta.adapter_indices)
                 result[:, :self.q_end] += result_q
                 result[:, self.k_end:] += result_v
 

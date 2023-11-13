@@ -803,7 +803,7 @@ class FlashCausalLM(Model):
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
 
-    def forward(self, batch: FlashCausalLMBatch) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         global CACHE_MANAGER
 
         # Model Forward
@@ -816,7 +816,7 @@ class FlashCausalLM(Model):
             slots=batch.slots[batch.slot_indices],
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
-            adapter_meta=batch.adapter_meta,
+            adapter_data=adapter_data,
             lm_head_indices=batch.prefill_head_indices,
         )
 
@@ -848,7 +848,7 @@ class FlashCausalLM(Model):
         adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
 
         try:
-            out = self.forward(batch)
+            out = self.forward(batch, adapter_data)
         except Exception as e:
             del batch
             raise e
