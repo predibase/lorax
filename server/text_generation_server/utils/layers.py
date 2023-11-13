@@ -339,7 +339,7 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                 tmp = (xi @ wai)
                 y[s[i]:s[i + 1]] = (yi + tmp @ wbi)
 
-        if self.process_group.size() == 1:
+        if self.process_group.size() == 1 and adapter_meta.can_vectorize:
             q_proj = torch.zeros_like(result[:, :self.q_end])
             v_proj = torch.zeros_like(result[:, self.k_end:])
 

@@ -25,20 +25,9 @@ from text_generation_server.models.cache_manager import (
 from text_generation_server.pb import generate_pb2
 from text_generation_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from text_generation_server.utils.dist import MEMORY_FRACTION
+from text_generation_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
 
 tracer = trace.get_tracer(__name__)
-
-@dataclass
-class AdapterMetadata:
-    adapter_indices: torch.Tensor
-    adapter_set: Set[int]
-    adapter_segments: torch.Tensor
-    segment_indices: List[int]
-    lora_a_ptrs: Dict[str, torch.Tensor] = None
-    lora_b_ptrs: Dict[str, torch.Tensor] = None
-    lora_a: Dict[str, List[torch.Tensor]] = None
-    lora_b: Dict[str, List[torch.Tensor]] = None
-
 
 
 @dataclass
@@ -97,7 +86,7 @@ class FlashCausalLMBatch(Batch):
     stopping_criterias: List[StoppingCriteria]
 
     # Adapter metadata for each request
-    adapter_meta: AdapterMetadata
+    adapter_meta: AdapterBatchMetadata
 
     # Number of blocks in this batch
     blocks: int
@@ -333,7 +322,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_meta=AdapterMetadata(
+            adapter_meta=AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
@@ -495,7 +484,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_meta=AdapterMetadata(
+            adapter_meta=AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
@@ -688,7 +677,7 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_meta=AdapterMetadata(
+            adapter_meta=AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
@@ -856,13 +845,7 @@ class FlashCausalLM(Model):
 
         # Assign pointers to LoRA weights
         # TODO(travis): don't update this if indices haven't changed
-        batch.adapter_meta.lora_a_ptrs = {}
-        batch.adapter_meta.lora_b_ptrs = {}
-        batch.adapter_meta.lora_a = {}
-        batch.adapter_meta.lora_b = {}
-        for k, v in self.batched_lora_weights.items():
-            print("!!! SEGMENTS", batch.adapter_meta.adapter_segments)
-            batch.adapter_meta.lora_a_ptrs[k], batch.adapter_meta.lora_b_ptrs[k], batch.adapter_meta.lora_a[k], batch.adapter_meta.lora_b[k] = v.get_ptrs(batch.adapter_meta.segment_indices)
+        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
 
         try:
             out = self.forward(batch)
