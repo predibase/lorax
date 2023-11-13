@@ -396,6 +396,7 @@ class FlashMistral(FlashCausalLM):
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
 
+    @property
     def supports_adapter_loading(self) -> bool:
         return True
 

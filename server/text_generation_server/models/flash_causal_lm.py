@@ -732,6 +732,7 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+    @property
     def supports_adapter_loading(self) -> bool:
         return False
 
@@ -742,6 +743,9 @@ class FlashCausalLM(Model):
         into model. Otherwise, the adapter weights are merged into the model 
         weights on the fly.
         """
+        if not self.supports_adapter_loading:
+            raise ValueError("This model does not support adapter loading.")
+        
         if not self.dynamic_adapter_loading_enabled:
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 return
@@ -810,6 +814,9 @@ class FlashCausalLM(Model):
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):
         """Offloads the adapter weights from GPU to CPU or disk."""
+        if not self.supports_adapter_loading:
+            raise ValueError("This model does not support adapter loading.")
+        
         if not self.dynamic_adapter_loading_enabled:
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 return
