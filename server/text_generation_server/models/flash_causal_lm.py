@@ -802,11 +802,11 @@ class FlashCausalLM(Model):
                 # )
 
             print("!!! ADDING ADAPTER", adapter_index)
-            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list)
+            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list, adapter_config)
             q_lora_weights = self.batched_lora_weights[Q_PROJ]
             q_lora_weights.add_adapter(adapter_index, q_lora_merged)
 
-            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list)
+            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list, adapter_config)
             v_lora_weights = self.batched_lora_weights[V_PROJ]
             v_lora_weights.add_adapter(adapter_index, v_lora_merged)
 
