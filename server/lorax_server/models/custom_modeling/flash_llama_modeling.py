@@ -43,7 +43,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from text_generation_server.utils.lora import AdapterBatchData
+from lorax_server.utils.lora import AdapterBatchData
 
 
 class LlamaConfig(PretrainedConfig):

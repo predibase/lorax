@@ -43,7 +43,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from text_generation_server.utils.lora import AdapterBatchData
+from lorax_server.utils.lora import AdapterBatchData
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mistral model requires flash attn v2")

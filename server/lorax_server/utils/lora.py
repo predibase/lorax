@@ -5,7 +5,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from text_generation_server.utils.weights import shard_on_dim
+from lorax_server.utils.weights import shard_on_dim
 
 
 # Constants
