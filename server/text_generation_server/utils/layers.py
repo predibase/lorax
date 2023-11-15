@@ -315,14 +315,6 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             q_lora_a_ptr = q_data.lora_a_ptr
             q_lora_b_ptr = q_data.lora_b_ptr
             if q_lora_a_ptr is not None and q_lora_b_ptr is not None:
-                if self.layer_id == 0:
-                    print("!!! y [B, H2] == q_proj", q_proj.shape)
-                    print("!!! x [B, H1] == input", input.shape)
-                    print("!!! wa_ptr [S] == q_lora_a_ptr", q_lora_a_ptr.shape)
-                    print("!!! wb_ptr [S] == q_lora_b_ptr", q_lora_b_ptr.shape)
-                    print("!!! s [S+1] == adapter_segments", adapter_data.meta.adapter_segments.shape, adapter_data.meta.adapter_segments)
-                    print("!!! layer_id, rank", self.layer_id, q_data.rank)
-
                 add_lora_sgmv_cutlass(
                     q_proj,
                     input,
