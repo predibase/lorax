@@ -46,7 +46,7 @@ class AdapterWeightData:
         return alpha / self.rank
     
     def scaling_for_adapter(self, adapter_idx: int) -> float:
-        return self.adapter_index_configs[adapter_idx].alpha / self.adapter_index_configs[adapter_idx].r
+        return self.adapter_index_configs[adapter_idx].lora_alpha / self.adapter_index_configs[adapter_idx].r
 
 
 @dataclass
@@ -101,42 +101,48 @@ class BatchedLoraWeights:
     def remove_adapter(self, adapter_idx: int):
         del self.lora_weights[adapter_idx]
 
-    def get_data(self, segment_indices: List[int]) -> AdapterWeightData:
+    def get_data(self, meta: AdapterBatchMetadata) -> AdapterWeightData:
         device = list(self.lora_weights.values())[0].weights_a.device
+        segment_indices = meta.segment_indices
+
+        print("!!! SEGMENT INDICES", segment_indices)
+        for idx in segment_indices:
+            if idx in self.lora_weights:
+                print("!!! IN INDICES", idx)
+                a = self.lora_weights[idx].weights_a
+            else:
+                print("!!! NOT IN INDICES", idx)
+                a = None
+
         lora_a = [
-            self.lora_weights[idx].weights_a 
-            if idx in self.lora_weights else None 
+            (self.lora_weights[idx].weights_a if idx in self.lora_weights else None)
             for idx in segment_indices
         ]
         lora_a_ptr = torch.tensor(
-            [w.data_ptr() if w is not None else EMPTY_TENSOR.data_ptr() for w in lora_a],
+            [(w.data_ptr() if w is not None else EMPTY_TENSOR.data_ptr()) for w in lora_a],
             dtype=torch.int64,
             device=device,
         )
         lora_b = [
-            self.lora_weights[idx].weights_b 
-            if idx in self.lora_weights else None 
+            (self.lora_weights[idx].weights_b if idx in self.lora_weights else None) 
             for idx in segment_indices
         ]
         lora_b_ptr = torch.tensor(
-            [w.data_ptr() if w is not None else EMPTY_TENSOR.data_ptr() for w in lora_b],
+            [(w.data_ptr() if w is not None else EMPTY_TENSOR.data_ptr()) for w in lora_b],
             dtype=torch.int64,
             device=device,
         )
 
         r = set([
-            self.lora_weights[idx].adapter_config.r 
-            if idx in self.lora_weights else None 
+            (self.lora_weights[idx].adapter_config.r if idx in self.lora_weights else None)
             for idx in segment_indices
         ])
         alpha = set([
-            self.lora_weights[idx].adapter_config.alpha 
-            if idx in self.lora_weights else None 
+            (self.lora_weights[idx].adapter_config.lora_alpha if idx in self.lora_weights else None) 
             for idx in segment_indices
         ])
         adapter_index_configs = {
-            idx: self.lora_weights[idx].adapter_config 
-            if idx in self.lora_weights else None 
+            idx: (self.lora_weights[idx].adapter_config if idx in self.lora_weights else None) 
             for idx in segment_indices
         }
 
