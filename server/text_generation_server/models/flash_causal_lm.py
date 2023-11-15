@@ -282,7 +282,6 @@ class FlashCausalLMBatch(Batch):
         )
 
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
-        print("!!! CHECK FROM PB", adapter_segments.shape, len(adapter_segment_indices))
 
         if all_prefill_logprobs:
             prefill_head_indices = None
@@ -458,7 +457,6 @@ class FlashCausalLMBatch(Batch):
         slot_indices = slot_indices.to(device)
 
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
-        print("!!! CHECK FILTER", adapter_segments.shape, len(adapter_segment_indices))
 
         return type(self)(
             batch_id=self.batch_id,
@@ -646,7 +644,6 @@ class FlashCausalLMBatch(Batch):
         )
 
         adapter_segments = torch.concat(adapter_segment_tensors)
-        print("!!! CHECK CONCATENATE", adapter_segments.shape, len(adapter_segment_indices))
 
         # Needed to avoid dropping blocks when the batches will go out of scope
         for b in batches:
@@ -793,7 +790,6 @@ class FlashCausalLM(Model):
                 v_lora_a_list[layer.layer_id] = v_lora_a.transpose(0, 1)
                 v_lora_b_list[layer.layer_id] = v_lora_b.transpose(0, 1)
 
-            print("!!! ADDING ADAPTER", adapter_index)
             q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list, adapter_config, self.process_group)
             q_lora_weights = self.batched_lora_weights[Q_PROJ]
             q_lora_weights.add_adapter(adapter_index, q_lora_merged)
@@ -1050,7 +1046,6 @@ class FlashCausalLM(Model):
                 dtype=torch.int32, 
                 device=batch.adapter_meta.adapter_segments.device,
             )
-            print("!!! CHECK AFTER GENERATE TOKEN", batch.adapter_meta.adapter_segments.shape, len(batch.adapter_meta.segment_indices))
 
         if prefill and prefill_logprobs:
             # Get prefill logprobs
