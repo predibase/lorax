@@ -13,7 +13,7 @@ S3_BASE_DIRECTORY="models--$OBJECT_ID"
 S3_PATH="s3://${HF_CACHE_BUCKET}/${S3_BASE_DIRECTORY}/"
 LOCAL_MODEL_DIR="${HUGGINGFACE_HUB_CACHE}/${S3_BASE_DIRECTORY}"
 
-# Function to check if text-generation-launcher is running
+# Function to check if lorax-launcher is running
 is_launcher_running() {
     local launcher_pid="$1"
     # this checks whether the process is alive or not. Redirects the output of kill -0 to devnull.
@@ -36,13 +36,13 @@ if [ -z "$(aws s3 ls ${S3_PATH})" ]; then
   # Trap SIGTERM signals and call the cleanup function
   trap '' SIGTERM SIGKILL EXIT
 
-  # text-generation-server download-weights $MODEL_ID 
-  text-generation-launcher "$@" &
+  # lorax-server download-weights $MODEL_ID 
+  lorax-launcher "$@" &
 
   # Capture the PID of the process we just launched
   launcher_pid="$!"
 
-  # Loop to continuously check if text-generation-launcher is running
+  # Loop to continuously check if lorax-launcher is running
   while is_launcher_running "$launcher_pid"; do
       sleep 1
   done

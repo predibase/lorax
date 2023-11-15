@@ -150,7 +150,7 @@ async fn generate(
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
-    metrics::increment_counter!("tgi_request_count");
+    metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.0.inputs);
 
@@ -263,23 +263,23 @@ async fn generate(
     );
 
     // Metrics
-    metrics::increment_counter!("tgi_request_success");
-    metrics::histogram!("tgi_request_duration", total_time.as_secs_f64());
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
     metrics::histogram!(
-        "tgi_request_validation_duration",
+        "lorax_request_validation_duration",
         validation_time.as_secs_f64()
     );
-    metrics::histogram!("tgi_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
     metrics::histogram!(
-        "tgi_request_inference_duration",
+        "lorax_request_inference_duration",
         inference_time.as_secs_f64()
     );
     metrics::histogram!(
-        "tgi_request_mean_time_per_token_duration",
+        "lorax_request_mean_time_per_token_duration",
         time_per_token.as_secs_f64()
     );
     metrics::histogram!(
-        "tgi_request_generated_tokens",
+        "lorax_request_generated_tokens",
         response.generated_text.generated_tokens as f64
     );
 
@@ -343,7 +343,7 @@ async fn generate_stream(
 ) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
-    metrics::increment_counter!("tgi_request_count");
+    metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.0.inputs);
 
@@ -371,12 +371,12 @@ async fn generate_stream(
         let best_of = req.0.parameters.best_of.unwrap_or(1);
         if best_of != 1 {
             let err = InferError::from(ValidationError::BestOfStream);
-            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
+            metrics::increment_counter!("lorax_request_failure", "err" => "validation");
             tracing::error!("{err}");
             yield Ok(Event::from(err));
         } else if req.0.parameters.decoder_input_details {
             let err = InferError::from(ValidationError::PrefillDetailsStream);
-            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
+            metrics::increment_counter!("lorax_request_failure", "err" => "validation");
             tracing::error!("{err}");
             yield Ok(Event::from(err));
         } else {
@@ -436,13 +436,13 @@ async fn generate_stream(
                                         span.record("seed", format!("{:?}", generated_text.seed));
 
                                         // Metrics
-                                        metrics::increment_counter!("tgi_request_success");
-                                        metrics::histogram!("tgi_request_duration", total_time.as_secs_f64());
-                                        metrics::histogram!("tgi_request_validation_duration", validation_time.as_secs_f64());
-                                        metrics::histogram!("tgi_request_queue_duration", queue_time.as_secs_f64());
-                                        metrics::histogram!("tgi_request_inference_duration", inference_time.as_secs_f64());
-                                        metrics::histogram!("tgi_request_mean_time_per_token_duration", time_per_token.as_secs_f64());
-                                        metrics::histogram!("tgi_request_generated_tokens", generated_text.generated_tokens as f64);
+                                        metrics::increment_counter!("lorax_request_success");
+                                        metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+                                        metrics::histogram!("lorax_request_validation_duration", validation_time.as_secs_f64());
+                                        metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+                                        metrics::histogram!("lorax_request_inference_duration", inference_time.as_secs_f64());
+                                        metrics::histogram!("lorax_request_mean_time_per_token_duration", time_per_token.as_secs_f64());
+                                        metrics::histogram!("lorax_request_generated_tokens", generated_text.generated_tokens as f64);
 
                                         // StreamResponse
                                         end_reached = true;
@@ -485,7 +485,7 @@ async fn generate_stream(
             // Skip if we already sent an error
             if !end_reached && !error {
                 let err = InferError::IncompleteGeneration;
-                metrics::increment_counter!("tgi_request_failure", "err" => "incomplete");
+                metrics::increment_counter!("lorax_request_failure", "err" => "incomplete");
                 tracing::error!("{err}");
                 yield Ok(Event::from(err));
             }
@@ -607,22 +607,22 @@ pub async fn run(
         duration_buckets.push(value);
     }
     // Input Length buckets
-    let input_length_matcher = Matcher::Full(String::from("tgi_request_input_length"));
+    let input_length_matcher = Matcher::Full(String::from("lorax_request_input_length"));
     let input_length_buckets: Vec<f64> = (0..100)
         .map(|x| (max_input_length as f64 / 100.0) * (x + 1) as f64)
         .collect();
     // Generated tokens buckets
-    let generated_tokens_matcher = Matcher::Full(String::from("tgi_request_generated_tokens"));
+    let generated_tokens_matcher = Matcher::Full(String::from("lorax_request_generated_tokens"));
     let generated_tokens_buckets: Vec<f64> = (0..100)
         .map(|x| (max_total_tokens as f64 / 100.0) * (x + 1) as f64)
         .collect();
     // Input Length buckets
-    let max_new_tokens_matcher = Matcher::Full(String::from("tgi_request_max_new_tokens"));
+    let max_new_tokens_matcher = Matcher::Full(String::from("lorax_request_max_new_tokens"));
     let max_new_tokens_buckets: Vec<f64> = (0..100)
         .map(|x| (max_total_tokens as f64 / 100.0) * (x + 1) as f64)
         .collect();
     // Batch size buckets
-    let batch_size_matcher = Matcher::Full(String::from("tgi_batch_next_size"));
+    let batch_size_matcher = Matcher::Full(String::from("lorax_batch_next_size"));
     let batch_size_buckets: Vec<f64> = (0..1024).map(|x| (x + 1) as f64).collect();
 
     // Prometheus handler
@@ -746,7 +746,7 @@ pub async fn run(
             let _ngrok_username = ngrok_username;
             let _ngrok_password = ngrok_password;
 
-            panic!("`text-generation-router` was compiled without the `ngrok` feature");
+            panic!("`lorax-router` was compiled without the `ngrok` feature");
         }
     } else {
         // Run server

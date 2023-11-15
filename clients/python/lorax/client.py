@@ -15,7 +15,7 @@ from lorax.errors import parse_error
 
 
 class Client:
-    """Client to make calls to a text-generation-inference instance
+    """Client to make calls to a lorax-inference instance
 
      Example:
 
@@ -45,7 +45,7 @@ class Client:
         """
         Args:
             base_url (`str`):
-                text-generation-inference instance base url
+                lorax-inference instance base url
             headers (`Optional[Dict[str, str]]`):
                 Additional headers
             cookies (`Optional[Dict[str, str]]`):
@@ -256,7 +256,7 @@ class Client:
 
 
 class AsyncClient:
-    """Asynchronous Client to make calls to a text-generation-inference instance
+    """Asynchronous Client to make calls to a lorax-inference instance
 
      Example:
 
@@ -287,7 +287,7 @@ class AsyncClient:
         """
         Args:
             base_url (`str`):
-                text-generation-inference instance base url
+                lorax-inference instance base url
             headers (`Optional[Dict[str, str]]`):
                 Additional headers
             cookies (`Optional[Dict[str, str]]`):

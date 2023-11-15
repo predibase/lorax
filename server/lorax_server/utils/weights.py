@@ -137,7 +137,7 @@ class Weights:
                 )
             except RuntimeError:
                 raise RuntimeError(
-                    "Cannot load `gptq` weight, make sure the model is already quantized, or quantize it with `text-generation-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
+                    "Cannot load `gptq` weight, make sure the model is already quantized, or quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
                 )
 
             qzeros = torch.cat(
@@ -187,7 +187,7 @@ class Weights:
                 qweight = self.get_sharded(f"{prefix}.qweight", dim=0)
             except RuntimeError:
                 raise RuntimeError(
-                    "Cannot load `gptq` weight, make sure the model is already quantized, or quantize it with `text-generation-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
+                    "Cannot load `gptq` weight, make sure the model is already quantized, or quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
                 )
 
             from lorax_server.utils.layers import HAS_EXLLAMA

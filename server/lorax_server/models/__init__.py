@@ -304,7 +304,7 @@ def get_model(
         raise ValueError("sharded is not supported for AutoModel")
     if quantize == "gptq":
         raise ValueError(
-            "gptq quantization is not supported for AutoModel, you can try to quantize it with `text-generation-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
+            "gptq quantization is not supported for AutoModel, you can try to quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
         )
 
     if model_type in modeling_auto.MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:

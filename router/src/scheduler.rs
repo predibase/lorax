@@ -236,7 +236,7 @@ impl AdapterSchedulerState {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
-                metrics::increment_counter!("tgi_request_failure", "err" => "dropped");
+                metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                 continue;
             }
 
@@ -338,7 +338,7 @@ impl AdapterSchedulerState {
         // Increment batch id
         self.next_batch_id += 1;
 
-        metrics::histogram!("tgi_batch_next_size", batch.size as f64);
+        metrics::histogram!("lorax_batch_next_size", batch.size as f64);
 
         Some((batch_entries, batch, next_batch_span))
     }

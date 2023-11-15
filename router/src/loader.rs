@@ -116,7 +116,7 @@ async fn loader_task(
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
-                    metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
+                    metrics::increment_counter!("lorax_request_failure", "err" => "download_adapter");
                     let mut locked_state = queues_state.lock().unwrap();
                     if locked_state.has_adapter(&adapter) {
                         // Above check guards against the case where the adapter was terminated between the initial
@@ -143,7 +143,7 @@ async fn loader_task(
                     // if we have a download error, we send an error to the entry response
                     Err(error) => {
                         tracing::info!("FAILED downloading adapter {}", adapter.id());
-                        metrics::increment_counter!("tgi_request_failure", "err" => "download_adapter");
+                        metrics::increment_counter!("lorax_request_failure", "err" => "download_adapter");
                         let mut locked_state = queues_state.lock().unwrap();
                         if locked_state.has_adapter(&adapter) {
                             // Above check guards against the case where the adapter was terminated between the initial
@@ -161,7 +161,7 @@ async fn loader_task(
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
-                    metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
+                    metrics::increment_counter!("lorax_request_failure", "err" => "load_adapter");
                     let mut locked_state = queues_state.lock().unwrap();
                     if locked_state.has_adapter(&adapter) {
                         locked_state.set_status(&adapter, AdapterStatus::Errored);
@@ -182,7 +182,7 @@ async fn loader_task(
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         tracing::info!("FAILED loading adapter {}", adapter.id());
-                        metrics::increment_counter!("tgi_request_failure", "err" => "load_adapter");
+                        metrics::increment_counter!("lorax_request_failure", "err" => "load_adapter");
                         queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         // response_sender.send(()).unwrap();
@@ -196,7 +196,7 @@ async fn loader_task(
                 span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
-                    metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
+                    metrics::increment_counter!("lorax_request_failure", "err" => "offload_adapter");
                     let mut locked_state = queues_state.lock().unwrap();
                     if locked_state.has_adapter(&adapter) {
                         locked_state.set_status(&adapter, AdapterStatus::Errored);
@@ -217,7 +217,7 @@ async fn loader_task(
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         tracing::info!("FAILED offloading adapter {}", adapter.id());
-                        metrics::increment_counter!("tgi_request_failure", "err" => "offload_adapter");
+                        metrics::increment_counter!("lorax_request_failure", "err" => "offload_adapter");
                         queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         // response_sender.send(()).unwrap();
