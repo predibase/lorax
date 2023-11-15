@@ -31,6 +31,15 @@ class AdapterWeightData:
 
     @property
     def can_vectorize(self) -> bool:
+        # Currently we can only use the SGMV kernel when the following criteria are met:
+        #   1. All adapters have the same r
+        #   2. All adapters have the same alpha
+        #   3. The base model (no adapter) is not contained in the batch
+        #
+        # TODO(travis): we should remove 3 as a constraint as quickly as possible,
+        #   as many requests will likely come in for the base model in parallel with
+        #   adapters. One solution is to create a zeroed out tensor with the same shape,
+        #   the other is to rework the kernel to handle this case as a missing segment.
         return len(self.r) == 1 and len(self.alpha) == 1 and None not in self.r
     
     def has_adapter(self, adapter_index: int) -> bool:
