@@ -5,13 +5,13 @@ from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
 from typing import Dict, Optional, List, AsyncIterator, Iterator
 
-from text_generation.types import (
+from lorax.types import (
     StreamResponse,
     Response,
     Request,
     Parameters,
 )
-from text_generation.errors import parse_error
+from lorax.errors import parse_error
 
 
 class Client:
@@ -20,7 +20,7 @@ class Client:
      Example:
 
      ```python
-     >>> from text_generation import Client
+     >>> from lorax import Client
 
      >>> client = Client("https://api-inference.huggingface.co/models/bigscience/bloomz")
      >>> client.generate("Why is the sky blue?").generated_text
@@ -261,7 +261,7 @@ class AsyncClient:
      Example:
 
      ```python
-     >>> from text_generation import AsyncClient
+     >>> from lorax import AsyncClient
 
      >>> client = AsyncClient("https://api-inference.huggingface.co/models/bigscience/bloomz")
      >>> response = await client.generate("Why is the sky blue?")

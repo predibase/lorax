@@ -14,5 +14,5 @@
 
 __version__ = "0.3.0"
 
-from text_generation.client import Client, AsyncClient
-from text_generation.inference_api import InferenceAPIClient, InferenceAPIAsyncClient
+from lorax.client import Client, AsyncClient
+from lorax.inference_api import InferenceAPIClient, InferenceAPIAsyncClient

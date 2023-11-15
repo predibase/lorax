@@ -4,9 +4,9 @@ import requests
 from typing import Dict, Optional, List
 from huggingface_hub.utils import build_hf_headers
 
-from text_generation import Client, AsyncClient, __version__
-from text_generation.types import DeployedModel
-from text_generation.errors import NotSupportedError, parse_error
+from lorax import Client, AsyncClient, __version__
+from lorax.types import DeployedModel
+from lorax.errors import NotSupportedError, parse_error
 
 INFERENCE_ENDPOINT = os.environ.get(
     "HF_INFERENCE_ENDPOINT", "https://api-inference.huggingface.co"
@@ -65,7 +65,7 @@ class InferenceAPIClient(Client):
      Example:
 
      ```python
-     >>> from text_generation import InferenceAPIClient
+     >>> from lorax import InferenceAPIClient
 
      >>> client = InferenceAPIClient("bigscience/bloomz")
      >>> client.generate("Why is the sky blue?").generated_text
@@ -121,7 +121,7 @@ class InferenceAPIAsyncClient(AsyncClient):
      Example:
 
      ```python
-     >>> from text_generation import InferenceAPIAsyncClient
+     >>> from lorax import InferenceAPIAsyncClient
 
      >>> client = InferenceAPIAsyncClient("bigscience/bloomz")
      >>> response = await client.generate("Why is the sky blue?")
