@@ -6,7 +6,7 @@ from huggingface_hub.utils import (
     RevisionNotFoundError,
 )
 
-from text_generation_server.utils.sources.hub import (
+from lorax_server.utils.sources.hub import (
     weight_hub_files,
     download_weights,
     weight_files,

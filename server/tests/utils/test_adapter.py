@@ -1,7 +1,7 @@
 import torch
 from peft import LoraConfig
 
-from text_generation_server.utils.adapter import merge_adapter_weights
+from lorax_server.utils.adapter import merge_adapter_weights
 
 
 def test_merge_adapter_weights():

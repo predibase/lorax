@@ -15,7 +15,7 @@ pip install text-generation
 ### Inference API Usage
 
 ```python
-from text_generation import InferenceAPIClient
+from lorax import InferenceAPIClient
 
 client = InferenceAPIClient("bigscience/bloomz")
 text = client.generate("Why is the sky blue?").generated_text
@@ -35,7 +35,7 @@ print(text)
 or with the asynchronous client:
 
 ```python
-from text_generation import InferenceAPIAsyncClient
+from lorax import InferenceAPIAsyncClient
 
 client = InferenceAPIAsyncClient("bigscience/bloomz")
 response = await client.generate("Why is the sky blue?")
@@ -55,7 +55,7 @@ print(text)
 Check all currently deployed models on the Huggingface Inference API with `Text Generation` support:
 
 ```python
-from text_generation.inference_api import deployed_models
+from lorax.inference_api import deployed_models
 
 print(deployed_models())
 ```
@@ -63,7 +63,7 @@ print(deployed_models())
 ### Hugging Face Inference Endpoint usage
 
 ```python
-from text_generation import Client
+from lorax import Client
 
 endpoint_url = "https://YOUR_ENDPOINT.endpoints.huggingface.cloud"
 
@@ -85,7 +85,7 @@ print(text)
 or with the asynchronous client:
 
 ```python
-from text_generation import AsyncClient
+from lorax import AsyncClient
 
 endpoint_url = "https://YOUR_ENDPOINT.endpoints.huggingface.cloud"
 

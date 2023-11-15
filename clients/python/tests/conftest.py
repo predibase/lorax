@@ -1,6 +1,6 @@
 import pytest
 
-from text_generation import __version__
+from lorax import __version__
 from huggingface_hub.utils import build_hf_headers
 
 

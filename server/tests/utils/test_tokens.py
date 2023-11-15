@@ -1,4 +1,4 @@
-from text_generation_server.utils.tokens import (
+from lorax_server.utils.tokens import (
     StopSequenceCriteria,
     StoppingCriteria,
     FinishReason,

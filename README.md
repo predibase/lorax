@@ -113,7 +113,7 @@ pip install text-generation
 ```
 
 ```python
-from text_generation import Client
+from lorax import Client
 
 client = Client("http://127.0.0.1:8080")
 print(client.generate("What is Deep Learning?", max_new_tokens=20).generated_text)

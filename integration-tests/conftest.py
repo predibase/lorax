@@ -15,8 +15,8 @@ from typing import Optional, List, Dict
 from syrupy.extensions.json import JSONSnapshotExtension
 from aiohttp import ClientConnectorError, ClientOSError, ServerDisconnectedError
 
-from text_generation import AsyncClient
-from text_generation.types import Response, Details, InputToken, Token, BestOfSequence
+from lorax import AsyncClient
+from lorax.types import Response, Details, InputToken, Token, BestOfSequence
 
 DOCKER_IMAGE = os.getenv("DOCKER_IMAGE", None)
 HUGGING_FACE_HUB_TOKEN = os.getenv("HUGGING_FACE_HUB_TOKEN", None)
