@@ -52,7 +52,7 @@ def query_tgi(args):
         "details": True,
     }
     if adapter_id is not None:
-        request_params["adapter_source"] = "local"
+        # request_params["adapter_source"] = "local"
         request_params["adapter_id"] = adapter_id
         
     print("request_params", request_params)    
@@ -104,8 +104,8 @@ completes the request.
 
 ### Response:
 """
-    NUM_REQUESTS = 20
-    N = 8
+    NUM_REQUESTS = 500
+    N = 128
     adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
         get_local_path(f"arnavgrg/codealpaca_v3_{i}")
         for i in range(1, N)

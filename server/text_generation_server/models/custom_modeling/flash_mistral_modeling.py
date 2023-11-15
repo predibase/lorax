@@ -43,6 +43,7 @@ from text_generation_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
+from text_generation_server.utils.lora import AdapterBatchData
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mistral model requires flash attn v2")
@@ -155,10 +156,10 @@ class MistralRMSNorm(nn.Module):
             return normed_hidden_states, res
         
 
-def load_attention(config, prefix, weights):
+def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
-    return TensorParallelMultiAdapterLinear.load(base_layer, sizes=[
+    return TensorParallelMultiAdapterLinear.load(base_layer, layer_id, sizes=[
         head_size * config.num_attention_heads,
         head_size * config.num_key_value_heads,
         head_size * config.num_key_value_heads,
@@ -210,6 +211,7 @@ class MistralAttention(torch.nn.Module):
         prefix: str,
         config,
         weights,
+        layer_id: int,
     ):
         super().__init__()
         self.max_past = (
@@ -238,7 +240,7 @@ class MistralAttention(torch.nn.Module):
             config.num_key_value_heads // weights.process_group.size()
         )
 
-        self.query_key_value = load_attention(config, prefix, weights)
+        self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
         self.o_proj = TensorParallelRowLinear.load(
             config,
@@ -283,11 +285,10 @@ class MistralAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
-        adapter_indices,
-        adapter_set,
+        adapter_data,
         prefill_cache_indices,
     ):
-        qkv = self.query_key_value(hidden_states, adapter_indices, adapter_set)
+        qkv = self.query_key_value(hidden_states, adapter_data)
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -389,7 +390,7 @@ class MistralLayer(nn.Module):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
         self.self_attn = MistralAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights
+            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
         self.mlp = MistralMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
 
@@ -414,8 +415,7 @@ class MistralLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
-        adapter_indices,
-        adapter_set,
+        adapter_data,
         prefill_cache_indices,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
@@ -431,8 +431,7 @@ class MistralLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
-            adapter_indices,
-            adapter_set,
+            adapter_data,
             prefill_cache_indices,
         )
 
@@ -486,8 +485,7 @@ class MistralModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
-        adapter_indices: torch.Tensor,
-        adapter_set: Set[int],
+        adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
@@ -511,8 +509,7 @@ class MistralModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
-                adapter_indices,
-                adapter_set,
+                adapter_data,
                 prefill_cache_indices,
             )
 
@@ -545,8 +542,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
-        adapter_indices: torch.Tensor,
-        adapter_set: Set[int],
+        adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -568,8 +564,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
-            adapter_indices,
-            adapter_set,
+            adapter_data,
             prefill_cache_indices,
         )
         if lm_head_indices is not None:

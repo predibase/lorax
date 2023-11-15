@@ -24,8 +24,8 @@ install: gen-server install-torch
 	pip install -e ".[bnb, accelerate]"
 
 run-dev:
-	SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=1 text_generation_server/cli.py serve meta-llama/Llama-2-7b-hf --sharded
-	# SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=1 text_generation_server/cli.py serve alexsherstinsky/Mistral-7B-v0.1-sharded --sharded
+	# SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=1 text_generation_server/cli.py serve meta-llama/Llama-2-7b-hf --sharded
+	SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=1 text_generation_server/cli.py serve alexsherstinsky/Mistral-7B-v0.1-sharded --sharded
 
 export-requirements:
 	poetry export -o requirements.txt -E bnb -E quantize --without-hashes
