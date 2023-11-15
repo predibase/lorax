@@ -7,9 +7,9 @@ from transformers import (
     AutoTokenizer,
     AutoConfig,
 )
-from text_generation_server.models.custom_modeling.opt_modeling import OPTForCausalLM
-from text_generation_server.models import CausalLM
-from text_generation_server.utils import (
+from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
+from lorax_server.models import CausalLM
+from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
     Weights,

@@ -5,15 +5,15 @@ from opentelemetry import trace
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, PreTrainedTokenizerBase
 from typing import Optional, Tuple, List, Type, Dict
 
-from text_generation_server.models import Model
-from text_generation_server.models.types import (
+from lorax_server.models import Model
+from lorax_server.models.types import (
     GeneratedText,
     Batch,
     Generation,
     PrefillTokens,
 )
-from text_generation_server.pb import generate_pb2
-from text_generation_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.pb import generate_pb2
+from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
 
 tracer = trace.get_tracer(__name__)
 
@@ -58,7 +58,7 @@ class Seq2SeqLMBatch(Batch):
     max_tokens: int
 
     def to_pb(self) -> generate_pb2.CachedBatch:
-        """Convert a Seq2SeqLMBatch to a text_generation_server.v1.CachedBatch protobuf"""
+        """Convert a Seq2SeqLMBatch to a lorax_server.v1.CachedBatch protobuf"""
         return generate_pb2.CachedBatch(
             id=self.batch_id,
             request_ids=[r.id for r in self.requests],
@@ -74,7 +74,7 @@ class Seq2SeqLMBatch(Batch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "Seq2SeqLMBatch":
-        """Convert a text_generation_server.v1.Batch protobuf to a Seq2SeqLMBatch"""
+        """Convert a lorax_server.v1.Batch protobuf to a Seq2SeqLMBatch"""
         inputs = []
         next_token_choosers = []
         stopping_criterias = []

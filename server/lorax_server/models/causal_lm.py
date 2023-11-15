@@ -6,15 +6,15 @@ from opentelemetry import trace
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizerBase
 from typing import Optional, Tuple, List, Type, Dict
 
-from text_generation_server.models import Model
-from text_generation_server.models.types import (
+from lorax_server.models import Model
+from lorax_server.models.types import (
     Batch,
     PrefillTokens,
     Generation,
     GeneratedText,
 )
-from text_generation_server.pb import generate_pb2
-from text_generation_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.pb import generate_pb2
+from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
 
 tracer = trace.get_tracer(__name__)
 

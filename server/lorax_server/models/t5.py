@@ -8,11 +8,11 @@ from transformers import (
     AutoConfig,
 )
 
-from text_generation_server.models import Seq2SeqLM
-from text_generation_server.models.custom_modeling.t5_modeling import (
+from lorax_server.models import Seq2SeqLM
+from lorax_server.models.custom_modeling.t5_modeling import (
     T5ForConditionalGeneration,
 )
-from text_generation_server.utils import (
+from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
     Weights,

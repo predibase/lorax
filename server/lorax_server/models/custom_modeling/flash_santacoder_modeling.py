@@ -9,8 +9,8 @@ from typing import Optional, List, Tuple
 import vllm_cache_ops
 import vllm_attention_ops
 
-from text_generation_server.utils.flash_attn import attention
-from text_generation_server.utils.layers import (
+from lorax_server.utils.flash_attn import attention
+from lorax_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelHead,
@@ -78,7 +78,7 @@ def _load_multi_mqa_gptq(
         g_idx = g_idx.to(device=weights.device)
         bits, groupsize = weights._get_gptq_params()
 
-        from text_generation_server.utils.layers import HAS_EXLLAMA
+        from lorax_server.utils.layers import HAS_EXLLAMA
 
         use_exllama = HAS_EXLLAMA
         weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)

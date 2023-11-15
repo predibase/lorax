@@ -9,11 +9,11 @@ from transformers import (
     AutoConfig,
     PreTrainedTokenizerBase,
 )
-from text_generation_server.models import CausalLM
-from text_generation_server.models.causal_lm import CausalLMBatch
-from text_generation_server.pb import generate_pb2
-from text_generation_server.models.custom_modeling.opt_modeling import OPTForCausalLM
-from text_generation_server.utils import (
+from lorax_server.models import CausalLM
+from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.pb import generate_pb2
+from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
+from lorax_server.utils import (
     NextTokenChooser,
     StoppingCriteria,
     initialize_torch_distributed,

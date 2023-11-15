@@ -5,12 +5,12 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from typing import Optional
 
-from text_generation_server.models import FlashCausalLM
-from text_generation_server.models.custom_modeling.flash_rw_modeling import (
+from lorax_server.models import FlashCausalLM
+from lorax_server.models.custom_modeling.flash_rw_modeling import (
     RWConfig,
     FlashRWForCausalLM,
 )
-from text_generation_server.utils import (
+from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
     Weights,

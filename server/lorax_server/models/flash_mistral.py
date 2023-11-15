@@ -12,17 +12,17 @@ from transformers.models.llama import LlamaTokenizerFast
 from tqdm import tqdm
 from typing import Optional, Tuple, Type
 
-from text_generation_server.pb import generate_pb2
-from text_generation_server.models import FlashCausalLM
-from text_generation_server.models.flash_causal_lm import FlashCausalLMBatch, BLOCK_SIZE
-from text_generation_server.models.cache_manager import (
+from lorax_server.pb import generate_pb2
+from lorax_server.models import FlashCausalLM
+from lorax_server.models.flash_causal_lm import FlashCausalLMBatch, BLOCK_SIZE
+from lorax_server.models.cache_manager import (
     get_cache_manager,
 )
-from text_generation_server.models.custom_modeling.flash_mistral_modeling import (
+from lorax_server.models.custom_modeling.flash_mistral_modeling import (
     FlashMistralForCausalLM,
     MistralConfig,
 )
-from text_generation_server.utils import (
+from lorax_server.utils import (
     compute_delta_weight,
     create_merged_weight_files,
     get_start_stop_idxs_for_rank,
@@ -33,7 +33,7 @@ from text_generation_server.utils import (
     HeterogeneousNextTokenChooser,
     StoppingCriteria,
 )
-from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 tracer = trace.get_tracer(__name__)
 

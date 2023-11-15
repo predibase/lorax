@@ -10,9 +10,9 @@ from texttable import Texttable
 from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
 from huggingface_hub import HfApi
 from accelerate import init_empty_weights
-from text_generation_server.utils import initialize_torch_distributed, Weights
-from text_generation_server.utils import weight_files
-from text_generation_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.utils import initialize_torch_distributed, Weights
+from lorax_server.utils import weight_files
+from lorax_server.utils.gptq.quant_linear import QuantLinear
 from loguru import logger
 from typing import Optional
 

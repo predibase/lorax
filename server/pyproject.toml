@@ -5,7 +5,7 @@ description = "Text Generation Inference Python gRPC Server"
 authors = ["Olivier Dehaene <olivier@huggingface.co>"]
 
 [tool.poetry.scripts]
-text-generation-server = 'text_generation_server.cli:app'
+text-generation-server = 'lorax_server.cli:app'
 
 [tool.poetry.dependencies]
 python = "^3.9"

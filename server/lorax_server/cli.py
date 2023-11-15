@@ -56,7 +56,7 @@ def serve(
     logger.add(
         sys.stdout,
         format="{file}:{line} {message}",
-        filter="text_generation_server",
+        filter="lorax_server",
         level=logger_level,
         serialize=json_output,
         backtrace=True,
@@ -64,8 +64,8 @@ def serve(
     )
 
     # Import here after the logger is added to log potential import exceptions
-    from text_generation_server import server
-    from text_generation_server.tracing import setup_tracing
+    from lorax_server import server
+    from lorax_server.tracing import setup_tracing
 
     # Setup OpenTelemetry distributed tracing
     if otlp_endpoint is not None:
@@ -90,8 +90,8 @@ def _download_weights(
     source: str = "hub",
 ):
     # Import here after the logger is added to log potential import exceptions
-    from text_generation_server import utils
-    from text_generation_server.utils import sources
+    from lorax_server import utils
+    from lorax_server.utils import sources
     model_source = sources.get_model_source(source, model_id, revision, extension)
 
     # Test if files were already download
@@ -188,7 +188,7 @@ def download_weights(
     logger.add(
         sys.stdout,
         format="{file}:{line} {message}",
-        filter="text_generation_server",
+        filter="lorax_server",
         level=logger_level,
         serialize=json_output,
         backtrace=True,
@@ -219,7 +219,7 @@ def quantize(
         logger_level=logger_level,
         json_output=json_output,
     )
-    from text_generation_server.utils.gptq.quantize import quantize
+    from lorax_server.utils.gptq.quantize import quantize
 
     quantize(
         model_id=model_id,

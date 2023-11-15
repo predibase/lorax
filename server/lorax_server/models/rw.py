@@ -3,7 +3,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Optional, Tuple
 
-from text_generation_server.models import CausalLM
+from lorax_server.models import CausalLM
 
 
 class RW(CausalLM):

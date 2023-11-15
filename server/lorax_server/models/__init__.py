@@ -6,19 +6,19 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.models.auto import modeling_auto
 from typing import Optional
 
-from text_generation_server.models.model import Model
-from text_generation_server.models.causal_lm import CausalLM
-from text_generation_server.models.flash_causal_lm import FlashCausalLM
-from text_generation_server.models.bloom import BLOOMSharded
-from text_generation_server.models.mpt import MPTSharded
-from text_generation_server.models.seq2seq_lm import Seq2SeqLM
-from text_generation_server.models.rw import RW
-from text_generation_server.models.opt import OPTSharded
-from text_generation_server.models.galactica import GalacticaSharded
-from text_generation_server.models.santacoder import SantaCoder
-from text_generation_server.models.t5 import T5Sharded
-from text_generation_server.models.gpt_neox import GPTNeoxSharded
-from text_generation_server.utils.sources import get_s3_model_local_dir
+from lorax_server.models.model import Model
+from lorax_server.models.causal_lm import CausalLM
+from lorax_server.models.flash_causal_lm import FlashCausalLM
+from lorax_server.models.bloom import BLOOMSharded
+from lorax_server.models.mpt import MPTSharded
+from lorax_server.models.seq2seq_lm import Seq2SeqLM
+from lorax_server.models.rw import RW
+from lorax_server.models.opt import OPTSharded
+from lorax_server.models.galactica import GalacticaSharded
+from lorax_server.models.santacoder import SantaCoder
+from lorax_server.models.t5 import T5Sharded
+from lorax_server.models.gpt_neox import GPTNeoxSharded
+from lorax_server.utils.sources import get_s3_model_local_dir
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -47,12 +47,12 @@ FLASH_ATT_ERROR_MESSAGE = "{} requires Flash Attention enabled models."
 
 FLASH_ATTENTION = True
 try:
-    from text_generation_server.models.flash_rw import FlashRWSharded
-    from text_generation_server.models.flash_neox import FlashNeoXSharded
-    from text_generation_server.models.flash_llama import (
+    from lorax_server.models.flash_rw import FlashRWSharded
+    from lorax_server.models.flash_neox import FlashNeoXSharded
+    from lorax_server.models.flash_llama import (
         FlashLlama,
     )
-    from text_generation_server.models.flash_santacoder import (
+    from lorax_server.models.flash_santacoder import (
         FlashSantacoderSharded,
     )
 
@@ -68,7 +68,7 @@ if FLASH_ATTENTION:
     
 MISTRAL = True
 try:
-    from text_generation_server.models.flash_mistral import FlashMistral
+    from lorax_server.models.flash_mistral import FlashMistral
 except ImportError as e:
     logger.warning(f"Could not import Mistral model: {e}")
     MISTRAL = False

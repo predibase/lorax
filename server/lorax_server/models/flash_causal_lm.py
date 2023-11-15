@@ -10,21 +10,21 @@ from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
 from typing import Optional, Set, Tuple, List, Type, Union, Dict
 
-from text_generation_server.models import Model
-from text_generation_server.models.types import (
+from lorax_server.models import Model
+from lorax_server.models.types import (
     Batch,
     PrefillTokens,
     Generation,
     GeneratedText,
 )
-from text_generation_server.models.cache_manager import (
+from lorax_server.models.cache_manager import (
     get_cache_manager,
     set_cache_manager,
     BLOCK_SIZE,
 )
-from text_generation_server.pb import generate_pb2
-from text_generation_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
-from text_generation_server.utils.dist import MEMORY_FRACTION
+from lorax_server.pb import generate_pb2
+from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
+from lorax_server.utils.dist import MEMORY_FRACTION
 
 tracer = trace.get_tracer(__name__)
 

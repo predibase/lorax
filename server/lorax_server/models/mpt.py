@@ -8,13 +8,13 @@ from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBas
 from huggingface_hub import hf_hub_download
 import json
 
-from text_generation_server.models import CausalLM
-from text_generation_server.models.causal_lm import CausalLMBatch
-from text_generation_server.pb import generate_pb2
-from text_generation_server.models.custom_modeling.mpt_modeling import (
+from lorax_server.models import CausalLM
+from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.pb import generate_pb2
+from lorax_server.models.custom_modeling.mpt_modeling import (
     MPTForCausalLM,
 )
-from text_generation_server.utils import (
+from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
     Weights,

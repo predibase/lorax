@@ -1,8 +1,8 @@
 import pytest
 
-from text_generation_server.pb import generate_pb2
-from text_generation_server.models.causal_lm import CausalLMBatch
-from text_generation_server.models.santacoder import SantaCoder
+from lorax_server.pb import generate_pb2
+from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.models.santacoder import SantaCoder
 
 
 @pytest.fixture(scope="session")

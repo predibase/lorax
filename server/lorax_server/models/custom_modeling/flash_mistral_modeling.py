@@ -33,8 +33,8 @@ import dropout_layer_norm
 import vllm_cache_ops
 import vllm_attention_ops
 
-from text_generation_server.utils.flash_attn import attention, HAS_FLASH_ATTN_V2
-from text_generation_server.utils.layers import (
+from lorax_server.utils.flash_attn import attention, HAS_FLASH_ATTN_V2
+from lorax_server.utils.layers import (
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,

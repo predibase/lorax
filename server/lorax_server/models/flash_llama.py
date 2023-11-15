@@ -7,12 +7,12 @@ from transformers.models.llama import LlamaTokenizer, LlamaTokenizerFast
 from tqdm import tqdm
 from typing import Optional
 
-from text_generation_server.models import FlashCausalLM
-from text_generation_server.models.custom_modeling.flash_llama_modeling import (
+from lorax_server.models import FlashCausalLM
+from lorax_server.models.custom_modeling.flash_llama_modeling import (
     FlashLlamaForCausalLM,
     LlamaConfig,
 )
-from text_generation_server.utils import (
+from lorax_server.utils import (
     compute_delta_weight,
     create_merged_weight_files,
     get_start_stop_idxs_for_rank,
@@ -21,7 +21,7 @@ from text_generation_server.utils import (
     weight_files,
     Weights,
 )
-from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 tracer = trace.get_tracer(__name__)
 

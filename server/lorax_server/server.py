@@ -11,14 +11,14 @@ from grpc_reflection.v1alpha import reflection
 from pathlib import Path
 from typing import List, Optional
 
-from text_generation_server.cache import Cache
-from text_generation_server.cli import download_weights
-from text_generation_server.interceptor import ExceptionInterceptor
-from text_generation_server.models import Model, get_model
-from text_generation_server.pb import generate_pb2_grpc, generate_pb2
-from text_generation_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from text_generation_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
-from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.cache import Cache
+from lorax_server.cli import download_weights
+from lorax_server.interceptor import ExceptionInterceptor
+from lorax_server.models import Model, get_model
+from lorax_server.pb import generate_pb2_grpc, generate_pb2
+from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
+from lorax_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
 class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
@@ -223,7 +223,7 @@ def serve(
                 # When using GPTQ, Exllama kernels need some global kernels
                 # For which we have the finale shapes only after the model has loaded
                 # This will allocate those buffers.
-                from text_generation_server.utils.gptq.exllama import (
+                from lorax_server.utils.gptq.exllama import (
                     create_exllama_buffers,
                     set_device,
                 )

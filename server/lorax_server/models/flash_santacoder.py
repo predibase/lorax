@@ -8,11 +8,11 @@ import json
 import os
 
 from huggingface_hub import hf_hub_download
-from text_generation_server.models import FlashCausalLM
-from text_generation_server.models.custom_modeling.flash_santacoder_modeling import (
+from lorax_server.models import FlashCausalLM
+from lorax_server.models.custom_modeling.flash_santacoder_modeling import (
     FlashSantacoderForCausalLM,
 )
-from text_generation_server.utils import (
+from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
     Weights,

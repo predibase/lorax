@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, TypeVar, Type
 from transformers import PreTrainedTokenizerBase, PretrainedConfig
 
-from text_generation_server.models.types import Batch, GeneratedText
-from text_generation_server.pb.generate_pb2 import InfoResponse
+from lorax_server.models.types import Batch, GeneratedText
+from lorax_server.pb.generate_pb2 import InfoResponse
 
 B = TypeVar("B", bound=Batch)
 

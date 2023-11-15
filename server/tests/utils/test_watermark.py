@@ -3,7 +3,7 @@
 import os
 import numpy as np
 import torch
-from text_generation_server.utils.watermark import WatermarkLogitsProcessor
+from lorax_server.utils.watermark import WatermarkLogitsProcessor
 
 
 GAMMA = os.getenv("WATERMARK_GAMMA", 0.5)

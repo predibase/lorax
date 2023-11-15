@@ -10,8 +10,8 @@ from typing import Optional, List, Tuple
 import vllm_cache_ops
 import vllm_attention_ops
 
-from text_generation_server.utils.flash_attn import attention
-from text_generation_server.utils.layers import (
+from lorax_server.utils.flash_attn import attention
+from lorax_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,

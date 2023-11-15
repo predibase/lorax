@@ -3,7 +3,7 @@ import torch
 
 from transformers import AutoTokenizer
 
-from text_generation_server.models import Model
+from lorax_server.models import Model
 
 
 def get_test_model():
