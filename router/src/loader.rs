@@ -3,7 +3,7 @@ use crate::adapter::Adapter;
 use crate::infer::InferError;
 use std::sync::Mutex;
 use std::{sync::Arc, collections::HashMap};
-use text_generation_client::ShardedClient;
+use lorax_client::ShardedClient;
 use tokio::sync::oneshot;
 use tracing::Span;
 
@@ -299,7 +299,7 @@ enum AdapterLoaderCommand {
 // #[cfg(test)]
 // mod tests {
 //     use super::*;
-//     use text_generation_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+//     use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
 //     use tracing::info_span;
 
 //     fn default_entry() -> (

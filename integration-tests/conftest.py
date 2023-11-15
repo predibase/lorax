@@ -240,7 +240,7 @@ def launcher(event_loop):
         if trust_remote_code:
             args.append("--trust-remote-code")
 
-        env["LOG_LEVEL"] = "info,text_generation_router=debug"
+        env["LOG_LEVEL"] = "info,lorax_router=debug"
 
         if not use_flash_attention:
             env["USE_FLASH_ATTENTION"] = "false"
@@ -295,7 +295,7 @@ def launcher(event_loop):
 
         gpu_count = num_shard if num_shard is not None else 1
 
-        env = {"LOG_LEVEL": "info,text_generation_router=debug"}
+        env = {"LOG_LEVEL": "info,lorax_router=debug"}
         if not use_flash_attention:
             env["USE_FLASH_ATTENTION"] = "false"
 

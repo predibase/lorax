@@ -1,7 +1,7 @@
 use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{AdapterEvent, AdapterQueuesState}};
 use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}, cmp::min};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
-use text_generation_client::{ShardedClient, Batch, Request};
+use lorax_client::{ShardedClient, Batch, Request};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tracing::{info_span, Span, instrument};

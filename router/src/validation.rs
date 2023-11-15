@@ -3,7 +3,7 @@ use crate::adapter::Adapter;
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
 use rand::{thread_rng, Rng};
-use text_generation_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
 use tokenizers::TruncationDirection;

@@ -1,7 +1,7 @@
 /// Inspired by https://github.com/hatoo/oha/blob/bb989ea3cd77727e7743e7daa60a19894bb5e901/src/monitor.rs
 use crate::generation::{Decode, Message, Prefill};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use text_generation_client::ClientError;
+use lorax_client::ClientError;
 use tokio::sync::mpsc;
 use tui::backend::Backend;
 use tui::layout::{Alignment, Constraint, Direction, Layout};

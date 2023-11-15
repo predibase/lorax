@@ -4,7 +4,7 @@
 /// and: https://github.com/orhun/rust-tui-template
 use clap::Parser;
 use std::path::Path;
-use text_generation_client::ShardedClient;
+use lorax_client::ShardedClient;
 use tokenizers::{FromPretrainedParameters, Tokenizer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -167,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Connected");
 
             // Run app
-            text_generation_benchmark::run(
+            lorax_benchmark::run(
                 tokenizer_name,
                 tokenizer,
                 batch_size,

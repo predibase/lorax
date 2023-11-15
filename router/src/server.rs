@@ -21,7 +21,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use text_generation_client::{ShardInfo, ShardedClient};
+use lorax_client::{ShardInfo, ShardedClient};
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
@@ -789,11 +789,11 @@ async fn shutdown_signal() {
 
 impl From<i32> for FinishReason {
     fn from(finish_reason: i32) -> Self {
-        let finish_reason = text_generation_client::FinishReason::from_i32(finish_reason).unwrap();
+        let finish_reason = lorax_client::FinishReason::from_i32(finish_reason).unwrap();
         match finish_reason {
-            text_generation_client::FinishReason::Length => FinishReason::Length,
-            text_generation_client::FinishReason::EosToken => FinishReason::EndOfSequenceToken,
-            text_generation_client::FinishReason::StopSequence => FinishReason::StopSequence,
+            lorax_client::FinishReason::Length => FinishReason::Length,
+            lorax_client::FinishReason::EosToken => FinishReason::EndOfSequenceToken,
+            lorax_client::FinishReason::StopSequence => FinishReason::StopSequence,
         }
     }
 }

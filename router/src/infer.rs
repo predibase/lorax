@@ -16,7 +16,7 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
-use text_generation_client::{
+use lorax_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
