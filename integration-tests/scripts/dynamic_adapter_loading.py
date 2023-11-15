@@ -117,6 +117,7 @@ completes the request.
     # ]
 
     # adapters += [None]
+    # adapters = [None]
 
     # adapters += [
     # #     get_local_path("arnavgrg/codealpaca_v3"),

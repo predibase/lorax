@@ -22,8 +22,8 @@ EMPTY_TENSOR = torch.tensor([])
 class AdapterWeightData:
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
-    lora_a: List[torch.Tensor]
-    lora_b: List[torch.Tensor]
+    lora_a: Dict[int, torch.Tensor]
+    lora_b: Dict[int, torch.Tensor]
 
     r: Set[int]
     alpha: Set[int]
@@ -31,7 +31,7 @@ class AdapterWeightData:
 
     @property
     def can_vectorize(self) -> bool:
-        return len(self.r) == 1 and len(self.alpha) == 1
+        return len(self.r) == 1 and len(self.alpha) == 1 and None not in self.r
     
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
@@ -46,7 +46,8 @@ class AdapterWeightData:
         return alpha / self.rank
     
     def scaling_for_adapter(self, adapter_idx: int) -> float:
-        return self.adapter_index_configs[adapter_idx].lora_alpha / self.adapter_index_configs[adapter_idx].r
+        cfg = self.adapter_index_configs[adapter_idx]
+        return cfg.lora_alpha / cfg.r
 
 
 @dataclass
@@ -105,30 +106,35 @@ class BatchedLoraWeights:
         device = list(self.lora_weights.values())[0].weights_a.device
         segment_indices = meta.segment_indices
 
-        print("!!! SEGMENT INDICES", segment_indices)
-        for idx in segment_indices:
-            if idx in self.lora_weights:
-                print("!!! IN INDICES", idx)
-                a = self.lora_weights[idx].weights_a
-            else:
-                print("!!! NOT IN INDICES", idx)
-                a = None
-
-        lora_a = [
-            (self.lora_weights[idx].weights_a if idx in self.lora_weights else None)
+        lora_a = {
+            idx: self.lora_weights[idx].weights_a
             for idx in segment_indices
-        ]
+            if idx in self.lora_weights
+        }
         lora_a_ptr = torch.tensor(
-            [(w.data_ptr() if w is not None else EMPTY_TENSOR.data_ptr()) for w in lora_a],
+            [
+                (
+                    self.lora_weights[idx].weights_a.data_ptr() 
+                    if idx in self.lora_weights 
+                    else EMPTY_TENSOR.data_ptr()
+                ) for idx in segment_indices
+            ],
             dtype=torch.int64,
             device=device,
         )
-        lora_b = [
-            (self.lora_weights[idx].weights_b if idx in self.lora_weights else None) 
+        lora_b = {
+            idx: self.lora_weights[idx].weights_b
             for idx in segment_indices
-        ]
+            if idx in self.lora_weights
+        }
         lora_b_ptr = torch.tensor(
-            [(w.data_ptr() if w is not None else EMPTY_TENSOR.data_ptr()) for w in lora_b],
+            [
+                (
+                    self.lora_weights[idx].weights_b.data_ptr() 
+                    if idx in self.lora_weights 
+                    else EMPTY_TENSOR.data_ptr()
+                ) for idx in segment_indices
+            ],
             dtype=torch.int64,
             device=device,
         )
@@ -142,8 +148,9 @@ class BatchedLoraWeights:
             for idx in segment_indices
         ])
         adapter_index_configs = {
-            idx: (self.lora_weights[idx].adapter_config if idx in self.lora_weights else None) 
+            idx: self.lora_weights[idx].adapter_config
             for idx in segment_indices
+            if idx in self.lora_weights
         }
 
         return AdapterWeightData(

@@ -373,7 +373,7 @@ class TensorParallelMultiAdapterLinear(nn.Module):
         scaling = data.scaling_for_adapter(adapter_index)
 
         try:
-            lora_a = data.lora_a[self.layer_id, :, :]
+            lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
             a_out = input @ lora_a
 
             if world_size > 1:
@@ -388,7 +388,7 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                 torch.distributed.all_gather(gathered_tensors, a_out)
                 a_out = torch.cat(gathered_tensors, dim=1)
             
-            lora_b = data.lora_b[self.layer_id, :, :]
+            lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
             result = (a_out @ lora_b) * scaling * adapter_mask
         except Exception as e:
             raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={lora_a.shape}, lora_b={lora_b.shape}") from e
