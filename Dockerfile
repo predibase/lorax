@@ -8,7 +8,6 @@ FROM chef as planner
 COPY Cargo.toml Cargo.toml
 COPY rust-toolchain.toml rust-toolchain.toml
 COPY proto proto
-COPY benchmark benchmark
 COPY router router
 COPY launcher launcher
 RUN cargo chef prepare --recipe-path recipe.json
@@ -30,7 +29,6 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY Cargo.toml Cargo.toml
 COPY rust-toolchain.toml rust-toolchain.toml
 COPY proto proto
-COPY benchmark benchmark
 COPY router router
 COPY launcher launcher
 RUN cargo build --release
@@ -199,8 +197,6 @@ RUN cd server && \
     make gen-server && \
     pip install ".[bnb, accelerate, quantize]" --no-cache-dir
 
-# Install benchmarker
-COPY --from=builder /usr/src/target/release/text-generation-benchmark /usr/local/bin/text-generation-benchmark
 # Install router
 COPY --from=builder /usr/src/target/release/text-generation-router /usr/local/bin/text-generation-router
 # Install launcher
