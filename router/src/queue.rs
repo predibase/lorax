@@ -163,7 +163,7 @@ pub(crate) struct AdapterQueuesState {
 }
 
 impl AdapterQueuesState {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(max_active_adapters: usize, adapter_cycle_time_s: u64) -> Self {
         let queue_map = HashMap::new();
         let pending_adapters = VecDeque::new();
         let active_adapters = VecDeque::new();
@@ -174,8 +174,8 @@ impl AdapterQueuesState {
             pending_adapters,
             active_adapters,
             tracked_adapters,
-            max_active_adapters: 128,
-            max_active_time: Duration::from_secs(2),
+            max_active_adapters: max_active_adapters,
+            max_active_time: Duration::from_secs(adapter_cycle_time_s),
             next_id: 0,
         }
     }
