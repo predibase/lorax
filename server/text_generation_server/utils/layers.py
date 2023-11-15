@@ -27,7 +27,7 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
-from text_generation_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData
+from text_generation_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData, AdapterWeightData
 from text_generation_server.utils.weights import shard_on_dim
 
 
@@ -368,15 +368,57 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             
             return result
         else:
-            for adapter_layer in self.adapter_layers:
-                if adapter_layer.adapter_index not in adapter_data.meta.adapter_set:
-                    continue
-
-                result_q, result_v = adapter_layer(input, adapter_data.meta.adapter_indices)
+            for adapter_index in adapter_data.meta.adapter_set:
+                result_q, result_v = self.forward_lora(
+                    input, q_data, v_data, adapter_index, adapter_data.meta.adapter_indices,
+                )
                 result[:, :self.q_end] += result_q
                 result[:, self.k_end:] += result_v
 
             return result
+    
+    def forward_lora(
+        self,
+        input: torch.Tensor,
+        q_data: AdapterWeightData,
+        v_data: AdapterWeightData,
+        adapter_index: int,
+        adapter_indices: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        world_size = self.process_group.size()
+        q_scaling = q_data.scaling_for_adapter(adapter_index)
+        v_scaling = v_data.scaling_for_adapter(adapter_index)
+
+        adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype).view(-1, 1)
+        try:
+            q_lora_a = q_data.lora_a[self.layer_id, :, :]
+            v_lora_a = v_data.lora_a[self.layer_id, :, :]
+            q_a_out = input @ q_lora_a
+            v_a_out = input @ v_lora_a
+
+            if world_size > 1:
+                # Tensor parallel implementation of X @ A@B, where A and B are sharded column-wise.
+                # We use an all-gather between X@A and (X@A)@B to ensure alignment across ranks.
+                #
+                # TODO(travis): this is not very efficient as we do an all gather for every adapter,
+                #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
+                #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
+                #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
+                gathered_tensors = [torch.empty_like(q_a_out) for _ in range(world_size)]
+                torch.distributed.all_gather(gathered_tensors, q_a_out)
+                q_a_out = torch.cat(gathered_tensors, dim=1)
+
+                gathered_tensors = [torch.empty_like(v_a_out) for _ in range(world_size)]
+                torch.distributed.all_gather(gathered_tensors, v_a_out)
+                v_a_out = torch.cat(gathered_tensors, dim=1)
+            
+            q_lora_b = q_data.lora_b[self.layer_id, :, :]
+            v_lora_b = v_data.lora_b[self.layer_id, :, :]
+            result_q = (q_a_out @ q_lora_b) * q_scaling * adapter_mask
+            result_v = (v_a_out @ v_lora_b) * v_scaling * adapter_mask
+        except Exception as e:
+            raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={self.q_lora_a.weight.shape}, lora_b={self.q_lora_b.weight.shape}") from e
+        return result_q, result_v
     
 
 # TODO(travis): make this tensor parallel

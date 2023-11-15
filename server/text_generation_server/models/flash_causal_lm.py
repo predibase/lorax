@@ -793,20 +793,12 @@ class FlashCausalLM(Model):
                 v_lora_a_list[layer.layer_id] = v_lora_a.transpose(0, 1)
                 v_lora_b_list[layer.layer_id] = v_lora_b.transpose(0, 1)
 
-                # layer.add_adapter(
-                #     (q_lora_a, q_lora_b),
-                #     (v_lora_a, v_lora_b),
-                #     adapter_config,
-                #     self.process_group,
-                #     adapter_index,
-                # )
-
             print("!!! ADDING ADAPTER", adapter_index)
-            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list, adapter_config)
+            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list, adapter_config, self.process_group)
             q_lora_weights = self.batched_lora_weights[Q_PROJ]
             q_lora_weights.add_adapter(adapter_index, q_lora_merged)
 
-            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list, adapter_config)
+            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list, adapter_config, self.process_group)
             v_lora_weights = self.batched_lora_weights[V_PROJ]
             v_lora_weights.add_adapter(adapter_index, v_lora_merged)
 
@@ -829,10 +821,6 @@ class FlashCausalLM(Model):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             return
         else:
-            for layer in self.model.model.layers:
-                layer = layer.self_attn.query_key_value
-                # layer.remove_adapter(adapter_index)
-
             self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
             self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
 
