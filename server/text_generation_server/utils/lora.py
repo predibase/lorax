@@ -33,6 +33,9 @@ class AdapterWeightData:
     def can_vectorize(self) -> bool:
         return len(self.r) == 1 and len(self.alpha) == 1
     
+    def has_adapter(self, adapter_index: int) -> bool:
+        return adapter_index in self.adapter_index_configs
+    
     @property
     def rank(self) -> int:
         return next(iter(self.r))
