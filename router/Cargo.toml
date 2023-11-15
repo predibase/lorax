@@ -1,5 +1,5 @@
 [package]
-name = "text-generation-router"
+name = "lorax-router"
 description = "Text Generation Webserver"
 build = "build.rs"
 version.workspace = true
@@ -11,14 +11,14 @@ homepage.workspace = true
 path = "src/lib.rs"
 
 [[bin]]
-name = "text-generation-router"
+name = "lorax-router"
 path = "src/main.rs"
 
 [dependencies]
 async-stream = "0.3.3"
 axum = { version = "0.6.4", features = ["json"] }
 axum-tracing-opentelemetry = "0.10.0"
-text-generation-client = { path = "client" }
+lorax-client = { path = "client" }
 clap = { version = "4.1.4", features = ["derive", "env"] }
 flume = "0.10.14"
 futures = "0.3.26"

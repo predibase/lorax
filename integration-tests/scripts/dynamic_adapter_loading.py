@@ -43,7 +43,7 @@ from urllib.request import Request, urlopen
 import numpy as np
 
 
-def query_tgi(args):
+def query_lorax(args):
     prompt, adapter_id = args
     start_t = time.time()
     request_params = {
@@ -165,7 +165,7 @@ completes the request.
 
     start_t = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-        results = executor.map(query_tgi, args_list)
+        results = executor.map(query_lorax, args_list)
     span_s = time.time() - start_t
 
     total_tokens = 0

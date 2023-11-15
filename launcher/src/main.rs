@@ -105,14 +105,14 @@ struct Args {
     validation_workers: usize,
 
     /// Whether to shard the model across multiple GPUs
-    /// By default text-generation-inference will use all available GPUs to run
+    /// By default lorax-inference will use all available GPUs to run
     /// the model. Setting it to `false` deactivates `num_shard`.
     #[clap(long, env)]
     sharded: Option<bool>,
 
     /// The number of shards to use if you don't want to use all GPUs on a given machine.
-    /// You can use `CUDA_VISIBLE_DEVICES=0,1 text-generation-launcher... --num_shard 2`
-    /// and `CUDA_VISIBLE_DEVICES=2,3 text-generation-launcher... --num_shard 2` to
+    /// You can use `CUDA_VISIBLE_DEVICES=0,1 lorax-launcher... --num_shard 2`
+    /// and `CUDA_VISIBLE_DEVICES=2,3 lorax-launcher... --num_shard 2` to
     /// launch 2 copies with 2 shard each on a given machine with 4 GPUs for instance.
     #[clap(long, env)]
     num_shard: Option<usize>,
@@ -204,7 +204,7 @@ struct Args {
     /// Overall this number should be the largest possible amount that fits the
     /// remaining memory (after the model is loaded). Since the actual memory overhead
     /// depends on other parameters like if you're using quantization, flash attention
-    /// or the model implementation, text-generation-inference cannot infer this number
+    /// or the model implementation, lorax-inference cannot infer this number
     /// automatically.
     #[clap(long, env)]
     max_batch_total_tokens: Option<u32>,
@@ -239,7 +239,7 @@ struct Args {
 
     /// The name of the socket for gRPC communication between the webserver
     /// and the shards.
-    #[clap(default_value = "/tmp/text-generation-server", long, env)]
+    #[clap(default_value = "/tmp/lorax-server", long, env)]
     shard_uds_path: String,
 
     /// The address the master shard will listen on. (setting used by torch distributed)
@@ -260,7 +260,7 @@ struct Args {
     #[clap(long, env)]
     weights_cache_override: Option<String>,
 
-    /// For some models (like bloom), text-generation-inference implemented custom
+    /// For some models (like bloom), lorax-inference implemented custom
     /// cuda kernels to speed up inference. Those kernels were only tested on A100.
     /// Use this flag to disable them if you're running on different hardware and
     /// encounter issues.
@@ -466,7 +466,7 @@ fn shard_manager(
 
     // Start process
     tracing::info!("Starting shard");
-    let mut p = match Command::new("text-generation-server")
+    let mut p = match Command::new("lorax-server")
         .args(shard_args)
         .envs(envs)
         .stdout(Stdio::piped())
@@ -477,7 +477,7 @@ fn shard_manager(
         Ok(p) => p,
         Err(err) => {
             if err.kind() == io::ErrorKind::NotFound {
-                tracing::error!("text-generation-server not found in PATH");
+                tracing::error!("lorax-server not found in PATH");
                 tracing::error!("Please install it with `make install-server`")
             }
             {
@@ -739,7 +739,7 @@ fn download_convert_model(model_id: String, args: &Args, running: Arc<AtomicBool
 
     // Start process
     tracing::info!("Starting download process.");
-    let mut download_process = match Command::new("text-generation-server")
+    let mut download_process = match Command::new("lorax-server")
         .args(download_args)
         .envs(envs)
         .stdout(Stdio::piped())
@@ -750,7 +750,7 @@ fn download_convert_model(model_id: String, args: &Args, running: Arc<AtomicBool
         Ok(p) => p,
         Err(err) => {
             if err.kind() == io::ErrorKind::NotFound {
-                tracing::error!("text-generation-server not found in PATH");
+                tracing::error!("lorax-server not found in PATH");
                 tracing::error!("Please install it with `make install-server`")
             } else {
                 tracing::error!("{}", err);
@@ -975,7 +975,7 @@ fn spawn_webserver(
         envs.push(("HUGGING_FACE_HUB_TOKEN".into(), api_token.into()))
     };
 
-    let mut webserver = match Command::new("text-generation-router")
+    let mut webserver = match Command::new("lorax-router")
         .args(router_args)
         .envs(envs)
         .stdout(Stdio::piped())
@@ -987,7 +987,7 @@ fn spawn_webserver(
         Err(err) => {
             tracing::error!("Failed to start webserver: {}", err);
             if err.kind() == io::ErrorKind::NotFound {
-                tracing::error!("text-generation-router not found in PATH");
+                tracing::error!("lorax-router not found in PATH");
                 tracing::error!("Please install it with `make install-router`")
             } else {
                 tracing::error!("{}", err);

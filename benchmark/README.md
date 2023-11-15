@@ -17,14 +17,14 @@ make install-benchmark
 
 ## Run
 
-First, start `text-generation-inference`:
+First, start `lorax-inference`:
 
 ```shell
-text-generation-launcher --model-id bigscience/bloom-560m
+lorax-launcher --model-id bigscience/bloom-560m
 ```
 
 Then run the benchmarking tool:
 
 ```shell
-text-generation-benchmark --tokenizer-name bigscience/bloom-560m
+lorax-benchmark --tokenizer-name bigscience/bloom-560m
 ```

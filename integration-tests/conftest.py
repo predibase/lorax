@@ -215,11 +215,11 @@ def launcher(event_loop):
         master_port = random.randint(10_000, 20_000)
 
         shard_uds_path = (
-            f"/tmp/tgi-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}-server"
+            f"/tmp/lorax-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}-server"
         )
 
         args = [
-            "text-generation-launcher",
+            "lorax-launcher",
             "--model-id",
             model_id,
             "--port",
@@ -284,7 +284,7 @@ def launcher(event_loop):
 
         client = docker.from_env()
 
-        container_name = f"tgi-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}"
+        container_name = f"lorax-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}"
 
         try:
             container = client.containers.get(container_name)
