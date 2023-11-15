@@ -350,34 +350,31 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             
             return result
         else:
-            print("!!! ADAPTER SET", adapter_data.meta.adapter_set)
             for adapter_index in adapter_data.meta.adapter_set:
-                result_q, result_v = self.forward_lora(
-                    input, q_data, v_data, adapter_index, adapter_data.meta.adapter_indices,
-                )
-                result[:, :self.q_end] += result_q
-                result[:, self.k_end:] += result_v
+                adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                if q_data is not None and q_data.has_adapter(adapter_index):
+                    result_q = self.forward_lora(input, q_data, adapter_index, adapter_mask)
+                    result[:, :self.q_end] += result_q
+                
+                if v_data is not None and v_data.has_adapter(adapter_index):
+                    result_v = self.forward_lora(input, v_data, adapter_index, adapter_mask)
+                    result[:, self.k_end:] += result_v
 
             return result
     
     def forward_lora(
         self,
         input: torch.Tensor,
-        q_data: AdapterWeightData,
-        v_data: AdapterWeightData,
+        data: AdapterWeightData,
         adapter_index: int,
-        adapter_indices: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        adapter_mask: torch.Tensor,
+    ) -> torch.Tensor:
         world_size = self.process_group.size()
-        q_scaling = q_data.scaling_for_adapter(adapter_index)
-        v_scaling = v_data.scaling_for_adapter(adapter_index)
+        scaling = data.scaling_for_adapter(adapter_index)
 
-        adapter_mask = (adapter_indices == self.adapter_index).to(input.dtype).view(-1, 1)
         try:
-            q_lora_a = q_data.lora_a[self.layer_id, :, :]
-            v_lora_a = v_data.lora_a[self.layer_id, :, :]
-            q_a_out = input @ q_lora_a
-            v_a_out = input @ v_lora_a
+            lora_a = data.lora_a[self.layer_id, :, :]
+            a_out = input @ lora_a
 
             if world_size > 1:
                 # Tensor parallel implementation of X @ A@B, where A and B are sharded column-wise.
@@ -387,21 +384,15 @@ class TensorParallelMultiAdapterLinear(nn.Module):
                 #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
                 #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
                 #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
-                gathered_tensors = [torch.empty_like(q_a_out) for _ in range(world_size)]
-                torch.distributed.all_gather(gathered_tensors, q_a_out)
-                q_a_out = torch.cat(gathered_tensors, dim=1)
-
-                gathered_tensors = [torch.empty_like(v_a_out) for _ in range(world_size)]
-                torch.distributed.all_gather(gathered_tensors, v_a_out)
-                v_a_out = torch.cat(gathered_tensors, dim=1)
+                gathered_tensors = [torch.empty_like(a_out) for _ in range(world_size)]
+                torch.distributed.all_gather(gathered_tensors, a_out)
+                a_out = torch.cat(gathered_tensors, dim=1)
             
-            q_lora_b = q_data.lora_b[self.layer_id, :, :]
-            v_lora_b = v_data.lora_b[self.layer_id, :, :]
-            result_q = (q_a_out @ q_lora_b) * q_scaling * adapter_mask
-            result_v = (v_a_out @ v_lora_b) * v_scaling * adapter_mask
+            lora_b = data.lora_b[self.layer_id, :, :]
+            result = (a_out @ lora_b) * scaling * adapter_mask
         except Exception as e:
-            raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={q_lora_a.shape}, lora_b={q_lora_b.shape}") from e
-        return result_q, result_v
+            raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={lora_a.shape}, lora_b={lora_b.shape}") from e
+        return result
     
 
 class TensorParallelRowLinear(SuperLayer):
