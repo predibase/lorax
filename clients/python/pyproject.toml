@@ -1,13 +1,13 @@
 [tool.poetry]
-name = "text-generation"
+name = "lorax"
 version = "0.6.0"
-description = "Hugging Face Text Generation Python Client"
+description = "LoRAX Python Client"
 license = "Apache-2.0"
 authors = ["Olivier Dehaene <olivier@huggingface.co>"]
 maintainers = ["Olivier Dehaene <olivier@huggingface.co>"]
 readme = "README.md"
-homepage = "https://github.com/huggingface/text-generation-inference"
-repository = "https://github.com/huggingface/text-generation-inference"
+homepage = "https://github.com/predibase/lorax"
+repository = "https://github.com/predibase/lorax"
 
 
 [tool.poetry.dependencies]

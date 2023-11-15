@@ -1,7 +1,7 @@
 import pytest
 
-from text_generation.types import Parameters, Request
-from text_generation.errors import ValidationError
+from lorax.types import Parameters, Request
+from lorax.errors import ValidationError
 
 
 def test_parameters_validation():

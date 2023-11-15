@@ -4,10 +4,10 @@ import torch
 from copy import copy
 from transformers import AutoTokenizer
 
-from text_generation_server.pb import generate_pb2
-from text_generation_server.models.causal_lm import CausalLMBatch
-from text_generation_server.utils import weight_hub_files, download_weights
-from text_generation_server.models.bloom import BloomCausalLMBatch, BLOOMSharded
+from lorax_server.pb import generate_pb2
+from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.utils import weight_hub_files, download_weights
+from lorax_server.models.bloom import BloomCausalLMBatch, BLOOMSharded
 
 
 @pytest.fixture(scope="session")

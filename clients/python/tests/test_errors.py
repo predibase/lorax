@@ -1,4 +1,4 @@
-from text_generation.errors import (
+from lorax.errors import (
     parse_error,
     GenerationError,
     IncompleteGenerationError,
