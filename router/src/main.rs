@@ -41,6 +41,10 @@ struct Args {
     max_batch_total_tokens: Option<u32>,
     #[clap(default_value = "20", long, env)]
     max_waiting_tokens: usize,
+    #[clap(default_value = "128", long, env)]
+    max_active_adapters: usize,
+    #[clap(default_value = "2", long, env)]
+    adapter_cycle_time_s: u64,
     #[clap(default_value = "0.0.0.0", long, env)]
     hostname: String,
     #[clap(default_value = "3000", long, short, env)]
@@ -81,6 +85,8 @@ fn main() -> Result<(), RouterError> {
         max_batch_prefill_tokens,
         max_batch_total_tokens,
         max_waiting_tokens,
+        max_active_adapters,
+        adapter_cycle_time_s,
         hostname,
         port,
         master_shard_uds_path,
@@ -261,6 +267,8 @@ fn main() -> Result<(), RouterError> {
                 max_batch_prefill_tokens,
                 max_supported_batch_total_tokens,
                 max_waiting_tokens,
+                max_active_adapters,
+                adapter_cycle_time_s,
                 sharded_client,
                 tokenizer,
                 validation_workers,
