@@ -23,7 +23,6 @@ from text_generation_server.utils import (
     Weights,
 )
 from text_generation_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from text_generation_server.utils.lora import Q_PROJ, V_PROJ, BatchedLoraWeights, MergedLoraWeights
 
 tracer = trace.get_tracer(__name__)
 

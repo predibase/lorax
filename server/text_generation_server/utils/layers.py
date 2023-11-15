@@ -298,24 +298,6 @@ class TensorParallelMultiAdapterLinear(nn.Module):
     @classmethod
     def load(cls, base_layer, layer_id, sizes, process_group):
         return TensorParallelMultiAdapterLinear(base_layer, layer_id, sizes, process_group)
-
-    def add_adapter(self, q_weights, v_weights, adapter_config, process_group, adapter_index):
-        adapter_layer = TensorParallelAdapterLinear.load(
-            q_weights,
-            v_weights,
-            adapter_config=adapter_config,
-            process_group=process_group,
-            adapter_index=adapter_index,
-        )
-        self.adapter_layers.append(adapter_layer)
-
-    def remove_adapter(self, adapter_index):
-        # TODO(travis): return layers and cache them in CPU using LRU
-        self.adapter_layers = [
-            adapter_layer
-            for adapter_layer in self.adapter_layers
-            if adapter_layer.adapter_index != adapter_index
-        ]
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
@@ -368,6 +350,7 @@ class TensorParallelMultiAdapterLinear(nn.Module):
             
             return result
         else:
+            print("!!! ADAPTER SET", adapter_data.meta.adapter_set)
             for adapter_index in adapter_data.meta.adapter_set:
                 result_q, result_v = self.forward_lora(
                     input, q_data, v_data, adapter_index, adapter_data.meta.adapter_indices,
