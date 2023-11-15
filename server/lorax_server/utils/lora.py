@@ -91,10 +91,12 @@ class MergedLoraWeights:
         process_group: ProcessGroup,
     ):
         # [num_layers, hidden_size, r]
-        self.weights_a = shard_on_dim(torch.stack(weights_a), dim=0, process_group=process_group)
+        weights_a = [shard_on_dim(torch.stack(w), dim=0, process_group=process_group) for w in weights_a]
+        self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
-        self.weights_b = shard_on_dim(torch.stack(weights_b), dim=0, process_group=process_group)
+        weights_a = [shard_on_dim(torch.stack(w), dim=0, process_group=process_group) for w in weights_b]
+        self.weights_b = torch.stack(weights_b)
 
         self.adapter_config = adapter_config
 
