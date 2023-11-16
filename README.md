@@ -14,31 +14,35 @@
 
 The LLM inference server that speaks for the GPUs!
 
-Lorax is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
+LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
 ## 📖 Table of contents
 
 - [LoRA Exchange (LoRAX)](#lora-exchange-lorax)
   - [📖 Table of contents](#-table-of-contents)
   - [🔥 Features](#-features)
-  - [🏠 Optimized architectures](#-optimized-architectures)
-  - [🏃‍♂️ Get started](#️-get-started)
+  - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
+    - [Models](#models)
+    - [Adapters](#adapters)
+  - [🏃‍♂️ Getting started](#️-getting-started)
     - [Docker](#docker)
     - [📓 API documentation](#-api-documentation)
-    - [🛠️ Local install](#️-local-install)
+    - [🛠️ Local Development](#️-local-development)
     - [CUDA Kernels](#cuda-kernels)
   - [Run Mistral](#run-mistral)
     - [Run](#run)
   - [Develop](#develop)
+  - [🙇 Acknowledgements](#-acknowledgements)
+  - [🗺️ Roadmap](#️-roadmap)
 
 ## 🔥 Features
 
 - 🚅 **Dynamic Adapter Loading:** allows each set of fine-tuned LoRA weights to be loaded from storage just-in-time as requests come in at runtime, without blocking concurrent requests.
 - 🏋️‍♀️ **Tiered Weight Caching:** supports fast exchanging of LoRA adapters between requests, and offloading of adapter weights to CPU and disk to avoid out-of-memory errors.
 - 🧁 **Continuous Multi-Adapter Batching:** a fair scheduling policy for optimizing aggregate throughput of the system that extends the popular continuous batching strategy to work across multiple sets of LoRA adapters in parallel.
-- 👬 **Optimized Inference:**  [flash-attention](https://github.com/HazyResearch/flash-attention), [paged attention](https://github.com/vllm-project/vllm), quantization with [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and [GPT-Q](https://arxiv.org/abs/2210.17323), tensor parallelism, token streaming, and [continuous batching](https://github.com/predibase/lorax/tree/main/router) work together to optimize our inference speeds.
-- ✅ **Production Readiness** reliably stable, Lorax supports Prometheus metrics and distributed tracing with Open Telemetry
-- 🤯 **Free Commercial Use:** Apache 2.0 License. Enough said 😎.
+- 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, [continuous batching](https://github.com/predibase/lorax/tree/main/router) across different adapters, [flash-attention](https://github.com/HazyResearch/flash-attention), [paged attention](https://github.com/vllm-project/vllm), quantization with [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and [GPT-Q](https://arxiv.org/abs/2210.17323), token streaming, weight prefetching and offloading.
+- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry.
+- 🤯 **Free for Commercial Use:** Apache 2.0 License. Enough said 😎.
 
 
 <p align="center">
@@ -46,20 +50,27 @@ Lorax is a framework that allows users to serve over a hundred fine-tuned models
 </p>
 
 
-## 🏠 Optimized architectures
+## 🏠 Supported Models and Adapters
 
-- 🦙 [Llama V2](https://huggingface.co/meta-llama)
+### Models
+
+- 🦙 [Llama](https://huggingface.co/meta-llama)
 - 🌬️[Mistral](https://huggingface.co/mistralai)
 
-Other architectures are supported on a best effort basis using:
+Other architectures are supported on a best effort basis, but do not support dynamical adapter loading.
 
-`AutoModelForCausalLM.from_pretrained(<model>, device_map="auto")`
+### Adapters
 
-or
+LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
 
-`AutoModelForSeq2SeqLM.from_pretrained(<model>, device_map="auto")`
+The following modules can be targeted:
 
-## 🏃‍♂️ Get started
+- `q_proj`
+- `k_proj`
+- `v_proj`
+- `o_proj`
+
+## 🏃‍♂️ Getting started
 
 ### Docker
 
@@ -119,8 +130,9 @@ print(text)
 
 You can consult the OpenAPI documentation of the `lorax` REST API using the `/docs` route.
 
-### 🛠️ Local install
+### 🛠️ Local Development
 
+<<<<<<< HEAD
 You can also opt to install `lorax` locally.
 
 First [install Rust](https://rustup.rs/) and create a Python virtual environment with at least
@@ -181,7 +193,22 @@ make run-mistral-7b-instruct
 
 ## Develop
 
-```shell
+```
+# window 1 (server)
 make server-dev
+
+# window 2 (router)
 make router-dev
 ```
+
+## 🙇 Acknowledgements
+
+LoRAX is built on top of HuggingFace's [text-generation-inference](https://github.com/huggingface/text-generation-inference), forked from v0.9.4 (Apache 2.0).
+
+## 🗺️ Roadmap
+
+- [ ] Serve pretrained embedding models
+- [ ] Serve embedding model MLP adapters
+- [ ] Serve LLM MLP adapters for classification
+- [ ] Blend multiple adapters per request
+- [ ] SGMV kernel for adapters with different ranks
