@@ -24,7 +24,8 @@ jobs:
       RUSTC_WRAPPER: /usr/local/bin/sccache
       SCCACHE: 0.3.3
       HUGGING_FACE_HUB_TOKEN: "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"
-
+      AWS_DEFAULT_REGION: us-west-2
+      
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python
