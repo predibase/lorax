@@ -26,6 +26,8 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
     - [Docker](#docker)
     - [📓 API documentation](#-api-documentation)
     - [🛠️ Local install](#️-local-install)
+    - [🙇 Acknowledgements](#-acknowledgements)
+    - [🗺️ Roadmap](#-roadmap)
 
 ## 🔥 Features
 
@@ -132,11 +134,11 @@ make server-dev
 make router-dev
 ```
 
-### Acknowledgements
+### 🙇 Acknowledgements
 
 LoRAX is built on top of HuggingFace's [text-generation-inference](https://github.com/huggingface/text-generation-inference), forked from v0.9.4 (Apache 2.0).
 
-### Roadmap
+### 🗺️ Roadmap
 
 [ ] Serve pretrained embedding models
 [ ] Serve embedding model MLP adapters
