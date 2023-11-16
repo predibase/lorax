@@ -592,6 +592,10 @@
           "adapter_id": {
             "type": "string",
             "nullable": true
+          },
+          "adapter_source": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
