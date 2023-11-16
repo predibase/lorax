@@ -132,7 +132,6 @@ You can consult the OpenAPI documentation of the `lorax` REST API using the `/do
 
 ### 🛠️ Local Development
 
-<<<<<<< HEAD
 You can also opt to install `lorax` locally.
 
 First [install Rust](https://rustup.rs/) and create a Python virtual environment with at least
