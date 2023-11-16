@@ -27,7 +27,7 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
-from lorax_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData, AdapterWeightData
+from lorax_server.utils.lora import K_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterWeightData
 from lorax_server.utils.weights import shard_on_dim
 
 
@@ -302,55 +302,49 @@ class TensorParallelMultiAdapterLinear(nn.Module):
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
 
-        q_data = adapter_data.data.get(Q_PROJ)
-        v_data = adapter_data.data.get(V_PROJ)
+        self.forward_layer_type(result, input, adapter_data, Q_PROJ, 0, self.q_end)
+        self.forward_layer_type(result, input, adapter_data, K_PROJ, self.q_end, self.k_end)
+        self.forward_layer_type(result, input, adapter_data, V_PROJ, self.k_end, self.v_end)
+
+        return result
+        
+    def forward_layer_type(
+        self,
+        result: torch.Tensor,
+        input: torch.Tensor,
+        adapter_data: AdapterBatchData,
+        layer_type: str,
+        start_idx: int,
+        end_idx: int,
+    ) -> torch.Tensor:
+        data = adapter_data.data.get(layer_type)
         if (
-            self.process_group.size() == 1 and 
-            (q_data is not None and q_data.can_vectorize) and 
-            (v_data is not None and v_data.can_vectorize)
+            self.process_group.size() == 1 and
+            data is not None and data.can_vectorize
         ):
-            q_proj = torch.zeros_like(result[:, :self.q_end])
-            v_proj = torch.zeros_like(result[:, self.k_end:])
+            proj = torch.zeros_like(result[:, :self.q_end])
 
-            q_lora_a_ptr = q_data.lora_a_ptr
-            q_lora_b_ptr = q_data.lora_b_ptr
-            if q_lora_a_ptr is not None and q_lora_b_ptr is not None:
+            lora_a_ptr = data.lora_a_ptr
+            lora_b_ptr = data.lora_b_ptr
+            if lora_a_ptr is not None and lora_b_ptr is not None:
                 add_lora_sgmv_cutlass(
-                    q_proj,
+                    proj,
                     input,
-                    q_lora_a_ptr,
-                    q_lora_b_ptr,
+                    lora_a_ptr,
+                    lora_b_ptr,
                     adapter_data.meta.adapter_segments,
                     self.layer_id,
-                    q_data.rank,
+                    data.rank,
                 )
-                result[:, :self.q_end] += q_proj * q_data.scaling
-
-            v_lora_a_ptr = v_data.lora_a_ptr
-            v_lora_b_ptr = v_data.lora_b_ptr
-            if v_lora_a_ptr is not None and v_lora_b_ptr is not None:
-                add_lora_sgmv_cutlass(
-                    v_proj,
-                    input,
-                    v_lora_a_ptr,
-                    v_lora_b_ptr,
-                    adapter_data.meta.adapter_segments,
-                    self.layer_id,
-                    v_data.rank,
-                )
-                result[:, self.k_end:] += v_proj * v_data.scaling
+                result[:, start_idx:end_idx] += proj * data.scaling
             
             return result
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
-                if q_data is not None and q_data.has_adapter(adapter_index):
-                    result_q = self.forward_lora(input, q_data, adapter_index, adapter_mask)
-                    result[:, :self.q_end] += result_q
-                
-                if v_data is not None and v_data.has_adapter(adapter_index):
-                    result_v = self.forward_lora(input, v_data, adapter_index, adapter_mask)
-                    result[:, self.k_end:] += result_v
+                if data is not None and data.has_adapter(adapter_index):
+                    result = self.forward_lora(input, data, adapter_index, adapter_mask)
+                    result[:, start_idx:end_idx] += result
 
             return result
     

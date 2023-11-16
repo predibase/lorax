@@ -111,6 +111,8 @@ class BatchedLoraWeights:
         self.lora_weights[adapter_idx] = weights
 
     def remove_adapter(self, adapter_idx: int):
+        if adapter_idx not in self.lora_weights:
+            return
         del self.lora_weights[adapter_idx]
 
     def get_data(self, meta: AdapterBatchMetadata) -> AdapterWeightData:
