@@ -81,7 +81,7 @@ spec:
           periodSeconds: 5
           successThreshold: 1
           timeoutSeconds: 1
-        resources: {{- toYaml .Values.resources | nindent 10 }}
+        resources: {{- toYaml .Values.llmDeployment.resources | nindent 10 }}
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
