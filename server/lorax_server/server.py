@@ -21,14 +21,14 @@ from lorax_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
-class TextGenerationService(generate_pb2_grpc.TextGenerationServiceServicer):
+class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
     def __init__(self, model: Model, cache: Cache, server_urls: List[str]):
         self.cache = cache
         self.model = model
         self.server_urls = server_urls
         # For some reason, inference_mode does not work well with GLOO which we use on CPU
         if model.device.type == "cuda":
-            # Force inference mode for the lifetime of TextGenerationService
+            # Force inference mode for the lifetime of LoraxService
             self._inference_mode_raii_guard = torch._C._InferenceMode(True)
 
     async def Info(self, request, context):
@@ -239,11 +239,11 @@ def serve(
                 UDSOpenTelemetryAioServerInterceptor(),
             ]
         )
-        generate_pb2_grpc.add_TextGenerationServiceServicer_to_server(
-            TextGenerationService(model, Cache(), server_urls), server
+        generate_pb2_grpc.add_LoraxServiceServicer_to_server(
+            LoraxService(model, Cache(), server_urls), server
         )
         SERVICE_NAMES = (
-            generate_pb2.DESCRIPTOR.services_by_name["TextGenerationService"].full_name,
+            generate_pb2.DESCRIPTOR.services_by_name["LoraxService"].full_name,
             reflection.SERVICE_NAME,
         )
         reflection.enable_server_reflection(SERVICE_NAMES, server)
