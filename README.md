@@ -140,8 +140,8 @@ LoRAX is built on top of HuggingFace's [text-generation-inference](https://githu
 
 ### 🗺️ Roadmap
 
-[ ] Serve pretrained embedding models
-[ ] Serve embedding model MLP adapters
-[ ] Serve LLM MLP adapters for classification
-[ ] Blend multiple adapters per request
-[ ] SGMV kernel for adapters with different ranks
+- [ ] Serve pretrained embedding models
+- [ ] Serve embedding model MLP adapters
+- [ ] Serve LLM MLP adapters for classification
+- [ ] Blend multiple adapters per request
+- [ ] SGMV kernel for adapters with different ranks
