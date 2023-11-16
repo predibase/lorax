@@ -7,8 +7,7 @@ deployment:
     tag: "f76119a"
 
   args:
-    # Model from huggingface hub, e.g. "meta-llama/Llama-2-7b-chat-hf"
-    modelId: ""
+    modelId: "mistralai/Mistral-7B-Instruct-v0.1"
     maxInputLength: 512
     maxTotalTokens: 1024
     maxBatchTotalTokens: 4096
