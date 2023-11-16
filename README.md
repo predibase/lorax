@@ -36,6 +36,12 @@ Lorax is a framework that allows users to serve over a hundred fine-tuned models
 - ✅ **Production Readiness** reliably stable, Lorax supports  Prometheus metrics and distributed tracing with Open Telemetry
 - 🤯 **Free Commercial Use:** Apache 2.0 License. Enough said 😎.
 
+
+<p align="center">
+  <img src="https://github.com/predibase/lorax/assets/29719151/6f4f78fc-c1e9-4a01-8675-dbafa74a2534" />
+</p>
+
+
 ## 🏠 Optimized architectures
 
 - 🦙 [Llama V2](https://huggingface.co/meta-llama)
@@ -56,7 +62,7 @@ or
 The easiest way of getting started is using the official Docker container:
 
 ```shell
-model=mistralai/Mistral-7B-v0.1
+model=mistralai/Mistral-7B-Instruct-v0.1
 volume=$PWD/data # share a volume with the Docker container to avoid downloading weights every run
 
 docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data ghcr.io/huggingface/lorax-inference:0.9.4 --model-id $model
@@ -73,14 +79,14 @@ You can then query the model using either the `/generate` or `/generate_stream` 
 ```shell
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs":"What is Deep Learning?","parameters":{"max_new_tokens":20}}' \
+    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"max_new_tokens":20, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
 
 ```shell
 curl 127.0.0.1:8080/generate_stream \
     -X POST \
-    -d '{"inputs":"What is Deep Learning?","parameters":{"max_new_tokens":20}}' \
+    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"max_new_tokens":20, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
 
@@ -94,10 +100,12 @@ pip install lorax
 from lorax import Client
 
 client = Client("http://127.0.0.1:8080")
-print(client.generate("What is Deep Learning?", max_new_tokens=20).generated_text)
+prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
+
+print(client.generate(prompt, max_new_tokens=20).generated_text)
 
 text = ""
-for response in client.generate_stream("What is Deep Learning?", max_new_tokens=20):
+for response in client.generate_stream(prompt, max_new_tokens=20):
     if not response.token.special:
         text += response.token.text
 print(text)
@@ -105,8 +113,7 @@ print(text)
 
 ### 📓 API documentation
 
-You can consult the OpenAPI documentation of the `lorax-inference` REST API using the `/docs` route.
-The Swagger UI is also available at: [https://huggingface.github.io/lorax-inference](https://huggingface.github.io/lorax-inference).
+You can consult the OpenAPI documentation of the `lorax` REST API using the `/docs` route.
 
 ### 🛠️ Local install
 
