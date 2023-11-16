@@ -76,6 +76,8 @@ class AdapterBatchData:
     def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, "BatchedLoraWeights"]) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
+            if v.is_empty():
+                continue
             data[k] = v.get_data(meta)
         return AdapterBatchData(meta=meta, data=data)
 
@@ -114,6 +116,9 @@ class BatchedLoraWeights:
         if adapter_idx not in self.lora_weights:
             return
         del self.lora_weights[adapter_idx]
+
+    def is_empty(self) -> bool:
+        return len(self.lora_weights) == 0
 
     def get_data(self, meta: AdapterBatchMetadata) -> AdapterWeightData:
         device = list(self.lora_weights.values())[0].weights_a.device
