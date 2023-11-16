@@ -67,10 +67,8 @@ jobs:
 
       - name: Install Punica
         run: |
-          git clone https://github.com/punica-ai/punica.git --recurse
-          cd punica
-          python setup.py build
-          python setup.py bdist_wheel
+          aws s3 cp s3://predibase-public-us-west-2/punica-0.0.1-cp39-cp39-linux_x86_64.whl .
+          pip install punica-0.0.1-cp39-cp39-linux_x86_64.whl
 
       - name: Run server tests
         run: |
