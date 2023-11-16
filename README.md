@@ -79,21 +79,21 @@ You can then query the model using either the `/generate` or `/generate_stream` 
 ```shell
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"max_new_tokens":20, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
+    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
 
 ```shell
 curl 127.0.0.1:8080/generate_stream \
     -X POST \
-    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"max_new_tokens":20, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
+    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
 
 or from Python:
 
 ```shell
-pip install lorax
+pip install lorax-client
 ```
 
 ```python
@@ -102,10 +102,10 @@ from lorax import Client
 client = Client("http://127.0.0.1:8080")
 prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
 
-print(client.generate(prompt, max_new_tokens=20).generated_text)
+print(client.generate(prompt, adapter_id="vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k").generated_text)
 
 text = ""
-for response in client.generate_stream(prompt, max_new_tokens=20):
+for response in client.generate_stream(prompt, adapter_id="vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"):
     if not response.token.special:
         text += response.token.text
 print(text)

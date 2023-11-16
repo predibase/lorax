@@ -5,7 +5,14 @@ from typing import Optional, List
 from lorax.errors import ValidationError
 
 
+ADAPTER_SOURCES = ["hub", "local", "s3"]
+
+
 class Parameters(BaseModel):
+    # The ID of the adapter to use
+    adapter_id: Optional[str]
+    # The source of the adapter to use
+    adapter_source: Optional[str]
     # Activate logits sampling
     do_sample: bool = False
     # Maximum number of generated tokens
@@ -39,6 +46,12 @@ class Parameters(BaseModel):
     details: bool = False
     # Get decoder input token logprobs and ids
     decoder_input_details: bool = False
+
+    @validator("adapter_source")
+    def valid_adapter_source(cls, v):
+        if v is not None and v not in ADAPTER_SOURCES:
+            raise ValidationError(f"`adapter_source` must be one of {ADAPTER_SOURCES}")
+        return v
 
     @validator("best_of")
     def valid_best_of(cls, field_value, values):
