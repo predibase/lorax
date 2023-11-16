@@ -213,8 +213,6 @@ RUN cd server && \
     make gen-server && \
     pip install ".[bnb, accelerate, quantize]" --no-cache-dir
 
-# Install benchmarker
-COPY --from=builder /usr/src/target/release/lorax-benchmark /usr/local/bin/lorax-benchmark
 # Install router
 COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router
 # Install launcher
