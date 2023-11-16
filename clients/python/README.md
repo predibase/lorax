@@ -1,80 +1,31 @@
-# Text Generation
+# LoRAX Python Client
 
-The Hugging Face Text Generation Python library provides a convenient way of interfacing with a
-`lorax-inference` instance running on
-[Hugging Face Inference Endpoints](https://huggingface.co/inference-endpoints) or on the Hugging Face Hub.
+LoRAX Python client provides a convenient way of interfacing with a
+`lorax` instance running in your environment.
 
-## Get Started
+## Getting Started
 
 ### Install
 
 ```shell
-pip install lorax
+pip install lorax-client
 ```
 
-### Inference API Usage
-
-```python
-from lorax import InferenceAPIClient
-
-client = InferenceAPIClient("bigscience/bloomz")
-text = client.generate("Why is the sky blue?").generated_text
-print(text)
-# ' Rayleigh scattering'
-
-# Token Streaming
-text = ""
-for response in client.generate_stream("Why is the sky blue?"):
-    if not response.token.special:
-        text += response.token.text
-
-print(text)
-# ' Rayleigh scattering'
-```
-
-or with the asynchronous client:
-
-```python
-from lorax import InferenceAPIAsyncClient
-
-client = InferenceAPIAsyncClient("bigscience/bloomz")
-response = await client.generate("Why is the sky blue?")
-print(response.generated_text)
-# ' Rayleigh scattering'
-
-# Token Streaming
-text = ""
-async for response in client.generate_stream("Why is the sky blue?"):
-    if not response.token.special:
-        text += response.token.text
-
-print(text)
-# ' Rayleigh scattering'
-```
-
-Check all currently deployed models on the Huggingface Inference API with `Text Generation` support:
-
-```python
-from lorax.inference_api import deployed_models
-
-print(deployed_models())
-```
-
-### Hugging Face Inference Endpoint usage
+### Run
 
 ```python
 from lorax import Client
 
-endpoint_url = "https://YOUR_ENDPOINT.endpoints.huggingface.cloud"
+endpoint_url = "http://127.0.0.1:8080"
 
 client = Client(endpoint_url)
-text = client.generate("Why is the sky blue?").generated_text
+text = client.generate("Why is the sky blue?", adapter_id="some/adapter").generated_text
 print(text)
 # ' Rayleigh scattering'
 
 # Token Streaming
 text = ""
-for response in client.generate_stream("Why is the sky blue?"):
+for response in client.generate_stream("Why is the sky blue?", adapter_id="some/adapter"):
     if not response.token.special:
         text += response.token.text
 
@@ -87,16 +38,16 @@ or with the asynchronous client:
 ```python
 from lorax import AsyncClient
 
-endpoint_url = "https://YOUR_ENDPOINT.endpoints.huggingface.cloud"
+endpoint_url = "http://127.0.0.1:8080"
 
 client = AsyncClient(endpoint_url)
-response = await client.generate("Why is the sky blue?")
+response = await client.generate("Why is the sky blue?", adapter_id="some/adapter")
 print(response.generated_text)
 # ' Rayleigh scattering'
 
 # Token Streaming
 text = ""
-async for response in client.generate_stream("Why is the sky blue?"):
+async for response in client.generate_stream("Why is the sky blue?", adapter_id="some/adapter"):
     if not response.token.special:
         text += response.token.text
 
@@ -109,6 +60,10 @@ print(text)
 ```python
 # Request Parameters
 class Parameters:
+    # The ID of the adapter to use
+    adapter_id: Optional[str]
+    # The source of the adapter to use
+    adapter_source: Optional[str]
     # Activate logits sampling
     do_sample: bool
     # Maximum number of generated tokens
