@@ -17,7 +17,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 ## 📖 Table of contents
 
-- [LoRA Exchange (LoRAX)](#lora-exchange-lorax)
+- [LoRA eXchange (LoRAX)](#lora-exchange-lorax)
   - [📖 Table of contents](#-table-of-contents)
   - [🔥 Features](#-features)
   - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
@@ -30,7 +30,6 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
     - [CUDA Kernels](#cuda-kernels)
   - [Run Mistral](#run-mistral)
     - [Run](#run)
-  - [Develop](#develop)
   - [🙇 Acknowledgements](#-acknowledgements)
   - [🗺️ Roadmap](#️-roadmap)
 
@@ -187,16 +186,6 @@ Be aware that the official Docker image has them enabled by default.
 
 ```shell
 make run-mistral-7b-instruct
-```
-
-## Develop
-
-```
-# window 1 (server)
-make server-dev
-
-# window 2 (router)
-make router-dev
 ```
 
 ## 🙇 Acknowledgements
