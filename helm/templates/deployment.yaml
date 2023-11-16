@@ -62,17 +62,14 @@ spec:
           protocol: TCP
         readinessProbe: {{ toYaml .Values.deployment.readinessProbe | nindent 10 }}
         resources: {{ toYaml .Values.deployment.resources | nindent 10 }}
-        # terminationMessagePath: /dev/termination-log
-        # terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /data
           name: data
         - mountPath: /dev/shm
           name: shm
-      # dnsPolicy: ClusterFirst
-      # enableServiceLinks: false
       {{- if .Values.deployment.tolerations }}
-      tolerations: {{ toYaml .Values.deployment.tolerations | nindent 6 }}
+      tolerations: 
+        {{- toYaml .Values.deployment.tolerations | nindent 6 }}
       {{- end }}
       nodeSelector: {{ toYaml .Values.deployment.nodeSelector | nindent 8 }}
       restartPolicy: Always

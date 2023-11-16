@@ -44,7 +44,7 @@ deployment:
     loraxEnabledModelTypes: "llama,mistral"
 
   nodeSelector: {}
-  tolerations: {} 
+  tolerations: []
   additionalLabels: {}
   additionalPodLabels: {}
 
