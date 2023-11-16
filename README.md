@@ -17,21 +17,27 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 ## 📖 Table of contents
 
-- [LoRAX (LoRA eXchange)](#lora-exchange-lorax)
+- [LoRA Exchange (LoRAX)](#lora-exchange-lorax)
   - [📖 Table of contents](#-table-of-contents)
   - [🔥 Features](#-features)
   - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
-  - [🏃‍♂️ Get started](#️-get-started)
+    - [Models](#models)
+    - [Adapters](#adapters)
+  - [🏃‍♂️ Getting started](#️-getting-started)
     - [Docker](#docker)
     - [📓 API documentation](#-api-documentation)
-    - [🛠️ Local install](#️-local-install)
-    - [🙇 Acknowledgements](#-acknowledgements)
-    - [🗺️ Roadmap](#-roadmap)
+    - [🛠️ Local Development](#️-local-development)
+    - [CUDA Kernels](#cuda-kernels)
+  - [Run Mistral](#run-mistral)
+    - [Run](#run)
+  - [Develop](#develop)
+  - [🙇 Acknowledgements](#-acknowledgements)
+  - [🗺️ Roadmap](#️-roadmap)
 
 ## 🔥 Features
 
-- 🚅 **Dynamic Adapter Loading:** allowing each set of fine-tuned LoRA weights to be loaded from storage just-in-time as requests come in at runtime, without blocking concurrent requests.
-- 🏋️‍♀️ **Tiered Weight Caching:** to support fast exchanging of LoRA adapters between requests, and offloading of adapter weights to CPU and disk to avoid out-of-memory errors.
+- 🚅 **Dynamic Adapter Loading:** allows each set of fine-tuned LoRA weights to be loaded from storage just-in-time as requests come in at runtime, without blocking concurrent requests.
+- 🏋️‍♀️ **Tiered Weight Caching:** supports fast exchanging of LoRA adapters between requests, and offloading of adapter weights to CPU and disk to avoid out-of-memory errors.
 - 🧁 **Continuous Multi-Adapter Batching:** a fair scheduling policy for optimizing aggregate throughput of the system that extends the popular continuous batching strategy to work across multiple sets of LoRA adapters in parallel.
 - 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, [continuous batching](https://github.com/predibase/lorax/tree/main/router) across different adapters, [flash-attention](https://github.com/HazyResearch/flash-attention), [paged attention](https://github.com/vllm-project/vllm), quantization with [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and [GPT-Q](https://arxiv.org/abs/2210.17323), token streaming, weight prefetching and offloading.
 - 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry.
@@ -125,6 +131,66 @@ You can consult the OpenAPI documentation of the `lorax` REST API using the `/do
 
 ### 🛠️ Local Development
 
+You can also opt to install `lorax` locally.
+
+First [install Rust](https://rustup.rs/) and create a Python virtual environment with at least
+Python 3.9, e.g. using `conda`:
+
+```shell
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+conda create -n lorax python=3.9 
+conda activate lorax
+```
+
+You may also need to install Protoc.
+
+On Linux:
+
+```shell
+PROTOC_ZIP=protoc-21.12-linux-x86_64.zip
+curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP
+sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
+sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
+rm -f $PROTOC_ZIP
+```
+
+On MacOS, using Homebrew:
+
+```shell
+brew install protobuf
+```
+
+Then run:
+
+```shell
+BUILD_EXTENSIONS=True make install # Install repository and HF/transformer fork with CUDA kernels
+make run-mistral-7b-instruct
+```
+
+**Note:** on some machines, you may also need the OpenSSL libraries and gcc. On Linux machines, run:
+
+```shell
+sudo apt-get install libssl-dev gcc -y
+```
+
+### CUDA Kernels
+
+The custom CUDA kernels are only tested on NVIDIA A100s. If you have any installation or runtime issues, you can remove 
+the kernels by using the `DISABLE_CUSTOM_KERNELS=True` environment variable.
+
+Be aware that the official Docker image has them enabled by default.
+
+## Run Mistral
+
+### Run
+
+```shell
+make run-mistral-7b-instruct
+```
+
+## Develop
+
 ```
 # window 1 (server)
 make server-dev
@@ -133,11 +199,11 @@ make server-dev
 make router-dev
 ```
 
-### 🙇 Acknowledgements
+## 🙇 Acknowledgements
 
 LoRAX is built on top of HuggingFace's [text-generation-inference](https://github.com/huggingface/text-generation-inference), forked from v0.9.4 (Apache 2.0).
 
-### 🗺️ Roadmap
+## 🗺️ Roadmap
 
 - [ ] Serve pretrained embedding models
 - [ ] Serve embedding model MLP adapters
