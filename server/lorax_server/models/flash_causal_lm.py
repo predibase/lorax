@@ -1,3 +1,4 @@
+from collections import defaultdict
 import math
 import itertools
 import torch
@@ -7,6 +8,7 @@ import numpy as np
 
 from dataclasses import dataclass
 from opentelemetry import trace
+from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 from typing import Optional, Set, Tuple, List, Type, Union, Dict
 
@@ -24,9 +26,12 @@ from lorax_server.models.cache_manager import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
+from lorax_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 
 tracer = trace.get_tracer(__name__)
+
 
 @dataclass
 class FlashCausalLMBatch(Batch):
@@ -84,8 +89,7 @@ class FlashCausalLMBatch(Batch):
     stopping_criterias: List[StoppingCriteria]
 
     # Adapter metadata for each request
-    adapter_indices: torch.Tensor
-    adapter_set: Set[int]
+    adapter_meta: AdapterBatchMetadata
 
     # Number of blocks in this batch
     blocks: int
@@ -138,8 +142,12 @@ class FlashCausalLMBatch(Batch):
 
         next_token_chooser_parameters = []
         stopping_criterias = []
+        
         adapter_indices_list = []
         adapter_set = set()
+        adapter_segment_indices = []
+        adapter_segments = [0]
+        adapter_segment_length = 0
 
         # Cumulative length
         cumulative_length = 0
@@ -185,6 +193,12 @@ class FlashCausalLMBatch(Batch):
 
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
             adapter_set.add(r.adapter_index)
+
+            adapter_segment_length += input_length
+            if not adapter_segment_indices or adapter_segment_indices[-1] != r.adapter_index:
+                adapter_segment_indices.append(r.adapter_index)
+                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                adapter_segment_length = 0
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -267,6 +281,8 @@ class FlashCausalLMBatch(Batch):
             input_lengths, dtype=torch.int32, device=device
         )
 
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
+
         if all_prefill_logprobs:
             prefill_head_indices = None
             prefill_next_token_indices = cu_seqlen_prefill[1:] - 1
@@ -308,8 +324,12 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
+            ),
         )
 
     @tracer.start_as_current_span("filter")
@@ -354,6 +374,10 @@ class FlashCausalLMBatch(Batch):
         # Cumulative length
         cumulative_max_length = 0
 
+        adapter_segment_indices = []
+        adapter_segments = [0]
+        adapter_segment_length = 0
+
         for i, request_id in enumerate(request_ids):
             idx = self.requests_idx_mapping[request_id]
             indices.append(idx)
@@ -375,6 +399,12 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias.append(stopping_criteria)
 
             adapter_set.add(self.requests[idx].adapter_index)
+
+            adapter_segment_length += 1
+            if not adapter_segment_indices or adapter_segment_indices[-1] != self.requests[idx].adapter_index:
+                adapter_segment_indices.append(self.requests[idx].adapter_index)
+                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                adapter_segment_length = 0
 
             remaining_tokens = (
                 stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
@@ -414,7 +444,7 @@ class FlashCausalLMBatch(Batch):
         # Index into tensors
         input_ids = self.input_ids[indices]
         position_ids = self.position_ids[indices]
-        adapter_indices = self.adapter_indices[indices]
+        adapter_indices = self.adapter_meta.adapter_indices[indices]
         all_input_ids_tensor = self.all_input_ids_tensor[indices]
         block_tables_tensor = self.block_tables_tensor[indices]
         input_lengths_tensor = self.input_lengths_tensor[indices]
@@ -425,6 +455,8 @@ class FlashCausalLMBatch(Batch):
 
         # Move to GPU now that we have the whole tensor
         slot_indices = slot_indices.to(device)
+
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         return type(self)(
             batch_id=self.batch_id,
@@ -453,8 +485,12 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
+            ),
         )
 
     @classmethod
@@ -502,9 +538,12 @@ class FlashCausalLMBatch(Batch):
             (total_batch_size, max_length)
         )
 
-        total_indices_size = sum(b.adapter_indices.shape[0] for b in batches)
-        adapter_indices = batches[0].adapter_indices.new_empty(total_indices_size)
+        total_indices_size = sum(b.adapter_meta.adapter_indices.shape[0] for b in batches)
+        
+        adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
         adapter_set = set()
+        adapter_segment_indices = []
+        adapter_segment_tensors = []
 
         start_slots = []
         block_tables = []
@@ -546,10 +585,31 @@ class FlashCausalLMBatch(Batch):
 
             # Copy over adapter indices
             adapter_start_index = cumulative_adapter_indices_size
-            adapter_end_index = cumulative_adapter_indices_size + batch.adapter_indices.shape[0]
-            adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_indices
+            adapter_end_index = cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
+            adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_meta.adapter_indices
             cumulative_adapter_indices_size = adapter_end_index
-            adapter_set.update(batch.adapter_set)
+            adapter_set.update(batch.adapter_meta.adapter_set)
+
+            # Update adapter segments
+            adapter_segments = batch.adapter_meta.adapter_segments
+            if adapter_segment_tensors:
+                # Because we have already processed at least one batch, remove the 0 start index
+                # from this batch denoting the beginning of the segment, then offset all segment
+                # positions by the value of the last segment in the previous batch to account for
+                # the concatenation.
+                adapter_segments = adapter_segments[1:] + adapter_segment_tensors[-1][-1]
+            
+            segment_indices = batch.adapter_meta.segment_indices
+            if adapter_segment_indices and adapter_segment_indices[-1] == segment_indices[-1]:
+                # If the last segment in the previous batch is the same as the first segment in this batch,
+                # then we merge them together into a single segment. In effect, this means removing it from
+                # the segment indices of this batch, and extending the segment span by removing the segment
+                # end index from the previous batch.
+                segment_indices = segment_indices[1:]
+                adapter_segment_tensors[-1] = adapter_segment_tensors[-1][:-1]
+            
+            adapter_segment_indices.extend(segment_indices)
+            adapter_segment_tensors.append(adapter_segments)
 
             all_input_ids_tensor[
                 start_index:end_index, : batch.all_input_ids_tensor.shape[1]
@@ -583,6 +643,8 @@ class FlashCausalLMBatch(Batch):
             device=batches[0].next_token_chooser.device,
         )
 
+        adapter_segments = torch.concat(adapter_segment_tensors)
+
         # Needed to avoid dropping blocks when the batches will go out of scope
         for b in batches:
             b.block_tables = None
@@ -615,8 +677,12 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
+            ),
         )
 
     def __del__(self):
@@ -648,6 +714,10 @@ class FlashCausalLM(Model):
         self.num_kv_heads = num_kv_heads
         self.head_size = head_size
 
+        # This may be set to False in the subclass constructor
+        self.dynamic_adapter_loading_enabled = True
+        self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
+
         super(FlashCausalLM, self).__init__(
             model=model,
             tokenizer=tokenizer,
@@ -659,6 +729,10 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+    @property
+    def supports_adapter_loading(self) -> bool:
+        return False
+
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.
 
@@ -666,11 +740,87 @@ class FlashCausalLM(Model):
         into model. Otherwise, the adapter weights are merged into the model 
         weights on the fly.
         """
-        raise NotImplementedError
+        if not self.supports_adapter_loading:
+            raise ValueError("This model does not support adapter loading.")
+        
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        # If we are doing dynamic adapter loading, then we need to reset the weights
+        if adapter_id == self.adapter_id:
+            return
+        elif adapter_id != BASE_MODEL_ADAPTER_ID:
+            weight_names = tuple(self.orig_weights.keys())
+            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
+
+            nlayers = len(self.model.model.layers)
+            q_lora_a_list = [None] * nlayers
+            q_lora_b_list = [None] * nlayers
+
+            v_lora_a_list = [None] * nlayers
+            v_lora_b_list = [None] * nlayers
+            
+            prefix = "model.layers"
+            for i, layer in tqdm(
+                enumerate(self.model.model.layers), 
+                desc=f"Merging weights for adapter {adapter_id}",
+                total=len(self.model.model.layers)
+            ):
+                layer = layer.self_attn.query_key_value
+                base_weight = layer.base_layer.linear.weight
+                base_device = base_weight.device
+
+                weight_name = f"{prefix}.{i}.self_attn.q_proj"
+                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                weight_name = f"{prefix}.{i}.self_attn.v_proj"
+                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+                q_lora_a_list[layer.layer_id] = q_lora_a.transpose(0, 1)
+                q_lora_b_list[layer.layer_id] = q_lora_b.transpose(0, 1)
+
+                v_lora_a_list[layer.layer_id] = v_lora_a.transpose(0, 1)
+                v_lora_b_list[layer.layer_id] = v_lora_b.transpose(0, 1)
+
+            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list, adapter_config, self.process_group)
+            q_lora_weights = self.batched_lora_weights[Q_PROJ]
+            q_lora_weights.add_adapter(adapter_index, q_lora_merged)
+
+            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list, adapter_config, self.process_group)
+            v_lora_weights = self.batched_lora_weights[V_PROJ]
+            v_lora_weights.add_adapter(adapter_index, v_lora_merged)
+
+            self.adapter_id = adapter_id
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):
         """Offloads the adapter weights from GPU to CPU or disk."""
-        raise NotImplementedError
+        if not self.supports_adapter_loading:
+            raise ValueError("This model does not support adapter loading.")
+        
+        if not self.dynamic_adapter_loading_enabled:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                return
+            else:
+                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
+
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        else:
+            self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
+            self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
+
+            self.adapter_id = BASE_MODEL_ADAPTER_ID
 
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
@@ -737,7 +887,7 @@ class FlashCausalLM(Model):
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
 
-    def forward(self, batch: FlashCausalLMBatch) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         global CACHE_MANAGER
 
         # Model Forward
@@ -750,8 +900,7 @@ class FlashCausalLM(Model):
             slots=batch.slots[batch.slot_indices],
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
-            adapter_indices=batch.adapter_indices,
-            adapter_set=batch.adapter_set,
+            adapter_data=adapter_data,
             lm_head_indices=batch.prefill_head_indices,
         )
 
@@ -778,8 +927,12 @@ class FlashCausalLM(Model):
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
 
+        # Assign pointers to LoRA weights
+        # TODO(travis): don't update this if indices haven't changed
+        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
+
         try:
-            out = self.forward(batch)
+            out = self.forward(batch, adapter_data)
         except Exception as e:
             del batch
             raise e
@@ -806,11 +959,11 @@ class FlashCausalLM(Model):
             # We do not need cu_seqlen_prefill anymore
             batch.cu_seqlen_prefill = None
 
-            next_adapter_indices = batch.adapter_indices.new_empty(len(batch))
+            next_adapter_indices = batch.adapter_meta.adapter_indices.new_empty(len(batch))
         else:
             prefill_logprobs = None
             next_position_ids = batch.position_ids
-            next_adapter_indices = batch.adapter_indices
+            next_adapter_indices = batch.adapter_meta.adapter_indices
 
         # Cumulative length
         cumulative_length = 0
@@ -850,7 +1003,7 @@ class FlashCausalLM(Model):
 
                 # Initialize adapter indices
                 # In decode, we only have one token per row in the batch, so grab last index
-                next_adapter_indices[i] = batch.adapter_indices[end_index - 1]
+                next_adapter_indices[i] = batch.adapter_meta.adapter_indices[end_index - 1]
 
                 # Used to gather prefill logprobs
                 # Copy batch.input_ids to prefill_token_indices
@@ -872,9 +1025,27 @@ class FlashCausalLM(Model):
         # Set values in batch
         batch.input_ids = next_input_ids
         batch.position_ids = next_position_ids + 1
-        batch.adapter_indices = next_adapter_indices
+        batch.adapter_meta.adapter_indices = next_adapter_indices
         batch.input_lengths_tensor += 1
         batch.slot_indices += 1
+
+        if prefill:
+            # adjust segment lengths to account for all request lengths being 1 during decoding
+            adapter_segments = [0]
+            adapter_segment_length = 0
+            last_adapter_index = None
+            for r in batch.requests:
+                adapter_segment_length += 1
+                if last_adapter_index != r.adapter_index:
+                    adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                    adapter_segment_length = 0
+                    last_adapter_index = r.adapter_index
+
+            batch.adapter_meta.adapter_segments = torch.tensor(
+                adapter_segments, 
+                dtype=torch.int32, 
+                device=batch.adapter_meta.adapter_segments.device,
+            )
 
         if prefill and prefill_logprobs:
             # Get prefill logprobs

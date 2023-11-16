@@ -34,6 +34,7 @@ from lorax_server.utils import (
     StoppingCriteria,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
 
 tracer = trace.get_tracer(__name__)
 
@@ -96,6 +97,9 @@ class FlashMistralBatch(FlashCausalLMBatch):
 
         adapter_indices_list = []
         adapter_set = set()
+        adapter_segment_indices = []
+        adapter_segments = [0]
+        adapter_segment_length = 0
 
         # Cumulative length
         cumulative_length = 0
@@ -142,6 +146,12 @@ class FlashMistralBatch(FlashCausalLMBatch):
 
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
             adapter_set.add(r.adapter_index)
+
+            adapter_segment_length += input_length
+            if not adapter_segment_indices or adapter_segment_indices[-1] != r.adapter_index:
+                adapter_segment_indices.append(r.adapter_index)
+                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
+                adapter_segment_length = 0
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -240,6 +250,8 @@ class FlashMistralBatch(FlashCausalLMBatch):
             input_lengths, dtype=torch.int32, device=device
         )
 
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
+
         if all_prefill_logprobs:
             prefill_head_indices = None
             prefill_next_token_indices = cu_seqlen_prefill[1:] - 1
@@ -286,8 +298,12 @@ class FlashMistralBatch(FlashCausalLMBatch):
             # top_n_tokens_tensor=top_n_tokens_tensor,
             blocks=blocks,
             max_blocks=max_blocks,
-            adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_meta=AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
+            ),
             prefill_cache_indices=prefill_cache_indices,
         )
 
@@ -396,82 +412,15 @@ class FlashMistral(FlashCausalLM):
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
 
-    def load_adapter(self, adapter_id, adapter_source, adapter_index):
-        # NOTE: this implementation of `load_adapter` looks VERY similar to the 
-        # one in FlashLlama, but we duplicate it here because they are 
-        # fundamentally different models, and we want to make it easy to fix
-        # model-specific bugs and adding capabilities without breaking others.
-        # This philosophy is reflected throughout this repository and in the 
-        # broader HuggingFace Transformers ecosystem. More here:
-        # https://huggingface.co/blog/transformers-design-philosophy
-        if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
-
-        # If we are doing dynamic adapter loading, then we need to reset the weights
-        if adapter_id == self.adapter_id:
-            return
-        elif adapter_id != BASE_MODEL_ADAPTER_ID:
-            weight_names = tuple(self.orig_weights.keys())
-            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
-            
-            prefix = "model.layers"
-            for i, layer in tqdm(
-                enumerate(self.model.model.layers), 
-                desc=f"Merging weights for adapter {adapter_id}",
-                total=len(self.model.model.layers)
-            ):
-                layer = layer.self_attn.query_key_value
-                base_weight = layer.base_layer.linear.weight
-                base_device = base_weight.device
-
-                weight_name = f"{prefix}.{i}.self_attn.q_proj"
-                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
-
-                weight_name = f"{prefix}.{i}.self_attn.v_proj"
-                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
-
-                layer.add_adapter(
-                    (q_lora_a, q_lora_b),
-                    (v_lora_a, v_lora_b),
-                    adapter_config,
-                    self.process_group,
-                    adapter_index,
-                )
-
-            self.adapter_id = adapter_id
-
-    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
-        if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
-
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
-            return
-        else:
-            for layer in self.model.model.layers:
-                layer = layer.self_attn.query_key_value
-                layer.remove_adapter(adapter_index)
-
-            self.adapter_id = BASE_MODEL_ADAPTER_ID
+    @property
+    def supports_adapter_loading(self) -> bool:
+        return True
 
     @property
     def batch_type(self) -> Type[FlashMistralBatch]:
         return FlashMistralBatch
 
-    def forward(self, batch: FlashMistralBatch) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, batch: FlashMistralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         # Model Forward
         logits = self.model.forward(
             input_ids=batch.input_ids,
@@ -482,8 +431,7 @@ class FlashMistral(FlashCausalLM):
             slots=batch.slots[batch.slot_indices],
             input_lengths=batch.input_lengths_tensor,
             max_s=batch.max_seqlen,
-            adapter_indices=batch.adapter_indices,
-            adapter_set=batch.adapter_set,
+            adapter_data=adapter_data,
             prefill_cache_indices=batch.prefill_cache_indices,
             lm_head_indices=batch.prefill_head_indices,
         )

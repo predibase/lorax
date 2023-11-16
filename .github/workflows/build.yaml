@@ -1,4 +1,4 @@
-name: Build and push docker image to internal registry
+name: Build and push docker image to ghcr
 
 on:
   workflow_dispatch:
@@ -14,47 +14,11 @@ on:
       - '.github/workflows/build.yaml'
 
 jobs:
-  start-runner:
-    name: Start self-hosted EC2 runner
-    runs-on: ubuntu-latest
-    env:
-      AWS_REGION: us-west-2
-      EC2_AMI_ID: ami-08e9a170e7569aa18
-      EC2_INSTANCE_TYPE: g5.12xlarge
-      EC2_SUBNET_ID: subnet-80a134dd,subnet-494de903,subnet-57f74d2f,subnet-b2343999
-      EC2_SECURITY_GROUP: sg-0a318ff79a05ddc47
-    outputs:
-      label: ${{ steps.start-ec2-runner.outputs.label }}
-      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Start EC2 runner
-        id: start-ec2-runner
-        uses: philschmid/philschmid-ec2-github-runner@main
-        with:
-          mode: start
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
-          ec2-image-id: ${{ env.EC2_AMI_ID }}
-          ec2-instance-type: ${{ env.EC2_INSTANCE_TYPE }}
-          subnet-id: ${{ env.EC2_SUBNET_ID }}
-          security-group-id: ${{ env.EC2_SECURITY_GROUP }}
-          aws-resource-tags: > # optional, requires additional permissions
-            [
-              {"Key": "Name", "Value": "ec2-tgi-github-runner"},
-              {"Key": "GitHubRepository", "Value": "${{ github.repository }}"}
-            ]
-
   build-and-push-image:
     concurrency:
       group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.run_id }}
       cancel-in-progress: true
-    needs: start-runner # required to start the main job when the runner is ready
-    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
+    runs-on: a100-runner
     permissions:
       contents: write
       packages: write
@@ -62,54 +26,28 @@ jobs:
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
       security-events: write
-    env:
-      AWS_REGION: us-west-2
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-      - name: Initialize Docker Buildx
-        uses: docker/setup-buildx-action@v2.0.0
-        with:
-          install: true
-      - name: Inject slug/short variables
-        uses: rlespinasse/github-slug-action@v4.4.1
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1.6.2
+      - name: Set output
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       
-      - name: "run build script"
-        run : |
-          bash build.sh --latest
-
-  stop-runner:
-    name: Stop self-hosted EC2 runner
-    needs:
-      - start-runner
-      - build-and-push-image
-    runs-on: ubuntu-latest
-    env:
-      AWS_REGION: us-west-2
-    if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Stop EC2 runner
-        uses: philschmid/philschmid-ec2-github-runner@main
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+      
+      - name: Build and Push Image
+        uses: docker/build-push-action@v2
         with:
-          mode: stop
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
-          label: ${{ needs.start-runner.outputs.label }}
-          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
+          context: .
+          file: ./Dockerfile  # Path to your Dockerfile
+          push: true
+          tags: |
+            ghcr.io/predibase/lorax:${{ steps.vars.outputs.sha_short }}
+            ghcr.io/predibase/lorax:latest

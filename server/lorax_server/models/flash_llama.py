@@ -1,3 +1,4 @@
+from collections import defaultdict
 import torch
 import torch.distributed
 
@@ -5,7 +6,7 @@ from loguru import logger
 from opentelemetry import trace
 from transformers.models.llama import LlamaTokenizer, LlamaTokenizerFast
 from tqdm import tqdm
-from typing import Optional
+from typing import Dict, Optional
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
@@ -131,66 +132,6 @@ class FlashLlama(FlashCausalLM):
                 weight_name = f"{prefix}.{i}.self_attn.v_proj"
                 self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
     
-    def load_adapter(self, adapter_id, adapter_source, adapter_index):
-        if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
-
-        # If we are doing dynamic adapter loading, then we need to reset the weights
-        if adapter_id == self.adapter_id:
-            return
-        elif adapter_id != BASE_MODEL_ADAPTER_ID:
-            weight_names = tuple(self.orig_weights.keys())
-            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
-            
-            prefix = "model.layers"
-            for i, layer in tqdm(
-                enumerate(self.model.model.layers), 
-                desc=f"Merging weights for adapter {adapter_id}",
-                total=len(self.model.model.layers)
-            ):
-                layer = layer.self_attn.query_key_value
-                base_weight = layer.base_layer.linear.weight
-                base_device = base_weight.device
-
-                weight_name = f"{prefix}.{i}.self_attn.q_proj"
-                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
-
-                weight_name = f"{prefix}.{i}.self_attn.v_proj"
-                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
-
-                layer.add_adapter(
-                    (q_lora_a, q_lora_b),
-                    (v_lora_a, v_lora_b),
-                    adapter_config,
-                    self.process_group,
-                    adapter_index,
-                )
-
-            self.adapter_id = adapter_id
-
-    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
-        if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
-
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
-            return
-        else:
-            for layer in self.model.model.layers:
-                layer = layer.self_attn.query_key_value
-                layer.remove_adapter(adapter_index)
-
-            self.adapter_id = BASE_MODEL_ADAPTER_ID
+    @property
+    def supports_adapter_loading(self) -> bool:
+        return True
