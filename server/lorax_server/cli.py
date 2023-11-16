@@ -30,7 +30,7 @@ def serve(
     quantize: Optional[Quantization] = None,
     dtype: Optional[Dtype] = None,
     trust_remote_code: bool = False,
-    uds_path: Path = "/tmp/text-generation-server",
+    uds_path: Path = "/tmp/lorax-server",
     logger_level: str = "INFO",
     json_output: bool = False,
     otlp_endpoint: Optional[str] = None,

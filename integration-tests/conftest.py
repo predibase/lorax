@@ -215,11 +215,11 @@ def launcher(event_loop):
         master_port = random.randint(10_000, 20_000)
 
         shard_uds_path = (
-            f"/tmp/tgi-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}-server"
+            f"/tmp/lorax-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}-server"
         )
 
         args = [
-            "text-generation-launcher",
+            "lorax-launcher",
             "--model-id",
             model_id,
             "--port",
@@ -240,7 +240,7 @@ def launcher(event_loop):
         if trust_remote_code:
             args.append("--trust-remote-code")
 
-        env["LOG_LEVEL"] = "info,text_generation_router=debug"
+        env["LOG_LEVEL"] = "info,lorax_router=debug"
 
         if not use_flash_attention:
             env["USE_FLASH_ATTENTION"] = "false"
@@ -284,7 +284,7 @@ def launcher(event_loop):
 
         client = docker.from_env()
 
-        container_name = f"tgi-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}"
+        container_name = f"lorax-tests-{model_id.split('/')[-1]}-{num_shard}-{quantize}"
 
         try:
             container = client.containers.get(container_name)
@@ -295,7 +295,7 @@ def launcher(event_loop):
 
         gpu_count = num_shard if num_shard is not None else 1
 
-        env = {"LOG_LEVEL": "info,text_generation_router=debug"}
+        env = {"LOG_LEVEL": "info,lorax_router=debug"}
         if not use_flash_attention:
             env["USE_FLASH_ATTENTION"] = "false"
 

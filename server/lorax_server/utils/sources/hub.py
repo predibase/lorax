@@ -99,7 +99,7 @@ def weight_files(
             raise LocalEntryNotFoundError(
                 f"File {filename} of model {model_id} not found in "
                 f"{os.getenv('HUGGINGFACE_HUB_CACHE', 'the local cache')}. "
-                f"Please run `text-generation-server download-weights {model_id}` first."
+                f"Please run `lorax-server download-weights {model_id}` first."
             )
         files.append(cache_file)
 

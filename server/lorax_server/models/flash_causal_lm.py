@@ -1,6 +1,7 @@
 from collections import defaultdict
 import math
 import itertools
+from loguru import logger
 import torch
 import torch.distributed
 
@@ -8,6 +9,7 @@ import numpy as np
 
 from dataclasses import dataclass
 from opentelemetry import trace
+from peft import LoraConfig
 from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 from typing import Optional, Set, Tuple, List, Type, Union, Dict
@@ -28,7 +30,7 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
-from lorax_server.utils.lora import Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 
 tracer = trace.get_tracer(__name__)
 
@@ -756,49 +758,48 @@ class FlashCausalLM(Model):
         if adapter_id == self.adapter_id:
             return
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
+            logger.info(f"Loading adapter weights into model: {adapter_id}")
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
 
-            nlayers = len(self.model.model.layers)
-            q_lora_a_list = [None] * nlayers
-            q_lora_b_list = [None] * nlayers
-
-            v_lora_a_list = [None] * nlayers
-            v_lora_b_list = [None] * nlayers
-            
-            prefix = "model.layers"
-            for i, layer in tqdm(
-                enumerate(self.model.model.layers), 
-                desc=f"Merging weights for adapter {adapter_id}",
-                total=len(self.model.model.layers)
-            ):
-                layer = layer.self_attn.query_key_value
-                base_weight = layer.base_layer.linear.weight
-                base_device = base_weight.device
-
-                weight_name = f"{prefix}.{i}.self_attn.q_proj"
-                q_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-                q_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
-
-                weight_name = f"{prefix}.{i}.self_attn.v_proj"
-                v_lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-                v_lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
-
-                q_lora_a_list[layer.layer_id] = q_lora_a.transpose(0, 1)
-                q_lora_b_list[layer.layer_id] = q_lora_b.transpose(0, 1)
-
-                v_lora_a_list[layer.layer_id] = v_lora_a.transpose(0, 1)
-                v_lora_b_list[layer.layer_id] = v_lora_b.transpose(0, 1)
-
-            q_lora_merged = MergedLoraWeights(q_lora_a_list, q_lora_b_list, adapter_config, self.process_group)
-            q_lora_weights = self.batched_lora_weights[Q_PROJ]
-            q_lora_weights.add_adapter(adapter_index, q_lora_merged)
-
-            v_lora_merged = MergedLoraWeights(v_lora_a_list, v_lora_b_list, adapter_config, self.process_group)
-            v_lora_weights = self.batched_lora_weights[V_PROJ]
-            v_lora_weights.add_adapter(adapter_index, v_lora_merged)
+            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, Q_PROJ)
+            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, V_PROJ)
+            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, K_PROJ)
+            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, O_PROJ)
 
             self.adapter_id = adapter_id
+
+    def load_batched_adapter_weights(
+        self, 
+        module_map: Dict[str, Dict], 
+        adapter_config: LoraConfig, 
+        adapter_index: int, 
+        layer_type: str,
+    ):
+        nlayers = len(self.model.model.layers)
+        lora_a_list = [None] * nlayers
+        lora_b_list = [None] * nlayers
+        
+        prefix = "model.layers"
+        for i, layer in enumerate(self.model.model.layers):
+            layer = layer.self_attn.query_key_value
+            base_weight = layer.base_layer.linear.weight
+            base_device = base_weight.device
+
+            weight_name = f"{prefix}.{i}.self_attn.{layer_type}"
+            if weight_name not in module_map:
+                # There is no LoRA weight for this layer type in the adapter
+                return
+            
+            lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
+            lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+
+            lora_a_list[layer.layer_id] = lora_a.transpose(0, 1)
+            lora_b_list[layer.layer_id] = lora_b.transpose(0, 1)
+
+        q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, self.process_group)
+        q_lora_weights = self.batched_lora_weights[layer_type]
+        q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):
         """Offloads the adapter weights from GPU to CPU or disk."""
@@ -817,8 +818,17 @@ class FlashCausalLM(Model):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             return
         else:
-            self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
-            self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
+            if Q_PROJ in self.batched_lora_weights:
+                self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
+
+            if V_PROJ in self.batched_lora_weights:
+                self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
+
+            if K_PROJ in self.batched_lora_weights:
+                self.batched_lora_weights[K_PROJ].remove_adapter(adapter_index)
+
+            if O_PROJ in self.batched_lora_weights:
+                self.batched_lora_weights[O_PROJ].remove_adapter(adapter_index)
 
             self.adapter_id = BASE_MODEL_ADAPTER_ID
 

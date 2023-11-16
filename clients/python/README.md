@@ -1,7 +1,7 @@
 # Text Generation
 
 The Hugging Face Text Generation Python library provides a convenient way of interfacing with a
-`text-generation-inference` instance running on
+`lorax-inference` instance running on
 [Hugging Face Inference Endpoints](https://huggingface.co/inference-endpoints) or on the Hugging Face Hub.
 
 ## Get Started
@@ -9,7 +9,7 @@ The Hugging Face Text Generation Python library provides a convenient way of int
 ### Install
 
 ```shell
-pip install text-generation
+pip install lorax
 ```
 
 ### Inference API Usage

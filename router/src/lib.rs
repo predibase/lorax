@@ -35,7 +35,7 @@ pub struct Info {
     pub model_dtype: String,
     #[schema(example = "cuda")]
     pub model_device_type: String,
-    #[schema(nullable = true, example = "text-generation")]
+    #[schema(nullable = true, example = "lorax")]
     pub model_pipeline_tag: Option<String>,
     /// Router Parameters
     #[schema(example = "128")]

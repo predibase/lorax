@@ -22,7 +22,7 @@ aws --version
 # download files
 time ./sync.sh
 
-# Function to check if text-generation-launcher is running
+# Function to check if lorax-launcher is running
 is_launcher_running() {
     local launcher_pid="$1"
     # this checks whether the process is alive or not. Redirects the output of kill -0 to devnull.
@@ -30,15 +30,15 @@ is_launcher_running() {
 }
 
 # launch TG launcher in the background
-text-generation-launcher "$@" &
+lorax-launcher "$@" &
 
 # Capture the PID of the process we just launched
 launcher_pid="$!"
 
-# Loop to continuously check if text-generation-launcher is running
+# Loop to continuously check if lorax-launcher is running
 while is_launcher_running "$launcher_pid"; do
     sleep 1
 done
 
-# Once text-generation-launcher has stopped, the loop exits, and upload is called
+# Once lorax-launcher has stopped, the loop exits, and upload is called
 upload

@@ -15,13 +15,13 @@ INFERENCE_ENDPOINT = os.environ.get(
 
 def deployed_models(headers: Optional[Dict] = None) -> List[DeployedModel]:
     """
-    Get all currently deployed models with text-generation-inference-support
+    Get all currently deployed models with lorax-inference-support
 
     Returns:
         List[DeployedModel]: list of all currently deployed models
     """
     resp = requests.get(
-        f"https://api-inference.huggingface.co/framework/text-generation-inference",
+        f"https://api-inference.huggingface.co/framework/lorax-inference",
         headers=headers,
         timeout=5,
     )
@@ -36,7 +36,7 @@ def deployed_models(headers: Optional[Dict] = None) -> List[DeployedModel]:
 
 def check_model_support(repo_id: str, headers: Optional[Dict] = None) -> bool:
     """
-    Check if a given model is supported by text-generation-inference
+    Check if a given model is supported by lorax-inference
 
     Returns:
         bool: whether the model is supported by this client
@@ -52,15 +52,15 @@ def check_model_support(repo_id: str, headers: Optional[Dict] = None) -> bool:
         raise parse_error(resp.status_code, payload)
 
     framework = payload["framework"]
-    supported = framework == "text-generation-inference"
+    supported = framework == "lorax-inference"
     return supported
 
 
 class InferenceAPIClient(Client):
     """Client to make calls to the HuggingFace Inference API.
 
-     Only supports a subset of the available text-generation or text2text-generation models that are served using
-     text-generation-inference
+     Only supports a subset of the available lorax or text2lorax models that are served using
+     lorax-inference
 
      Example:
 
@@ -98,7 +98,7 @@ class InferenceAPIClient(Client):
         """
 
         headers = build_hf_headers(
-            token=token, library_name="text-generation", library_version=__version__
+            token=token, library_name="lorax", library_version=__version__
         )
 
         # Text Generation Inference client only supports a subset of the available hub models
@@ -115,8 +115,8 @@ class InferenceAPIClient(Client):
 class InferenceAPIAsyncClient(AsyncClient):
     """Aynschronous Client to make calls to the HuggingFace Inference API.
 
-     Only supports a subset of the available text-generation or text2text-generation models that are served using
-     text-generation-inference
+     Only supports a subset of the available lorax or text2lorax models that are served using
+     lorax-inference
 
      Example:
 
@@ -154,7 +154,7 @@ class InferenceAPIAsyncClient(AsyncClient):
                 Timeout in seconds
         """
         headers = build_hf_headers(
-            token=token, library_name="text-generation", library_version=__version__
+            token=token, library_name="lorax", library_version=__version__
         )
 
         # Text Generation Inference client only supports a subset of the available hub models

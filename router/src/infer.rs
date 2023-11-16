@@ -16,7 +16,7 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
-use text_generation_client::{
+use lorax_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use thiserror::Error;
@@ -47,6 +47,8 @@ impl Infer {
         max_batch_total_tokens: u32,
         max_waiting_tokens: usize,
         max_concurrent_requests: usize,
+        max_active_adapters: usize,
+        adapter_cycle_time_s: u64,
         requires_padding: bool,
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
@@ -56,7 +58,7 @@ impl Infer {
         });
 
         // Routes requests to the appropriate adapter queue
-        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event.clone(), requires_padding, 16, window_size);
+        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event.clone(), requires_padding, 16, window_size, max_active_adapters, adapter_cycle_time_s);
 
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));
@@ -102,7 +104,7 @@ impl Infer {
             .limit_concurrent_requests
             .try_acquire_owned()
             .map_err(|err| {
-                metrics::increment_counter!("tgi_request_failure", "err" => "overloaded");
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
                 tracing::error!("{err}");
                 err
             })?;
@@ -136,7 +138,7 @@ impl Infer {
 
         // Validate request
         let valid_request = self.validation.validate(request, adapter.clone()).await.map_err(|err| {
-            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
+            metrics::increment_counter!("lorax_request_failure", "err" => "validation");
             tracing::error!("{err}");
             err
         })?;
@@ -220,7 +222,7 @@ impl Infer {
             })
         } else {
             let err = InferError::IncompleteGeneration;
-            metrics::increment_counter!("tgi_request_failure", "err" => "incomplete");
+            metrics::increment_counter!("lorax_request_failure", "err" => "incomplete");
             tracing::error!("{err}");
             Err(err)
         }
@@ -304,8 +306,8 @@ async fn batching_task(
                 let batch_size = batch.size;
                 let batch_max_tokens = batch.max_tokens;
                 let mut batches = vec![batch];
-                metrics::gauge!("tgi_batch_current_size", batch_size as f64);
-                metrics::gauge!("tgi_batch_current_max_tokens", batch_max_tokens as f64);
+                metrics::gauge!("lorax_batch_current_size", batch_size as f64);
+                metrics::gauge!("lorax_batch_current_max_tokens", batch_max_tokens as f64);
 
                 // Cleanup any adapters that are in an errored state
                 // TODO(travis): can execute this more efficiently by making it event-driven
@@ -334,9 +336,9 @@ async fn batching_task(
                 {
                     // Tracking metrics
                     if min_size.is_some() {
-                        metrics::increment_counter!("tgi_batch_concat", "reason" => "backpressure");
+                        metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
                     } else {
-                        metrics::increment_counter!("tgi_batch_concat", "reason" => "wait_exceeded");
+                        metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded");
                     }
 
                     entries.iter_mut().for_each(|(_, entry)| {
@@ -383,8 +385,8 @@ async fn batching_task(
                     .await;
                 waiting_tokens += 1;
             }
-            metrics::gauge!("tgi_batch_current_size", 0.0);
-            metrics::gauge!("tgi_batch_current_max_tokens", 0.0);
+            metrics::gauge!("lorax_batch_current_size", 0.0);
+            metrics::gauge!("lorax_batch_current_max_tokens", 0.0);
         }
     }
 }
@@ -398,7 +400,7 @@ async fn prefill(
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_id = batch.id;
-    metrics::increment_counter!("tgi_batch_inference_count", "method" => "prefill");
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
 
     match client.prefill(batch).await {
         Ok((generations, next_batch)) => {
@@ -410,8 +412,8 @@ async fn prefill(
             // Filter next batch and remove requests that were stopped
             let next_batch = filter_batch(client, next_batch, entries).await;
 
-            metrics::histogram!("tgi_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "prefill");
-            metrics::increment_counter!("tgi_batch_inference_success", "method" => "prefill");
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "prefill");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "prefill");
             next_batch
         }
         // If we have an error, we discard the whole batch
@@ -420,7 +422,7 @@ async fn prefill(
             generation_health.store(false, Ordering::SeqCst);
             let _ = client.clear_cache(Some(batch_id)).await;
             send_errors(err, entries);
-            metrics::increment_counter!("tgi_batch_inference_failure", "method" => "prefill");
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "prefill");
             None
         }
     }
@@ -435,7 +437,7 @@ async fn decode(
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_ids: Vec<u64> = batches.iter().map(|b| b.id).collect();
-    metrics::increment_counter!("tgi_batch_inference_count", "method" => "decode");
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "decode");
 
     match client.decode(batches).await {
         Ok((generations, next_batch)) => {
@@ -447,8 +449,8 @@ async fn decode(
             // Filter next batch and remove requests that were stopped
             let next_batch = filter_batch(client, next_batch, entries).await;
 
-            metrics::histogram!("tgi_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "decode");
-            metrics::increment_counter!("tgi_batch_inference_success", "method" => "decode");
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "decode");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "decode");
             next_batch
         }
         // If we have an error, we discard the whole batch
@@ -458,7 +460,7 @@ async fn decode(
                 let _ = client.clear_cache(Some(id)).await;
             }
             send_errors(err, entries);
-            metrics::increment_counter!("tgi_batch_inference_failure", "method" => "decode");
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "decode");
             None
         }
     }
@@ -519,7 +521,7 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
                 tracing::error!("Entry response channel timed out.")
             }
 
-            metrics::increment_counter!("tgi_request_failure", "err" => "dropped");
+            metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
             err
         }).unwrap_or(true);
         if stopped {
@@ -586,7 +588,7 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
         // Create and enter a span to link this function back to the entry
         let _send_error_span = info_span!(parent: entry.temp_span.as_ref().expect("batch_span is None. This is a bug."), "send_error").entered();
         let err = InferError::GenerationError(error.to_string());
-        metrics::increment_counter!("tgi_request_failure", "err" => "generation");
+        metrics::increment_counter!("lorax_request_failure", "err" => "generation");
         tracing::error!("{err}");
 
         // unwrap_or is valid here as we don't care if the receiver is gone.

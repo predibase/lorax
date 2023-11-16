@@ -136,7 +136,7 @@ def weight_files_s3(
             raise LocalEntryNotFoundError(
                 f"File {filename} of model {model_id} not found in "
                 f"{HUGGINGFACE_HUB_CACHE}. "
-                f"Please run `text-generation-server download-weights {model_id}` first."
+                f"Please run `lorax-server download-weights {model_id}` first."
             )
         files.append(cache_file)
 

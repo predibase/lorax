@@ -10,7 +10,7 @@ much simpler and focus on having the most efficient forward passes as possible.
 
 ## Continuous batching
 
-One important feature of `text-generation-inference` is enabled
+One important feature of `lorax-inference` is enabled
 by this `router`.
 
 Continuous batching is the act of regularly running queries in the same
@@ -27,7 +27,7 @@ Static batching is the act of doing several queries at the same time, but usuall
 this is controlled by the client, and therefore the amount of batching is decided
 beforehand.
 
-For text-generation, and LLMs which are memory bound we can try to be much more
+For lorax, and LLMs which are memory bound we can try to be much more
 efficient with the available compute, by having client sending us single queries, 
 and let the router mix&match queries into or out of batches to make the use the
 compute the most efficiently. This is possible because for LLMs the total compute
@@ -36,7 +36,7 @@ for running the model is much bigger than doing mix&match of the batches themsel
 
 ### Simple continuous batching
 
-text-generation works by feeding a prompt to a model, and iteratively calling
+lorax works by feeding a prompt to a model, and iteratively calling
 `forward` on the model to produce new text, 1 token at a time.
 
 The first idea is simple, when a query arrives, we start working on it directly.
@@ -56,7 +56,7 @@ independantly on each member of the batch.
 
 ### Prefill, decode and past key values
 
-In order to make LLMs and text-generation efficient, there's actually a very powerful
+In order to make LLMs and lorax efficient, there's actually a very powerful
 trick that can be used, which is the "caching" of some attention matrices. [More on that
 in the first part of this blog](https://huggingface.co/blog/accelerated-inference#getting-to-the-first-10x-speedup)
 
@@ -69,7 +69,7 @@ but a currently running query is probably doing `decode`. If we want to do the c
 batching as explained previously we need to run `prefill` at some point in order to create
 the attention matrix required to be able to join the `decode` group.
 
-`text-generation-inference` uses a bunch of different strategies and parameters in
+`lorax-inference` uses a bunch of different strategies and parameters in
 order to enable you to find the sweet spot between exploiting the hardware and perceived latency.
 
 With no continuous batching at all, latency is going to be super good, but throughput (meaning
