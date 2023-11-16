@@ -1,18 +1,17 @@
+<p align="center">
+  <a href="https://github.com/predibase/lorax">
+    <img src="https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent" height="300">
+  </a>
+</p>
+
 <div align="center">
 
-![image](https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent)
+_The LLM inference server that speaks for the GPUs!_
 
-# LoRA Exchange (LoRAX)
+[![Discord](https://img.shields.io/discord/1174495433565945916)](https://discord.gg/zMFfDrWT)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/ludwig-ai/ludwig/blob/master/LICENSE)
 
-<a href="https://github.com/predibase/lorax">
-  <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/predibase/lorax?style=social">
-</a>
-<a href="https://github.com/predibase/lorax/blob/main/LICENSE">
-  <img alt="License" src="https://img.shields.io/github/license/predibase/lorax">
-</a>
 </div>
-
-The LLM inference server that speaks for the GPUs!
 
 LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
