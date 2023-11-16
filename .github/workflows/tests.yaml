@@ -23,7 +23,6 @@ jobs:
       SCCACHE_GHA_ENABLED: "on"
       RUSTC_WRAPPER: /usr/local/bin/sccache
       SCCACHE: 0.3.3
-      HUGGING_FACE_HUB_TOKEN: "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"
 
     steps:
       - uses: actions/checkout@v2
