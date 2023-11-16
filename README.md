@@ -45,7 +45,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 
 <p align="center">
-  <img src="https://github.com/predibase/lorax/assets/29719151/6f4f78fc-c1e9-4a01-8675-dbafa74a2534" />
+  <img src="https://github.com/predibase/lorax/assets/29719151/f88aa16c-66de-45ad-ad40-01a7874ed8a9" />
 </p>
 
 
