@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/predibase/lorax">
-    <img src="https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent" height="300">
+    <img src="https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent">
   </a>
 </p>
 
@@ -9,7 +9,7 @@
 _The LLM inference server that speaks for the GPUs!_
 
 [![Discord](https://img.shields.io/discord/1174495433565945916)](https://discord.gg/zMFfDrWT)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/ludwig-ai/ludwig/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
 
 </div>
 
