@@ -105,7 +105,7 @@ struct Args {
     validation_workers: usize,
 
     /// Whether to shard the model across multiple GPUs
-    /// By default lorax-inference will use all available GPUs to run
+    /// By default LoRAX will use all available GPUs to run
     /// the model. Setting it to `false` deactivates `num_shard`.
     #[clap(long, env)]
     sharded: Option<bool>,
@@ -204,7 +204,7 @@ struct Args {
     /// Overall this number should be the largest possible amount that fits the
     /// remaining memory (after the model is loaded). Since the actual memory overhead
     /// depends on other parameters like if you're using quantization, flash attention
-    /// or the model implementation, lorax-inference cannot infer this number
+    /// or the model implementation, LoRAX cannot infer this number
     /// automatically.
     #[clap(long, env)]
     max_batch_total_tokens: Option<u32>,
@@ -260,7 +260,7 @@ struct Args {
     #[clap(long, env)]
     weights_cache_override: Option<String>,
 
-    /// For some models (like bloom), lorax-inference implemented custom
+    /// For some models (like llama), LoRAX implemented custom
     /// cuda kernels to speed up inference. Those kernels were only tested on A100.
     /// Use this flag to disable them if you're running on different hardware and
     /// encounter issues.

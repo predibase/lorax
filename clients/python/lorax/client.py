@@ -15,19 +15,19 @@ from lorax.errors import parse_error
 
 
 class Client:
-    """Client to make calls to a lorax-inference instance
+    """Client to make calls to a LoRAX instance
 
      Example:
 
      ```python
      >>> from lorax import Client
 
-     >>> client = Client("https://api-inference.huggingface.co/models/bigscience/bloomz")
-     >>> client.generate("Why is the sky blue?").generated_text
+     >>> client = Client("http://127.0.0.1:8080")
+     >>> client.generate("Why is the sky blue?", adapter_id="some/adapter").generated_text
      ' Rayleigh scattering'
 
      >>> result = ""
-     >>> for response in client.generate_stream("Why is the sky blue?"):
+     >>> for response in client.generate_stream("Why is the sky blue?", adapter_id="some/adapter"):
      >>>     if not response.token.special:
      >>>         result += response.token.text
      >>> result
@@ -45,7 +45,7 @@ class Client:
         """
         Args:
             base_url (`str`):
-                lorax-inference instance base url
+                LoRAX instance base url
             headers (`Optional[Dict[str, str]]`):
                 Additional headers
             cookies (`Optional[Dict[str, str]]`):
@@ -61,6 +61,8 @@ class Client:
     def generate(
         self,
         prompt: str,
+        adapter_id: Optional[str] = None,
+        adapter_source: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         best_of: Optional[int] = None,
@@ -82,6 +84,10 @@ class Client:
         Args:
             prompt (`str`):
                 Input text
+            adapter_id (`Optional[str]`):
+                Adapter ID to apply to the base model for the request
+            adapter_source (`Optional[str]`):
+                Source of the adapter (hub, local, s3)
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -119,6 +125,8 @@ class Client:
         """
         # Validate parameters
         parameters = Parameters(
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
             best_of=best_of,
             details=True,
             do_sample=do_sample,
@@ -152,6 +160,8 @@ class Client:
     def generate_stream(
         self,
         prompt: str,
+        adapter_id: Optional[str] = None,
+        adapter_source: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         repetition_penalty: Optional[float] = None,
@@ -171,6 +181,10 @@ class Client:
         Args:
             prompt (`str`):
                 Input text
+            adapter_id (`Optional[str]`):
+                Adapter ID to apply to the base model for the request
+            adapter_source (`Optional[str]`):
+                Source of the adapter (hub, local, s3)
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -204,6 +218,8 @@ class Client:
         """
         # Validate parameters
         parameters = Parameters(
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
             best_of=None,
             details=True,
             decoder_input_details=False,
@@ -256,7 +272,7 @@ class Client:
 
 
 class AsyncClient:
-    """Asynchronous Client to make calls to a lorax-inference instance
+    """Asynchronous Client to make calls to a LoRAX instance
 
      Example:
 
@@ -264,12 +280,12 @@ class AsyncClient:
      >>> from lorax import AsyncClient
 
      >>> client = AsyncClient("https://api-inference.huggingface.co/models/bigscience/bloomz")
-     >>> response = await client.generate("Why is the sky blue?")
+     >>> response = await client.generate("Why is the sky blue?", adapter_id="some/adapter")
      >>> response.generated_text
      ' Rayleigh scattering'
 
      >>> result = ""
-     >>> async for response in client.generate_stream("Why is the sky blue?"):
+     >>> async for response in client.generate_stream("Why is the sky blue?", adapter_id="some/adapter"):
      >>>     if not response.token.special:
      >>>         result += response.token.text
      >>> result
@@ -287,7 +303,7 @@ class AsyncClient:
         """
         Args:
             base_url (`str`):
-                lorax-inference instance base url
+                LoRAX instance base url
             headers (`Optional[Dict[str, str]]`):
                 Additional headers
             cookies (`Optional[Dict[str, str]]`):
@@ -303,6 +319,8 @@ class AsyncClient:
     async def generate(
         self,
         prompt: str,
+        adapter_id: Optional[str] = None,
+        adapter_source: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         best_of: Optional[int] = None,
@@ -324,6 +342,10 @@ class AsyncClient:
         Args:
             prompt (`str`):
                 Input text
+            adapter_id (`Optional[str]`):
+                Adapter ID to apply to the base model for the request
+            adapter_source (`Optional[str]`):
+                Source of the adapter (hub, local, s3)
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -361,6 +383,8 @@ class AsyncClient:
         """
         # Validate parameters
         parameters = Parameters(
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
             best_of=best_of,
             details=True,
             decoder_input_details=decoder_input_details,
@@ -392,6 +416,8 @@ class AsyncClient:
     async def generate_stream(
         self,
         prompt: str,
+        adapter_id: Optional[str] = None,
+        adapter_source: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         repetition_penalty: Optional[float] = None,
@@ -411,6 +437,10 @@ class AsyncClient:
         Args:
             prompt (`str`):
                 Input text
+            adapter_id (`Optional[str]`):
+                Adapter ID to apply to the base model for the request
+            adapter_source (`Optional[str]`):
+                Source of the adapter (hub, local, s3)
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -444,6 +474,8 @@ class AsyncClient:
         """
         # Validate parameters
         parameters = Parameters(
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
             best_of=None,
             details=True,
             decoder_input_details=False,

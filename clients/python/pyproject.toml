@@ -1,10 +1,13 @@
 [tool.poetry]
-name = "lorax"
-version = "0.6.0"
+name = "lorax-client"
+packages = [
+    {include = "lorax"}
+]
+version = "0.1.0"
 description = "LoRAX Python Client"
 license = "Apache-2.0"
-authors = ["Olivier Dehaene <olivier@huggingface.co>"]
-maintainers = ["Olivier Dehaene <olivier@huggingface.co>"]
+authors = ["Travis Addair <travis@predibase.com>", "Olivier Dehaene <olivier@huggingface.co>"]
+maintainers = ["Travis Addair <travis@predibase.com>"]
 readme = "README.md"
 homepage = "https://github.com/predibase/lorax"
 repository = "https://github.com/predibase/lorax"
