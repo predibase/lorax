@@ -76,6 +76,8 @@ class AdapterBatchData:
     def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, "BatchedLoraWeights"]) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
+            if v.is_empty():
+                continue
             data[k] = v.get_data(meta)
         return AdapterBatchData(meta=meta, data=data)
 
@@ -91,10 +93,12 @@ class MergedLoraWeights:
         process_group: ProcessGroup,
     ):
         # [num_layers, hidden_size, r]
-        self.weights_a = shard_on_dim(torch.stack(weights_a), dim=0, process_group=process_group)
+        weights_a = [shard_on_dim(w, dim=0, process_group=process_group) for w in weights_a]
+        self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
-        self.weights_b = shard_on_dim(torch.stack(weights_b), dim=0, process_group=process_group)
+        weights_a = [shard_on_dim(w, dim=0, process_group=process_group) for w in weights_b]
+        self.weights_b = torch.stack(weights_b)
 
         self.adapter_config = adapter_config
 
@@ -109,7 +113,12 @@ class BatchedLoraWeights:
         self.lora_weights[adapter_idx] = weights
 
     def remove_adapter(self, adapter_idx: int):
+        if adapter_idx not in self.lora_weights:
+            return
         del self.lora_weights[adapter_idx]
+
+    def is_empty(self) -> bool:
+        return len(self.lora_weights) == 0
 
     def get_data(self, meta: AdapterBatchMetadata) -> AdapterWeightData:
         device = list(self.lora_weights.values())[0].weights_a.device
