@@ -316,7 +316,7 @@ fn init_logging(otlp_endpoint: Option<String>, json_output: bool) {
                 trace::config()
                     .with_resource(Resource::new(vec![KeyValue::new(
                         "service.name",
-                        "lorax-inference.router",
+                        "lorax.router",
                     )]))
                     .with_sampler(Sampler::AlwaysOn),
             )

@@ -22,7 +22,7 @@ try:
     except ImportError:
         raise ImportError(
             "Flash Attention V2 is not installed.\n"
-            "Use the official Docker image (ghcr.io/huggingface/lorax-inference:latest) "
+            "Use the official Docker image (ghcr.io/predibase/lorax:latest) "
             "or install flash attention v2 with `cd server && make install install-flash-attention-v2`"
         )
     if not (is_sm8x or is_sm90):
@@ -37,7 +37,7 @@ except ImportError as e:
     except ImportError:
         raise ImportError(
             "Flash Attention is not installed.\n"
-            "Use the official Docker image (ghcr.io/huggingface/lorax-inference:latest) "
+            "Use the official Docker image (ghcr.io/predibase/lorax:latest) "
             "or install flash attention with `cd server && make install install-flash-attention`"
         ) from e
 

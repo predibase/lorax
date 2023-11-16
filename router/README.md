@@ -10,7 +10,7 @@ much simpler and focus on having the most efficient forward passes as possible.
 
 ## Continuous batching
 
-One important feature of `lorax-inference` is enabled
+One important feature of `lorax` is enabled
 by this `router`.
 
 Continuous batching is the act of regularly running queries in the same
@@ -69,7 +69,7 @@ but a currently running query is probably doing `decode`. If we want to do the c
 batching as explained previously we need to run `prefill` at some point in order to create
 the attention matrix required to be able to join the `decode` group.
 
-`lorax-inference` uses a bunch of different strategies and parameters in
+`lorax` uses a bunch of different strategies and parameters in
 order to enable you to find the sweet spot between exploiting the hardware and perceived latency.
 
 With no continuous batching at all, latency is going to be super good, but throughput (meaning

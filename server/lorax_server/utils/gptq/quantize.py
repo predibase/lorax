@@ -944,7 +944,7 @@ def quantize(
             metadata={
                 "format": "pt",
                 "quantized": "gptq",
-                "origin": "lorax-inference",
+                "origin": "lorax",
             },
         )
     if index is None:

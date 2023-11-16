@@ -1,5 +1,5 @@
 name: "\U0001F41B Bug Report"
-description: Submit a bug report to help us improve lorax-inference
+description: Submit a bug report to help us improve LoRAX
 body:
   - type: textarea
     id: system-info
@@ -16,7 +16,7 @@ body:
         Deployment specificities (Kubernetes, EKS, AKS, any particular deployments):
         The current version being used:
 
-      placeholder: lorax-inference version, platform, python version, ...
+      placeholder: lorax version, platform, python version, ...
     validations:
       required: true
 
