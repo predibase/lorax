@@ -35,6 +35,7 @@ import vllm_attention_ops
 
 from lorax_server.utils.flash_attn import attention, HAS_FLASH_ATTN_V2
 from lorax_server.utils.layers import (
+    TensorParallelAdapterRowLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
@@ -242,12 +243,12 @@ class MistralAttention(torch.nn.Module):
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
-        self.o_proj = TensorParallelRowLinear.load(
+        self.o_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
             prefix=f"{prefix}.o_proj",
             weights=weights,
             bias=False,
-        )
+        ), layer_id, process_group=weights.process_group)
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
