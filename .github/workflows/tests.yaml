@@ -64,6 +64,14 @@ jobs:
       - name: Install
         run: |
           make install
+
+      - name: Install Punica
+        run: |
+          git clone https://github.com/punica-ai/punica.git --recurse
+          cd punica
+          python setup.py build
+          python setup.py bdist_wheel
+
       - name: Run server tests
         run: |
           pip install pytest
