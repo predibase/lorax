@@ -14,54 +14,32 @@
 
 The LLM inference server that speaks for the GPUs!
 
-## Table of contents
+Lorax is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
-- [Features](#features)
-- [Optimized Architectures](#optimized-architectures)
-- [Get Started](#get-started)
-  - [Docker](#docker)
-  - [API Documentation](#api-documentation)
-  - [Using a private or gated model](#using-a-private-or-gated-model)
-  - [A note on Shared Memory](#a-note-on-shared-memory-shm)
-  - [Distributed Tracing](#distributed-tracing)
-  - [Local Install](#local-install)
-  - [CUDA Kernels](#cuda-kernels)
-- [Run Falcon](#run-falcon)
-  - [Run](#run)
-  - [Quantization](#quantization)
-- [Develop](#develop)
-- [Testing](#testing)
-- [Other supported hardware](#other-supported-hardware)
+## 📖 Table of contents
 
-## Features
+- [LoRA Exchange (LoRAX)](#lora-exchange-lorax)
+  - [📖 Table of contents](#-table-of-contents)
+  - [🔥 Features](#-features)
+  - [🏠 Optimized architectures](#-optimized-architectures)
+  - [🏃‍♂️ Get started](#️-get-started)
+    - [Docker](#docker)
+    - [📓 API documentation](#-api-documentation)
+    - [🛠️ Local install](#️-local-install)
 
-- Serve the most popular Large Language Models with a simple launcher
-- Tensor Parallelism for faster inference on multiple GPUs
-- Token streaming using Server-Sent Events (SSE)
-- [Continuous batching of incoming requests](https://github.com/huggingface/lorax-inference/tree/main/router) for increased total throughput
-- Optimized transformers code for inference using [flash-attention](https://github.com/HazyResearch/flash-attention) and [Paged Attention](https://github.com/vllm-project/vllm) on the most popular architectures
-- Quantization with [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and [GPT-Q](https://arxiv.org/abs/2210.17323)
-- [Safetensors](https://github.com/huggingface/safetensors) weight loading
-- Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
-- Logits warper (temperature scaling, top-p, top-k, repetition penalty, more details see [transformers.LogitsProcessor](https://huggingface.co/docs/transformers/internal/generation_utils#transformers.LogitsProcessor))
-- Stop sequences
-- Log probabilities
-- Production ready (distributed tracing with Open Telemetry, Prometheus metrics)
+## 🔥 Features
 
-## Optimized architectures
+- 🚅 **Dynamic Adapter Loading:** allowing each set of fine-tuned LoRA weights to be loaded from storage just-in-time as requests come in at runtime, without blocking concurrent requests.
+- 🏋️‍♀️ **Tiered Weight Caching:** to support fast exchanging of LoRA adapters between requests, and offloading of adapter weights to CPU and disk to avoid out-of-memory errors.
+- 🧁 **Continuous Multi-Adapter Batching:** a fair scheduling policy for optimizing aggregate throughput of the system that extends the popular continuous batching strategy to work across multiple sets of LoRA adapters in parallel.
+- 👬 **Optimized Inference:**  [flash-attention](https://github.com/HazyResearch/flash-attention), [paged attention](https://github.com/vllm-project/vllm), quantization with [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and [GPT-Q](https://arxiv.org/abs/2210.17323), tensor parallelism, token streaming, and [continuous batching](https://github.com/huggingface/lorax-inference/tree/main/router) work together to optimize our inference speeds.
+- ✅ **Production Readiness** reliably stable, Lorax supports  Prometheus metrics and distributed tracing with Open Telemetry
+- 🤯 **Free Commercial Use:** Apache 2.0 License. Enough said 😎.
 
-- [BLOOM](https://huggingface.co/bigscience/bloom)
-- [FLAN-T5](https://huggingface.co/google/flan-t5-xxl)
-- [Galactica](https://huggingface.co/facebook/galactica-120b)
-- [GPT-Neox](https://huggingface.co/EleutherAI/gpt-neox-20b)
-- [Llama](https://github.com/facebookresearch/llama)
-- [OPT](https://huggingface.co/facebook/opt-66b)
-- [SantaCoder](https://huggingface.co/bigcode/santacoder)
-- [Starcoder](https://huggingface.co/bigcode/starcoder)
-- [Falcon 7B](https://huggingface.co/tiiuae/falcon-7b)
-- [Falcon 40B](https://huggingface.co/tiiuae/falcon-40b)
-- [MPT](https://huggingface.co/mosaicml/mpt-30b)
-- [Llama V2](https://huggingface.co/meta-llama)
+## 🏠 Optimized architectures
+
+- 🦙 [Llama V2](https://huggingface.co/meta-llama)
+- 🌬️[Mistral](https://huggingface.co/mistralai)
 
 Other architectures are supported on a best effort basis using:
 
@@ -71,14 +49,14 @@ or
 
 `AutoModelForSeq2SeqLM.from_pretrained(<model>, device_map="auto")`
 
-## Get started
+## 🏃‍♂️ Get started
 
 ### Docker
 
 The easiest way of getting started is using the official Docker container:
 
 ```shell
-model=tiiuae/falcon-7b-instruct
+model=mistralai/Mistral-7B-v0.1
 volume=$PWD/data # share a volume with the Docker container to avoid downloading weights every run
 
 docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data ghcr.io/huggingface/lorax-inference:0.9.4 --model-id $model
@@ -125,154 +103,11 @@ for response in client.generate_stream("What is Deep Learning?", max_new_tokens=
 print(text)
 ```
 
-### API documentation
+### 📓 API documentation
 
 You can consult the OpenAPI documentation of the `lorax-inference` REST API using the `/docs` route.
 The Swagger UI is also available at: [https://huggingface.github.io/lorax-inference](https://huggingface.github.io/lorax-inference).
 
-### Using a private or gated model
+### 🛠️ Local install
 
-You have the option to utilize the `HUGGING_FACE_HUB_TOKEN` environment variable for configuring the token employed by
-`lorax-inference`. This allows you to gain access to protected resources.
-
-For example, if you want to serve the gated Llama V2 model variants:
-
-1. Go to https://huggingface.co/settings/tokens
-2. Copy your cli READ token
-3. Export `HUGGING_FACE_HUB_TOKEN=<your cli READ token>`
-
-or with Docker:
-
-```shell
-model=meta-llama/Llama-2-7b-chat-hf
-volume=$PWD/data # share a volume with the Docker container to avoid downloading weights every run
-token=<your cli READ token>
-
-docker run --gpus all --shm-size 1g -e HUGGING_FACE_HUB_TOKEN=$token -p 8080:80 -v $volume:/data ghcr.io/huggingface/lorax-inference:0.9.3 --model-id $model
-```
-
-### A note on Shared Memory (shm)
-
-[`NCCL`](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/index.html) is a communication framework used by
-`PyTorch` to do distributed training/inference. `lorax-inference` make
-use of `NCCL` to enable Tensor Parallelism to dramatically speed up inference for large language models.
-
-In order to share data between the different devices of a `NCCL` group, `NCCL` might fall back to using the host memory if
-peer-to-peer using NVLink or PCI is not possible.
-
-To allow the container to use 1G of Shared Memory and support SHM sharing, we add `--shm-size 1g` on the above command.
-
-If you are running `lorax-inference` inside `Kubernetes`. You can also add Shared Memory to the container by
-creating a volume with:
-
-```yaml
-- name: shm
-  emptyDir:
-   medium: Memory
-   sizeLimit: 1Gi
-```
-
-and mounting it to `/dev/shm`.
-
-Finally, you can also disable SHM sharing by using the `NCCL_SHM_DISABLE=1` environment variable. However, note that
-this will impact performance.
-
-### Distributed Tracing
-
-`lorax-inference` is instrumented with distributed tracing using OpenTelemetry. You can use this feature
-by setting the address to an OTLP collector with the `--otlp-endpoint` argument.
-
-### Local install
-
-You can also opt to install `lorax-inference` locally.
-
-First [install Rust](https://rustup.rs/) and create a Python virtual environment with at least
-Python 3.9, e.g. using `conda`:
-
-```shell
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-conda create -n lorax-inference python=3.9
-conda activate lorax-inference
-```
-
-You may also need to install Protoc.
-
-On Linux:
-
-```shell
-PROTOC_ZIP=protoc-21.12-linux-x86_64.zip
-curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP
-sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
-sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
-rm -f $PROTOC_ZIP
-```
-
-On MacOS, using Homebrew:
-
-```shell
-brew install protobuf
-```
-
-Then run:
-
-```shell
-BUILD_EXTENSIONS=True make install # Install repository and HF/transformer fork with CUDA kernels
-make run-falcon-7b-instruct
-```
-
-**Note:** on some machines, you may also need the OpenSSL libraries and gcc. On Linux machines, run:
-
-```shell
-sudo apt-get install libssl-dev gcc -y
-```
-
-### CUDA Kernels
-
-The custom CUDA kernels are only tested on NVIDIA A100s. If you have any installation or runtime issues, you can remove
-the kernels by using the `DISABLE_CUSTOM_KERNELS=True` environment variable.
-
-Be aware that the official Docker image has them enabled by default.
-
-## Run Falcon
-
-### Run
-
-```shell
-make run-falcon-7b-instruct
-```
-
-### Quantization
-
-You can also quantize the weights with bitsandbytes to reduce the VRAM requirement:
-
-```shell
-make run-falcon-7b-instruct-quantize
-```
-
-## Develop
-
-```shell
-make server-dev
-make router-dev
-```
-
-## Testing
-
-```shell
-# python
-make python-server-tests
-make python-client-tests
-# or both server and client tests
-make python-tests
-# rust cargo tests
-make rust-tests
-# integration tests
-make integration-tests
-```
-
-
-## Other supported hardware
-
-TGI is also supported on the following AI hardware accelerators:
-- *Habana first-gen Gaudi and Gaudi2:* checkout [here](https://github.com/huggingface/optimum-habana/tree/main/lorax-inference) how to serve models with TGI on Gaudi and Gaudi2 with [Optimum Habana](https://huggingface.co/docs/optimum/habana/index)
+MAGDY AND WAEL TODO
