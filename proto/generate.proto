@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package generate.v1;
 
-service TextGenerationService {
+service LoraxService {
     /// Model Info
     rpc Info (InfoRequest) returns (InfoResponse) {}
     /// Service discovery

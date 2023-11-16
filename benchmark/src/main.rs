@@ -4,7 +4,7 @@
 /// and: https://github.com/orhun/rust-tui-template
 use clap::Parser;
 use std::path::Path;
-use text_generation_client::ShardedClient;
+use lorax_client::ShardedClient;
 use tokenizers::{FromPretrainedParameters, Tokenizer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -29,7 +29,7 @@ struct Args {
     #[clap(short, long)]
     batch_size: Option<Vec<u32>>,
 
-    /// This is the initial prompt sent to the text-generation-server length
+    /// This is the initial prompt sent to the lorax-server length
     /// in token. Longer prompt will slow down the benchmark. Usually the
     /// latency grows somewhat linearly with this for the prefill step.
     ///
@@ -56,41 +56,41 @@ struct Args {
 
     /// The location of the grpc socket. This benchmark tool bypasses the router
     /// completely and directly talks to the gRPC processes
-    #[clap(default_value = "/tmp/text-generation-server-0", short, long, env)]
+    #[clap(default_value = "/tmp/lorax-server-0", short, long, env)]
     master_shard_uds_path: String,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     temperature: Option<f32>,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     top_k: Option<u32>,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     top_p: Option<f32>,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     typical_p: Option<f32>,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     repetition_penalty: Option<f32>,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     watermark: bool,
 
     /// Generation parameter in case you want to specifically test/debug particular
-    /// decoding strategies, for full doc refer to the `text-generation-server`
+    /// decoding strategies, for full doc refer to the `lorax-server`
     #[clap(long, env)]
     do_sample: bool,
 }
@@ -167,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Connected");
 
             // Run app
-            text_generation_benchmark::run(
+            lorax_benchmark::run(
                 tokenizer_name,
                 tokenizer,
                 batch_size,

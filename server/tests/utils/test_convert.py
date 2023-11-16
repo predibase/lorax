@@ -1,10 +1,10 @@
-from text_generation_server.utils.sources.hub import (
+from lorax_server.utils.sources.hub import (
     download_weights,
     weight_hub_files,
     weight_files,
 )
 
-from text_generation_server.utils.convert import convert_files
+from lorax_server.utils.convert import convert_files
 
 
 def test_convert_files():

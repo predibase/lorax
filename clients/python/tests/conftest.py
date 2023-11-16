@@ -1,6 +1,6 @@
 import pytest
 
-from text_generation import __version__
+from lorax import __version__
 from huggingface_hub.utils import build_hf_headers
 
 
@@ -47,5 +47,5 @@ def unsupported_url(base_url, unsupported_model):
 @pytest.fixture(scope="session")
 def hf_headers():
     return build_hf_headers(
-        library_name="text-generation-tests", library_version=__version__
+        library_name="lorax-tests", library_version=__version__
     )

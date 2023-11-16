@@ -1,13 +1,13 @@
 import pytest
 
-from text_generation import (
+from lorax import (
     InferenceAPIClient,
     InferenceAPIAsyncClient,
     Client,
     AsyncClient,
 )
-from text_generation.errors import NotSupportedError, NotFoundError
-from text_generation.inference_api import check_model_support, deployed_models
+from lorax.errors import NotSupportedError, NotFoundError
+from lorax.inference_api import check_model_support, deployed_models
 
 
 def test_check_model_support(flan_t5_xxl, unsupported_model, fake_model):

@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use text_generation_client::{
+use lorax_client::{
     Batch, CachedBatch, ClientError, NextTokenChooserParameters, Request, ShardedClient,
     StoppingCriteriaParameters,
 };

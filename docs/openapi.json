@@ -705,7 +705,7 @@
           },
           "model_pipeline_tag": {
             "type": "string",
-            "example": "text-generation",
+            "example": "lorax",
             "nullable": true
           },
           "model_sha": {

@@ -1,5 +1,5 @@
 /// Single shard Client
-use crate::pb::generate::v1::text_generation_service_client::TextGenerationServiceClient;
+use crate::pb::generate::v1::lorax_service_client::LoraxServiceClient;
 use crate::pb::generate::v1::*;
 use crate::ClientError;
 use crate::Result;
@@ -11,7 +11,7 @@ use tracing::instrument;
 /// Text Generation Inference gRPC client
 #[derive(Debug, Clone)]
 pub struct Client {
-    stub: TextGenerationServiceClient<Channel>,
+    stub: LoraxServiceClient<Channel>,
 }
 
 impl Client {
@@ -20,7 +20,7 @@ impl Client {
         let channel = Channel::builder(uri).connect().await?;
 
         Ok(Self {
-            stub: TextGenerationServiceClient::new(channel),
+            stub: LoraxServiceClient::new(channel),
         })
     }
 
@@ -34,7 +34,7 @@ impl Client {
             .await?;
 
         Ok(Self {
-            stub: TextGenerationServiceClient::new(channel),
+            stub: LoraxServiceClient::new(channel),
         })
     }
 

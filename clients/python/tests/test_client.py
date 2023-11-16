@@ -1,8 +1,8 @@
 import pytest
 
-from text_generation import Client, AsyncClient
-from text_generation.errors import NotFoundError, ValidationError
-from text_generation.types import FinishReason, InputToken
+from lorax import Client, AsyncClient
+from lorax.errors import NotFoundError, ValidationError
+from lorax.types import FinishReason, InputToken
 
 
 def test_generate(flan_t5_xxl_url, hf_headers):

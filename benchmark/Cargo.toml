@@ -1,5 +1,5 @@
 [package]
-name = "text-generation-benchmark"
+name = "lorax-benchmark"
 description = "Text Generation Benchmarking tool"
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ homepage.workspace = true
 path = "src/lib.rs"
 
 [[bin]]
-name = "text-generation-benchmark"
+name = "lorax-benchmark"
 path = "src/main.rs"
 
 [dependencies]
@@ -21,7 +21,7 @@ float-ord = "0.3.2"
 serde = {version = "1.0.142", features = ["derive"]}
 serde_json = "1.0"
 tabled = "0.12.0"
-text-generation-client = { path = "../router/client" }
+lorax-client = { path = "../router/client" }
 thiserror = "1.0.38"
 tokenizers = "0.13.3"
 tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "parking_lot", "signal", "sync"] }

@@ -1,7 +1,7 @@
 use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{AdapterEvent, AdapterQueuesState}};
 use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}, cmp::min};
 use nohash_hasher::{IntMap, BuildNoHashHasher};
-use text_generation_client::{ShardedClient, Batch, Request};
+use lorax_client::{ShardedClient, Batch, Request};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tracing::{info_span, Span, instrument};
@@ -242,7 +242,7 @@ impl AdapterSchedulerState {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
-                metrics::increment_counter!("tgi_request_failure", "err" => "dropped");
+                metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                 continue;
             }
 
@@ -344,7 +344,7 @@ impl AdapterSchedulerState {
         // Increment batch id
         self.next_batch_id += 1;
 
-        metrics::histogram!("tgi_batch_next_size", batch.size as f64);
+        metrics::histogram!("lorax_batch_next_size", batch.size as f64);
 
         Some((batch_entries, batch, next_batch_span))
     }
