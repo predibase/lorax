@@ -47,6 +47,8 @@ impl Infer {
         max_batch_total_tokens: u32,
         max_waiting_tokens: usize,
         max_concurrent_requests: usize,
+        max_active_adapters: usize,
+        adapter_cycle_time_s: u64,
         requires_padding: bool,
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
@@ -56,7 +58,7 @@ impl Infer {
         });
 
         // Routes requests to the appropriate adapter queue
-        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event.clone(), requires_padding, 16, window_size);
+        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event.clone(), requires_padding, 16, window_size, max_active_adapters, adapter_cycle_time_s);
 
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));

@@ -32,6 +32,8 @@ impl AdapterScheduler {
         requires_padding: bool,
         block_size: u32,
         window_size: Option<u32>,
+        max_active_adapters: usize, 
+        adapter_cycle_time_s: u64,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -43,6 +45,8 @@ impl AdapterScheduler {
             block_size,
             window_size,
             receiver,
+            max_active_adapters, 
+            adapter_cycle_time_s,
         ));
 
         Self {
@@ -102,8 +106,10 @@ async fn adapter_scheduler_task(
     block_size: u32,
     window_size: Option<u32>,
     receiver: flume::Receiver<AdapterSchedulerCommand>,
+    max_active_adapters: usize, 
+    adapter_cycle_time_s: u64,
 ) {
-    let mut state = AdapterSchedulerState::new(client, requires_padding, block_size, window_size);
+    let mut state = AdapterSchedulerState::new(client, requires_padding, block_size, window_size, max_active_adapters, adapter_cycle_time_s);
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
@@ -152,8 +158,8 @@ struct AdapterSchedulerState {
 }
 
 impl AdapterSchedulerState {
-    fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>) -> Self {
-        let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new()));
+    fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>, max_active_adapters: usize, adapter_cycle_time_s: u64) -> Self {
+        let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(max_active_adapters, adapter_cycle_time_s)));
         let loader = AdapterLoader::new(client.clone());
 
         Self {
