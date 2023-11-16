@@ -26,14 +26,18 @@ Lorax is a framework that allows users to serve over a hundred fine-tuned models
     - [Docker](#docker)
     - [📓 API documentation](#-api-documentation)
     - [🛠️ Local install](#️-local-install)
+    - [CUDA Kernels](#cuda-kernels)
+  - [Run Mistral](#run-mistral)
+    - [Run](#run)
+  - [Develop](#develop)
 
 ## 🔥 Features
 
-- 🚅 **Dynamic Adapter Loading:** allowing each set of fine-tuned LoRA weights to be loaded from storage just-in-time as requests come in at runtime, without blocking concurrent requests.
-- 🏋️‍♀️ **Tiered Weight Caching:** to support fast exchanging of LoRA adapters between requests, and offloading of adapter weights to CPU and disk to avoid out-of-memory errors.
+- 🚅 **Dynamic Adapter Loading:** allows each set of fine-tuned LoRA weights to be loaded from storage just-in-time as requests come in at runtime, without blocking concurrent requests.
+- 🏋️‍♀️ **Tiered Weight Caching:** supports fast exchanging of LoRA adapters between requests, and offloading of adapter weights to CPU and disk to avoid out-of-memory errors.
 - 🧁 **Continuous Multi-Adapter Batching:** a fair scheduling policy for optimizing aggregate throughput of the system that extends the popular continuous batching strategy to work across multiple sets of LoRA adapters in parallel.
 - 👬 **Optimized Inference:**  [flash-attention](https://github.com/HazyResearch/flash-attention), [paged attention](https://github.com/vllm-project/vllm), quantization with [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) and [GPT-Q](https://arxiv.org/abs/2210.17323), tensor parallelism, token streaming, and [continuous batching](https://github.com/predibase/lorax/tree/main/router) work together to optimize our inference speeds.
-- ✅ **Production Readiness** reliably stable, Lorax supports  Prometheus metrics and distributed tracing with Open Telemetry
+- ✅ **Production Readiness** reliably stable, Lorax supports Prometheus metrics and distributed tracing with Open Telemetry
 - 🤯 **Free Commercial Use:** Apache 2.0 License. Enough said 😎.
 
 
