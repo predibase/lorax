@@ -4,3 +4,8 @@ unit-tests:
 install:
 	pip install pip --upgrade
 	pip install -e .
+
+release:
+	pip install poetry
+	poetry build
+	poetry publish
