@@ -50,10 +50,7 @@ class RateLimitExceededError(Exception):
 
 class NotSupportedError(Exception):
     def __init__(self, model_id: str):
-        message = (
-            f"Model `{model_id}` is not available for inference with this client. \n"
-            "Use `huggingface_hub.inference_api.InferenceApi` instead."
-        )
+        message = f"Model `{model_id}` is not available for inference with this client."
         super(NotSupportedError, self).__init__(message)
 
 

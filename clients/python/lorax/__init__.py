@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = "0.3.0"
+__version__ = "0.1.0"
 
 from lorax.client import Client, AsyncClient
-from lorax.inference_api import InferenceAPIClient, InferenceAPIAsyncClient
