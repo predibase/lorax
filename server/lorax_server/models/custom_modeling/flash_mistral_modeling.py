@@ -345,7 +345,7 @@ class MistralAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
+        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
 class MistralMLP(nn.Module):

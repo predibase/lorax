@@ -758,7 +758,7 @@ class FlashCausalLM(Model):
         if adapter_id == self.adapter_id:
             return
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
-            logger.info("Loading adapter weights into model: %s", adapter_id)
+            logger.info(f"Loading adapter weights into model: {adapter_id}")
             weight_names = tuple(self.orig_weights.keys())
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
 
@@ -798,7 +798,7 @@ class FlashCausalLM(Model):
             lora_b_list[layer.layer_id] = lora_b.transpose(0, 1)
 
         q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, self.process_group)
-        q_lora_weights = self.batched_lora_weights[Q_PROJ]
+        q_lora_weights = self.batched_lora_weights[layer_type]
         q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):

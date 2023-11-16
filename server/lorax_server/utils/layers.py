@@ -302,7 +302,7 @@ class TensorParallelAdapterLinear(nn.Module):
             self.process_group.size() == 1 and
             data is not None and data.can_vectorize
         ):
-            proj = torch.zeros_like(result[:, :self.q_end])
+            proj = torch.zeros_like(result[:, start_idx:end_idx])
 
             lora_a_ptr = data.lora_a_ptr
             lora_b_ptr = data.lora_b_ptr
@@ -317,8 +317,6 @@ class TensorParallelAdapterLinear(nn.Module):
                     data.rank,
                 )
                 result[:, start_idx:end_idx] += proj * data.scaling
-            
-            return result
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
@@ -326,7 +324,7 @@ class TensorParallelAdapterLinear(nn.Module):
                     result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += result
 
-            return result
+        return result
     
     def forward_lora(
         self,
@@ -346,9 +344,9 @@ class TensorParallelAdapterLinear(nn.Module):
             
             lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
             result = (a_out @ lora_b) * scaling * adapter_mask
+            return result
         except Exception as e:
             raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={lora_a.shape}, lora_b={lora_b.shape}") from e
-        return result
 
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("Implemented in subclasses")
@@ -370,9 +368,9 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
 
-        self.forward_layer_type(result, input, adapter_data, Q_PROJ, 0, self.q_end)
-        self.forward_layer_type(result, input, adapter_data, K_PROJ, self.q_end, self.k_end)
-        self.forward_layer_type(result, input, adapter_data, V_PROJ, self.k_end, self.v_end)
+        result = self.forward_layer_type(result, input, adapter_data, Q_PROJ, 0, self.q_end)
+        result = self.forward_layer_type(result, input, adapter_data, K_PROJ, self.q_end, self.k_end)
+        result = self.forward_layer_type(result, input, adapter_data, V_PROJ, self.k_end, self.v_end)
 
         return result
 
@@ -390,12 +388,6 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
 
 
 class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
-    def __init__(self, base_layer, layer_id, process_group):
-        super().__init__()
-        self.base_layer = base_layer
-        self.layer_id = layer_id
-        self.process_group = process_group
-
     @classmethod
     def load(cls, base_layer, layer_id, process_group):
         return TensorParallelAdapterRowLinear(base_layer, layer_id, process_group)
