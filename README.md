@@ -122,6 +122,24 @@ print(text)
 
 You can consult the OpenAPI documentation of the `lorax` REST API using the `/docs` route.
 
-### 🛠️ Local install
+### 🛠️ Local Development
 
-MAGDY AND WAEL TODO
+```
+# window 1 (server)
+make server-dev
+
+# window 2 (router)
+make router-dev
+```
+
+### Acknowledgements
+
+LoRAX is built on top of HuggingFace's [text-generation-inference](https://github.com/huggingface/text-generation-inference), forked from v0.9.4 (Apache 2.0).
+
+### Roadmap
+
+[ ] Serve pretrained embedding models
+[ ] Serve embedding model MLP adapters
+[ ] Serve LLM MLP adapters for classification
+[ ] Blend multiple adapters per request
+[ ] SGMV kernel for adapters with different ranks
