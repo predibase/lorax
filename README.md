@@ -152,3 +152,25 @@ make run-mistral-7b-instruct
 ```shell
 sudo apt-get install libssl-dev gcc -y
 ```
+
+### CUDA Kernels
+
+The custom CUDA kernels are only tested on NVIDIA A100s. If you have any installation or runtime issues, you can remove 
+the kernels by using the `DISABLE_CUSTOM_KERNELS=True` environment variable.
+
+Be aware that the official Docker image has them enabled by default.
+
+## Run Mistral
+
+### Run
+
+```shell
+make run-mistral-7b-instruct
+```
+
+## Develop
+
+```shell
+make server-dev
+make router-dev
+```
