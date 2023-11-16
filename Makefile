@@ -42,11 +42,8 @@ python-client-tests:
 
 python-tests: python-server-tests python-client-tests
 
-run-falcon-7b-instruct:
-	lorax-launcher --model-id tiiuae/falcon-7b-instruct --port 8080
-
-run-falcon-7b-instruct-quantize:
-	lorax-launcher --model-id tiiuae/falcon-7b-instruct --quantize bitsandbytes --port 8080
+run-mistral-7b-instruct:
+	lorax-launcher --model-id mistralai/Mistral-7B-Instruct-v0.1 --port 8080
 
 clean:
 	rm -rf target aml
