@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ template "llmDeployment.name" . }}
+    app.kubernetes.io/name: {{ template "llmDeployment.name" . }}
+    {{- if .Values.llmService.additionalLabels }}
+      {{- toYaml .Values.llmService.additionalLabels | nindent 4 }}
+    {{- end }}
+
+  name: {{ template "llmDeployment.name" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: {{ template "llmDeployment.name" . }}
+  sessionAffinity: None
+  type: {{ .Values.llmService.serviceType }}

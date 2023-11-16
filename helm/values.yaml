@@ -1,0 +1,43 @@
+llmDeployment:
+  name: "llm-deployment-example"
+  namespace: "default"
+  replicas: 1
+  updateStrategy: RollingUpdate
+
+  # additionalLabels:
+  #   some-label: your-deployment-label
+
+  # specTemplate:
+  #   metadata:
+  #     ... add metadata here ...
+
+  image:
+    repository: "ghcr.io/predibase/lorax"
+    tag: "f76119a"
+  args:
+    modelId: "model-id-from-huggingface"
+    maxInputLength: 512
+    maxTotalTokens: 1024
+    maxBatchTotalTokens: 4096
+    maxBatchPrefillTokens: 2048
+    sharded: true
+  env:
+    huggingFaceHubToken: "your-hub-token"
+    loraxEnabledModelTypes: "llama,mistral"
+  nodeSelector:
+    node.kubernetes.io/instance-type: g5.2xlarge # this will only work on AWS. Update this to your liking.
+resources:
+  limits:
+    cpu: "8"
+    ephemeral-storage: 100Gi
+    memory: 27041Mi
+    nvidia.com/gpu: "1"
+  requests:
+    cpu: "8"
+    ephemeral-storage: 100Gi
+    memory: 27041Mi
+    nvidia.com/gpu: "1"
+llmService:
+  serviceType: LoadBalancer
+  # additionalLabels:
+  #   some-label: your-service-label
