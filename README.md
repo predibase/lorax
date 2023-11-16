@@ -10,6 +10,8 @@ _The LLM inference server that speaks for the GPUs!_
 
 [![Discord](https://img.shields.io/discord/1174495433565945916)](https://discord.gg/zMFfDrWT)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax)](https://artifacthub.io/packages/search?repo=lorax)
+
 
 </div>
 
