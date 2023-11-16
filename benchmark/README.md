@@ -17,7 +17,7 @@ make install-benchmark
 
 ## Run
 
-First, start `lorax-inference`:
+First, start `lorax`:
 
 ```shell
 lorax-launcher --model-id bigscience/bloom-560m

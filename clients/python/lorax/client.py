@@ -15,7 +15,7 @@ from lorax.errors import parse_error
 
 
 class Client:
-    """Client to make calls to a lorax-inference instance
+    """Client to make calls to a LoRAX instance
 
      Example:
 
@@ -45,7 +45,7 @@ class Client:
         """
         Args:
             base_url (`str`):
-                lorax-inference instance base url
+                LoRAX instance base url
             headers (`Optional[Dict[str, str]]`):
                 Additional headers
             cookies (`Optional[Dict[str, str]]`):
@@ -272,7 +272,7 @@ class Client:
 
 
 class AsyncClient:
-    """Asynchronous Client to make calls to a lorax-inference instance
+    """Asynchronous Client to make calls to a LoRAX instance
 
      Example:
 
@@ -303,7 +303,7 @@ class AsyncClient:
         """
         Args:
             base_url (`str`):
-                lorax-inference instance base url
+                LoRAX instance base url
             headers (`Optional[Dict[str, str]]`):
                 Additional headers
             cookies (`Optional[Dict[str, str]]`):
