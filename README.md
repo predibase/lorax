@@ -1,4 +1,4 @@
-<p align="center">
+![chart](https://github.com/predibase/lorax/assets/29719151/bd3e66a3-fbed-462c-8077-556cf52ba59d)<p align="center">
   <a href="https://github.com/predibase/lorax">
     <img src="https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent">
   </a>
@@ -39,7 +39,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 
 <p align="center">
-  <img src="https://github.com/predibase/lorax/assets/29719151/6f4f78fc-c1e9-4a01-8675-dbafa74a2534" />
+  <img src="https://github.com/predibase/lorax/assets/29719151/f88aa16c-66de-45ad-ad40-01a7874ed8a9" />
 </p>
 
 
