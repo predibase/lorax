@@ -1,4 +1,39 @@
 deployment:
+  replicas: 1
+  updateStrategy: {}
+
+  image:
+    repository: "ghcr.io/predibase/lorax"
+    tag: "f76119a"
+
+  args:
+    # Model from huggingface hub, e.g. "meta-llama/Llama-2-7b-chat-hf"
+    modelId: ""
+    maxInputLength: 512
+    maxTotalTokens: 1024
+    maxBatchTotalTokens: 4096
+    maxBatchPrefillTokens: 2048
+    sharded: true
+
+  env:
+    # Your huggingface hub token. Required for some models such as the llama-2 family.
+    huggingFaceHubToken: ""
+
+    # Model types that support dynamic adapter loading
+    loraxEnabledModelTypes: "llama,mistral"
+
+  resources:
+    limits:
+      cpu: "8"
+      ephemeral-storage: 100Gi
+      memory: 27041Mi
+      nvidia.com/gpu: "1"
+    requests:
+      cpu: "8"
+      ephemeral-storage: 100Gi
+      memory: 27041Mi
+      nvidia.com/gpu: "1"
+
   livenessProbe: 
     failureThreshold: 240
     httpGet:
@@ -21,28 +56,6 @@ deployment:
     successThreshold: 1
     timeoutSeconds: 1
 
-  replicas: 1
-  updateStrategy: {}
-
-  image:
-    repository: "ghcr.io/predibase/lorax"
-    tag: "f76119a"
-
-  args:
-    modelId: ""
-    maxInputLength: 512
-    maxTotalTokens: 1024
-    maxBatchTotalTokens: 4096
-    maxBatchPrefillTokens: 2048
-    sharded: true
-
-  env:
-    # Your huggingface hub token. Required for some models such as the llama-2 family.
-    huggingFaceHubToken: ""
-
-    # Model types that support dynamic adapter loading
-    loraxEnabledModelTypes: "llama,mistral"
-
   nodeSelector: {}
   tolerations: []
   additionalLabels: {}
@@ -53,18 +66,6 @@ deployment:
   affinity: {}
 
   priorityClassName: ""
-
-  resources:
-    limits:
-      cpu: "8"
-      ephemeral-storage: 100Gi
-      memory: 27041Mi
-      nvidia.com/gpu: "1"
-    requests:
-      cpu: "8"
-      ephemeral-storage: 100Gi
-      memory: 27041Mi
-      nvidia.com/gpu: "1"
 
 service:
   name: "lorax"
