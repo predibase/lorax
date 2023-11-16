@@ -3,7 +3,7 @@ use crate::adapter::Adapter;
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
 use rand::{thread_rng, Rng};
-use text_generation_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
 use tokenizers::TruncationDirection;
@@ -101,7 +101,7 @@ impl Validation {
                 ));
             }
 
-            metrics::histogram!("tgi_request_input_length", input_length as f64);
+            metrics::histogram!("lorax_request_input_length", input_length as f64);
             Ok((inputs, input_length))
         }
         // Return inputs without validation
@@ -260,7 +260,7 @@ impl Validation {
             ignore_eos_token: false,
         };
 
-        metrics::histogram!("tgi_request_max_new_tokens", max_new_tokens as f64);
+        metrics::histogram!("lorax_request_max_new_tokens", max_new_tokens as f64);
 
         Ok(ValidGenerateRequest {
             inputs,

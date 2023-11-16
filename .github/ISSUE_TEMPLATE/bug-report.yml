@@ -1,12 +1,12 @@
 name: "\U0001F41B Bug Report"
-description: Submit a bug report to help us improve text-generation-inference
+description: Submit a bug report to help us improve lorax-inference
 body:
   - type: textarea
     id: system-info
     attributes:
       label: System Info
       description: | 
-        Please share your system info with us (`text-generation-launcher --env` if installed locally).
+        Please share your system info with us (`lorax-launcher --env` if installed locally).
         The full command line used that causes issues: 
         OS version:
         Rust version (if self-compiling, `cargo version`):
@@ -16,7 +16,7 @@ body:
         Deployment specificities (Kubernetes, EKS, AKS, any particular deployments):
         The current version being used:
 
-      placeholder: text-generation-inference version, platform, python version, ...
+      placeholder: lorax-inference version, platform, python version, ...
     validations:
       required: true
 

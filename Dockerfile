@@ -213,10 +213,12 @@ RUN cd server && \
     make gen-server && \
     pip install ".[bnb, accelerate, quantize]" --no-cache-dir
 
+# Install benchmarker
+COPY --from=builder /usr/src/target/release/lorax-benchmark /usr/local/bin/lorax-benchmark
 # Install router
-COPY --from=builder /usr/src/target/release/text-generation-router /usr/local/bin/text-generation-router
+COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router
 # Install launcher
-COPY --from=builder /usr/src/target/release/text-generation-launcher /usr/local/bin/text-generation-launcher
+COPY --from=builder /usr/src/target/release/lorax-launcher /usr/local/bin/lorax-launcher
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         build-essential \
@@ -240,5 +242,5 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     sudo ./aws/install
 
 # ENTRYPOINT ["./entrypoint.sh"]
-ENTRYPOINT ["text-generation-launcher"]
+ENTRYPOINT ["lorax-launcher"]
 CMD ["--json-output"]

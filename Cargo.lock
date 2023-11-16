@@ -2892,7 +2892,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "text-generation-benchmark"
+name = "lorax-benchmark"
 version = "0.9.4"
 dependencies = [
  "average",
@@ -2903,7 +2903,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tabled",
- "text-generation-client",
+ "lorax-client",
  "thiserror",
  "tokenizers",
  "tokio",
@@ -2912,7 +2912,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "text-generation-client"
+name = "lorax-client"
 version = "0.9.4"
 dependencies = [
  "futures",
@@ -2928,7 +2928,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "text-generation-launcher"
+name = "lorax-launcher"
 version = "0.9.4"
 dependencies = [
  "clap",
@@ -2944,7 +2944,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "text-generation-router"
+name = "lorax-router"
 version = "0.9.4"
 dependencies = [
  "async-stream",
@@ -2963,7 +2963,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "text-generation-client",
+ "lorax-client",
  "thiserror",
  "tokenizers",
  "tokio",
