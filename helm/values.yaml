@@ -1,12 +1,33 @@
-llmDeployment:
-  name: ""
-  namespace: ""
+deployment:
+  livenessProbe: 
+    failureThreshold: 240
+    httpGet:
+      path: /health
+      port: http
+      scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+
+  readinessProbe: 
+    failureThreshold: 240
+    httpGet:
+      path: /health
+      port: http
+      scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+
   replicas: 1
-  updateStrategy: RollingUpdate
+  updateStrategy: {}
 
   image:
     repository: "ghcr.io/predibase/lorax"
     tag: "f76119a"
+
   args:
     modelId: ""
     maxInputLength: 512
@@ -14,10 +35,25 @@ llmDeployment:
     maxBatchTotalTokens: 4096
     maxBatchPrefillTokens: 2048
     sharded: true
+
   env:
+    # Your huggingface hub token. Required for some models such as the llama-2 family.
     huggingFaceHubToken: ""
+
+    # Model types that support dynamic adapter loading
     loraxEnabledModelTypes: "llama,mistral"
-  nodeSelector: {} 
+
+  nodeSelector: {}
+  tolerations: {} 
+  additionalLabels: {}
+  additionalPodLabels: {}
+
+  additionalAnnotations: {}
+  additionalPodAnnotations: {}
+  affinity: {}
+
+  priorityClassName: ""
+
   resources:
     limits:
       cpu: "8"
@@ -30,6 +66,9 @@ llmDeployment:
       memory: 27041Mi
       nvidia.com/gpu: "1"
 
-llmService:
-  serviceType: LoadBalancer
+service:
+  name: "lorax"
+  serviceType: ClusterIP
+  port: 80
+  additionalLabels: {}
 

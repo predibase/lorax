@@ -2,108 +2,85 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: {{ template "llmDeployment.name" . }}
-    {{- if .Values.llmDeployment.k8sDeploymentObject.metadata.additionalLabels }}
-      {{- toYaml .Values.llmDeployment.k8sDeploymentObject.metadata.additionalLabels | nindent 4 }}
+    app: {{ template "app.name" . }}
+    {{- if .Values.deployment.additionalLabels }}
+      {{- toYaml .Values.deployment.additionalLabels | nindent 4 }}
     {{- end }}
-  name: {{ template "llmDeployment.name" . }}
-  namespace: {{ default .Release.Namespace "default" }}
+  name: {{ template "app.name" . }}
+  namespace: {{ .Release.Namespace }}
 spec:
-  progressDeadlineSeconds: 600
-  replicas: {{ .Values.llmDeployment.replicas }}
-  revisionHistoryLimit: 10
+  replicas: {{ .Values.deployment.replicas }}
   selector:
     matchLabels:
-      app: {{ template "llmDeployment.name" . }}
-  strategy:
-    type: {{ .Values.llmDeployment.updateStrategy }}
+      app: {{ template "app.name" . }}
+  {{- if .Values.deployment.updateStrategy }}
+  strategy: {{- toYaml .Values.deployment.updateStrategy | nindent 4 }}
+  {{- end }}
   template:
     metadata:
       labels:
-        app: {{ template "llmDeployment.name" . }}
-        {{- if .Values.llmDeployment.k8sDeploymentObject.spec.template.metadata.additionalLabels }}
-          {{- toYaml .Values.llmDeployment.k8sDeploymentObject.spec.template.metadata.additionalLabels | nindent 8 }}
+        app: {{ template "app.name" . }}
+        {{- if .Values.deployment.additionalPodLabels }}
+          {{- toYaml .Values.deployment.additionalPodLabels | nindent 8 }}
         {{- end }}
-      {{- if .Values.llmDeployment.k8sDeploymentObject.spec.template.metadata.additionalAnnotations }}
-      annotations: {{- toYaml .Values.llmDeployment.k8sDeploymentObject.spec.template.metadata.additionalAnnotations | nindent 8 }}
+      {{- if .Values.deployment.additionalPodAnnotations }}
+      annotations: {{- toYaml .Values.deployment.additionalPodAnnotations | nindent 8 }}
       {{- end }}
-
     spec:
-      {{- if .Values.llmDeployment.k8sDeploymentObject.spec.template.spec.affinity }}
+      {{- if .Values.deployment.affinity }}
       affinity:
-        {{- toYaml .Values.llmDeployment.k8sDeploymentObject.spec.template.spec.affinity | nindent 8 }}
+        {{- toYaml .Values.deployment.affinity | nindent 8 }}
       {{- end }}
       containers:
       - args:
         - --model-id
-        - {{ .Values.llmDeployment.args.modelId }}
+        - {{ .Values.deployment.args.modelId }}
         - --max-input-length
-        - {{ .Values.llmDeployment.args.maxInputLength | quote }}
+        - {{ .Values.deployment.args.maxInputLength | quote }}
         - --max-total-tokens
-        - {{ .Values.llmDeployment.args.maxTotalTokens | quote }}
+        - {{ .Values.deployment.args.maxTotalTokens | quote }}
         - --max-batch-total-tokens
-        - {{ .Values.llmDeployment.args.maxBatchTotalTokens | quote }}
+        - {{ .Values.deployment.args.maxBatchTotalTokens | quote }}
         - --max-batch-prefill-tokens
-        - {{ .Values.llmDeployment.args.maxBatchPrefillTokens | quote }}
+        - {{ .Values.deployment.args.maxBatchPrefillTokens | quote }}
         - --sharded
-        - {{ .Values.llmDeployment.args.sharded | quote }}
+        - {{ .Values.deployment.args.sharded | quote }}
         env:
         - name: PORT
           value: "8000"
         - name: HUGGING_FACE_HUB_TOKEN
-          value: {{ .Values.llmDeployment.env.huggingFaceHubToken | quote }}
+          value: {{ .Values.deployment.env.huggingFaceHubToken | quote }}
         - name: LORAX_ENABLED_MODEL_TYPES
-          value: {{ .Values.llmDeployment.env.loraxEnabledModelTypes | quote }}
-        image: {{ .Values.llmDeployment.image.repository }}:{{ .Values.llmDeployment.image.tag }}
+          value: {{ .Values.deployment.env.loraxEnabledModelTypes | quote }}
+        image: {{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}
         imagePullPolicy: IfNotPresent
-        livenessProbe:
-          failureThreshold: 240
-          httpGet:
-            path: /health
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          successThreshold: 1
-          timeoutSeconds: 1
+        livenessProbe: {{ toYaml .Values.deployment.livenessProbe | nindent 10 }}
         name: lorax
         ports:
         - containerPort: 8000
           name: http
           protocol: TCP
-        readinessProbe:
-          failureThreshold: 240
-          httpGet:
-            path: /health
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          successThreshold: 1
-          timeoutSeconds: 1
-        resources: {{- toYaml .Values.llmDeployment.resources | nindent 10 }}
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
+        readinessProbe: {{ toYaml .Values.deployment.readinessProbe | nindent 10 }}
+        resources: {{ toYaml .Values.deployment.resources | nindent 10 }}
+        # terminationMessagePath: /dev/termination-log
+        # terminationMessagePolicy: File
         volumeMounts:
         - mountPath: /data
           name: data
         - mountPath: /dev/shm
           name: shm
-      dnsPolicy: ClusterFirst
-      enableServiceLinks: false
-      {{- if .Values.llmDeployment.k8sDeploymentObject.spec.template.spec.nodeSelector }}
-      nodeSelector:
-        {{- toYaml .Values.llmDeployment.k8sDeploymentObject.spec.template.spec.nodeSelector | nindent 8 }}
+      # dnsPolicy: ClusterFirst
+      # enableServiceLinks: false
+      {{- if .Values.deployment.tolerations }}
+      tolerations: {{ toYaml .Values.deployment.tolerations | nindent 6 }}
       {{- end }}
-      {{- if .Values.llmDeployment.k8sDeploymentObject.spec.template.spec.tolerations }}
-      tolerations:
-        {{- toYaml .Values.llmDeployment.k8sDeploymentObject.spec.template.spec.tolerations | nindent 6 }}
-      {{- end }}
-      nodeSelector: {{- toYaml .Values.llmDeployment.nodeSelector | nindent 8 }}
+      nodeSelector: {{ toYaml .Values.deployment.nodeSelector | nindent 8 }}
       restartPolicy: Always
       schedulerName: default-scheduler
-      securityContext: {}
       terminationGracePeriodSeconds: 30
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.deployment.priorityClassName | quote }}
+      {{- end }}
       volumes:
       - emptyDir:
           medium: Memory

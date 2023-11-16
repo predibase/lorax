@@ -1,3 +1,3 @@
-{{- define "llmDeployment.name" -}}
-  {{ .Values.llmDeployment.name }}
+{{- define "app.name" -}}
+{{- printf "%s-%s" .Chart.Name .Release.Name | lower -}}
 {{- end -}}
