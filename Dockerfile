@@ -150,6 +150,7 @@ WORKDIR /usr/src
 
 COPY server/Makefile-punica Makefile
 
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 # Build specific version of punica
 RUN make build-punica
 
