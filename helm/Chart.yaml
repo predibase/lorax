@@ -1,0 +1,4 @@
+apiVersion: v2
+name: LoRAX
+description: A Helm chart for LoRAX
+version: 0.1.0

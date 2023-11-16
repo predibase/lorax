@@ -1,0 +1,74 @@
+deployment:
+  replicas: 1
+  updateStrategy: {}
+
+  image:
+    repository: "ghcr.io/predibase/lorax"
+    tag: "f76119a"
+
+  args:
+    modelId: "mistralai/Mistral-7B-Instruct-v0.1"
+    maxInputLength: 512
+    maxTotalTokens: 1024
+    maxBatchTotalTokens: 4096
+    maxBatchPrefillTokens: 2048
+    sharded: true
+
+  env:
+    # Your huggingface hub token. Required for some models such as the llama-2 family.
+    huggingFaceHubToken: ""
+
+    # Model types that support dynamic adapter loading
+    loraxEnabledModelTypes: "llama,mistral"
+
+  resources:
+    limits:
+      cpu: "8"
+      ephemeral-storage: 100Gi
+      memory: 27041Mi
+      nvidia.com/gpu: "1"
+    requests:
+      cpu: "8"
+      ephemeral-storage: 100Gi
+      memory: 27041Mi
+      nvidia.com/gpu: "1"
+
+  livenessProbe: 
+    failureThreshold: 240
+    httpGet:
+      path: /health
+      port: http
+      scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+
+  readinessProbe: 
+    failureThreshold: 240
+    httpGet:
+      path: /health
+      port: http
+      scheme: HTTP
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+
+  nodeSelector: {}
+  tolerations: []
+  additionalLabels: {}
+  additionalPodLabels: {}
+
+  additionalAnnotations: {}
+  additionalPodAnnotations: {}
+  affinity: {}
+
+  priorityClassName: ""
+
+service:
+  name: "lorax"
+  serviceType: ClusterIP
+  port: 80
+  additionalLabels: {}
+

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ template "app.name" . }}
+    {{- if .Values.deployment.additionalLabels }}
+      {{- toYaml .Values.deployment.additionalLabels | nindent 4 }}
+    {{- end }}
+  name: {{ template "app.name" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.deployment.replicas }}
+  selector:
+    matchLabels:
+      app: {{ template "app.name" . }}
+  {{- if .Values.deployment.updateStrategy }}
+  strategy: {{- toYaml .Values.deployment.updateStrategy | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "app.name" . }}
+        {{- if .Values.deployment.additionalPodLabels }}
+          {{- toYaml .Values.deployment.additionalPodLabels | nindent 8 }}
+        {{- end }}
+      {{- if .Values.deployment.additionalPodAnnotations }}
+      annotations: {{- toYaml .Values.deployment.additionalPodAnnotations | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.deployment.affinity }}
+      affinity:
+        {{- toYaml .Values.deployment.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - args:
+        - --model-id
+        - {{ .Values.deployment.args.modelId }}
+        - --max-input-length
+        - {{ .Values.deployment.args.maxInputLength | quote }}
+        - --max-total-tokens
+        - {{ .Values.deployment.args.maxTotalTokens | quote }}
+        - --max-batch-total-tokens
+        - {{ .Values.deployment.args.maxBatchTotalTokens | quote }}
+        - --max-batch-prefill-tokens
+        - {{ .Values.deployment.args.maxBatchPrefillTokens | quote }}
+        - --sharded
+        - {{ .Values.deployment.args.sharded | quote }}
+        env:
+        - name: PORT
+          value: "8000"
+        - name: HUGGING_FACE_HUB_TOKEN
+          value: {{ .Values.deployment.env.huggingFaceHubToken | quote }}
+        - name: LORAX_ENABLED_MODEL_TYPES
+          value: {{ .Values.deployment.env.loraxEnabledModelTypes | quote }}
+        image: {{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}
+        imagePullPolicy: IfNotPresent
+        livenessProbe: {{ toYaml .Values.deployment.livenessProbe | nindent 10 }}
+        name: lorax
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        readinessProbe: {{ toYaml .Values.deployment.readinessProbe | nindent 10 }}
+        resources: {{ toYaml .Values.deployment.resources | nindent 10 }}
+        volumeMounts:
+        - mountPath: /data
+          name: data
+        - mountPath: /dev/shm
+          name: shm
+      {{- if .Values.deployment.tolerations }}
+      tolerations: 
+        {{- toYaml .Values.deployment.tolerations | nindent 6 }}
+      {{- end }}
+      nodeSelector: {{ toYaml .Values.deployment.nodeSelector | nindent 8 }}
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 30
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.deployment.priorityClassName | quote }}
+      {{- end }}
+      volumes:
+      - emptyDir:
+          medium: Memory
+        name: shm
+      - emptyDir:
+        name: data
