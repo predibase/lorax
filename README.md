@@ -72,8 +72,9 @@ The following modules can be targeted:
 - `v_proj`
 - `o_proj`
 
-You can provide an adapter from the HuggingFace Hub, a local file path, or S3. Just make sure that the adapter was trained on the same base model
-used in the deployment. LoRAX only supports one base model at a time, but any number of adapters derived from it!
+You can provide an adapter from the HuggingFace Hub, a local file path, or S3. 
+
+Just make sure that the adapter was trained on the same base model used in the deployment. LoRAX only supports one base model at a time, but any number of adapters derived from it!
 
 ## 🏃‍♂️ Getting started
 
