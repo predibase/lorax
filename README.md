@@ -59,6 +59,8 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 Other architectures are supported on a best effort basis, but do not support dynamical adapter loading.
 
+Check the [HuggingFace Hub](https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads) to find supported base models.
+
 ### Adapters
 
 LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
@@ -70,6 +72,9 @@ The following modules can be targeted:
 - `v_proj`
 - `o_proj`
 
+You can provide an adapter from the HuggingFace Hub, a local file path, or S3. Just make sure that the adapter was trained on the same base model
+used in the deployment. LoRAX only supports one base model at a time, but any number of adapters derived from it!
+
 ## 🏃‍♂️ Getting started
 
 ### Docker
@@ -78,8 +83,7 @@ We recommend starting with our pre-build Docker image to avoid compiling custom 
 
 #### 1. Start Docker container with base LLM
 
-You can use any Llama or Mistral text generation model from 
-[HuggingFace](https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads) as the base LLM.
+In this example, we'll use Mistral-7B-Instruct as the base model, but you can use any Mistral or Llama model from HuggingFace.
 
 ```shell
 model=mistralai/Mistral-7B-Instruct-v0.1
@@ -169,9 +173,6 @@ for response in client.generate_stream(prompt, adapter_id=adapter_id):
         text += response.token.text
 print(text)
 ```
-
-You can provide an adapter from the HuggingFace Hub, a local file path, or S3. Just make sure that the adapter was trained on the same base model
-used in the deployment. LoRAX only supports one base model at a time, but any number of adapters derived from it!
 
 ### Kubernetes (Helm)
 
