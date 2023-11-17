@@ -95,7 +95,8 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data ghcr.io/predibas
 ```
 **Note:** To use GPUs, you need to install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). We also recommend using NVIDIA drivers with CUDA version 11.8 or higher.
 
-To see all options to serve your models (in the [code](https://github.com/predibase/lorax/blob/main/launcher/src/main.rs) or in the cli:
+To see all options to serve your models:
+
 ```
 lorax-launcher --help
 ```
