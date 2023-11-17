@@ -159,15 +159,12 @@ curl 127.0.0.1:8080/generate_stream \
 Python:
 
 ```python
-from lorax import Client
+adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 
-client = Client("http://127.0.0.1:8080")
-prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
-
-print(client.generate(prompt, adapter_id="vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k").generated_text)
+print(client.generate(prompt, adapter_id=adapter_id).generated_text)
 
 text = ""
-for response in client.generate_stream(prompt, adapter_id="vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"):
+for response in client.generate_stream(prompt, adapter_id=adapter_id):
     if not response.token.special:
         text += response.token.text
 print(text)
