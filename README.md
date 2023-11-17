@@ -27,6 +27,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
     - [Adapters](#adapters)
   - [🏃‍♂️ Getting started](#️-getting-started)
     - [Docker](#docker)
+    - [Kubernetes (Helm)](#-kubernetes-helm)
     - [📓 API documentation](#-api-documentation)
     - [🛠️ Local Development](#️-local-development)
     - [CUDA Kernels](#cuda-kernels)
