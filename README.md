@@ -27,6 +27,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
     - [Adapters](#adapters)
   - [🏃‍♂️ Getting started](#️-getting-started)
     - [Docker](#docker)
+    - [Kubernetes (Helm)](#-kubernetes-helm)
     - [📓 API documentation](#-api-documentation)
     - [🛠️ Local Development](#️-local-development)
     - [CUDA Kernels](#cuda-kernels)
@@ -59,6 +60,8 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 Other architectures are supported on a best effort basis, but do not support dynamical adapter loading.
 
+Check the [HuggingFace Hub](https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads) to find supported base models.
+
 ### Adapters
 
 LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
@@ -70,11 +73,19 @@ The following modules can be targeted:
 - `v_proj`
 - `o_proj`
 
+You can provide an adapter from the HuggingFace Hub, a local file path, or S3. 
+
+Just make sure that the adapter was trained on the same base model used in the deployment. LoRAX only supports one base model at a time, but any number of adapters derived from it!
+
 ## 🏃‍♂️ Getting started
 
 ### Docker
 
-The easiest way of getting started is using the official Docker container:
+We recommend starting with our pre-build Docker image to avoid compiling custom CUDA kernels and other dependencies.
+
+#### 1. Start Docker container with base LLM
+
+In this example, we'll use Mistral-7B-Instruct as the base model, but you can use any Mistral or Llama model from HuggingFace.
 
 ```shell
 model=mistralai/Mistral-7B-Instruct-v0.1
@@ -84,12 +95,59 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data ghcr.io/predibas
 ```
 **Note:** To use GPUs, you need to install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). We also recommend using NVIDIA drivers with CUDA version 11.8 or higher.
 
-To see all options to serve your models (in the [code](https://github.com/predibase/lorax/blob/main/launcher/src/main.rs) or in the cli:
+To see all options to serve your models:
+
 ```
 lorax-launcher --help
 ```
 
-You can then query the model using either the `/generate` or `/generate_stream` routes:
+#### 2. Prompt the base model
+
+LoRAX supports the same `/generate` and `/generate_stream` REST API from [text-generation-inference](https://github.com/huggingface/text-generation-inference) for prompting the base model.
+
+REST:
+
+```shell
+curl 127.0.0.1:8080/generate \
+    -X POST \
+    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}' \
+    -H 'Content-Type: application/json'
+```
+
+```shell
+curl 127.0.0.1:8080/generate_stream \
+    -X POST \
+    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}' \
+    -H 'Content-Type: application/json'
+```
+
+Python:
+
+```shell
+pip install lorax-client
+```
+
+```python
+from lorax import Client
+
+client = Client("http://127.0.0.1:8080")
+prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
+
+print(client.generate(prompt).generated_text)
+
+text = ""
+for response in client.generate_stream(prompt):
+    if not response.token.special:
+        text += response.token.text
+print(text)
+```
+
+#### 3. Prompt with a LoRA Adapter
+
+You probably noticed that the response from the base model wasn't what you would expect. So let's now prompt our LLM again with a LoRA adapter
+trained to answer this type of question.
+
+REST:
 
 ```shell
 curl 127.0.0.1:8080/generate \
@@ -105,25 +163,40 @@ curl 127.0.0.1:8080/generate_stream \
     -H 'Content-Type: application/json'
 ```
 
-or from Python:
-
-```shell
-pip install lorax-client
-```
+Python:
 
 ```python
-from lorax import Client
+adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 
-client = Client("http://127.0.0.1:8080")
-prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
-
-print(client.generate(prompt, adapter_id="vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k").generated_text)
+print(client.generate(prompt, adapter_id=adapter_id).generated_text)
 
 text = ""
-for response in client.generate_stream(prompt, adapter_id="vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"):
+for response in client.generate_stream(prompt, adapter_id=adapter_id):
     if not response.token.special:
         text += response.token.text
 print(text)
+```
+
+### Kubernetes (Helm)
+
+LoRAX includes Helm charts that make it easy to start using LoRAX in production with high availability and load balancing on Kubernetes.
+
+To spin up a LoRAX deployment with Helm, you only need to be connected to a Kubernetes cluster through `kubectl``. We provide a default values.yaml file that can be used to deploy a Mistral 7B base model to your Kubernetes cluster:
+
+```shell
+helm install mistral-7b-release charts/lorax
+```
+
+The default [values.yaml](charts/lorax/values.yaml) configuration deploys a single replica of the Mistral 7B model. You can tailor configuration parameters to deploy any Llama or Mistral model by creating a new values file from the template and updating variables. Once a new values file is created, you can run the following command to deploy your LLM with LoRAX:
+
+```shell
+helm install -f your-values-file.yaml your-model-release charts/lorax
+```
+
+To delete the resources:
+
+```shell
+helm uninstall your-model-release
 ```
 
 ### 📓 API documentation
