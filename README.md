@@ -19,22 +19,24 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 
 ## 📖 Table of contents
 
-- [LoRA eXchange (LoRAX)](#lora-exchange-lorax)
-  - [📖 Table of contents](#-table-of-contents)
-  - [🔥 Features](#-features)
-  - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
-    - [Models](#models)
-    - [Adapters](#adapters)
-  - [🏃‍♂️ Getting started](#️-getting-started)
-    - [Docker](#docker)
-    - [Kubernetes (Helm)](#-kubernetes-helm)
-    - [📓 API documentation](#-api-documentation)
-    - [🛠️ Local Development](#️-local-development)
-    - [CUDA Kernels](#cuda-kernels)
-  - [Run Mistral](#run-mistral)
-    - [Run](#run)
-  - [🙇 Acknowledgements](#-acknowledgements)
-  - [🗺️ Roadmap](#️-roadmap)
+- [📖 Table of contents](#-table-of-contents)
+- [🔥 Features](#-features)
+- [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
+  - [Models](#models)
+  - [Adapters](#adapters)
+- [🏃‍♂️ Getting started](#️-getting-started)
+  - [Docker](#docker)
+    - [1. Start Docker container with base LLM](#1-start-docker-container-with-base-llm)
+    - [2. Prompt the base model](#2-prompt-the-base-model)
+    - [3. Prompt with a LoRA Adapter](#3-prompt-with-a-lora-adapter)
+  - [Kubernetes (Helm)](#kubernetes-helm)
+  - [📓 API documentation](#-api-documentation)
+  - [🛠️ Local Development](#️-local-development)
+  - [CUDA Kernels](#cuda-kernels)
+- [Run Mistral](#run-mistral)
+  - [Run](#run)
+- [🙇 Acknowledgements](#-acknowledgements)
+- [🗺️ Roadmap](#️-roadmap)
 
 ## 🔥 Features
 
@@ -110,14 +112,14 @@ REST:
 ```shell
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}' \
+    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64}}' \
     -H 'Content-Type: application/json'
 ```
 
 ```shell
 curl 127.0.0.1:8080/generate_stream \
     -X POST \
-    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"}' \
+    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64}}' \
     -H 'Content-Type: application/json'
 ```
 
@@ -133,10 +135,10 @@ from lorax import Client
 client = Client("http://127.0.0.1:8080")
 prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
 
-print(client.generate(prompt).generated_text)
+print(client.generate(prompt, max_new_tokens=64).generated_text)
 
 text = ""
-for response in client.generate_stream(prompt):
+for response in client.generate_stream(prompt, max_new_tokens=64):
     if not response.token.special:
         text += response.token.text
 print(text)
@@ -152,14 +154,14 @@ REST:
 ```shell
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
+    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
 
 ```shell
 curl 127.0.0.1:8080/generate_stream \
     -X POST \
-    -d '{"inputs": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "parameters": {"adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
+    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
 
@@ -168,10 +170,10 @@ Python:
 ```python
 adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 
-print(client.generate(prompt, adapter_id=adapter_id).generated_text)
+print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
 
 text = ""
-for response in client.generate_stream(prompt, adapter_id=adapter_id):
+for response in client.generate_stream(prompt, max_new_tokens=64, adapter_id=adapter_id):
     if not response.token.special:
         text += response.token.text
 print(text)
