@@ -716,8 +716,6 @@ try:
             self.beta_slow = beta_slow
             self.finetuned = finetuned
 
-            self._seq_len_cached = max_position_embeddings
-
             self.yarn(device)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
@@ -733,8 +731,8 @@ try:
                 # Different from paper, but it uses a different permutation in order to obtain the same calculation
                 emb = torch.cat((freqs, freqs), dim=-1).to(device)
 
-                self.register_buffer("_cos_cached", (emb.cos() * self.mscale)[None, None, :, :].to(dtype), persistent=False)
-                self.register_buffer("_sin_cached", (emb.sin() * self.mscale)[None, None, :, :].to(dtype), persistent=False)
+                self._cos_cached = (emb.cos() * self.mscale)[None, None, :, :].to(dtype)
+                self._sin_cached = (emb.sin() * self.mscale)[None, None, :, :].to(dtype)
         
         def yarn(self, device):
             pos_freqs = self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
@@ -745,8 +743,8 @@ try:
             inv_freq_mask = (1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)) * self.extrapolation_factor # Get n-d rotational scaling corrected for extrapolation
             inv_freq = inv_freq_interpolation * (1 - inv_freq_mask) + inv_freq_extrapolation * inv_freq_mask
 
-            self.register_buffer("inv_freq", inv_freq)
-            self.mscale = float(get_mscale(self.scale) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
+            self.inv_freq = inv_freq
+            self.mscale = float(get_mscale(self.scaling_factor) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
 
     # Inverse dim formula to find dim based on number of rotations
     def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):
