@@ -727,12 +727,10 @@ try:
                 self._seq_len_cached = seqlen
 
                 t = torch.arange(self._seq_len_cached, device=device, dtype=self.inv_freq.dtype)
-                freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-                # Different from paper, but it uses a different permutation in order to obtain the same calculation
-                emb = torch.cat((freqs, freqs), dim=-1).to(device)
+                freqs = torch.outer(t, self.inv_freq.to(device=t.device))
 
-                self._cos_cached = (emb.cos() * self.mscale)[None, None, :, :].to(dtype)
-                self._sin_cached = (emb.sin() * self.mscale)[None, None, :, :].to(dtype)
+                self._cos_cached = (torch.cos(freqs) * self.mscale).to(dtype)
+                self._sin_cached = (torch.sin(freqs) * self.mscale).to(dtype)
         
         def yarn(self, device):
             pos_freqs = self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
