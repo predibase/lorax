@@ -550,10 +550,12 @@ try:
             scaling_factor = None
             rope_scaling = _get_rope_config(config)
             if rope_scaling is not None:
+                rope_scaling = rope_scaling.copy()
                 scaling_factor = rope_scaling["factor"]
-                if rope_scaling["type"] == "linear":
+                rope_type = rope_scaling.pop("type")
+                if rope_type == "linear":
                     pass
-                elif rope_scaling["type"] == "dynamic":
+                elif rope_type == "dynamic":
                     return DynamicPositionRotaryEmbedding(
                         dim=dim,
                         max_position_embeddings=config.max_position_embeddings,
@@ -561,9 +563,17 @@ try:
                         device=inv_freq.device,
                         scaling_factor=scaling_factor,
                     )
+                elif rope_type == "yarn":
+                    return YarnPositionRotaryEmbedding(
+                        dim=dim,
+                        max_position_embeddings=config.max_position_embeddings,
+                        base=base,
+                        device=inv_freq.device,
+                        **rope_scaling,
+                    )
                 else:
                     raise NotImplementedError(
-                        f"rope scaling type {rope_scaling['type']} is not implemented or invalid"
+                        f"rope scaling type {rope_type} is not implemented or invalid"
                     )
             return cls(inv_freq, scaling_factor)
 
@@ -578,10 +588,12 @@ try:
             scaling_factor = None
             rope_scaling = _get_rope_config(config)
             if rope_scaling is not None:
+                rope_scaling = rope_scaling.copy()
                 scaling_factor = rope_scaling["factor"]
-                if rope_scaling["type"] == "linear":
+                rope_type = rope_scaling.pop("type")
+                if rope_type == "linear":
                     pass
-                elif rope_scaling["type"] == "dynamic":
+                elif rope_type == "dynamic":
                     return DynamicPositionRotaryEmbedding(
                         dim=2 * inv_freq.shape[0],
                         max_position_embeddings=config.max_position_embeddings,
@@ -589,9 +601,17 @@ try:
                         device=inv_freq.device,
                         scaling_factor=scaling_factor,
                     )
+                elif rope_type == "yarn":
+                    return YarnPositionRotaryEmbedding(
+                        dim=2 * inv_freq.shape[0],
+                        max_position_embeddings=config.max_position_embeddings,
+                        base=10000.0,
+                        device=inv_freq.device,
+                        **rope_scaling,
+                    )
                 else:
                     raise NotImplementedError(
-                        f"rope scaling type {rope_scaling['type']} is not implemented or invalid"
+                        f"rope scaling type {rope_type} is not implemented or invalid"
                     )
             return cls(inv_freq, scaling_factor)
 
