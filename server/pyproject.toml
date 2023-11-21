@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "lorax-server"
-version = "0.9.4"
+version = "0.1.0"
 description = "LoRAX Inference Python gRPC Server"
-authors = ["Olivier Dehaene <olivier@huggingface.co>"]
+authors = ["Geoffrey Angus <geoffrey@predibase.com>", "Travis Addair <travis@predibase.com>","Olivier Dehaene <olivier@huggingface.co>"]
 
 [tool.poetry.scripts]
 lorax-server = 'lorax_server.cli:app'
