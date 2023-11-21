@@ -9,6 +9,9 @@ use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
+use lorax_client::{
+    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
+};
 use nohash_hasher::IntMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{
@@ -16,11 +19,8 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
-use lorax_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
-};
 use thiserror::Error;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError, Notify};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -58,7 +58,15 @@ impl Infer {
         });
 
         // Routes requests to the appropriate adapter queue
-        let adapter_scheduler = AdapterScheduler::new(client.clone(), adapter_event.clone(), requires_padding, 16, window_size, max_active_adapters, adapter_cycle_time_s);
+        let adapter_scheduler = AdapterScheduler::new(
+            client.clone(),
+            adapter_event.clone(),
+            requires_padding,
+            16,
+            window_size,
+            max_active_adapters,
+            adapter_cycle_time_s,
+        );
 
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));
@@ -130,31 +138,34 @@ impl Infer {
             }
         }
 
-        let adapter = Adapter::new(
-            adapter_id.unwrap(),
-            adapter_source.unwrap(),
-            adapter_idx,
-        );
+        let adapter = Adapter::new(adapter_id.unwrap(), adapter_source.unwrap(), adapter_idx);
 
         // Validate request
-        let valid_request = self.validation.validate(request, adapter.clone()).await.map_err(|err| {
-            metrics::increment_counter!("lorax_request_failure", "err" => "validation");
-            tracing::error!("{err}");
-            err
-        })?;
+        let valid_request = self
+            .validation
+            .validate(request, adapter.clone())
+            .await
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "validation");
+                tracing::error!("{err}");
+                err
+            })?;
 
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = flume::unbounded();
 
         // Process the request by sending it to the queue associated with `adapter`
-        self.adapter_scheduler.process(adapter.clone(), Entry {
-            request: valid_request,
-            response_tx,
-            span: Span::current(),
-            temp_span: None,
-            queue_time: Instant::now(),
-            batch_time: None,
-        });
+        self.adapter_scheduler.process(
+            adapter.clone(),
+            Entry {
+                request: valid_request,
+                response_tx,
+                span: Span::current(),
+                temp_span: None,
+                queue_time: Instant::now(),
+                batch_time: None,
+            },
+        );
 
         // Return stream
         Ok((permit, response_rx.into_stream()))
@@ -291,7 +302,12 @@ async fn batching_task(
         // This batch might be smaller than the maximum batch size if there are not enough requests
         // waiting in the queue
         while let Some((mut entries, batch, span)) = adapter_scheduler
-            .next_batch(HashSet::new(), None, max_batch_prefill_tokens, max_batch_total_tokens)
+            .next_batch(
+                HashSet::new(),
+                None,
+                max_batch_prefill_tokens,
+                max_batch_total_tokens,
+            )
             .await
         {
             let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
@@ -331,7 +347,12 @@ async fn batching_task(
 
                 // Try to get a new batch
                 if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
-                    .next_batch(adapters_in_use, min_size, max_batch_prefill_tokens, token_budget)
+                    .next_batch(
+                        adapters_in_use,
+                        min_size,
+                        max_batch_prefill_tokens,
+                        token_budget,
+                    )
                     .await
                 {
                     // Tracking metrics

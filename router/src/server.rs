@@ -16,12 +16,12 @@ use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 use futures::stream::StreamExt;
 use futures::Stream;
+use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use lorax_client::{ShardInfo, ShardedClient};
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
@@ -243,7 +243,12 @@ async fn generate(
     );
     headers.insert(
         "x-total-tokens",
-        response.generated_text.generated_tokens.to_string().parse().unwrap(),
+        response
+            .generated_text
+            .generated_tokens
+            .to_string()
+            .parse()
+            .unwrap(),
     );
     headers.insert(
         "x-validation-time",

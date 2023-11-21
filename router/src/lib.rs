@@ -1,10 +1,10 @@
-mod health;
 /// Text Generation Inference Webserver
 mod adapter;
-mod scheduler;
+mod health;
 mod infer;
 mod loader;
 mod queue;
+mod scheduler;
 pub mod server;
 mod validation;
 
@@ -68,7 +68,11 @@ pub struct Info {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct GenerateParameters {
     #[serde(default)]
-    #[schema(nullable = true, default = "null", example = "arnavgrg/codealpaca-qlora")]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "arnavgrg/codealpaca-qlora"
+    )]
     pub adapter_id: Option<String>,
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "hub")]

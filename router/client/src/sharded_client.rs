@@ -153,7 +153,9 @@ impl ShardedClient {
         adapter_source: String,
     ) -> Result<String> {
         // Only download the adapter with one client, since they share a single disk
-        self.clients[0].download_adapter(adapter_id, adapter_source).await
+        self.clients[0]
+            .download_adapter(adapter_id, adapter_source)
+            .await
     }
 
     pub async fn load_adapter(
@@ -166,16 +168,25 @@ impl ShardedClient {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
-            .map(|client| Box::pin(
-                client.load_adapter(adapter_id.clone(), adapter_source.clone(), adapter_index)))
+            .map(|client| {
+                Box::pin(client.load_adapter(
+                    adapter_id.clone(),
+                    adapter_source.clone(),
+                    adapter_index,
+                ))
+            })
             .collect();
 
-        match join_all(futures).await.into_iter().collect::<Result<Vec<String>>>() {
+        match join_all(futures)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<String>>>()
+        {
             Ok(mut results) => {
                 // Return the first adapter id
                 Ok(results.pop().unwrap())
             }
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         }
     }
 
@@ -189,16 +200,25 @@ impl ShardedClient {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
-            .map(|client| Box::pin(
-                client.offload_adapter(adapter_id.clone(), adapter_source.clone(), adapter_index)))
+            .map(|client| {
+                Box::pin(client.offload_adapter(
+                    adapter_id.clone(),
+                    adapter_source.clone(),
+                    adapter_index,
+                ))
+            })
             .collect();
 
-        match join_all(futures).await.into_iter().collect::<Result<Vec<String>>>() {
+        match join_all(futures)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<String>>>()
+        {
             Ok(mut results) => {
                 // Return the first adapter id
                 Ok(results.pop().unwrap())
             }
-            Err(err) => Err(err)
+            Err(err) => Err(err),
         }
     }
 }

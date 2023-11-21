@@ -1,11 +1,18 @@
-use crate::{Entry, AdapterLoader, adapter::Adapter, queue::{AdapterEvent, AdapterQueuesState}};
-use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}, cmp::min};
-use nohash_hasher::{IntMap, BuildNoHashHasher};
-use lorax_client::{ShardedClient, Batch, Request};
+use crate::{
+    adapter::Adapter,
+    queue::{AdapterEvent, AdapterQueuesState},
+    AdapterLoader, Entry,
+};
+use lorax_client::{Batch, Request, ShardedClient};
+use nohash_hasher::{BuildNoHashHasher, IntMap};
+use std::{
+    cmp::min,
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
-use tracing::{info_span, Span, instrument};
-
+use tracing::{info_span, instrument, Span};
 
 enum AdapterSchedulerCommand {
     Append(Adapter, Entry),
@@ -32,7 +39,7 @@ impl AdapterScheduler {
         requires_padding: bool,
         block_size: u32,
         window_size: Option<u32>,
-        max_active_adapters: usize, 
+        max_active_adapters: usize,
         adapter_cycle_time_s: u64,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
@@ -45,19 +52,19 @@ impl AdapterScheduler {
             block_size,
             window_size,
             receiver,
-            max_active_adapters, 
+            max_active_adapters,
             adapter_cycle_time_s,
         ));
 
-        Self {
-            sender,
-        }
+        Self { sender }
     }
 
     pub(crate) fn process(&self, adapter: Adapter, entry: Entry) {
         // only blocks until the message is sent
         // the adapter manager task will handle the actual processing
-        self.sender.send(AdapterSchedulerCommand::Append(adapter, entry)).unwrap();
+        self.sender
+            .send(AdapterSchedulerCommand::Append(adapter, entry))
+            .unwrap();
     }
 
     pub(crate) async fn remove_errored_adapters(&self) {
@@ -106,10 +113,17 @@ async fn adapter_scheduler_task(
     block_size: u32,
     window_size: Option<u32>,
     receiver: flume::Receiver<AdapterSchedulerCommand>,
-    max_active_adapters: usize, 
+    max_active_adapters: usize,
     adapter_cycle_time_s: u64,
 ) {
-    let mut state = AdapterSchedulerState::new(client, requires_padding, block_size, window_size, max_active_adapters, adapter_cycle_time_s);
+    let mut state = AdapterSchedulerState::new(
+        client,
+        requires_padding,
+        block_size,
+        window_size,
+        max_active_adapters,
+        adapter_cycle_time_s,
+    );
 
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
@@ -118,7 +132,7 @@ async fn adapter_scheduler_task(
             }
             AdapterSchedulerCommand::RemoveErroredAdapters {} => {
                 state.remove_errored_adapters();
-            },
+            }
             AdapterSchedulerCommand::NextBatch {
                 adapters_in_use,
                 min_size,
@@ -127,13 +141,17 @@ async fn adapter_scheduler_task(
                 response_sender,
                 span,
             } => span.in_scope(|| {
-                let next_batch = state.next_batch(&adapters_in_use, min_size, prefill_token_budget, token_budget);
+                let next_batch = state.next_batch(
+                    &adapters_in_use,
+                    min_size,
+                    prefill_token_budget,
+                    token_budget,
+                );
                 response_sender.send(next_batch).unwrap();
             }),
         }
     }
 }
-
 
 /// Scheduler State
 #[derive(Debug)]
@@ -158,8 +176,18 @@ struct AdapterSchedulerState {
 }
 
 impl AdapterSchedulerState {
-    fn new(client: ShardedClient, requires_padding: bool, block_size: u32, window_size: Option<u32>, max_active_adapters: usize, adapter_cycle_time_s: u64) -> Self {
-        let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(max_active_adapters, adapter_cycle_time_s)));
+    fn new(
+        client: ShardedClient,
+        requires_padding: bool,
+        block_size: u32,
+        window_size: Option<u32>,
+        max_active_adapters: usize,
+        adapter_cycle_time_s: u64,
+    ) -> Self {
+        let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
+            max_active_adapters,
+            adapter_cycle_time_s,
+        )));
         let loader = AdapterLoader::new(client.clone());
 
         Self {
@@ -181,7 +209,8 @@ impl AdapterSchedulerState {
         let download = queues_state.append(adapter.clone(), adapter_event.clone(), entry);
         if download {
             // Download the adapter async
-            self.loader.download_adapter(adapter.clone(), self.queues_state.clone());
+            self.loader
+                .download_adapter(adapter.clone(), self.queues_state.clone());
         }
 
         adapter_event.batching_task.notify_one();
@@ -193,7 +222,8 @@ impl AdapterSchedulerState {
         let errored_adapters = queues_state.get_errored_adapters();
         for adapter in errored_adapters {
             // Start async offload process
-            self.loader.terminate(adapter.clone(), self.queues_state.clone());
+            self.loader
+                .terminate(adapter.clone(), self.queues_state.clone());
         }
     }
 
@@ -226,7 +256,7 @@ impl AdapterSchedulerState {
         let mut batch_requests = Vec::with_capacity(num_entries);
         let mut batch_entries =
             IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
-        
+
         let mut index_to_adapter = HashMap::with_capacity(queues_state.active_len());
 
         let mut max_input_length = 0;
@@ -235,7 +265,12 @@ impl AdapterSchedulerState {
 
         // Update adapters
         let loader = &mut self.loader;
-        update_adapters(queues_state, loader, adapters_in_use, self.queues_state.clone());
+        update_adapters(
+            queues_state,
+            loader,
+            adapters_in_use,
+            self.queues_state.clone(),
+        );
 
         // Pop entries starting from the front of the queue
         while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
@@ -350,7 +385,6 @@ impl AdapterSchedulerState {
     }
 }
 
-
 fn update_adapters(
     queues_state: &mut AdapterQueuesState,
     loader: &mut AdapterLoader,
@@ -365,7 +399,7 @@ fn update_adapters(
     }
 
     let (offload_adapters, load_adapters) = queues_state.update_adapters(adapters_in_use);
-    
+
     // Background task to offload and load adapters
     for adapter in offload_adapters {
         loader.offload_adapter(adapter.clone(), shared_state.clone());
