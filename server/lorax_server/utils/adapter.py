@@ -39,9 +39,14 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
     module_map = {}
     for weight_name in weight_names:
+        lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
+        lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
+        if lora_a_name not in adapter_weights or lora_b_name not in adapter_weights:
+            continue
+        
         module_map[weight_name] = {
-            "lora_A": adapter_weights[f"base_model.model.{weight_name}.lora_A.weight"],
-            "lora_B": adapter_weights[f"base_model.model.{weight_name}.lora_B.weight"],
+            "lora_A": adapter_weights[lora_a_name],
+            "lora_B": adapter_weights[lora_b_name],
         }
     return module_map, adapter_config
 

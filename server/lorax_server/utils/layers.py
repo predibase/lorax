@@ -322,8 +322,8 @@ class TensorParallelAdapterLinear(nn.Module):
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
                     adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
-                    result = self.forward_lora(input, data, adapter_index, adapter_mask)
-                    result[:, start_idx:end_idx] += result
+                    layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
+                    result[:, start_idx:end_idx] += layer_result
 
         return result
     
@@ -336,18 +336,15 @@ class TensorParallelAdapterLinear(nn.Module):
     ) -> torch.Tensor:
         scaling = data.scaling_for_adapter(adapter_index)
 
-        try:
-            lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
-            a_out = input @ lora_a
+        lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
+        a_out = input @ lora_a
 
-            if self.process_group.size() > 1:
-                a_out = self.collect_lora_a(a_out)
-            
-            lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
-            result = (a_out @ lora_b) * scaling * adapter_mask
-            return result
-        except Exception as e:
-            raise RuntimeError(f"adapter_mask={adapter_mask.shape}, input={input.shape}, lora_a={lora_a.shape}, lora_b={lora_b.shape}") from e
+        if self.process_group.size() > 1:
+            a_out = self.collect_lora_a(a_out)
+        
+        lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
+        result = (a_out @ lora_b) * scaling * adapter_mask
+        return result
 
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("Implemented in subclasses")
@@ -395,7 +392,13 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
-        self.forward_layer_type(result, input, adapter_data, O_PROJ, 0, result.shape[-1])
+        
+        # Fused all-gather + all-reduce from S-LoRA paper: https://arxiv.org/abs/2311.03285
+        stride = result.shape[-1] // self.process_group.size()
+        start_idx = self.process_group.rank() * stride
+        end_idx = (self.process_group.rank() + 1) * stride
+        
+        self.forward_layer_type(result, input, adapter_data, O_PROJ, start_idx, end_idx)
         return result
     
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:

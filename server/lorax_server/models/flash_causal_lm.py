@@ -731,6 +731,15 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+        weight_names = []
+        prefix = "model.layers"
+        for i, layer in enumerate(self.model.model.layers):
+            weight_names.append(f"{prefix}.{i}.self_attn.{Q_PROJ}")
+            weight_names.append(f"{prefix}.{i}.self_attn.{K_PROJ}")
+            weight_names.append(f"{prefix}.{i}.self_attn.{V_PROJ}")
+            weight_names.append(f"{prefix}.{i}.self_attn.{O_PROJ}")
+        self.weight_names = tuple(weight_names)
+
     @property
     def supports_adapter_loading(self) -> bool:
         return False
@@ -759,8 +768,7 @@ class FlashCausalLM(Model):
             return
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
             logger.info(f"Loading adapter weights into model: {adapter_id}")
-            weight_names = tuple(self.orig_weights.keys())
-            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
+            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, self.weight_names)
 
             self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, Q_PROJ)
             self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, V_PROJ)
@@ -782,6 +790,9 @@ class FlashCausalLM(Model):
         
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
+            # TODO(travis): generalize this beyond qkv for accessing the layer_id
+            # This works for o_proj because they share the same id sequence, but may not
+            # extend to other layers.
             layer = layer.self_attn.query_key_value
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
@@ -797,7 +808,7 @@ class FlashCausalLM(Model):
             lora_a_list[layer.layer_id] = lora_a.transpose(0, 1)
             lora_b_list[layer.layer_id] = lora_b.transpose(0, 1)
 
-        q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, self.process_group)
+        q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group)
         q_lora_weights = self.batched_lora_weights[layer_type]
         q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     

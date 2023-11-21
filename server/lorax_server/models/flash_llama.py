@@ -112,25 +112,6 @@ class FlashLlama(FlashCausalLM):
             rank=rank,
             world_size=world_size,
         )
-
-        # holds the original weights and the devices they were on as a tuple
-        # the original weights are stored in CPU memory, but placed into `device`
-        # as needed. Only needed when dynamic_adapter_loading_enabled is True.
-        self.orig_weights = None
-        if self.dynamic_adapter_loading_enabled:
-            # TODO(geoffrey): generalize to non-q_proj and non-v_proj layers
-            self.orig_weights = {}
-            prefix = "model.layers"
-            for i, layer in enumerate(self.model.model.layers):
-                q_proj, _, v_proj = layer.self_attn.get_query_key_value_weights(clone=True)
-
-                orig_q_proj_device = q_proj.device
-                weight_name = f"{prefix}.{i}.self_attn.q_proj"
-                self.orig_weights[weight_name] = (q_proj.cpu(), orig_q_proj_device)
-                
-                orig_v_proj_device = v_proj.device
-                weight_name = f"{prefix}.{i}.self_attn.v_proj"
-                self.orig_weights[weight_name] = (v_proj.cpu(), orig_v_proj_device)
     
     @property
     def supports_adapter_loading(self) -> bool:
