@@ -4,7 +4,7 @@ import torch.distributed
 
 from loguru import logger
 from opentelemetry import trace
-from transformers.models.llama import LlamaTokenizer, LlamaTokenizerFast
+from transformers import AutoTokenizer
 from tqdm import tqdm
 from typing import Dict, Optional
 
@@ -45,22 +45,13 @@ class FlashLlama(FlashCausalLM):
         else:
             raise NotImplementedError("FlashLlama is only available on GPU")
 
-        try:
-            tokenizer = LlamaTokenizer.from_pretrained(
-                model_id,
-                revision=revision,
-                padding_side="left",
-                truncation_side="left",
-                trust_remote_code=trust_remote_code,
-            )
-        except Exception:
-            tokenizer = LlamaTokenizerFast.from_pretrained(
-                model_id,
-                revision=revision,
-                padding_side="left",
-                truncation_side="left",
-                trust_remote_code=trust_remote_code,
-            )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            revision=revision,
+            padding_side="left",
+            truncation_side="left",
+            trust_remote_code=trust_remote_code,
+        )
 
         config = LlamaConfig.from_pretrained(
             model_id, revision=revision, trust_remote_code=trust_remote_code
