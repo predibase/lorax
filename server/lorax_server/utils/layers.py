@@ -1,5 +1,6 @@
 import math
 import os
+import warnings
 import torch
 import torch.distributed
 
@@ -16,7 +17,13 @@ except ImportError:
     HAS_BITS_AND_BYTES = False
 
 from accelerate import init_empty_weights
-from punica.ops import add_lora_sgmv_cutlass
+
+try:
+    from punica.ops import add_lora_sgmv_cutlass
+    HAS_SGMV = True
+except ImportError:
+    warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
+    HAS_SGMV = False
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 
@@ -300,6 +307,7 @@ class TensorParallelAdapterLinear(nn.Module):
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
         if (
+            HAS_SGMV and
             self.process_group.size() == 1 and
             data is not None and data.can_vectorize
         ):
