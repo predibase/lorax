@@ -133,7 +133,7 @@ pip install lorax-client
 from lorax import Client
 
 client = Client("http://127.0.0.1:8080")
-prompt = "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?"
+prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
 
 print(client.generate(prompt, max_new_tokens=64).generated_text)
 
