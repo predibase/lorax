@@ -322,8 +322,8 @@ class TensorParallelAdapterLinear(nn.Module):
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
                     adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
-                    result = self.forward_lora(input, data, adapter_index, adapter_mask)
-                    result[:, start_idx:end_idx] += result
+                    layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
+                    result[:, start_idx:end_idx] += layer_result
 
         return result
     
