@@ -14,6 +14,8 @@ K_PROJ = "k_proj"
 V_PROJ = "v_proj"
 O_PROJ = "o_proj"
 
+ROW_PARALLEL = {O_PROJ}
+
 
 EMPTY_TENSOR = torch.tensor([])
 
@@ -90,10 +92,12 @@ class MergedLoraWeights:
         weights_a: List[torch.Tensor],
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
+        layer_type: str,
         process_group: ProcessGroup,
     ):
         # [num_layers, hidden_size, r]
-        weights_a = [shard_on_dim(w, dim=1, process_group=process_group) for w in weights_a]
+        split_dim = 0 if layer_type in ROW_PARALLEL else 1
+        weights_a = [shard_on_dim(w, dim=split_dim, process_group=process_group) for w in weights_a]
         self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
