@@ -1,9 +1,9 @@
-use crate::queue::{AdapterStatus, AdapterQueuesState};
 use crate::adapter::Adapter;
 use crate::infer::InferError;
-use std::sync::Mutex;
-use std::{sync::Arc, collections::HashMap};
+use crate::queue::{AdapterQueuesState, AdapterStatus};
 use lorax_client::ShardedClient;
+use std::sync::Mutex;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::oneshot;
 use tracing::Span;
 
@@ -24,7 +24,11 @@ impl AdapterLoader {
         Self { sender }
     }
 
-    pub(crate) fn download_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn download_adapter(
+        &self,
+        adapter: Adapter,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
+    ) {
         // Create response channel
         let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
@@ -32,7 +36,7 @@ impl AdapterLoader {
                 adapter,
                 queues_state,
                 response_sender,
-                span: Span::current()
+                span: Span::current(),
             })
             .unwrap();
 
@@ -40,7 +44,11 @@ impl AdapterLoader {
         // response_receiver.await.unwrap()
     }
 
-    pub(crate) fn load_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn load_adapter(
+        &self,
+        adapter: Adapter,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
+    ) {
         // Create response channel
         let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
@@ -48,7 +56,7 @@ impl AdapterLoader {
                 adapter,
                 queues_state,
                 response_sender,
-                span: Span::current()
+                span: Span::current(),
             })
             .unwrap();
 
@@ -56,7 +64,11 @@ impl AdapterLoader {
         // response_receiver.await.unwrap()
     }
 
-    pub(crate) fn offload_adapter(&self, adapter: Adapter, queues_state: Arc<Mutex<AdapterQueuesState>>) {
+    pub(crate) fn offload_adapter(
+        &self,
+        adapter: Adapter,
+        queues_state: Arc<Mutex<AdapterQueuesState>>,
+    ) {
         // Create response channel
         let (response_sender, _response_receiver) = oneshot::channel();
         self.sender
@@ -64,7 +76,7 @@ impl AdapterLoader {
                 adapter,
                 queues_state,
                 response_sender,
-                span: Span::current()
+                span: Span::current(),
             })
             .unwrap();
 
@@ -79,8 +91,9 @@ impl AdapterLoader {
             .send(AdapterLoaderCommand::IsErrored {
                 adapter,
                 response_sender,
-                span: Span::current()
-            }).unwrap();
+                span: Span::current(),
+            })
+            .unwrap();
         response_receiver.await.unwrap()
     }
 
@@ -92,8 +105,9 @@ impl AdapterLoader {
                 adapter,
                 queues_state,
                 response_sender,
-                span: Span::current()
-            }).unwrap();
+                span: Span::current(),
+            })
+            .unwrap();
 
         // Don't block the caller
         // response_receiver.await.unwrap()
@@ -101,10 +115,7 @@ impl AdapterLoader {
 }
 
 // Background task responsible of the loader state
-async fn loader_task(
-    mut client: ShardedClient,
-    receiver: flume::Receiver<AdapterLoaderCommand>,
-) {
+async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<AdapterLoaderCommand>) {
     let mut err_msgs: HashMap<Adapter, String> = HashMap::new();
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -113,7 +124,7 @@ async fn loader_task(
                 adapter,
                 queues_state,
                 response_sender,
-                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
+                span: _, // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
                     metrics::increment_counter!("lorax_request_failure", "err" => "download_adapter");
@@ -127,10 +138,10 @@ async fn loader_task(
                     continue;
                 }
 
-                match client.download_adapter(
-                    adapter.id().to_string(), 
-                    adapter.source().to_string(),
-                ).await {
+                match client
+                    .download_adapter(adapter.id().to_string(), adapter.source().to_string())
+                    .await
+                {
                     Ok(_) => {
                         tracing::info!("adapter {} downloaded", adapter.id());
                         let mut locked_state = queues_state.lock().unwrap();
@@ -153,12 +164,12 @@ async fn loader_task(
                         err_msgs.insert(adapter, error.to_string());
                     }
                 }
-            },
+            }
             AdapterLoaderCommand::LoadAdapter {
                 adapter,
                 queues_state,
                 response_sender,
-                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
+                span: _, // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
                     metrics::increment_counter!("lorax_request_failure", "err" => "load_adapter");
@@ -169,21 +180,30 @@ async fn loader_task(
                     // response_sender.send(()).unwrap();
                     continue;
                 }
-                match client.load_adapter(
-                    adapter.id().to_string(),
-                    adapter.source().to_string(),
-                    adapter.index(),
-                ).await {
+                match client
+                    .load_adapter(
+                        adapter.id().to_string(),
+                        adapter.source().to_string(),
+                        adapter.index(),
+                    )
+                    .await
+                {
                     Ok(_) => {
                         tracing::info!("adapter {} loaded", adapter.id());
-                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Ready);
+                        queues_state
+                            .lock()
+                            .unwrap()
+                            .set_status(&adapter, AdapterStatus::Ready);
                         // response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         tracing::info!("FAILED loading adapter {}", adapter.id());
                         metrics::increment_counter!("lorax_request_failure", "err" => "load_adapter");
-                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
+                        queues_state
+                            .lock()
+                            .unwrap()
+                            .set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         // response_sender.send(()).unwrap();
                     }
@@ -193,7 +213,7 @@ async fn loader_task(
                 adapter,
                 queues_state,
                 response_sender,
-                span: _  // TODO(geoffrey): not sure how to use 'span' with async fn
+                span: _, // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
                     metrics::increment_counter!("lorax_request_failure", "err" => "offload_adapter");
@@ -204,32 +224,43 @@ async fn loader_task(
                     // response_sender.send(()).unwrap();
                     continue;
                 }
-                match client.offload_adapter(
-                    adapter.id().to_string(),
-                    adapter.source().to_string(),
-                    adapter.index(),
-                ).await {
+                match client
+                    .offload_adapter(
+                        adapter.id().to_string(),
+                        adapter.source().to_string(),
+                        adapter.index(),
+                    )
+                    .await
+                {
                     Ok(_) => {
                         tracing::info!("adapter {} offloaded", adapter.id());
-                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Downloaded);
+                        queues_state
+                            .lock()
+                            .unwrap()
+                            .set_status(&adapter, AdapterStatus::Downloaded);
                         // response_sender.send(()).unwrap();
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
                         tracing::info!("FAILED offloading adapter {}", adapter.id());
                         metrics::increment_counter!("lorax_request_failure", "err" => "offload_adapter");
-                        queues_state.lock().unwrap().set_status(&adapter, AdapterStatus::Errored);
+                        queues_state
+                            .lock()
+                            .unwrap()
+                            .set_status(&adapter, AdapterStatus::Errored);
                         err_msgs.insert(adapter, error.to_string());
                         // response_sender.send(()).unwrap();
                     }
                 }
             }
-            AdapterLoaderCommand::IsErrored{
+            AdapterLoaderCommand::IsErrored {
                 adapter,
                 response_sender,
-                span
+                span,
             } => span.in_scope(|| {
-                response_sender.send(err_msgs.contains_key(&adapter)).unwrap();
+                response_sender
+                    .send(err_msgs.contains_key(&adapter))
+                    .unwrap();
             }),
             AdapterLoaderCommand::Terminate {
                 adapter,
@@ -248,11 +279,14 @@ async fn loader_task(
                 for entry in locked_state.drain(&adapter) {
                     let (_, entry) = entry;
                     if let Some(err_msg) = err_msgs.get(&adapter) {
-                        entry.response_tx.send(Err(InferError::GenerationError(err_msg.clone()))).unwrap();
+                        entry
+                            .response_tx
+                            .send(Err(InferError::GenerationError(err_msg.clone())))
+                            .unwrap();
                     }
                 }
                 err_msgs.remove(&adapter);
-                locked_state.remove(&adapter); 
+                locked_state.remove(&adapter);
             }
         }
     }

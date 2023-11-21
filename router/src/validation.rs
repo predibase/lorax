@@ -2,8 +2,8 @@ use crate::adapter::Adapter;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
-use rand::{thread_rng, Rng};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use rand::{thread_rng, Rng};
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
 use tokenizers::TruncationDirection;
@@ -465,14 +465,17 @@ mod tests {
             max_total_tokens,
         );
         match validation
-            .validate(GenerateRequest {
-                inputs: "Hello".to_string(),
-                parameters: GenerateParameters {
-                    best_of: Some(2),
-                    do_sample: false,
-                    ..default_parameters()
+            .validate(
+                GenerateRequest {
+                    inputs: "Hello".to_string(),
+                    parameters: GenerateParameters {
+                        best_of: Some(2),
+                        do_sample: false,
+                        ..default_parameters()
+                    },
                 },
-            }, Adapter::new("".to_string(), "hf".to_string(), 0))
+                Adapter::new("".to_string(), "hf".to_string(), 0),
+            )
             .await
         {
             Err(ValidationError::BestOfSampling) => (),
@@ -497,13 +500,16 @@ mod tests {
             max_total_tokens,
         );
         match validation
-            .validate(GenerateRequest {
-                inputs: "Hello".to_string(),
-                parameters: GenerateParameters {
-                    top_p: Some(1.0),
-                    ..default_parameters()
+            .validate(
+                GenerateRequest {
+                    inputs: "Hello".to_string(),
+                    parameters: GenerateParameters {
+                        top_p: Some(1.0),
+                        ..default_parameters()
+                    },
                 },
-            }, Adapter::new("".to_string(), "hf".to_string(), 0))
+                Adapter::new("".to_string(), "hf".to_string(), 0),
+            )
             .await
         {
             Err(ValidationError::TopP) => (),
@@ -511,14 +517,17 @@ mod tests {
         }
 
         match validation
-            .validate(GenerateRequest {
-                inputs: "Hello".to_string(),
-                parameters: GenerateParameters {
-                    top_p: Some(0.99),
-                    max_new_tokens: 1,
-                    ..default_parameters()
+            .validate(
+                GenerateRequest {
+                    inputs: "Hello".to_string(),
+                    parameters: GenerateParameters {
+                        top_p: Some(0.99),
+                        max_new_tokens: 1,
+                        ..default_parameters()
+                    },
                 },
-            }, Adapter::new("".to_string(), "hf".to_string(), 0))
+                Adapter::new("".to_string(), "hf".to_string(), 0),
+            )
             .await
         {
             Ok(_) => (),
@@ -526,14 +535,17 @@ mod tests {
         }
 
         let valid_request = validation
-            .validate(GenerateRequest {
-                inputs: "Hello".to_string(),
-                parameters: GenerateParameters {
-                    top_p: None,
-                    max_new_tokens: 1,
-                    ..default_parameters()
+            .validate(
+                GenerateRequest {
+                    inputs: "Hello".to_string(),
+                    parameters: GenerateParameters {
+                        top_p: None,
+                        max_new_tokens: 1,
+                        ..default_parameters()
+                    },
                 },
-            }, Adapter::new("".to_string(), "hf".to_string(), 0))
+                Adapter::new("".to_string(), "hf".to_string(), 0),
+            )
             .await
             .unwrap();
         // top_p == 1.0 is invalid for users to ask for but it's the default resolved value.
