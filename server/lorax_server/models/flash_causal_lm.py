@@ -790,6 +790,9 @@ class FlashCausalLM(Model):
         
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
+            # TODO(travis): generalize this beyond qkv for accessing the layer_id
+            # This works for o_proj because they share the same id sequence, but may not
+            # extend to other layers.
             layer = layer.self_attn.query_key_value
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
