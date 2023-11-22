@@ -1,12 +1,13 @@
 import logging
 import torch
 
-print("NAME: ", __name__)
-logger = logging.getLogger("vllm.engine.ray_utils")
-logger.setLevel(logging.ERROR)
-
-from vllm import cache_ops
-from vllm import attention_ops
+try:
+    # Hack to ignore ray warnings from vLLM, which are not relevant to us.
+    logging.disable(logging.WARNING)
+    from vllm import cache_ops
+    from vllm import attention_ops
+finally:
+    logging.disable(logging.NOTSET)
 
 
 _PARTITION_SIZE = 512
