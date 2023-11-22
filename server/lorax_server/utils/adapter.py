@@ -3,6 +3,7 @@ from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Set, Tuple
+import warnings
 
 import torch
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
@@ -27,8 +28,10 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
     config_path = get_config_path(adapter_id, adapter_source)
     adapter_config = LoraConfig.from_pretrained(config_path)
     if adapter_config.base_model_name_or_path != model_id:
-        raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
-                            f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+        warnings.warn(
+            f"Adapter '{adapter_id}' was not trained on base model '{model_id}'. "
+            f"If you encounter issues, use --model-id '{adapter_config.base_model_name_or_path}' instead."
+        )
 
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_filenames = source.weight_files()
