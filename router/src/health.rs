@@ -1,8 +1,8 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use lorax_client::{
     Batch, NextTokenChooserParameters, Request, ShardedClient, StoppingCriteriaParameters,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 // Note: Request ids and batch ids cannot collide.
 const LIVENESS_ID: u64 = u64::MAX;

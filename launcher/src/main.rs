@@ -319,7 +319,7 @@ fn shard_manager(
     adapter_id: String,
     revision: Option<String>,
     source: String,
-    adapter_source: String, 
+    adapter_source: String,
     quantize: Option<Quantization>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
@@ -678,7 +678,11 @@ enum LauncherError {
     WebserverCannotStart,
 }
 
-fn download_convert_model(model_id: String, args: &Args, running: Arc<AtomicBool>) -> Result<(), LauncherError> {
+fn download_convert_model(
+    model_id: String,
+    args: &Args,
+    running: Arc<AtomicBool>,
+) -> Result<(), LauncherError> {
     // Enter download tracing span
     let _span = tracing::span!(tracing::Level::INFO, "download").entered();
 

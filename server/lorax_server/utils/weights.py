@@ -7,7 +7,7 @@ from huggingface_hub import hf_hub_download
 import json
 import torch
 import torch.distributed
-
+import os
 
 class Weights:
     def __init__(
@@ -242,14 +242,40 @@ class Weights:
         return bits, groupsize
 
     def _set_gptq_params(self, model_id):
+        filename = "config.json"
         try:
-            filename = hf_hub_download(model_id, filename="quantize_config.json")
+            if os.path.exists(os.path.join(model_id, filename)):
+                filename = os.path.join(model_id, filename)
+            else:
+                filename = hf_hub_download(model_id, filename=filename)
             with open(filename, "r") as f:
                 data = json.load(f)
-            self.gptq_bits = data["bits"]
-            self.gptq_groupsize = data["group_size"]
+            self.gptq_bits = data["quantization_config"]["bits"]
+            self.gptq_groupsize = data["quantization_config"]["group_size"]
         except Exception:
-            pass
+            filename = "quantize_config.json"
+            try:
+                if os.path.exists(os.path.join(model_id, filename)):
+                    filename = os.path.join(model_id, filename)
+                else:
+                    filename = hf_hub_download(model_id, filename=filename)
+                with open(filename, "r") as f:
+                    data = json.load(f)
+                self.gptq_bits = data["bits"]
+                self.gptq_groupsize = data["group_size"]
+            except Exception:
+                filename = "quant_config.json"
+                try:
+                    if os.path.exists(os.path.join(model_id, filename)):
+                        filename = os.path.join(model_id, filename)
+                    else:
+                        filename = hf_hub_download(model_id, filename=filename)
+                    with open(filename, "r") as f:
+                        data = json.load(f)
+                    self.gptq_bits = data["w_bit"]
+                    self.gptq_groupsize = data["q_group_size"]
+                except Exception:
+                    pass
 
 def get_start_stop_idxs_for_rank(size, rank, world_size):
     block_size = size // world_size

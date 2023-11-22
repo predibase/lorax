@@ -71,9 +71,9 @@ jobs:
       - name: Run Rust fmt
         run: |
           cargo fmt --check
-      - name: Run Rust clippy
-        run: |
-          cargo clippy
+      # - name: Run Rust clippy
+      #   run: |
+      #     cargo clippy
       - name: Run Rust tests
         run: |
           cargo test

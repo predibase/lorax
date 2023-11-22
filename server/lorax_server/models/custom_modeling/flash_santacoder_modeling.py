@@ -5,11 +5,8 @@ from torch import nn
 from transformers.activations import ACT2FN
 from typing import Optional, List, Tuple
 
-# vllm imports
-import vllm_cache_ops
-import vllm_attention_ops
-
-from lorax_server.utils.flash_attn import attention
+from lorax_server.utils import flash_attn
+from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
@@ -18,7 +15,6 @@ from lorax_server.utils.layers import (
     FastLayerNorm,
     get_linear,
 )
-from safetensors import SafetensorError
 
 
 def load_multi_mqa(
@@ -258,7 +254,7 @@ class FlashMQAttention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         key_value = key_value.view(-1, 2, 1, self.head_size)
 
-        vllm_cache_ops.reshape_and_cache(
+        paged_attn.reshape_and_cache(
             key_value[:, 0], key_value[:, 1], kv_cache[0], kv_cache[1], slots
         )
 
@@ -268,7 +264,7 @@ class FlashMQAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attention(
+            flash_attn.attention(
                 query,
                 torch.select(key_value, dim=1, index=0),
                 torch.select(key_value, dim=1, index=1),
@@ -280,8 +276,7 @@ class FlashMQAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, 1, head_size, block_size]
-            block_size = kv_cache[1].shape[3]
-            vllm_attention_ops.single_query_cached_kv_attention(
+            paged_attn.single_query_cached_kv_attention(
                 attn_output,
                 query,
                 kv_cache[0],
@@ -290,7 +285,6 @@ class FlashMQAttention(torch.nn.Module):
                 self.softmax_scale,
                 block_tables,
                 input_lengths,
-                block_size,
                 max_s,
             )
 

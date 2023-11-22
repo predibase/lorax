@@ -1,6 +1,8 @@
 /// Text Generation Inference webserver entrypoint
 use axum::http::HeaderValue;
 use clap::Parser;
+use lorax_client::{ClientError, ShardedClient};
+use lorax_router::{server, HubModelInfo};
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace;
 use opentelemetry::sdk::trace::Sampler;
@@ -10,8 +12,6 @@ use opentelemetry_otlp::WithExportConfig;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
-use lorax_client::{ClientError, ShardedClient};
-use lorax_router::{server, HubModelInfo};
 use thiserror::Error;
 use tokenizers::{FromPretrainedParameters, Tokenizer};
 use tower_http::cors::AllowOrigin;
