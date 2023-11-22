@@ -1,4 +1,9 @@
+import logging
 import torch
+
+print("NAME: ", __name__)
+logger = logging.getLogger("vllm.engine.ray_utils")
+logger.setLevel(logging.ERROR)
 
 from vllm import cache_ops
 from vllm import attention_ops

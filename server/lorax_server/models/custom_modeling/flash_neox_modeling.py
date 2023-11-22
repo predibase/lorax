@@ -27,7 +27,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt_neox import GPTNeoXConfig
 from typing import Optional, List, Tuple
 
-from lorax_server.utils.flash_attn import attention
+from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     TensorParallelRowLinear,
@@ -148,7 +148,7 @@ class FlashNeoxAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attention(
+            flash_attn.attention(
                 qkv[:, 0],
                 qkv[:, 1],
                 qkv[:, 2],

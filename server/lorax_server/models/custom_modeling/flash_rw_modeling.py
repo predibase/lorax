@@ -6,7 +6,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from typing import Optional, List, Tuple
 
-from lorax_server.utils.flash_attn import attention
+from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     TensorParallelRowLinear,
@@ -198,7 +198,7 @@ class FlashRWAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attention(
+            flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
@@ -316,7 +316,7 @@ class FlashRWLargeAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attention(
+            flash_attn.attention(
                 query,
                 torch.select(kv, dim=2, index=0),
                 torch.select(kv, dim=2, index=1),

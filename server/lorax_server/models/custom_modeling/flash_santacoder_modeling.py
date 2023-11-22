@@ -5,7 +5,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 from typing import Optional, List, Tuple
 
-from lorax_server.utils.flash_attn import attention
+from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     TensorParallelRowLinear,
@@ -15,7 +15,6 @@ from lorax_server.utils.layers import (
     FastLayerNorm,
     get_linear,
 )
-from safetensors import SafetensorError
 
 
 def load_multi_mqa(
@@ -265,7 +264,7 @@ class FlashMQAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attention(
+            flash_attn.attention(
                 query,
                 torch.select(key_value, dim=1, index=0),
                 torch.select(key_value, dim=1, index=1),

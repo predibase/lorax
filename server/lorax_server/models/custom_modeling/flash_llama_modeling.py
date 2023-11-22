@@ -29,7 +29,7 @@ from typing import Optional, List, Set, Tuple
 # Flash attention imports
 import dropout_layer_norm
 
-from lorax_server.utils.flash_attn import attention
+from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     TensorParallelAdapterRowLinear,
@@ -301,7 +301,7 @@ class FlashLlamaAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attention(
+            flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
