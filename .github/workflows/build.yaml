@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'update-gha'
     tags:
       - 'v*'
   pull_request:
@@ -31,10 +32,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set output
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -59,6 +56,5 @@ jobs:
           context: .
           file: ./Dockerfile  # Path to your Dockerfile
           push: true
-          tags: |
-            ghcr.io/predibase/lorax:${{ steps.vars.outputs.sha_short }}
-            ghcr.io/predibase/lorax:latest
+          tags: ${{ steps.meta.outputs.tags }}
+
