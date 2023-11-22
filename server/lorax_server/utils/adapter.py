@@ -11,6 +11,7 @@ from loguru import logger
 from peft import LoraConfig
 from peft.utils import transpose
 from safetensors.torch import load_file, save_file
+from transformers import AutoConfig
 from tqdm import tqdm
 from filelock import FileLock
 
@@ -28,10 +29,18 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
     config_path = get_config_path(adapter_id, adapter_source)
     adapter_config = LoraConfig.from_pretrained(config_path)
     if adapter_config.base_model_name_or_path != model_id:
-        warnings.warn(
-            f"Adapter '{adapter_id}' was not trained on base model '{model_id}'. "
-            f"If you encounter issues, use --model-id '{adapter_config.base_model_name_or_path}' instead."
-        )
+        expected_config = AutoConfig.from_pretrained(model_id)
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
+        if model_config.architectures == expected_config.architectures:
+            warnings.warn(
+                f"Adapter '{adapter_id}' was not trained on base model '{model_id}'. "
+                f"If you encounter issues, use --model-id '{adapter_config.base_model_name_or_path}' instead."
+            )
+        else:
+            # TODO(travis): revisit this when we support clasification heads which will not use CausalLM
+            raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
+                             f"Architectures differ: {model_config.architectures} != {expected_config.architectures}. "
+                             f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
 
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_filenames = source.weight_files()
