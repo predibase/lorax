@@ -14,13 +14,7 @@ def reshape_and_cache(
     value_cache: torch.Tensor,   # [num_blocks, num_heads, head_size, block_size]
     slot_mapping: torch.Tensor,  # [num_tokens]
 ):
-    cache_ops.reshape_and_cache(
-        key=key, 
-        value=value,
-        key_cache=key_cache, 
-        value_cache=value_cache, 
-        slot_mapping=slot_mapping,
-    )
+    cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slot_mapping)
 
 
 # Source: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/attention.py
