@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Set
 
@@ -21,15 +22,24 @@ EMPTY_TENSOR = torch.tensor([])
 
 
 @dataclass
-class AdapterWeightData:
+class RankSegments:
+    rank: int
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
+    segment_starts: torch.Tensor
+    segment_ends: torch.Tensor
+
+
+@dataclass
+class AdapterWeightData:
     lora_a: Dict[int, torch.Tensor]
     lora_b: Dict[int, torch.Tensor]
 
     r: Set[int]
     alpha: Set[int]
     adapter_index_configs: Dict[int, LoraConfig]
+
+    rank_data: Dict[int, RankSegments]
 
     @property
     def can_vectorize(self) -> bool:
@@ -42,7 +52,7 @@ class AdapterWeightData:
         #   as many requests will likely come in for the base model in parallel with
         #   adapters. One solution is to create a zeroed out tensor with the same shape,
         #   the other is to rework the kernel to handle this case as a missing segment.
-        return len(self.r) == 1 and len(self.alpha) == 1 and None not in self.r
+        return True
     
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
@@ -175,12 +185,27 @@ class BatchedLoraWeights:
             if idx in self.lora_weights
         }
 
+        rank_indices = defaultdict(list)
+        for idx in segment_indices:
+            if idx not in self.lora_weights:
+                continue
+            rank_indices[self.lora_weights[idx].adapter_config.r].append(idx)
+
+        rank_data = {}
+        for r, indices in rank_indices.items():
+            rank_data[r] = RankSegments(
+                rank=r,
+                lora_a_ptr=lora_a_ptr[indices],
+                lora_b_ptr=lora_b_ptr[indices],
+                segment_starts=meta.adapter_segments[indices],
+                segment_ends=meta.adapter_segments[[i+1 for i in indices]],
+            )
+
         return AdapterWeightData(
-            lora_a_ptr=lora_a_ptr, 
-            lora_b_ptr=lora_b_ptr, 
             lora_a=lora_a, 
             lora_b=lora_b,
             r=r,
             alpha=alpha,
             adapter_index_configs=adapter_index_configs,
+            rank_data=rank_data,
         )

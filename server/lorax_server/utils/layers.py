@@ -313,20 +313,22 @@ class TensorParallelAdapterLinear(nn.Module):
         ):
             proj = torch.zeros_like(result[:, start_idx:end_idx])
 
-            lora_a_ptr = data.lora_a_ptr
-            lora_b_ptr = data.lora_b_ptr
-            if lora_a_ptr is not None and lora_b_ptr is not None:
-                add_lora_sgmv_cutlass(
-                    proj,
-                    input,
-                    lora_a_ptr,
-                    lora_b_ptr,
-                    adapter_data.meta.adapter_segments[:-1],
-                    adapter_data.meta.adapter_segments[1:],
-                    self.layer_id,
-                    data.rank,
-                )
-                result[:, start_idx:end_idx] += proj * data.scaling
+            for r, rank_segments in data.rank_data.items():
+                lora_a_ptr = rank_segments.lora_a_ptr
+                lora_b_ptr = rank_segments.lora_b_ptr
+                if lora_a_ptr is not None and lora_b_ptr is not None:
+                    add_lora_sgmv_cutlass(
+                        proj,
+                        input,
+                        lora_a_ptr,
+                        lora_b_ptr,
+                        rank_segments.segment_starts,
+                        rank_segments.segment_ends,
+                        self.layer_id,
+                        r,
+                    )
+            
+            result[:, start_idx:end_idx] += proj * data.scaling
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
