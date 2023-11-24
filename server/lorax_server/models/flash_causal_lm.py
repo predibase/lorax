@@ -804,9 +804,10 @@ class FlashCausalLM(Model):
             
             lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
             lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+            scale = adapter_config.lora_alpha / adapter_config.r
 
             lora_a_list[layer.layer_id] = lora_a.transpose(0, 1)
-            lora_b_list[layer.layer_id] = lora_b.transpose(0, 1)
+            lora_b_list[layer.layer_id] = lora_b.transpose(0, 1) * scale
 
         q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group)
         q_lora_weights = self.batched_lora_weights[layer_type]
