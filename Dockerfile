@@ -113,8 +113,6 @@ FROM kernel-builder as exllama-kernels-builder
 
 WORKDIR /usr/src
 
-COPY server/exllama_kernels/ .
-
 COPY server/exllamav2_kernels/ .
 
 # Build specific version of transformers

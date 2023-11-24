@@ -31,7 +31,6 @@ HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
     HAS_EXLLAMA = False
 try:
-    from lorax_server.utils.gptq.exllama import Ex4bitLinear
     from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
 except ImportError:
     HAS_EXLLAMA = False
