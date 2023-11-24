@@ -186,15 +186,15 @@ class BatchedLoraWeights:
         }
 
         rank_indices = defaultdict(list)
-        for idx in segment_indices:
-            if idx not in self.lora_weights:
+        for segment_idx, adapter_idx in enumerate(segment_indices):
+            if adapter_idx not in self.lora_weights:
                 continue
-            rank_indices[self.lora_weights[idx].adapter_config.r].append(idx)
+            rank_indices[self.lora_weights[adapter_idx].adapter_config.r].append(segment_idx)
 
         rank_data = {}
-        for r, indices in rank_indices.items():
-            rank_data[r] = RankSegments(
-                rank=r,
+        for rank, indices in rank_indices.items():
+            rank_data[rank] = RankSegments(
+                rank=rank,
                 lora_a_ptr=lora_a_ptr[indices],
                 lora_b_ptr=lora_b_ptr[indices],
                 segment_starts=meta.adapter_segments[indices],
