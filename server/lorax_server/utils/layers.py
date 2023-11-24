@@ -321,7 +321,8 @@ class TensorParallelAdapterLinear(nn.Module):
                     input,
                     lora_a_ptr,
                     lora_b_ptr,
-                    adapter_data.meta.adapter_segments,
+                    adapter_data.meta.adapter_segments[:-1],
+                    adapter_data.meta.adapter_segments[1:],
                     self.layer_id,
                     data.rank,
                 )
