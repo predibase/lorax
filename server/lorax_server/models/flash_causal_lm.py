@@ -31,6 +31,7 @@ from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.segments import find_segments
 
 tracer = trace.get_tracer(__name__)
 
@@ -149,7 +150,8 @@ class FlashCausalLMBatch(Batch):
         adapter_set = set()
         adapter_segment_indices = []
         adapter_segments = [0]
-        adapter_segment_length = 0
+        last_adapter_index = None
+        adapter_segment_end = 0
 
         # Cumulative length
         cumulative_length = 0
@@ -196,11 +198,15 @@ class FlashCausalLMBatch(Batch):
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
             adapter_set.add(r.adapter_index)
 
-            adapter_segment_length += input_length
-            if not adapter_segment_indices or adapter_segment_indices[-1] != r.adapter_index:
-                adapter_segment_indices.append(r.adapter_index)
-                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
-                adapter_segment_length = 0
+            if last_adapter_index is None:
+                last_adapter_index = r.adapter_index
+            
+            if last_adapter_index != r.adapter_index:
+                adapter_segment_indices.append(last_adapter_index)
+                adapter_segments.append(adapter_segment_end)
+                last_adapter_index = r.adapter_index
+            
+            adapter_segment_end += input_length
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -244,6 +250,10 @@ class FlashCausalLMBatch(Batch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
+        if last_adapter_index is not None:
+            adapter_segment_indices.append(last_adapter_index)
+            adapter_segments.append(adapter_segment_end)
+
         adapter_indices = torch.tensor(torch.cat(adapter_indices_list), dtype=torch.int64, device=device)
 
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
@@ -283,6 +293,7 @@ class FlashCausalLMBatch(Batch):
             input_lengths, dtype=torch.int32, device=device
         )
 
+        adapter_segments, adapter_segment_indices = find_segments(adapter_indices_list)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         if all_prefill_logprobs:
@@ -602,7 +613,7 @@ class FlashCausalLMBatch(Batch):
                 adapter_segments = adapter_segments[1:] + adapter_segment_tensors[-1][-1]
             
             segment_indices = batch.adapter_meta.segment_indices
-            if adapter_segment_indices and adapter_segment_indices[-1] == segment_indices[-1]:
+            if adapter_segment_indices and adapter_segment_indices[-1] == segment_indices[0]:
                 # If the last segment in the previous batch is the same as the first segment in this batch,
                 # then we merge them together into a single segment. In effect, this means removing it from
                 # the segment indices of this batch, and extending the segment span by removing the segment
@@ -1056,11 +1067,18 @@ class FlashCausalLM(Model):
             adapter_segment_length = 0
             last_adapter_index = None
             for r in batch.requests:
-                adapter_segment_length += 1
+                if last_adapter_index is None:
+                    last_adapter_index = r.adapter_index
+                
                 if last_adapter_index != r.adapter_index:
                     adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
                     adapter_segment_length = 0
                     last_adapter_index = r.adapter_index
+                
+                adapter_segment_length += 1
+
+            if adapter_segment_length > 0:
+                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
 
             batch.adapter_meta.adapter_segments = torch.tensor(
                 adapter_segments, 

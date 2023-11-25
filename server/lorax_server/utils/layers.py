@@ -316,6 +316,16 @@ class TensorParallelAdapterLinear(nn.Module):
             lora_a_ptr = data.lora_a_ptr
             lora_b_ptr = data.lora_b_ptr
             if lora_a_ptr is not None and lora_b_ptr is not None:
+                # s_start = rank_segments.segment_starts.tolist()
+                # s_end = rank_segments.segment_ends.tolist()
+                # adapter_indices = adapter_data.meta.adapter_indices
+                # for si, sj in zip(s_start, s_end):
+                #     si = si
+                #     sj = sj
+                #     if adapter_indices[si:sj].unique().shape[0] != 1:
+                #         print(r, rank_segments.segment_starts, rank_segments.segment_ends, lora_a_ptr.shape, lora_b_ptr.shape, adapter_data.meta.adapter_indices)
+                #         raise ValueError(f"Adapter indices are not contiguous within segment: [{si}, {sj}) {adapter_indices[si:sj]}")
+                    
                 add_lora_sgmv_cutlass(
                     proj,
                     input,
