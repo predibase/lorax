@@ -1,0 +1,3 @@
+[submodule "server/punica_kernels/third_party/cutlass"]
+	path = server/punica_kernels/third_party/cutlass
+	url = https://github.com/NVIDIA/cutlass.git
