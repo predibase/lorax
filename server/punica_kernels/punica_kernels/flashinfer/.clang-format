@@ -1,0 +1,5 @@
+# https://github.com/yzh119/flashinfer/blob/main/.clang-format
+BasedOnStyle: Google
+DerivePointerAlignment: false
+ColumnLimit:     100
+PointerAlignment: Left
