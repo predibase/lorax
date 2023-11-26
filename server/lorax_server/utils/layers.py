@@ -315,7 +315,7 @@ class TensorParallelAdapterLinear(nn.Module):
 
             lora_a_ptr = data.lora_a_ptr
             lora_b_ptr = data.lora_b_ptr
-            if lora_a_ptr is not None and lora_b_ptr is not None:                    
+            if lora_a_ptr is not None and lora_b_ptr is not None:
                 add_lora_sgmv_cutlass(
                     proj,
                     input,
