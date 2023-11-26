@@ -73,6 +73,14 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             request.batch, self.model.tokenizer, self.model.dtype, self.model.device
         )
 
+        print(self.model.batch_type, self.model.batch_type.from_pb)
+        s = batch.adapter_meta.adapter_segments.tolist()
+        for i in range(len(s) - 1):
+            si = s[i]
+            sj = s[i+1]
+            if batch.adapter_meta.adapter_indices[si:sj].unique().shape[0] != 1:
+                raise ValueError(f"Adapter indices are not contiguous within segment: [{si}, {sj}) {batch.adapter_meta.adapter_indices[si:sj]}")
+
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
 
