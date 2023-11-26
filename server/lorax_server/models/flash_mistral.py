@@ -256,14 +256,6 @@ class FlashMistralBatch(FlashCausalLMBatch):
         adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
-        print("!!! HERE !!!")
-        s = adapter_segments.tolist()
-        for i in range(len(s) - 1):
-            si = s[i]
-            sj = s[i+1]
-            if adapter_indices[si:sj].unique().shape[0] != 1:
-                raise ValueError(f"Adapter indices are not contiguous within segment: [{si}, {sj}) {adapter_indices[si:sj]}")
-
         if all_prefill_logprobs:
             prefill_head_indices = None
             prefill_next_token_indices = cu_seqlen_prefill[1:] - 1
