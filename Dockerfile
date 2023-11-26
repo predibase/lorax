@@ -149,7 +149,8 @@ WORKDIR /usr/src
 COPY server/punica_kernels/ .
 
 # Build specific version of punica
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
+RUN python setup.py build
 
 # Text Generation Inference base image
 FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
