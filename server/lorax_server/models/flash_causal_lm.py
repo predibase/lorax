@@ -31,7 +31,7 @@ from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
-from lorax_server.utils.segments import find_segments
+from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 
 tracer = trace.get_tracer(__name__)
 
@@ -275,7 +275,7 @@ class FlashCausalLMBatch(Batch):
             input_lengths, dtype=torch.int32, device=device
         )
 
-        adapter_segments, adapter_segment_indices = find_segments(adapter_indices_list)
+        adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         s = adapter_segments.tolist()
@@ -376,10 +376,6 @@ class FlashCausalLMBatch(Batch):
         # Cumulative length
         cumulative_max_length = 0
 
-        adapter_segment_indices = []
-        adapter_segments = [0]
-        adapter_segment_length = 0
-
         for i, request_id in enumerate(request_ids):
             idx = self.requests_idx_mapping[request_id]
             indices.append(idx)
@@ -401,12 +397,6 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias.append(stopping_criteria)
 
             adapter_set.add(self.requests[idx].adapter_index)
-
-            adapter_segment_length += 1
-            if not adapter_segment_indices or adapter_segment_indices[-1] != self.requests[idx].adapter_index:
-                adapter_segment_indices.append(self.requests[idx].adapter_index)
-                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
-                adapter_segment_length = 0
 
             remaining_tokens = (
                 stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
@@ -458,6 +448,7 @@ class FlashCausalLMBatch(Batch):
         # Move to GPU now that we have the whole tensor
         slot_indices = slot_indices.to(device)
 
+        adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         return type(self)(
@@ -544,8 +535,7 @@ class FlashCausalLMBatch(Batch):
         
         adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
         adapter_set = set()
-        adapter_segment_indices = []
-        adapter_segment_tensors = []
+        adapter_segment_builder = SegmentConcatBuilder()
 
         start_slots = []
         block_tables = []
@@ -593,25 +583,7 @@ class FlashCausalLMBatch(Batch):
             adapter_set.update(batch.adapter_meta.adapter_set)
 
             # Update adapter segments
-            adapter_segments = batch.adapter_meta.adapter_segments
-            if adapter_segment_tensors:
-                # Because we have already processed at least one batch, remove the 0 start index
-                # from this batch denoting the beginning of the segment, then offset all segment
-                # positions by the value of the last segment in the previous batch to account for
-                # the concatenation.
-                adapter_segments = adapter_segments[1:] + adapter_segment_tensors[-1][-1]
-            
-            segment_indices = batch.adapter_meta.segment_indices
-            if adapter_segment_indices and adapter_segment_indices[-1] == segment_indices[0]:
-                # If the last segment in the previous batch is the same as the first segment in this batch,
-                # then we merge them together into a single segment. In effect, this means removing it from
-                # the segment indices of this batch, and extending the segment span by removing the segment
-                # end index from the previous batch.
-                segment_indices = segment_indices[1:]
-                adapter_segment_tensors[-1] = adapter_segment_tensors[-1][:-1]
-            
-            adapter_segment_indices.extend(segment_indices)
-            adapter_segment_tensors.append(adapter_segments)
+            adapter_segment_builder.concat(batch.adapter_meta.adapter_segments, batch.adapter_meta.segment_indices)
 
             all_input_ids_tensor[
                 start_index:end_index, : batch.all_input_ids_tensor.shape[1]
@@ -645,7 +617,7 @@ class FlashCausalLMBatch(Batch):
             device=batches[0].next_token_chooser.device,
         )
 
-        adapter_segments = torch.concat(adapter_segment_tensors)
+        adapter_segments, adapter_segment_indices = adapter_segment_builder.build()
 
         # Needed to avoid dropping blocks when the batches will go out of scope
         for b in batches:
@@ -1061,23 +1033,7 @@ class FlashCausalLM(Model):
 
         if prefill:
             # adjust segment lengths to account for all request lengths being 1 during decoding
-            adapter_segments = [0]
-            adapter_segment_length = 0
-            last_adapter_index = None
-            for r in batch.requests:
-                if last_adapter_index is None:
-                    last_adapter_index = r.adapter_index
-                
-                if last_adapter_index != r.adapter_index:
-                    adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
-                    adapter_segment_length = 0
-                    last_adapter_index = r.adapter_index
-                
-                adapter_segment_length += 1
-
-            if adapter_segment_length > 0:
-                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
-
+            adapter_segments, _ = find_segments(batch.adapter_meta.adapter_indices)
             batch.adapter_meta.adapter_segments = torch.tensor(
                 adapter_segments, 
                 dtype=torch.int32, 
