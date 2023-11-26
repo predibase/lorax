@@ -148,10 +148,6 @@ class FlashCausalLMBatch(Batch):
         
         adapter_indices_list = []
         adapter_set = set()
-        adapter_segment_indices = []
-        adapter_segments = [0]
-        last_adapter_index = None
-        adapter_segment_end = 0
 
         # Cumulative length
         cumulative_length = 0
@@ -198,16 +194,6 @@ class FlashCausalLMBatch(Batch):
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
             adapter_set.add(r.adapter_index)
 
-            if last_adapter_index is None:
-                last_adapter_index = r.adapter_index
-            
-            if last_adapter_index != r.adapter_index:
-                adapter_segment_indices.append(last_adapter_index)
-                adapter_segments.append(adapter_segment_end)
-                last_adapter_index = r.adapter_index
-            
-            adapter_segment_end += input_length
-
             # Paged attention
             # Remove one as the first token des not have a past
             total_tokens = input_length + max_new_tokens - 1
@@ -249,10 +235,6 @@ class FlashCausalLMBatch(Batch):
             max_seqlen = max(max_seqlen, input_length)
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
-
-        if last_adapter_index is not None:
-            adapter_segment_indices.append(last_adapter_index)
-            adapter_segments.append(adapter_segment_end)
 
         adapter_indices = torch.tensor(torch.cat(adapter_indices_list), dtype=torch.int64, device=device)
 

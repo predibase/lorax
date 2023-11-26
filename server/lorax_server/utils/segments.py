@@ -7,6 +7,9 @@ def find_segments(adapter_indices: torch.Tensor) -> Tuple[List[int], List[int]]:
     segments = [0]
     segment_indices = []
 
+    # Calling .item() repeatedly on CUDA tensor is very slow, so we move it to CPU first
+    adapter_indices = adapter_indices.cpu()
+
     start_index = 0
     for i in range(1, adapter_indices.shape[0]):
         if adapter_indices[i] != adapter_indices[i - 1]:
