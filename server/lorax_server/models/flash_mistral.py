@@ -35,6 +35,7 @@ from lorax_server.utils import (
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils.segments import find_segments
 
 tracer = trace.get_tracer(__name__)
 
@@ -97,9 +98,6 @@ class FlashMistralBatch(FlashCausalLMBatch):
 
         adapter_indices_list = []
         adapter_set = set()
-        adapter_segment_indices = []
-        adapter_segments = [0]
-        adapter_segment_length = 0
 
         # Cumulative length
         cumulative_length = 0
@@ -146,12 +144,6 @@ class FlashMistralBatch(FlashCausalLMBatch):
 
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
             adapter_set.add(r.adapter_index)
-
-            adapter_segment_length += input_length
-            if not adapter_segment_indices or adapter_segment_indices[-1] != r.adapter_index:
-                adapter_segment_indices.append(r.adapter_index)
-                adapter_segments.append(adapter_segments[-1] + adapter_segment_length)
-                adapter_segment_length = 0
 
             # Paged attention
             # Remove one as the first token des not have a past
@@ -250,6 +242,7 @@ class FlashMistralBatch(FlashCausalLMBatch):
             input_lengths, dtype=torch.int32, device=device
         )
 
+        adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         if all_prefill_logprobs:
