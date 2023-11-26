@@ -144,15 +144,13 @@ RUN make build-vllm
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
 
-RUN /opt/conda/bin/conda install packaging
-
 WORKDIR /usr/src
 
-COPY server/Makefile-punica Makefile
+COPY server/punica_kernels/ .
 
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 # Build specific version of punica
-RUN make build-punica
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
+RUN python setup.py build
 
 # Text Generation Inference base image
 FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
@@ -195,7 +193,7 @@ COPY --from=exllama-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-39 /
 COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-39 /opt/conda/lib/python3.9/site-packages
 
 # Copy builds artifacts from punica builder
-COPY --from=punica-builder /usr/src/punica/build/lib.linux-x86_64-cpython-39 /opt/conda/lib/python3.9/site-packages
+COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-39 /opt/conda/lib/python3.9/site-packages
 
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir

@@ -47,7 +47,7 @@ def query_lorax(args):
     prompt, adapter_id = args
     start_t = time.time()
     request_params = {
-        "max_new_tokens": 128,
+        "max_new_tokens": 64,
         "temperature": None,
         "details": True,
     }
@@ -73,6 +73,7 @@ def query_lorax(args):
             response_body = json.loads(response.read().decode("utf-8"))
             ntokens = response_body["details"]["generated_tokens"]
             duration_s = time.time() - start_t
+            # print(adapter_id, response_body["generated_text"])
     except Exception:
         print(f"exception in request: {adapter_id}")
         return adapter_id, 0, None
@@ -81,9 +82,9 @@ def query_lorax(args):
         adapter_id,
         ntokens,
         duration_s,
-        (ntokens / duration_s)
+        (ntokens / duration_s),
     ))
-    return adapter_id, ntokens, duration_s
+    return adapter_id, ntokens, duration_s, response_body["generated_text"]
 
 
 def get_local_path(model_id):
@@ -105,18 +106,19 @@ completes the request.
 ### Response:
 """
     NUM_REQUESTS = 500
-    N = 128
-    adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
-        get_local_path(f"arnavgrg/codealpaca_v3_{i}")
-        for i in range(1, N)
-    ]
-
-    # Mistral
-    # adapters = [
-    #     "alexsherstinsky/mistralai-7B-v01-based-finetuned-using-ludwig-with-samsum-T4-sharded-4bit-notmerged",
+    # N = 0
+    # adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
+    #     get_local_path(f"arnavgrg/codealpaca_v3_{i}")
+    #     for i in range(1, N)
     # ]
 
-    # adapters += [None]
+    # Mistral
+    prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
+    adapters = [
+        "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
+    ]
+
+    adapters += [None]
     # adapters = [None]
 
     # adapters += [
@@ -171,14 +173,23 @@ completes the request.
 
     total_tokens = 0
     total_duration_s = 0
-    for adapter_id, ntokens, duration_s in results:
+    responses = collections.defaultdict(set)
+    for adapter_id, ntokens, duration_s, resp in results:
         if duration_s is None:
             continue
         total_tokens += ntokens
         total_duration_s += duration_s
+        responses[adapter_id].add(resp)
 
     print(f"Avg Latency: {total_duration_s / total_tokens} s / tokens")
     print(f"Throughput: {total_tokens / span_s} tokens / s")
+
+    for adapter_id, resp in responses.items():
+        print("----")
+        print(f"{adapter_id}: {len(resp)}")
+        for r in resp:
+            print("    * " + r)
+        print("----")
 
     # d = collections.defaultdict(list)
     # for adapter_id, ntokens, duration_s in results:

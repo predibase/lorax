@@ -19,7 +19,7 @@ except ImportError:
 from accelerate import init_empty_weights
 
 try:
-    from punica.ops import add_lora_sgmv_cutlass
+    from lorax_server.utils.sgmv import add_lora_sgmv_cutlass
     HAS_SGMV = True
 except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
