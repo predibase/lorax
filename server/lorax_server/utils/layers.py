@@ -306,17 +306,6 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-
-        # if data is not None:
-        #     s = adapter_data.meta.adapter_segments.tolist()
-        #     adapter_indices = adapter_data.meta.adapter_indices
-        #     for i in range(len(s) - 1):
-        #         si = s[i]
-        #         sj = s[i+1]
-        #         if adapter_indices[si:sj].unique().shape[0] != 1:
-        #             print(s, data.lora_a_ptr.shape, data.lora_b_ptr.shape, adapter_data.meta.adapter_indices)
-        #             raise ValueError(f"Adapter indices are not contiguous within segment: [{si}, {sj}) {adapter_indices[si:sj]}")
-
         if (
             HAS_SGMV and
             self.process_group.size() == 1 and
