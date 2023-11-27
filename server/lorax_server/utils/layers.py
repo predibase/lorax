@@ -18,14 +18,8 @@ except ImportError:
 
 from accelerate import init_empty_weights
 
-try:
-    from lorax_server.utils.sgmv import add_lora_sgmv_cutlass
-    HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
-except ImportError:
-    warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
-    HAS_SGMV = False
-
 from lorax_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, has_sgmv, orient_for_rank
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -358,7 +352,7 @@ class TensorParallelAdapterLinear(nn.Module):
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
         if (
-            HAS_SGMV and
+            has_sgmv() and
             self.process_group.size() == 1 and
             data is not None and data.can_vectorize
         ):
@@ -396,6 +390,7 @@ class TensorParallelAdapterLinear(nn.Module):
         scaling = data.scaling_for_adapter(adapter_index)
 
         lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
+        lora_a = orient_for_rank(lora_a, data.adapter_index_configs[adapter_index].r)
         a_out = input @ lora_a
 
         if self.process_group.size() > 1:

@@ -1,7 +1,28 @@
+import os
+import warnings
 import torch
 
+try:
+    import punica_kernels as _kernels
+    HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
+except ImportError:
+    warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
+    _kernels = None
+    HAS_SGMV = False
 
-import punica_kernels as _kernels
+
+MIN_RANK_CUSTOM = 16
+MAX_RANK_CUSTOM = 128
+
+
+def has_sgmv() -> bool:
+    return HAS_SGMV
+
+
+def orient_for_rank(t: torch.Tensor, rank: int) -> torch.Tensor:
+    if MIN_RANK_CUSTOM <= rank <= MAX_RANK_CUSTOM:
+        return t.transpose(0, 1)
+    return t
 
 
 # Source: https://github.com/punica-ai/punica/blob/master/src/punica/ops/__init__.py
@@ -29,7 +50,7 @@ def add_lora_sgmv_cutlass(
       `s[0] == 0`, `s[-1] == B`.
     layer_idx: Layer index of the weight matrices.
   """
-    if lora_rank < 16 or lora_rank > 128:
+    if lora_rank < MIN_RANK_CUSTOM or lora_rank > MAX_RANK_CUSTOM:
         # Custom SGMV shrink only supports rank 16, 32, 64, 128
         _add_lora_sgmv_cutlass_legacy(y, x, wa_ptr, wb_ptr, s, layer_idx, lora_rank)
         return
