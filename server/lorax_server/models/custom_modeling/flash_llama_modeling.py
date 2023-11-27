@@ -24,7 +24,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Set, Tuple
+from typing import Optional, List, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
@@ -41,7 +41,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
 
 
 class LlamaConfig(PretrainedConfig):
@@ -152,11 +152,13 @@ class LlamaRMSNorm(nn.Module):
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
-    return TensorParallelMultiAdapterLinear.load(base_layer, layer_id, sizes=[
-        head_size * config.num_attention_heads,
-        head_size * config.num_key_value_heads,
-        head_size * config.num_key_value_heads,
-    ], process_group=weights.process_group)
+    return TensorParallelMultiAdapterLinear.load(
+        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
+            head_size * config.num_attention_heads,
+            head_size * config.num_key_value_heads,
+            head_size * config.num_key_value_heads,
+        ], process_group=weights.process_group
+    )
 
 
 def load_attention_multi(config, prefix, weights):
@@ -237,7 +239,7 @@ class FlashLlamaAttention(torch.nn.Module):
             prefix=f"{prefix}.o_proj",
             weights=weights,
             bias=False,
-        ), layer_id, process_group=weights.process_group)
+        ), layer_id, O_PROJ, process_group=weights.process_group)
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -329,7 +331,7 @@ class FlashLlamaAttention(torch.nn.Module):
 
 
 class LlamaMLP(nn.Module):
-    def __init__(self, prefix, config, weights):
+    def __init__(self, prefix, config, weights, layer_id):
         super().__init__()
         act = config.hidden_act
         self.act = (
@@ -343,19 +345,26 @@ class LlamaMLP(nn.Module):
             )
         )
         # Fuse gate and up proj
-        self.gate_up_proj = TensorParallelColumnLinear.load_multi(
+        gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
             prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
             weights=weights,
             dim=0,
             bias=False,
         )
-        self.down_proj = TensorParallelRowLinear.load(
+        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
+            gate_up_proj, [GATE_PROJ, UP_PROJ], layer_id, sizes=[
+                config.intermediate_size,
+                config.intermediate_size,
+            ], process_group=weights.process_group
+        )
+
+        self.down_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
             prefix=f"{prefix}.down_proj",
             weights=weights,
             bias=False,
-        )
+        ), layer_id, DOWN_PROJ, process_group=weights.process_group)
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
@@ -373,7 +382,7 @@ class FlashLlamaLayer(nn.Module):
         self.self_attn = FlashLlamaAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
-        self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
+        self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = LlamaRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
