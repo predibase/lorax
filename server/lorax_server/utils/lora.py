@@ -21,7 +21,7 @@ DOWN_PROJ = "down_proj"
 
 LM_HEAD = "lm_head"
 
-ROW_PARALLEL = {O_PROJ}
+ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 EMPTY_TENSOR = torch.tensor([])
 
