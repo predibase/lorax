@@ -5,6 +5,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
+from lorax_server.utils.sgmv import orient_for_rank
 from lorax_server.utils.weights import shard_on_dim
 
 
@@ -15,7 +16,6 @@ V_PROJ = "v_proj"
 O_PROJ = "o_proj"
 
 ROW_PARALLEL = {O_PROJ}
-
 
 EMPTY_TENSOR = torch.tensor([])
 
@@ -97,7 +97,10 @@ class MergedLoraWeights:
     ):
         # [num_layers, hidden_size, r]
         split_dim = 0 if layer_type in ROW_PARALLEL else 1
-        weights_a = [shard_on_dim(w, dim=split_dim, process_group=process_group) for w in weights_a]
+        weights_a = [
+            orient_for_rank(shard_on_dim(w, dim=split_dim, process_group=process_group), adapter_config.r)
+            for w in weights_a
+        ]
         self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
@@ -136,7 +139,7 @@ class BatchedLoraWeights:
         lora_a_ptr = torch.tensor(
             [
                 (
-                    self.lora_weights[idx].weights_a.data_ptr() 
+                    self.lora_weights[idx].weights_a.data_ptr()
                     if idx in self.lora_weights 
                     else EMPTY_TENSOR.data_ptr()
                 ) for idx in segment_indices
