@@ -20,7 +20,7 @@ from accelerate import init_empty_weights
 
 try:
     from lorax_server.utils.sgmv import add_lora_sgmv_cutlass
-    HAS_SGMV = bool(os.environ.get("DISABLE_SGMV", ""))
+    HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
 except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
     HAS_SGMV = False
