@@ -50,9 +50,15 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s, void* tmp,
 
   cudaError_t status;
   if (use_cooperative) {
+    if (smem > 46 * 1024) {
+      cudaFuncSetAttribute(cooperative_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    }
     status = cudaLaunchCooperativeKernel((void*)cooperative_kernel, nblks,
                                          nthrs, args, smem, stream);
   } else {
+    if (smem > 46 * 1024) {
+      cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    }
     status = cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem, stream);
   }
   return status == cudaSuccess;

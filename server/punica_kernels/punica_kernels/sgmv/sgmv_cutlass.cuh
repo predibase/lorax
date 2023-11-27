@@ -4,7 +4,7 @@
 #include <cuda_runtime.h>
 
 #include <cstdint>
-#include <vector>
+#include <cstdio>
 
 #include "cutlass/cutlass.h"
 #include "cutlass/gemm/device/gemm_grouped.h"
@@ -111,8 +111,18 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
                                          ptr_Y, ld_X, ld_W, ld_Y, ld_Y);
 
     GemmGrouped gemm;
-    if (gemm.initialize(args) != cutlass::Status::kSuccess) return false;
-    if (gemm.run() != cutlass::Status::kSuccess) return false;
+    auto status = gemm.initialize(args);
+    if (status != cutlass::Status::kSuccess) {
+      fprintf(stderr, "sgmv_cutlass gemm.initialize failed: %s\n",
+              cutlassGetStatusString(status));
+      return false;
+    }
+    status = gemm.run();
+    if (status != cutlass::Status::kSuccess) {
+      fprintf(stderr, "sgmv_cutlass gemm.run failed: %s\n",
+              cutlassGetStatusString(status));
+      return false;
+    }
   } else {
     // Shrink
     using GemmKernel = typename cutlass::gemm::kernel::DefaultGemmGrouped<
@@ -146,8 +156,18 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
                                          ptr_Y, ld_X, ld_W, ld_Y, ld_Y);
 
     GemmGrouped gemm;
-    if (gemm.initialize(args) != cutlass::Status::kSuccess) return false;
-    if (gemm.run() != cutlass::Status::kSuccess) return false;
+    auto status = gemm.initialize(args);
+    if (status != cutlass::Status::kSuccess) {
+      fprintf(stderr, "sgmv_cutlass gemm.initialize failed: %s\n",
+              cutlassGetStatusString(status));
+      return false;
+    }
+    status = gemm.run();
+    if (status != cutlass::Status::kSuccess) {
+      fprintf(stderr, "sgmv_cutlass gemm.run failed: %s\n",
+              cutlassGetStatusString(status));
+      return false;
+    }
   }
   return true;
 }
