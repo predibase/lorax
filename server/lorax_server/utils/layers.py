@@ -6,7 +6,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Set, Tuple
+from typing import List
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -25,7 +25,7 @@ HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
     HAS_EXLLAMA = False
 try:
-    from lorax_server.utils.gptq.exllama import Ex4bitLinear
+    from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
 except ImportError:
     HAS_EXLLAMA = False
 
@@ -216,7 +216,7 @@ def get_linear(weight, bias, quantize):
             )
 
         if use_exllama:
-            linear = Ex4bitLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
+            linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
         else:
             linear = QuantLinear(
                 qweight,
