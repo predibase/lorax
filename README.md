@@ -58,11 +58,18 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 ### Models
 
 - 🦙 [Llama](https://huggingface.co/meta-llama)
+    - [CodeLlama](https://huggingface.co/codellama)
 - 🌬️[Mistral](https://huggingface.co/mistralai)
+    - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
 
 Other architectures are supported on a best effort basis, but do not support dynamical adapter loading.
 
 Check the [HuggingFace Hub](https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads) to find supported base models.
+
+#### Quantization
+
+Base models can be loaded in fp16 (default) or with quantization using either the `bitsandbytes` or [GPT-Q](https://arxiv.org/abs/2210.17323) format. When using quantization, it is not necessary that
+the adapter was fine-tuned using the quantized version of the base model, but be aware that enabling quantization can have an effect on the response.
 
 ### Adapters
 
