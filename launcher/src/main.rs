@@ -22,6 +22,8 @@ mod env_runtime;
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Quantization {
     Bitsandbytes,
+    BitsandbytesNF4,
+    BitsandbytesFP4,
     Gptq,
 }
 
@@ -31,6 +33,12 @@ impl std::fmt::Display for Quantization {
         match self {
             Quantization::Bitsandbytes => {
                 write!(f, "bitsandbytes")
+            }
+            Quantization::BitsandbytesNF4 => {
+                write!(f, "bitsandbytes-nf4")
+            }
+            Quantization::BitsandbytesFP4 => {
+                write!(f, "bitsandbytes-fp4")
             }
             Quantization::Gptq => {
                 write!(f, "gptq")
