@@ -8,10 +8,9 @@
 
 _The LLM inference server that speaks for the GPUs!_
 
-[![Discord](https://img.shields.io/discord/1174495433565945916)](https://discord.gg/zMFfDrWT)
+[![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted)](https://discord.gg/CBgdrGnZjy)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax)](https://artifacthub.io/packages/search?repo=lorax)
-
 
 </div>
 
@@ -23,6 +22,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 - [🔥 Features](#-features)
 - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
   - [Models](#models)
+    - [Quantization](#quantization)
   - [Adapters](#adapters)
 - [🏃‍♂️ Getting started](#️-getting-started)
   - [Docker](#docker)
