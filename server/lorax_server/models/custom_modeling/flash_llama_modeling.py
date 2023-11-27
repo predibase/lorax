@@ -41,7 +41,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
 
 
 class LlamaConfig(PretrainedConfig):
@@ -509,11 +509,11 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = FlashLlamaModel(config, weights)
-        self.lm_head = TensorParallelHead.load(
+        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
-        )
+        ), 0, LM_HEAD, process_group=weights.process_group)
 
     def forward(
         self,
