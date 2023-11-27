@@ -8,12 +8,7 @@
 
 _The LLM inference server that speaks for the GPUs!_
 
-[![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy)](https://discord.gg/CBgdrGnZjy)
-
-</div>
-
-<div align="center">
-
+[![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted)](https://discord.gg/CBgdrGnZjy)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax)](https://artifacthub.io/packages/search?repo=lorax)
 
