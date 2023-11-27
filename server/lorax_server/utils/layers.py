@@ -11,7 +11,7 @@ from typing import List
 HAS_BITS_AND_BYTES = True
 try:
     import bitsandbytes as bnb
-    from bitsandbytes.nn import Int8Params
+    from bitsandbytes.nn import Int8Params, Params4bit
 
 except ImportError:
     HAS_BITS_AND_BYTES = False
