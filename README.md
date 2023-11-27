@@ -165,25 +165,6 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-curl 127.0.0.1:8080/generate \
-    -X POST \
-    -d '{"inputs": "<|system|> You are a helpful assistant <|user|> What is deep learning? </s> <|assistant|>", "parameters": {"max_new_tokens": 64, "adapter_id": "qblocks/mistral_7b_norobots"}}' \
-    -H 'Content-Type: application/json'
-
-
-from peft import PeftModel, PeftConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-config = PeftConfig.from_pretrained("qblocks/mistral_7b_norobots")
-model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-v0.1", device_map="auto")
-model = PeftModel.from_pretrained(model, "qblocks/mistral_7b_norobots")
-tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
-
-prompt = "<|system|> You are a helpful assistant <|user|> What is deep learning? </s> <|assistant|>"
-inputs = tokenizer(prompt, return_tensors="pt")
-generation_output = model.generate(**inputs, max_new_tokens=64)
-print(tokenizer.decode(generation_output[0], skip_special_tokens=True))
-
 ```shell
 curl 127.0.0.1:8080/generate_stream \
     -X POST \
