@@ -353,7 +353,7 @@ class LlamaMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, [GATE_PROJ, UP_PROJ], layer_id, sizes=[
+            gate_up_proj, layer_id, [GATE_PROJ, UP_PROJ], sizes=[
                 config.intermediate_size,
                 config.intermediate_size,
             ], process_group=weights.process_group
@@ -369,10 +369,10 @@ class LlamaMLP(nn.Module):
             config.intermediate_size // weights.process_group.size()
         )
 
-    def forward(self, hidden_states):
-        gate_up_states = self.gate_up_proj(hidden_states)
+    def forward(self, hidden_states, adapter_data):
+        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
         gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1])
+        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
 class FlashLlamaLayer(nn.Module):
@@ -428,7 +428,7 @@ class FlashLlamaLayer(nn.Module):
             attn_output, res
         )
 
-        mlp_output = self.mlp(normed_attn_res_output)
+        mlp_output = self.mlp(normed_attn_res_output, adapter_data)
 
         return mlp_output, attn_res
 
@@ -541,5 +541,5 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.lm_head(hidden_states)
+        logits = self.lm_head(hidden_states, adapter_data)
         return logits
