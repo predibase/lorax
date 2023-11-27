@@ -35,7 +35,7 @@ def generate_flashinfer_cu() -> List[str]:
     head_dims = [int(x) for x in head_dims]
     dtypes = {"fp16": "nv_half", "bf16": "nv_bfloat16"}
     funcs = ["prefill", "decode"]
-    prefix = "csrc/flashinfer_adapter/generated"
+    prefix = "punica_kernels/flashinfer_adapter/generated"
     (root / prefix).mkdir(parents=True, exist_ok=True)
     files = []
 
