@@ -30,7 +30,7 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
-from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.lora import ADAPTER_LAYERS, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 
 tracer = trace.get_tracer(__name__)
@@ -698,11 +698,20 @@ class FlashCausalLM(Model):
 
         weight_names = []
         prefix = "model.layers"
-        for i, layer in enumerate(self.model.model.layers):
-            weight_names.append(f"{prefix}.{i}.self_attn.{Q_PROJ}")
-            weight_names.append(f"{prefix}.{i}.self_attn.{K_PROJ}")
-            weight_names.append(f"{prefix}.{i}.self_attn.{V_PROJ}")
-            weight_names.append(f"{prefix}.{i}.self_attn.{O_PROJ}")
+
+        # TODO(travis): generalize this
+        for i, _ in enumerate(self.model.model.layers):
+            weight_names.append(f"{prefix}.{i}.self_attn.q_proj")
+            weight_names.append(f"{prefix}.{i}.self_attn.k_proj")
+            weight_names.append(f"{prefix}.{i}.self_attn.v_proj")
+            weight_names.append(f"{prefix}.{i}.self_attn.o_proj")
+
+            weight_names.append(f"{prefix}.{i}.mlp.gate_proj")
+            weight_names.append(f"{prefix}.{i}.mlp.up_proj")
+            weight_names.append(f"{prefix}.{i}.mlp.down_proj")
+        
+        weight_names.append("lm_head")
+        
         self.weight_names = tuple(weight_names)
 
     @property
@@ -734,11 +743,8 @@ class FlashCausalLM(Model):
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
             logger.info(f"Loading adapter weights into model: {adapter_id}")
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, self.weight_names)
-
-            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, Q_PROJ)
-            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, V_PROJ)
-            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, K_PROJ)
-            self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, O_PROJ)
+            for layer_name in ADAPTER_LAYERS:
+                self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, layer_name)
 
             self.adapter_id = adapter_id
 
@@ -794,17 +800,9 @@ class FlashCausalLM(Model):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             return
         else:
-            if Q_PROJ in self.batched_lora_weights:
-                self.batched_lora_weights[Q_PROJ].remove_adapter(adapter_index)
-
-            if V_PROJ in self.batched_lora_weights:
-                self.batched_lora_weights[V_PROJ].remove_adapter(adapter_index)
-
-            if K_PROJ in self.batched_lora_weights:
-                self.batched_lora_weights[K_PROJ].remove_adapter(adapter_index)
-
-            if O_PROJ in self.batched_lora_weights:
-                self.batched_lora_weights[O_PROJ].remove_adapter(adapter_index)
+            for layer_name in ADAPTER_LAYERS:
+                if layer_name in self.batched_lora_weights:
+                    self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
 
             self.adapter_id = BASE_MODEL_ADAPTER_ID
 
