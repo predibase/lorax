@@ -42,7 +42,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mistral model requires flash attn v2")
@@ -158,11 +158,13 @@ class MistralRMSNorm(nn.Module):
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
-    return TensorParallelMultiAdapterLinear.load(base_layer, layer_id, sizes=[
-        head_size * config.num_attention_heads,
-        head_size * config.num_key_value_heads,
-        head_size * config.num_key_value_heads,
-    ], process_group=weights.process_group)
+    return TensorParallelMultiAdapterLinear.load(
+        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
+            head_size * config.num_attention_heads,
+            head_size * config.num_key_value_heads,
+            head_size * config.num_key_value_heads,
+        ], process_group=weights.process_group
+    )
 
 
 def load_attention_multi(config, prefix, weights):
@@ -246,7 +248,7 @@ class MistralAttention(torch.nn.Module):
             prefix=f"{prefix}.o_proj",
             weights=weights,
             bias=False,
-        ), layer_id, process_group=weights.process_group)
+        ), layer_id, O_PROJ, process_group=weights.process_group)
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -345,7 +347,7 @@ class MistralAttention(torch.nn.Module):
 
 
 class MistralMLP(nn.Module):
-    def __init__(self, prefix, config, weights):
+    def __init__(self, prefix, config, weights, layer_id):
         super().__init__()
         act = config.hidden_act
         self.act = (
@@ -359,27 +361,34 @@ class MistralMLP(nn.Module):
             )
         )
         # Fuse gate and up proj
-        self.gate_up_proj = TensorParallelColumnLinear.load_multi(
+        gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
             prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
             weights=weights,
             dim=0,
             bias=False,
         )
-        self.down_proj = TensorParallelRowLinear.load(
+        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
+            gate_up_proj, layer_id, [GATE_PROJ, UP_PROJ], sizes=[
+                config.intermediate_size,
+                config.intermediate_size,
+            ], process_group=weights.process_group
+        )
+
+        self.down_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
             prefix=f"{prefix}.down_proj",
             weights=weights,
             bias=False,
-        )
+        ), layer_id, DOWN_PROJ, process_group=weights.process_group)
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
 
-    def forward(self, hidden_states):
-        gate_up_states = self.gate_up_proj(hidden_states)
+    def forward(self, hidden_states, adapter_data):
+        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
         gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1])
+        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
 class MistralLayer(nn.Module):
@@ -389,7 +398,7 @@ class MistralLayer(nn.Module):
         self.self_attn = MistralAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
-        self.mlp = MistralMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
+        self.mlp = MistralMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = MistralRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
@@ -437,7 +446,7 @@ class MistralLayer(nn.Module):
             attn_output, res
         )
 
-        mlp_output = self.mlp(normed_attn_res_output)
+        mlp_output = self.mlp(normed_attn_res_output, adapter_data)
 
         return mlp_output, attn_res
 
@@ -520,11 +529,11 @@ class FlashMistralForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = MistralModel(config, weights)
-        self.lm_head = TensorParallelHead.load(
+        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
-        )
+        ), 0, LM_HEAD, process_group=weights.process_group)
         self.max_past = config.sliding_window
         if self.max_past is None:
             raise ValueError("max_past cannot be None")
@@ -566,5 +575,5 @@ class FlashMistralForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.lm_head(hidden_states)
+        logits = self.lm_head(hidden_states, adapter_data)
         return logits

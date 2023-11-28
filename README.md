@@ -8,10 +8,9 @@
 
 _The LLM inference server that speaks for the GPUs!_
 
-[![Discord](https://img.shields.io/discord/1174495433565945916)](https://discord.gg/zMFfDrWT)
+[![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted)](https://discord.gg/CBgdrGnZjy)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax)](https://artifacthub.io/packages/search?repo=lorax)
-
 
 </div>
 
@@ -23,6 +22,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 - [🔥 Features](#-features)
 - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
   - [Models](#models)
+    - [Quantization](#quantization)
   - [Adapters](#adapters)
 - [🏃‍♂️ Getting started](#️-getting-started)
   - [Docker](#docker)
@@ -75,12 +75,16 @@ the adapter was fine-tuned using the quantized version of the base model, but be
 
 LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
 
-The following modules can be targeted:
+Any combination of linear layers can be targeted in the adapters, including:
 
 - `q_proj`
 - `k_proj`
 - `v_proj`
 - `o_proj`
+- `gate_proj`
+- `up_proj`
+- `down_proj`
+- `lm_head`
 
 You can provide an adapter from the HuggingFace Hub, a local file path, or S3. 
 

@@ -1,42 +1,34 @@
 import math
 import os
-import warnings
 import torch
 import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Set, Tuple
+from typing import List
 
 HAS_BITS_AND_BYTES = True
 try:
     import bitsandbytes as bnb
-    from bitsandbytes.nn import Int8Params
+    from bitsandbytes.nn import Int8Params, Params4bit
 
 except ImportError:
     HAS_BITS_AND_BYTES = False
 
 from accelerate import init_empty_weights
 
-try:
-    from lorax_server.utils.sgmv import add_lora_sgmv_cutlass
-    HAS_SGMV = True
-except ImportError:
-    warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
-    HAS_SGMV = False
-
 from lorax_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, has_sgmv, orient_for_rank
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
     HAS_EXLLAMA = False
 try:
-    from lorax_server.utils.gptq.exllama import Ex4bitLinear
+    from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
 except ImportError:
     HAS_EXLLAMA = False
 
-from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterWeightData
-from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.lora import AdapterBatchData, AdapterWeightData
 
 
 # Monkey patching
@@ -150,6 +142,45 @@ class Linear8bitLt(nn.Module):
                 self.weight.data = self.state.CxB
         return out
 
+class Linear4bit(nn.Module):
+    def __init__(self, weight, bias, quant_type):
+        super().__init__()
+
+        # Initialize weight with 4-bit quantization
+        self.weight = Params4bit(
+            weight.data, requires_grad=False, compress_statistics=True, quant_type=quant_type
+        )
+        self.weight.cuda(weight.device)
+
+        # Initialize other attributes
+        self.compute_dtype = None
+        self.bias = bias
+
+    def forward(self, x: torch.Tensor):
+        # Ensure bias has the same dtype as input x
+        if self.bias is not None and self.bias.dtype != x.dtype:
+            self.bias.data = self.bias.data.to(x.dtype)
+
+        # Check if quantization state is initialized
+        if getattr(self.weight, "quant_state", None) is None:
+            print("FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first.")
+
+        # Convert input to compute_dtype if specified
+        inp_dtype = x.dtype
+        if self.compute_dtype is not None:
+            x = x.to(self.compute_dtype)
+
+        # Convert bias to compute_dtype if it exists
+        bias = None if self.bias is None else self.bias.to(self.compute_dtype)
+
+        # Perform 4-bit matrix multiplication
+        out = bnb.matmul_4bit(x, self.weight.t(), bias=bias, quant_state=self.weight.quant_state)
+
+        # Convert output back to the input dtype
+        out = out.to(inp_dtype)
+
+        return out
+
 def get_linear(weight, bias, quantize):
     if quantize is None:
         linear = FastLinear(weight, bias)
@@ -162,6 +193,18 @@ def get_linear(weight, bias, quantize):
         )
         if bias is not None:
             linear.bias = nn.Parameter(bias)
+    elif quantize == "bitsandbytes-nf4":
+        linear = Linear4bit(
+            weight,
+            bias,
+            quant_type="nf4",
+        )
+    elif quantize == "bitsandbytes-fp4":
+        linear = Linear4bit(
+            weight,
+            bias,
+            quant_type="fp4",
+        )
     elif quantize == "gptq":
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
@@ -171,7 +214,7 @@ def get_linear(weight, bias, quantize):
             )
 
         if use_exllama:
-            linear = Ex4bitLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
+            linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
         else:
             linear = QuantLinear(
                 qweight,
@@ -307,7 +350,7 @@ class TensorParallelAdapterLinear(nn.Module):
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
         if (
-            HAS_SGMV and
+            has_sgmv() and
             self.process_group.size() == 1 and
             data is not None
         ):
@@ -346,6 +389,7 @@ class TensorParallelAdapterLinear(nn.Module):
         adapter_mask: torch.Tensor,
     ) -> torch.Tensor:
         lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
+        lora_a = orient_for_rank(lora_a, data.adapter_index_configs[adapter_index].r)
         a_out = input @ lora_a
 
         if self.process_group.size() > 1:
@@ -360,24 +404,28 @@ class TensorParallelAdapterLinear(nn.Module):
     
 
 class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
-    def __init__(self, base_layer, layer_id, sizes, process_group):
+    def __init__(self, base_layer, layer_id, layer_names, sizes, process_group):
         super().__init__(base_layer, layer_id, process_group)
-
-        # Offsets corresponding to q, k, v portions of the tensor
-        self.q_end = sizes[0] // process_group.size()
-        self.k_end = (sizes[0] + sizes[1]) // process_group.size()
-        self.v_end = (sizes[0] + sizes[1] + sizes[2]) // process_group.size()
+        self.layer_names = layer_names
+        self.sizes = sizes
 
     @classmethod
-    def load(cls, base_layer, layer_id, sizes, process_group):
-        return TensorParallelMultiAdapterLinear(base_layer, layer_id, sizes, process_group)
+    def load(cls, base_layer, layer_id, layer_names, sizes, process_group):
+        return TensorParallelMultiAdapterLinear(
+            base_layer, layer_id, layer_names, sizes, process_group
+        )
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
 
-        result = self.forward_layer_type(result, input, adapter_data, Q_PROJ, 0, self.q_end)
-        result = self.forward_layer_type(result, input, adapter_data, K_PROJ, self.q_end, self.k_end)
-        result = self.forward_layer_type(result, input, adapter_data, V_PROJ, self.k_end, self.v_end)
+        offset = 0
+        for i, layer_name in enumerate(self.layer_names):
+            start_idx = offset // self.process_group.size()
+
+            offset += self.sizes[i]
+            end_idx = offset // self.process_group.size()
+            
+            result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
 
         return result
 
@@ -395,9 +443,13 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
 
 
 class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
+    def __init__(self, base_layer, layer_id, layer_name, process_group):
+        super().__init__(base_layer, layer_id, process_group)
+        self.layer_name = layer_name
+
     @classmethod
-    def load(cls, base_layer, layer_id, process_group):
-        return TensorParallelAdapterRowLinear(base_layer, layer_id, process_group)
+    def load(cls, base_layer, layer_id, layer_name, process_group):
+        return TensorParallelAdapterRowLinear(base_layer, layer_id, layer_name, process_group)
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
@@ -406,8 +458,8 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
         stride = result.shape[-1] // self.process_group.size()
         start_idx = self.process_group.rank() * stride
         end_idx = (self.process_group.rank() + 1) * stride
-        
-        self.forward_layer_type(result, input, adapter_data, O_PROJ, start_idx, end_idx)
+
+        self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
         return result
     
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
