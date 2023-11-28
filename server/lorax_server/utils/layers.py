@@ -362,7 +362,7 @@ class TensorParallelAdapterLinear(nn.Module):
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
                         self.layer_id,
-                        r,
+                        r // self.process_group.size(),
                     )
 
                     if self.process_group.size() > 1:
