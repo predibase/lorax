@@ -17,18 +17,8 @@ except ImportError:
 
 from accelerate import init_empty_weights
 
-<<<<<<< Updated upstream
-=======
-try:
-    from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass
-    HAS_SGMV = True
-except ImportError:
-    warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
-    HAS_SGMV = False
-
->>>>>>> Stashed changes
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, has_sgmv, orient_for_rank
+from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
