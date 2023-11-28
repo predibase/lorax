@@ -352,23 +352,26 @@ class TensorParallelAdapterLinear(nn.Module):
         if (
             has_sgmv() and
             self.process_group.size() == 1 and
-            data is not None and data.can_vectorize
+            data is not None
         ):
             proj = torch.zeros_like(result[:, start_idx:end_idx])
 
-            lora_a_ptr = data.lora_a_ptr
-            lora_b_ptr = data.lora_b_ptr
-            if lora_a_ptr is not None and lora_b_ptr is not None:
-                add_lora_sgmv_cutlass(
-                    proj,
-                    input,
-                    lora_a_ptr,
-                    lora_b_ptr,
-                    adapter_data.meta.adapter_segments,
-                    self.layer_id,
-                    data.rank,
-                )
-                result[:, start_idx:end_idx] += proj * data.scaling
+            for r, rank_segments in data.rank_data.items():
+                lora_a_ptr = rank_segments.lora_a_ptr
+                lora_b_ptr = rank_segments.lora_b_ptr
+                if lora_a_ptr is not None and lora_b_ptr is not None:
+                    add_lora_sgmv_cutlass(
+                        proj,
+                        input,
+                        lora_a_ptr,
+                        lora_b_ptr,
+                        rank_segments.segment_starts,
+                        rank_segments.segment_ends,
+                        self.layer_id,
+                        r,
+                    )
+            
+            result[:, start_idx:end_idx] += proj
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
@@ -385,8 +388,6 @@ class TensorParallelAdapterLinear(nn.Module):
         adapter_index: int,
         adapter_mask: torch.Tensor,
     ) -> torch.Tensor:
-        scaling = data.scaling_for_adapter(adapter_index)
-
         lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
         lora_a = orient_for_rank(lora_a, data.adapter_index_configs[adapter_index].r)
         a_out = input @ lora_a
@@ -395,7 +396,7 @@ class TensorParallelAdapterLinear(nn.Module):
             a_out = self.collect_lora_a(a_out)
         
         lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
-        result = (a_out @ lora_b) * scaling * adapter_mask
+        result = (a_out @ lora_b) * adapter_mask
         return result
 
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:

@@ -32,14 +32,15 @@ __global__ void precompute_sgmv_args(cutlass::gemm::GemmCoord *all_problems,
                                      T **ptr_y, T **ptr_x, T **ptr_w,
                                      int64_t *ld_y, int64_t *ld_x,
                                      int64_t *ld_w, T *y, T *x, T **w,
-                                     int32_t *s, int d_in, int d_out,
+                                     int32_t *s_start, int32_t *s_end,
+                                     int d_in, int d_out,
                                      int layer_idx) {
   int i = blockIdx.x;
-  int m = s[i + 1] - s[i], k = d_in, n = d_out;
+  int m = s_end[i] - s_start[i], k = d_in, n = d_out;
   all_problems[i] = cutlass::gemm::GemmCoord(m, n, k);
   ptr_w[i] = w[i] + layer_idx * d_in * d_out;
-  ptr_x[i] = x + s[i] * d_in;
-  ptr_y[i] = y + s[i] * d_out;
+  ptr_x[i] = x + s_start[i] * d_in;
+  ptr_y[i] = y + s_start[i] * d_out;
   ld_x[i] = k;
   ld_w[i] = n;
   ld_y[i] = n;
@@ -59,8 +60,8 @@ inline T *alloc_from_buf(void **buf, int n) {
 }
 
 template <typename DType>
-bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
-          int num_problems, int d_in, int d_out, int layer_idx) {
+bool sgmv(DType *y, DType *x, DType **w, int32_t *s_start, int32_t *s_end, 
+          void *tmp_d, int num_problems, int d_in, int d_out, int layer_idx) {
   using cutlass_t = typename cutlass_dtype<DType>::type;
 
   auto ptr_Y = alloc_from_buf<cutlass_t *>(&tmp_d, num_problems);
@@ -74,7 +75,7 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
 
   precompute_sgmv_args<<<num_problems, 1>>>(
       all_problems, ptr_Y, ptr_X, ptr_W, ld_Y, ld_X, ld_W, (cutlass_t *)y,
-      (cutlass_t *)x, (cutlass_t **)w, s, d_in, d_out, layer_idx);
+      (cutlass_t *)x, (cutlass_t **)w, s_start, s_end, d_in, d_out, layer_idx);
 
   using cutlass::epilogue::thread::LinearCombination;
   using cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle;

@@ -8,7 +8,7 @@
 #include "sgmv_flashinfer.cuh"
 
 template <typename T, uint32_t d_out>
-bool sgmv_shrink(T* y, T* x, T** w, int32_t* s, void* tmp,
+bool sgmv_shrink(T* y, T* x, T** w, int32_t* s_start, int32_t* s_end, void* tmp,
                  uint32_t num_problems, uint32_t d_in, uint32_t layer_idx) {
   static_assert(d_out % 16 == 0);
 
@@ -45,7 +45,7 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s, void* tmp,
   dim3 nblks(num_chunks, num_problems);
 
   void* args[] = {(void*)&y,    (void*)&x,         (void*)&w,
-                  (void*)&s,    (void*)&tmp,       (void*)&num_problems,
+                  (void*)&s_start,    (void*)&s_end, (void*)&tmp,       (void*)&num_problems,
                   (void*)&d_in, (void*)&layer_idx, (void*)&chunk_size};
 
   cudaError_t status;
@@ -65,7 +65,7 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s, void* tmp,
 }
 
 #define INST(T, d_out)                                                   \
-  template bool sgmv_shrink<T, d_out>(T * y, T * x, T * *w, int32_t * s, \
+  template bool sgmv_shrink<T, d_out>(T * y, T * x, T * *w, int32_t * s_start, int32_t * s_end, \
                                       void* tmp, uint32_t num_problems,  \
                                       uint32_t d_in, uint32_t layer_idx);
 

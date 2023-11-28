@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Set
 
@@ -29,45 +30,24 @@ EMPTY_TENSOR = torch.tensor([])
 
 
 @dataclass
-class AdapterWeightData:
+class RankSegments:
+    rank: int
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
+    segment_starts: torch.Tensor
+    segment_ends: torch.Tensor
+
+
+@dataclass
+class AdapterWeightData:
     lora_a: Dict[int, torch.Tensor]
     lora_b: Dict[int, torch.Tensor]
-
-    r: Set[int]
-    alpha: Set[int]
     adapter_index_configs: Dict[int, LoraConfig]
-
-    @property
-    def can_vectorize(self) -> bool:
-        # Currently we can only use the SGMV kernel when the following criteria are met:
-        #   1. All adapters have the same r
-        #   2. All adapters have the same alpha
-        #   3. The base model (no adapter) is not contained in the batch
-        #
-        # TODO(travis): we should remove 3 as a constraint as quickly as possible,
-        #   as many requests will likely come in for the base model in parallel with
-        #   adapters. One solution is to create a zeroed out tensor with the same shape,
-        #   the other is to rework the kernel to handle this case as a missing segment.
-        return len(self.r) == 1 and len(self.alpha) == 1 and None not in self.r
+    rank_data: Dict[int, RankSegments]
     
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
     
-    @property
-    def rank(self) -> int:
-        return next(iter(self.r))
-    
-    @property
-    def scaling(self) -> float:
-        alpha = next(iter(self.alpha))
-        return alpha / self.rank
-    
-    def scaling_for_adapter(self, adapter_idx: int) -> float:
-        cfg = self.adapter_index_configs[adapter_idx]
-        return cfg.lora_alpha / cfg.r
-
 
 @dataclass
 class AdapterBatchMetadata:
@@ -172,26 +152,31 @@ class BatchedLoraWeights:
             device=device,
         )
 
-        r = set([
-            (self.lora_weights[idx].adapter_config.r if idx in self.lora_weights else None)
-            for idx in segment_indices
-        ])
-        alpha = set([
-            (self.lora_weights[idx].adapter_config.lora_alpha if idx in self.lora_weights else None) 
-            for idx in segment_indices
-        ])
         adapter_index_configs = {
             idx: self.lora_weights[idx].adapter_config
             for idx in segment_indices
             if idx in self.lora_weights
         }
 
+        rank_indices = defaultdict(list)
+        for segment_idx, adapter_idx in enumerate(segment_indices):
+            if adapter_idx not in self.lora_weights:
+                continue
+            rank_indices[self.lora_weights[adapter_idx].adapter_config.r].append(segment_idx)
+
+        rank_data = {}
+        for rank, indices in rank_indices.items():
+            rank_data[rank] = RankSegments(
+                rank=rank,
+                lora_a_ptr=lora_a_ptr[indices],
+                lora_b_ptr=lora_b_ptr[indices],
+                segment_starts=meta.adapter_segments[indices],
+                segment_ends=meta.adapter_segments[[i+1 for i in indices]],
+            )
+
         return AdapterWeightData(
-            lora_a_ptr=lora_a_ptr, 
-            lora_b_ptr=lora_b_ptr, 
             lora_a=lora_a, 
             lora_b=lora_b,
-            r=r,
-            alpha=alpha,
             adapter_index_configs=adapter_index_configs,
+            rank_data=rank_data,
         )
