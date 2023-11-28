@@ -760,7 +760,10 @@ class FlashCausalLM(Model):
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
         
-        for (layer_id, layer_type), (weight_name, layer) in self.layer_weights.items():
+        for layer_id in range(nlayers):
+            key = (layer_id, layer_type)
+            weight_name, layer = self.layer_weights[key]
+        
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
 
