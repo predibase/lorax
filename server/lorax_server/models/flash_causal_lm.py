@@ -30,7 +30,7 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
-from lorax_server.utils.lora import ADAPTER_LAYERS, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.lora import ADAPTER_LAYERS, DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 
 tracer = trace.get_tracer(__name__)
@@ -696,23 +696,23 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
-        weight_names = []
-        prefix = "model.layers"
+        layer_weights = {}
 
         # TODO(travis): generalize this
-        for i, _ in enumerate(self.model.model.layers):
-            weight_names.append(f"{prefix}.{i}.self_attn.q_proj")
-            weight_names.append(f"{prefix}.{i}.self_attn.k_proj")
-            weight_names.append(f"{prefix}.{i}.self_attn.v_proj")
-            weight_names.append(f"{prefix}.{i}.self_attn.o_proj")
+        prefix = "model.layers"
+        for i, layer in enumerate(self.model.model.layers):
+            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
-            weight_names.append(f"{prefix}.{i}.mlp.gate_proj")
-            weight_names.append(f"{prefix}.{i}.mlp.up_proj")
-            weight_names.append(f"{prefix}.{i}.mlp.down_proj")
+            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
         
-        weight_names.append("lm_head")
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         
-        self.weight_names = tuple(weight_names)
+        self.layer_weights = layer_weights
 
     @property
     def supports_adapter_loading(self) -> bool:
@@ -742,7 +742,8 @@ class FlashCausalLM(Model):
             return
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
             logger.info(f"Loading adapter weights into model: {adapter_id}")
-            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, self.weight_names)
+            weight_names = tuple([v[0] for v in self.layer_weights.values()])
+            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
             for layer_name in ADAPTER_LAYERS:
                 self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, layer_name)
 
@@ -755,20 +756,17 @@ class FlashCausalLM(Model):
         adapter_index: int, 
         layer_type: str,
     ):
-        nlayers = len(self.model.model.layers)
+        nlayers = len(self.model.model.layers) if layer_type != LM_HEAD else 1
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
         
-        prefix = "model.layers"
-        for i, layer in enumerate(self.model.model.layers):
+        for (layer_id, layer_type), (weight_name, layer) in self.layer_weights.items():
             # TODO(travis): generalize this beyond qkv for accessing the layer_id
             # This works for o_proj because they share the same id sequence, but may not
             # extend to other layers.
-            layer = layer.self_attn.query_key_value
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
 
-            weight_name = f"{prefix}.{i}.self_attn.{layer_type}"
             if weight_name not in module_map:
                 # There is no LoRA weight for this layer type in the adapter
                 return
@@ -776,8 +774,8 @@ class FlashCausalLM(Model):
             lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
             lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
 
-            lora_a_list[layer.layer_id] = lora_a.transpose(0, 1)
-            lora_b_list[layer.layer_id] = lora_b.transpose(0, 1)
+            lora_a_list[layer_id] = lora_a.transpose(0, 1)
+            lora_b_list[layer_id] = lora_b.transpose(0, 1)
 
         q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group)
         q_lora_weights = self.batched_lora_weights[layer_type]
