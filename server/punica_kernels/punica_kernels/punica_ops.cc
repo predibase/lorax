@@ -353,20 +353,22 @@ void dispatch_sgmv_cutlass(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr
 }
 
 void dispatch_sgmv_shrink(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr,
-                          torch::Tensor s, torch::Tensor tmp, int layer_idx) {
+                          torch::Tensor s_start, torch::Tensor s_end, torch::Tensor tmp, int layer_idx) {
   CHECK_INPUT(y);
   CHECK_INPUT(x);
   CHECK_INPUT(w_ptr);
-  CHECK_INPUT(s);
+  CHECK_INPUT(s_start);
+  CHECK_INPUT(s_end);
   CHECK_INPUT(tmp);
 
   CHECK_DIM(2, y);
   CHECK_DIM(2, x);
   CHECK_DIM(1, w_ptr);
-  CHECK_DIM(1, s);
+  CHECK_DIM(1, s_start);
+  CHECK_DIM(1, s_end);
   CHECK_DIM(1, tmp);
 
-  uint32_t num_problems = s.size(0) - 1;
+  uint32_t num_problems = s_start.size(0) - 1;
   uint32_t d_in = x.size(1);
   uint32_t d_out = y.size(1);
   CHECK_EQ(tmp.scalar_type(), at::ScalarType::Byte);
@@ -376,7 +378,7 @@ void dispatch_sgmv_shrink(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr,
   case D_OUT:                                              \
     return sgmv_shrink<c_type, D_OUT>(                     \
         (c_type*)y.data_ptr(), (c_type*)x.data_ptr(),      \
-        (c_type**)w_ptr.data_ptr(), s.data_ptr<int32_t>(), \
+        (c_type**)w_ptr.data_ptr(), s_start.data_ptr<int32_t>(), s_end.data_ptr<int32_t>(), \
         tmp.data_ptr<uint8_t>(), num_problems, d_in, layer_idx);
 
   bool ok = DISPATCH_TORCH_DTYPE(x.scalar_type(), [&] {
