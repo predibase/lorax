@@ -3,10 +3,11 @@ import torch
 
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, TypeVar, Type
-from transformers import PreTrainedTokenizerBase, PretrainedConfig
+from transformers import PreTrainedTokenizerBase
 
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import InfoResponse
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 B = TypeVar("B", bound=Batch)
 
@@ -101,3 +102,8 @@ class Model(ABC):
             raise RuntimeError(
                 f"found uninitialized parameters in model {self.__class__.__name__}: {uninitialized_parameters}"
             )
+    
+    def load_adapter(self, adapter_id, adapter_source, adapter_index):
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        raise ValueError("This model does not support adapter loading.")

@@ -74,10 +74,10 @@ impl std::fmt::Display for Dtype {
 struct Args {
     /// The name of the model to load.
     /// Can be a MODEL_ID as listed on <https://hf.co/models> like
-    /// `gpt2` or `OpenAssistant/oasst-sft-1-pythia-12b`.
+    /// `gpt2` or `mistralai/Mistral-7B-Instruct-v0.1`.
     /// Or it can be a local directory containing the necessary files
     /// as saved by `save_pretrained(...)` methods of transformers
-    #[clap(default_value = "bigscience/bloom-560m", long, env)]
+    #[clap(default_value = "mistralai/Mistral-7B-Instruct-v0.1", long, env)]
     model_id: String,
 
     /// The name of the adapter to load.
