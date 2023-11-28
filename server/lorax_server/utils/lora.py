@@ -6,7 +6,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from lorax_server.utils.sgmv import orient_for_rank
+from lorax_server.utils.sgmv import MIN_SGMV_RANK, orient_for_rank
 from lorax_server.utils.weights import shard_on_dim
 
 
@@ -47,6 +47,12 @@ class AdapterWeightData:
     
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
+    
+    def can_vectorize(self, pg: ProcessGroup) -> bool:
+        return all(
+            rank_data.rank // pg.size() >= MIN_SGMV_RANK
+            for rank_data in self.rank_data.values()
+        )
     
 
 @dataclass

@@ -13,6 +13,7 @@ except ImportError:
     HAS_SGMV = False
 
 
+MIN_SGMV_RANK = 8
 MIN_RANK_CUSTOM = 16
 MAX_RANK_CUSTOM = 128
 

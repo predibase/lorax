@@ -349,7 +349,7 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-        if has_sgmv() and data is not None:
+        if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             proj = torch.zeros_like(result[:, start_idx:end_idx])
 
             for r, rank_segments in data.rank_data.items():
