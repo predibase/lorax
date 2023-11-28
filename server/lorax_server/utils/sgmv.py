@@ -3,6 +3,7 @@ import warnings
 from typing import Tuple
 
 import torch
+from torch.distributed import ProcessGroup
 
 try:
     import punica_kernels as _kernels
@@ -90,11 +91,19 @@ def lora_a_sgmv_cutlass(
     s_end: torch.IntTensor,
     layer_idx: int,
     lora_rank: int,
+    process_group: ProcessGroup,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    tmp_size = _kernels.sgmv_cutlass_tmp_size(wa_ptr.size(0))
-    tmp = torch.empty((tmp_size,), dtype=torch.uint8, device=x.device)
-    v = torch.zeros((x.size(0), lora_rank), dtype=x.dtype, device=x.device)
-    _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
+    sharded_lora_rank = lora_rank // process_group.size()
+    v = torch.zeros((x.size(0), sharded_lora_rank), dtype=x.dtype, device=x.device)
+    if MIN_RANK_CUSTOM <= sharded_lora_rank <= MAX_RANK_CUSTOM:
+        tmp1 = torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=x.device)
+        tmp2_size = _kernels.sgmv_cutlass_tmp_size(wa_ptr.size(0))
+        tmp = torch.empty((tmp2_size,), dtype=torch.uint8, device=x.device)
+        _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp1, layer_idx)
+    else:
+        tmp_size = _kernels.sgmv_cutlass_tmp_size(wa_ptr.size(0))
+        tmp = torch.empty((tmp_size,), dtype=torch.uint8, device=x.device)
+        _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
     return v, tmp
 
 
