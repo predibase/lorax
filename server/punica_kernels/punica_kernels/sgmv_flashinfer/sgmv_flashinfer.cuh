@@ -12,7 +12,7 @@ namespace sgmv {
 
 template <bool cooperative, typename T, typename IdType, uint32_t num_warps,
           uint32_t d_out>
-__global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_start, IdType* s_end, float* tmp,
+__global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends, float* tmp,
                             uint32_t num_problems, uint32_t d_in,
                             uint32_t layer_idx, uint32_t chunk_size) {
   auto block = cooperative_groups::this_thread_block();
@@ -20,7 +20,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_start, IdType* s_end, f
   constexpr auto fill_mode = cp_async::SharedMemFillMode::kFillZero;
   const uint32_t problem_id = blockIdx.y;
   const uint32_t bx = blockIdx.x;
-  const uint32_t s_start = s_start[problem_id], s_end = s_end[problem_id];
+  const uint32_t s_start = s_starts[problem_id], s_end = s_ends[problem_id];
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags = 8;
   constexpr uint32_t num_cells_k = (num_k_frags * 16) / cell_capacity<T>();
