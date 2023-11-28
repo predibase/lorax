@@ -1,6 +1,5 @@
 import math
 import os
-import warnings
 import torch
 import torch.distributed
 
@@ -29,8 +28,7 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
-from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterWeightData
-from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.lora import AdapterBatchData, AdapterWeightData
 
 
 # Monkey patching
@@ -459,7 +457,7 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
         stride = result.shape[-1] // self.process_group.size()
         start_idx = self.process_group.rank() * stride
         end_idx = (self.process_group.rank() + 1) * stride
-        
+
         self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
         return result
     
