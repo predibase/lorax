@@ -75,12 +75,16 @@ the adapter was fine-tuned using the quantized version of the base model, but be
 
 LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
 
-The following modules can be targeted:
+Any combination of linear layers can be targeted in the adapters, including:
 
 - `q_proj`
 - `k_proj`
 - `v_proj`
 - `o_proj`
+- `gate_proj`
+- `up_proj`
+- `down_proj`
+- `lm_head`
 
 You can provide an adapter from the HuggingFace Hub, a local file path, or S3. 
 
