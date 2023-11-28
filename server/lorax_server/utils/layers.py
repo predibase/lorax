@@ -1,6 +1,5 @@
 import math
 import os
-import warnings
 import torch
 import torch.distributed
 
@@ -29,8 +28,7 @@ try:
 except ImportError:
     HAS_EXLLAMA = False
 
-from lorax_server.utils.lora import K_PROJ, O_PROJ, Q_PROJ, V_PROJ, AdapterBatchData, AdapterWeightData
-from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.lora import AdapterBatchData, AdapterWeightData
 
 
 # Monkey patching
@@ -405,24 +403,28 @@ class TensorParallelAdapterLinear(nn.Module):
     
 
 class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
-    def __init__(self, base_layer, layer_id, sizes, process_group):
+    def __init__(self, base_layer, layer_id, layer_names, sizes, process_group):
         super().__init__(base_layer, layer_id, process_group)
-
-        # Offsets corresponding to q, k, v portions of the tensor
-        self.q_end = sizes[0] // process_group.size()
-        self.k_end = (sizes[0] + sizes[1]) // process_group.size()
-        self.v_end = (sizes[0] + sizes[1] + sizes[2]) // process_group.size()
+        self.layer_names = layer_names
+        self.sizes = sizes
 
     @classmethod
-    def load(cls, base_layer, layer_id, sizes, process_group):
-        return TensorParallelMultiAdapterLinear(base_layer, layer_id, sizes, process_group)
+    def load(cls, base_layer, layer_id, layer_names, sizes, process_group):
+        return TensorParallelMultiAdapterLinear(
+            base_layer, layer_id, layer_names, sizes, process_group
+        )
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
 
-        result = self.forward_layer_type(result, input, adapter_data, Q_PROJ, 0, self.q_end)
-        result = self.forward_layer_type(result, input, adapter_data, K_PROJ, self.q_end, self.k_end)
-        result = self.forward_layer_type(result, input, adapter_data, V_PROJ, self.k_end, self.v_end)
+        offset = 0
+        for i, layer_name in enumerate(self.layer_names):
+            start_idx = offset // self.process_group.size()
+
+            offset += self.sizes[i]
+            end_idx = offset // self.process_group.size()
+            
+            result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
 
         return result
 
@@ -440,9 +442,13 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
 
 
 class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
+    def __init__(self, base_layer, layer_id, layer_name, process_group):
+        super().__init__(base_layer, layer_id, process_group)
+        self.layer_name = layer_name
+
     @classmethod
-    def load(cls, base_layer, layer_id, process_group):
-        return TensorParallelAdapterRowLinear(base_layer, layer_id, process_group)
+    def load(cls, base_layer, layer_id, layer_name, process_group):
+        return TensorParallelAdapterRowLinear(base_layer, layer_id, layer_name, process_group)
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
@@ -451,8 +457,8 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
         stride = result.shape[-1] // self.process_group.size()
         start_idx = self.process_group.rank() * stride
         end_idx = (self.process_group.rank() + 1) * stride
-        
-        self.forward_layer_type(result, input, adapter_data, O_PROJ, start_idx, end_idx)
+
+        self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
         return result
     
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:

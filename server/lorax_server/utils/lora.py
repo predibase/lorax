@@ -15,7 +15,15 @@ K_PROJ = "k_proj"
 V_PROJ = "v_proj"
 O_PROJ = "o_proj"
 
-ROW_PARALLEL = {O_PROJ}
+GATE_PROJ = "gate_proj"
+UP_PROJ = "up_proj"
+DOWN_PROJ = "down_proj"
+
+LM_HEAD = "lm_head"
+
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
+
+ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 EMPTY_TENSOR = torch.tensor([])
 
