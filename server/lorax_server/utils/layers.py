@@ -18,7 +18,7 @@ except ImportError:
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, has_sgmv, orient_for_rank
+from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -349,26 +349,33 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-        if (
-            has_sgmv() and
-            self.process_group.size() == 1 and
-            data is not None
-        ):
+        if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             proj = torch.zeros_like(result[:, start_idx:end_idx])
 
             for r, rank_segments in data.rank_data.items():
                 lora_a_ptr = rank_segments.lora_a_ptr
                 lora_b_ptr = rank_segments.lora_b_ptr
                 if lora_a_ptr is not None and lora_b_ptr is not None:
-                    add_lora_sgmv_cutlass(
-                        proj,
+                    v, tmp = lora_a_sgmv_cutlass(
                         input,
                         lora_a_ptr,
+                        rank_segments.segment_starts,
+                        rank_segments.segment_ends,
+                        self.layer_id,
+                        r // self.process_group.size(),
+                    )
+
+                    if self.process_group.size() > 1:
+                        v = self.collect_lora_a(v)
+
+                    lora_b_sgmv_cutlass(
+                        proj,
+                        v,
+                        tmp,
                         lora_b_ptr,
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
                         self.layer_id,
-                        r,
                     )
             
             result[:, start_idx:end_idx] += proj
