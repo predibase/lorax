@@ -761,9 +761,6 @@ class FlashCausalLM(Model):
         lora_b_list = [None] * nlayers
         
         for (layer_id, layer_type), (weight_name, layer) in self.layer_weights.items():
-            # TODO(travis): generalize this beyond qkv for accessing the layer_id
-            # This works for o_proj because they share the same id sequence, but may not
-            # extend to other layers.
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
 
