@@ -368,7 +368,7 @@ void dispatch_sgmv_shrink(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr,
   CHECK_DIM(1, s_end);
   CHECK_DIM(1, tmp);
 
-  uint32_t num_problems = s_start.size(0) - 1;
+  uint32_t num_problems = s_start.size(0);
   uint32_t d_in = x.size(1);
   uint32_t d_out = y.size(1);
   CHECK_EQ(tmp.scalar_type(), at::ScalarType::Byte);
