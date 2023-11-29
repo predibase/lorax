@@ -771,8 +771,8 @@ class FlashCausalLM(Model):
                 # There is no LoRA weight for this layer type in the adapter
                 return
             
-            lora_a = module_map[weight_name]["lora_A"].to(base_device, base_weight.dtype)
-            lora_b = module_map[weight_name]["lora_B"].to(base_device, base_weight.dtype)
+            lora_a = module_map[weight_name]["lora_A"].to(base_device, self.dtype)
+            lora_b = module_map[weight_name]["lora_B"].to(base_device, self.dtype)
             scale = adapter_config.lora_alpha / adapter_config.r
 
             # Merge scaling factor into lora_b due to associativity of matrix multiplication:
