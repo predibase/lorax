@@ -4,7 +4,7 @@ deployment:
 
   image:
     repository: "ghcr.io/predibase/lorax"
-    tag: "f76119a"
+    tag: "latest"
 
   args:
     modelId: "mistralai/Mistral-7B-Instruct-v0.1"
