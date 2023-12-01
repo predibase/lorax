@@ -230,16 +230,23 @@ fn main() -> Result<(), RouterError> {
                 // Flash attention models return their max supported total tokens
                 Some(max_supported_batch_total_tokens) => {
                     // Warn if user added his own max-batch-total-tokens as we will ignore it
+                    let mut max_effective_batch_total_tokens = max_supported_batch_total_tokens;
                     if max_batch_total_tokens.is_some() {
-                        tracing::warn!(
-                            "`--max-batch-total-tokens` is deprecated for Flash \
-                        Attention models."
-                        );
-                        tracing::warn!(
-                            "Inferred max batch total tokens: {max_supported_batch_total_tokens}"
-                        );
+                        // Check if manual value is lower than inferred value
+                        let max_batch_total_tokens = max_batch_total_tokens.unwrap();
+                        if max_batch_total_tokens < max_supported_batch_total_tokens {
+                            max_effective_batch_total_tokens = max_batch_total_tokens;
+                        } else {
+                            tracing::warn!(
+                                "`--max-batch-total-tokens` is deprecated for Flash \
+                            Attention models."
+                            );
+                            tracing::warn!(
+                                "Inferred max batch total tokens: {max_supported_batch_total_tokens}"
+                            );
+                        }
                     }
-                    max_supported_batch_total_tokens
+                    max_effective_batch_total_tokens
                 }
             };
             tracing::info!("Setting max batch total tokens to {max_supported_batch_total_tokens}");
