@@ -1,17 +1,10 @@
-name: Build and push docker image to ghcr
+name: Build and push docker image with soci indexes to ghcr
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - 'main'
-    tags:
-      - 'v*'
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [ main ]
-    paths:
-      - '.github/workflows/build.yaml'
+      - 'INFRA-2132-soci'
 
 jobs:
   build-and-push-image:
