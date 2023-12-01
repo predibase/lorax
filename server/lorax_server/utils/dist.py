@@ -51,7 +51,7 @@ def initialize_torch_distributed():
         assert WORLD_SIZE <= torch.cuda.device_count(), "Each process is one gpu"
         device = RANK % torch.cuda.device_count()
         torch.cuda.set_device(device)
-        torch.cuda.set_per_process_memory_fraction(MEMORY_FRACTION, device)
+        #torch.cuda.set_per_process_memory_fraction(MEMORY_FRACTION, device)
         backend = "nccl"
         options = ProcessGroupNCCL.Options()
         options.is_high_priority_stream = True
