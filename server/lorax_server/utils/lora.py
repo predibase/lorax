@@ -122,6 +122,16 @@ class BatchedLoraWeights:
         return len(self.lora_weights) == 0
 
     def get_data(self, meta: AdapterBatchMetadata) -> AdapterWeightData:
+        """
+        Get the adapter weight data for a given metadata.
+
+        Args:
+            meta (AdapterBatchMetadata): The metadata for the adapter batch.
+
+        Returns:
+            AdapterWeightData: The adapter weight data.
+
+        """
         device = list(self.lora_weights.values())[0].weights_a.device
         segment_indices = meta.segment_indices
 

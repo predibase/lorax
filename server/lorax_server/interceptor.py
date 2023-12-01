@@ -9,6 +9,8 @@ from typing import Callable, Any
 
 
 class ExceptionInterceptor(AsyncServerInterceptor):
+    """Intercepts and handles exceptions that occur during gRPC method execution."""
+
     async def intercept(
         self,
         method: Callable,
@@ -16,6 +18,21 @@ class ExceptionInterceptor(AsyncServerInterceptor):
         context: grpc.ServicerContext,
         method_name: str,
     ) -> Any:
+        """
+        Intercepts the gRPC method execution and handles any exceptions that occur.
+
+        Args:
+            method (Callable): The gRPC method to be executed.
+            request_or_iterator (Any): The request object or iterator.
+            context (grpc.ServicerContext): The gRPC servicer context.
+            method_name (str): The name of the gRPC method.
+
+        Returns:
+            Any: The response of the gRPC method.
+
+        Raises:
+            Exception: If an error occurs during the execution of the gRPC method.
+        """
         try:
             response = method(request_or_iterator, context)
             return await response
