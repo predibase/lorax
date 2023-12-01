@@ -76,17 +76,18 @@ jobs:
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.tags }}.tar
+          outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Import image in containerd
         run: |
-          sudo ctr i import --base-name ghcr.io/predibase/lorax --digests --all-platforms /tmp/lorax-${{ steps.meta.outputs.tags }}.tar
+          sudo ctr i import --base-name ${{ steps.meta.outputs.tags }} --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Push image with containerd
         run: |
-          sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" ghcr.io/predibase/lorax:${{ steps.meta.outputs.tags }}
+          sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" ${{ steps.meta.outputs.tags }}
 
       - name: Create and push soci index
         run: |
-          sudo soci create ghcr.io/predibase/lorax:${{ steps.meta.outputs.tags }}
-          sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} ghcr.io/predibase/lorax:${{ steps.meta.outputs.tags }}
+          sudo soci create ${{ steps.meta.outputs.tags }}
+          sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} ${{ steps.meta.outputs.tags }}
