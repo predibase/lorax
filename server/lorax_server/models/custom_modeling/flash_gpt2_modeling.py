@@ -30,6 +30,7 @@ from typing import Optional, List, Tuple
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
+    FastConv1D,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
@@ -81,9 +82,47 @@ def load_qkv(config, prefix: str, weights, num_heads, head_size, hidden_size):
         return TensorParallelColumnLinear(linear)
 
 
-class FlashNeoxAttention(torch.nn.Module):
-    def __init__(self, config, prefix, weights):
+class FlashGPT2Attention(torch.nn.Module):
+    def __init__(self, config, prefix, weights, layer_id):
         super().__init__()
+
+        max_positions = config.max_position_embeddings
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)).view(
+                1, 1, max_positions, max_positions
+            ),
+            persistent=False,
+        )
+        self.register_buffer("masked_bias", torch.tensor(-1e4), persistent=False)
+
+        self.embed_dim = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.embed_dim // self.num_heads
+        self.split_size = self.embed_dim
+        if self.head_dim * self.num_heads != self.embed_dim:
+            raise ValueError(
+                f"`embed_dim` must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `num_heads`:"
+                f" {self.num_heads})."
+            )
+
+        self.scale_attn_weights = config.scale_attn_weights
+        self.is_cross_attention = config.add_cross_attention
+
+        # Layer-wise attention scaling, reordering, and upcasting
+        self.scale_attn_by_inverse_layer_idx = config.scale_attn_by_inverse_layer_idx
+        self.layer_idx = layer_id
+        self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
+
+        if self.is_cross_attention:
+            self.c_attn = FastConv1D.load(config, prefix=f"{prefix}.c_attn", weights=weights)
+            self.q_attn = FastConv1D.load(config, prefix=f"{prefix}.q_attn", weights=weights)
+        else:
+            self.c_attn = FastConv1D.load(config, prefix=f"{prefix}.c_attn", weights=weights)
+        self.c_proj = FastConv1D.load(config, prefix=f"{prefix}.c_proj", weights=weights)
+
+        self.pruned_heads = set()
+
         num_heads = config.num_attention_heads
         hidden_size = config.hidden_size
 
@@ -98,23 +137,6 @@ class FlashNeoxAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
 
-        self.rotary_emb = PositionRotaryEmbedding.load(
-            prefix=f"{prefix}.rotary_emb", weights=weights
-        )
-
-        self.softmax_scale = self.head_size ** (-0.5)
-
-        self.query_key_value = load_qkv(
-            config,
-            prefix=f"{prefix}.query_key_value",
-            weights=weights,
-            num_heads=self.num_heads,
-            head_size=self.head_size,
-            hidden_size=self.hidden_size,
-        )
-        self.dense = load_row(
-            config, prefix=f"{prefix}.dense", weights=weights, bias=True
-        )
         self.kv_head_mapping = torch.arange(
             0, self.num_heads, dtype=torch.int32, device=weights.device
         )
@@ -215,7 +237,7 @@ class GPT2Block(nn.Module):
             prefix=f"{prefix}.ln_1", weights=weights, eps=layer_norm_eps
         )
         self.attn = FlashGPT2Attention(
-            config, prefix=f"{prefix}.attn", weights=weights
+            config, prefix=f"{prefix}.attn", weights=weights, layer_id=layer_id
         )
         self.ln_2 = FastLayerNorm.load(
             prefix=f"{prefix}.ln_2", weights=weights, eps=layer_norm_eps
