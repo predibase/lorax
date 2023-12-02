@@ -79,7 +79,6 @@ jobs:
           context: .
           file: ./Dockerfile  # Path to your Dockerfile
           push: false # Export to local only
-          load: true # Will improve future builds
           tags: ${{ steps.meta.outputs.tags }}
           outputs: type=oci,dest=/tmp/lorax-${{ steps.vars.outputs.sha_short }}.tar
 
@@ -123,4 +122,5 @@ jobs:
           docker image prune -a --filter "until=7d"
 
           # Delete the SHA image from containerd store
+          # Leave the latest around for faster import next time
           sudo ctr i rm ghcr.io/predibase/lorax:$short_sha
