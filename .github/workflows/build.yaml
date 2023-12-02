@@ -81,15 +81,31 @@ jobs:
           outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
     
       - name: Import image in containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
         run: |
-          sudo ctr i import --base-name ${{ steps.meta.outputs.tags }} --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          echo $tags
+          for tag in $tags
+          do
+            sudo ctr i import --base-name $tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          done
           rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Push image with containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
         run: |
-          sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" ${{ steps.meta.outputs.tags }}
+          for tag in $tags
+          do
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+          done
 
       - name: Create and push soci index
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
         run: |
-          sudo soci create ${{ steps.meta.outputs.tags }}
-          sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} ${{ steps.meta.outputs.tags }}
+          for tag in $tags
+          do
+            sudo soci create $tag
+            sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
+          done
