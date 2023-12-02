@@ -89,11 +89,12 @@ jobs:
         run: |
           echo $tags
           echo $short_sha
-          for tag in $tags
-          do
-            echo "Importing $tag into containerd"
-            sudo ctr i import --base-name $tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
-          done
+          sudo ctr i import --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          # for tag in $tags
+          # do
+          #   echo "Importing $tag into containerd"
+          #   sudo ctr i import --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          # done
           # rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Push image with containerd
