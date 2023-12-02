@@ -77,7 +77,13 @@ headers = {
 client = Client(endpoint_url, headers=headers)
 
 # same as above from here ...
-response = client.generate("Why is the sky blue?", adapter_id="some/adapter")
+response = client.generate("Why is the sky blue?", adapter_id=f"{model_repo}/{model_version}")
+```
+
+Note that by default Predibase will use its internal model repos as the default `adapter_source`. To use an adapter from Huggingface:
+
+```python
+response = client.generate("Why is the sky blue?", adapter_id="some/adapter", adapter_source="hub")
 ```
 
 ### Types
