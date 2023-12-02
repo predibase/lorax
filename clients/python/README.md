@@ -55,6 +55,37 @@ print(text)
 # ' Rayleigh scattering'
 ```
 
+### Predibase Inference Endpoints
+
+The LoRAX client can also be used to connect to [Predibase](https://predibase.com/) managed LoRAX endpoints (including Predibase's [serverless endpoints](https://docs.predibase.com/user-guide/inference/serverless_deployments)).
+
+You need only make the following changes to the above examples:
+
+1. Change the `endpoint_url` to match the endpoint of your Predibase LLM of choice.
+2. Provide your Predibase API token in the `headers` provided to the client.
+
+Example:
+
+```python
+from lorax import Client
+
+endpoint_url = f"https://api.predibase.com/v1/llms/{llm_deployment_name}"
+headers = {
+    "Authorization": f"Bearer {api_token}"
+}
+
+client = Client(endpoint_url, headers=headers)
+
+# same as above from here ...
+response = client.generate("Why is the sky blue?", adapter_id=f"{model_repo}/{model_version}")
+```
+
+Note that by default Predibase will use its internal model repos as the default `adapter_source`. To use an adapter from Huggingface:
+
+```python
+response = client.generate("Why is the sky blue?", adapter_id="some/adapter", adapter_source="hub")
+```
+
 ### Types
 
 ```python
