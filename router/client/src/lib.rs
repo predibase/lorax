@@ -1,4 +1,4 @@
-//! Text Generation gRPC client library
+//! LoRAX gRPC client library
 
 mod client;
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -19,7 +19,7 @@ use tonic::Status;
 
 #[derive(Error, Debug, Clone)]
 pub enum ClientError {
-    #[error("Could not connect to Text Generation server: {0}")]
+    #[error("Could not connect to LoRAX server: {0}")]
     Connection(String),
     #[error("Server error: {0}")]
     Generation(String),

@@ -1,10 +1,10 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Text Generation Inference",
-    "description": "Text Generation Webserver",
+    "title": "LoRAX",
+    "description": "LoRAX",
     "contact": {
-      "name": "Olivier Dehaene"
+      "name": "Travis Addair"
     },
     "license": {
       "name": "Apache 2.0",
@@ -16,7 +16,7 @@
     "/": {
       "post": {
         "tags": [
-          "Text Generation Inference"
+          "LoRAX"
         ],
         "summary": "Generate tokens if `stream == false` or a stream of token if `stream == true`",
         "description": "Generate tokens if `stream == false` or a stream of token if `stream == true`",
@@ -105,7 +105,7 @@
     "/generate": {
       "post": {
         "tags": [
-          "Text Generation Inference"
+          "LoRAX"
         ],
         "summary": "Generate tokens",
         "description": "Generate tokens",
@@ -189,7 +189,7 @@
     "/generate_stream": {
       "post": {
         "tags": [
-          "Text Generation Inference"
+          "LoRAX"
         ],
         "summary": "Generate a stream of token using Server-Sent Events",
         "description": "Generate a stream of token using Server-Sent Events",
@@ -273,7 +273,7 @@
     "/health": {
       "get": {
         "tags": [
-          "Text Generation Inference"
+          "LoRAX"
         ],
         "summary": "Health check method",
         "description": "Health check method",
@@ -283,7 +283,7 @@
             "description": "Everything is working fine"
           },
           "503": {
-            "description": "Text generation inference is down",
+            "description": "LoRAX is down",
             "content": {
               "application/json": {
                 "schema": {
@@ -302,10 +302,10 @@
     "/info": {
       "get": {
         "tags": [
-          "Text Generation Inference"
+          "LoRAX"
         ],
-        "summary": "Text Generation Inference endpoint info",
-        "description": "Text Generation Inference endpoint info",
+        "summary": "LoRAX endpoint info",
+        "description": "LoRAX endpoint info",
         "operationId": "get_model_info",
         "responses": {
           "200": {
@@ -324,7 +324,7 @@
     "/metrics": {
       "get": {
         "tags": [
-          "Text Generation Inference"
+          "LoRAX"
         ],
         "summary": "Prometheus metrics scrape endpoint",
         "description": "Prometheus metrics scrape endpoint",
@@ -850,8 +850,8 @@
   },
   "tags": [
     {
-      "name": "Text Generation Inference",
-      "description": "Hugging Face Text Generation Inference API"
+      "name": "LoRAX",
+      "description": "LoRAX API"
     }
   ]
 }

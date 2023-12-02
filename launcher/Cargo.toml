@@ -1,6 +1,6 @@
 [package]
 name = "lorax-launcher"
-description = "Text Generation Launcher"
+description = "LoRAX Launcher"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

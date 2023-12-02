@@ -1,4 +1,4 @@
-/// Text Generation Inference webserver entrypoint
+/// LoRAX webserver entrypoint
 use axum::http::HeaderValue;
 use clap::Parser;
 use lorax_client::{ClientError, ShardedClient};

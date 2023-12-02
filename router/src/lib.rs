@@ -1,4 +1,4 @@
-/// Text Generation Inference Webserver
+/// LoRAX Webserver
 mod adapter;
 mod health;
 mod infer;
