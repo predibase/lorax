@@ -237,6 +237,14 @@ struct Args {
     #[clap(default_value = "20", long, env)]
     max_waiting_tokens: usize,
 
+    /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
+    #[clap(default_value = "128", long, env)]
+    max_active_adapters: usize,
+
+    /// The time in seconds between adapter exchanges.
+    #[clap(default_value = "2", long, env)]
+    adapter_cycle_time_s: u64,
+
     /// The IP address to listen on
     #[clap(default_value = "0.0.0.0", long, env)]
     hostname: String,
@@ -926,6 +934,10 @@ fn spawn_webserver(
         args.max_total_tokens.to_string(),
         "--max-batch-prefill-tokens".to_string(),
         args.max_batch_prefill_tokens.to_string(),
+        "--max-active-adapters".to_string(),
+        args.max_active_adapters.to_string(),
+        "--adapter-cycle-time-s".to_string(),
+        args.adapter_cycle_time_s.to_string(),
         "--waiting-served-ratio".to_string(),
         args.waiting_served_ratio.to_string(),
         "--max-waiting-tokens".to_string(),
