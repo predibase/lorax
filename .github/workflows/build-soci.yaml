@@ -80,14 +80,24 @@ jobs:
 
       - name: Import image in containerd
         run: |
-          sudo ctr i import --base-name ${{ steps.meta.outputs.tags }} --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
-          rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          for tag in ${{ steps.meta.outputs.tags }}
+          do
+            sudo ctr i import --base-name ghcr.io/predibase/lorax:$tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          done
+          # rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Push image with containerd
         run: |
-          sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" ${{ steps.meta.outputs.tags }}
+          for tag in ${{ steps.meta.outputs.tags }}
+          do
+            sudo ctr i import --base-name ghcr.io/predibase/lorax:$tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" ghcr.io/predibase/lorax:$tag
+          done
 
       - name: Create and push soci index
         run: |
-          sudo soci create ${{ steps.meta.outputs.tags }}
-          sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} ${{ steps.meta.outputs.tags }}
+          for tag in ${{ steps.meta.outputs.tags }}
+          do
+            sudo soci create ghcr.io/predibase/lorax:$tag
+            sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} ghcr.io/predibase/lorax:$tag
+          done
