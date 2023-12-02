@@ -90,6 +90,7 @@ jobs:
           echo $tags
           echo $short_sha
           sudo ctr i import --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          sudo ctr i ls
           # for tag in $tags
           # do
           #   echo "Importing $tag into containerd"
@@ -97,26 +98,26 @@ jobs:
           # done
           # rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
-      - name: Push image with containerd
-        env:
-          tags: ${{ steps.meta.outputs.tags }}
-          short_sha: ${{ steps.vars.outputs.sha_short }}
-        run: |
-          for tag in $tags
-          do
-            echo "Pushing $tag to GHCR"
-            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
-          done
+      # - name: Push image with containerd
+      #   env:
+      #     tags: ${{ steps.meta.outputs.tags }}
+      #     short_sha: ${{ steps.vars.outputs.sha_short }}
+      #   run: |
+      #     for tag in $tags
+      #     do
+      #       echo "Pushing $tag to GHCR"
+      #       sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+      #     done
 
-      - name: Create and push soci index
-        env:
-          tags: ${{ steps.meta.outputs.tags }}
-          short_sha: ${{ steps.vars.outputs.sha_short }}
-        run: |
-          for tag in $tags
-          do
-            echo "Creating soci index for $tag"
-            sudo soci create $tag
-            echo "Pushing soci index for $tag"
-            sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
-          done
+      # - name: Create and push soci index
+      #   env:
+      #     tags: ${{ steps.meta.outputs.tags }}
+      #     short_sha: ${{ steps.vars.outputs.sha_short }}
+      #   run: |
+      #     for tag in $tags
+      #     do
+      #       echo "Creating soci index for $tag"
+      #       sudo soci create $tag
+      #       echo "Pushing soci index for $tag"
+      #       sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
+      #     done
