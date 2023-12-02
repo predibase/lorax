@@ -1,6 +1,6 @@
-# Text Generation Inference Python gRPC Server
+# LoRAX Python gRPC Server
 
-A Python gRPC server for Text Generation Inference
+A Python gRPC server for LoRAX
 
 ## Install
 

@@ -33,7 +33,7 @@ use utoipa_swagger_ui::SwaggerUi;
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
 #[utoipa::path(
 post,
-tag = "Text Generation Inference",
+tag = "LoRAX",
 path = "/",
 request_body = CompatGenerateRequest,
 responses(
@@ -77,10 +77,10 @@ async fn compat_generate(
     }
 }
 
-/// Text Generation Inference endpoint info
+/// LoRAX endpoint info
 #[utoipa::path(
 get,
-tag = "Text Generation Inference",
+tag = "LoRAX",
 path = "/info",
 responses((status = 200, description = "Served model info", body = Info))
 )]
@@ -91,11 +91,11 @@ async fn get_model_info(info: Extension<Info>) -> Json<Info> {
 
 #[utoipa::path(
 get,
-tag = "Text Generation Inference",
+tag = "LoRAX",
 path = "/health",
 responses(
 (status = 200, description = "Everything is working fine"),
-(status = 503, description = "Text generation inference is down", body = ErrorResponse,
+(status = 503, description = "LoRAX is down", body = ErrorResponse,
 example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 )
 )]
@@ -117,7 +117,7 @@ async fn health(mut health: Extension<Health>) -> Result<(), (StatusCode, Json<E
 /// Generate tokens
 #[utoipa::path(
 post,
-tag = "Text Generation Inference",
+tag = "LoRAX",
 path = "/generate",
 request_body = GenerateRequest,
 responses(
@@ -307,7 +307,7 @@ async fn generate(
 /// Generate a stream of token using Server-Sent Events
 #[utoipa::path(
 post,
-tag = "Text Generation Inference",
+tag = "LoRAX",
 path = "/generate_stream",
 request_body = GenerateRequest,
 responses(
@@ -503,7 +503,7 @@ async fn generate_stream(
 /// Prometheus metrics scrape endpoint
 #[utoipa::path(
 get,
-tag = "Text Generation Inference",
+tag = "LoRAX",
 path = "/metrics",
 responses((status = 200, description = "Prometheus Metrics", body = String))
 )]
@@ -566,10 +566,10 @@ pub async fn run(
     )
     ),
     tags(
-    (name = "Text Generation Inference", description = "Hugging Face Text Generation Inference API")
+    (name = "LoRAX", description = "LoRAX API")
     ),
     info(
-    title = "Text Generation Inference",
+    title = "LoRAX",
     license(
     name = "Apache 2.0",
     url = "https://www.apache.org/licenses/LICENSE-2.0"

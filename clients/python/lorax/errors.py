@@ -1,7 +1,7 @@
 from typing import Dict
 
 
-# Text Generation Inference Errors
+# LoRAX Errors
 class ValidationError(Exception):
     def __init__(self, message: str):
         super().__init__(message)
@@ -74,7 +74,7 @@ def parse_error(status_code: int, payload: Dict[str, str]) -> Exception:
         Exception: parsed exception
 
     """
-    # Try to parse a Text Generation Inference error
+    # Try to parse a LoRAX error
     message = payload["error"]
     if "error_type" in payload:
         error_type = payload["error_type"]

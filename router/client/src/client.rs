@@ -8,7 +8,7 @@ use std::cmp::min;
 use tonic::transport::{Channel, Uri};
 use tracing::instrument;
 
-/// Text Generation Inference gRPC client
+/// LoRAX gRPC client
 #[derive(Debug, Clone)]
 pub struct Client {
     stub: LoraxServiceClient<Channel>,
