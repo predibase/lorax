@@ -79,10 +79,11 @@ jobs:
       #     outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Import image in containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }} 
         run: |
-          tags=${{ steps.meta.outputs.tags }}
           echo $tags
-          for tag in tags
+          for tag in $tags
           do
             sudo ctr i import --base-name ghcr.io/predibase/lorax:$tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
           done
