@@ -73,51 +73,54 @@ jobs:
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       
-      # - name: Build Docker image
-      #   uses: docker/build-push-action@v2
-      #   with:
-      #     context: .
-      #     file: ./Dockerfile  # Path to your Dockerfile
-      #     push: false
-      #     tags: ${{ steps.meta.outputs.tags }}
-      #     outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
+      - name: Build Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile  # Path to your Dockerfile
+          push: false # Export to local only
+          load: true # Will improve future builds
+          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=oci,dest=/tmp/lorax-${{ steps.vars.outputs.sha_short }}.tar
 
       - name: Import image in containerd
         env:
           tags: ${{ steps.meta.outputs.tags }}
           short_sha: ${{ steps.vars.outputs.sha_short }}
         run: |
-          echo $tags
-          echo $short_sha
-          sudo ctr i import --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
-          sudo ctr i ls
-          # for tag in $tags
-          # do
-          #   echo "Importing $tag into containerd"
-          #   sudo ctr i import --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
-          # done
-          # rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          echo "Importing $sha_short to GHCR"
+          sudo ctr i import --digests /tmp/lorax-$short_sha.tar
+          # Delete the on disk copy
+          rm -rf /tmp/lorax-$short_sha.tar
 
-      # - name: Push image with containerd
-      #   env:
-      #     tags: ${{ steps.meta.outputs.tags }}
-      #     short_sha: ${{ steps.vars.outputs.sha_short }}
-      #   run: |
-      #     for tag in $tags
-      #     do
-      #       echo "Pushing $tag to GHCR"
-      #       sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
-      #     done
+      - name: Push image with containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            echo "Pushing $tag to GHCR"
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+          done
 
-      # - name: Create and push soci index
-      #   env:
-      #     tags: ${{ steps.meta.outputs.tags }}
-      #     short_sha: ${{ steps.vars.outputs.sha_short }}
-      #   run: |
-      #     for tag in $tags
-      #     do
-      #       echo "Creating soci index for $tag"
-      #       sudo soci create $tag
-      #       echo "Pushing soci index for $tag"
-      #       sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
-      #     done
+      - name: Create and push soci index
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            echo "Creating soci index for $tag"
+            sudo soci create $tag
+            echo "Pushing soci index for $tag"
+            sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
+          done
+
+      - name: Prune older images
+        env:
+          short_sha: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          # Delete images older than a week from docker store
+          docker image prune -a --filter "until=7d"
+
+          # Delete the SHA image from containerd store
+          sudo ctr i rm ghcr.io/predibase/lorax:$short_sha
