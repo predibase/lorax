@@ -69,18 +69,20 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
       
-      - name: Build Docker image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: ./Dockerfile  # Path to your Dockerfile
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
+      # - name: Build Docker image
+      #   uses: docker/build-push-action@v2
+      #   with:
+      #     context: .
+      #     file: ./Dockerfile  # Path to your Dockerfile
+      #     push: false
+      #     tags: ${{ steps.meta.outputs.tags }}
+      #     outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
 
       - name: Import image in containerd
         run: |
-          for tag in ${{ steps.meta.outputs.tags }}
+          tags=${{ steps.meta.outputs.tags }}
+          echo $tags
+          for tag in tags
           do
             sudo ctr i import --base-name ghcr.io/predibase/lorax:$tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
           done
