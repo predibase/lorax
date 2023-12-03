@@ -69,7 +69,7 @@ Example:
 ```python
 from lorax import Client
 
-endpoint_url = f"https://api.predibase.com/v1/llms/{llm_deployment_name}"
+endpoint_url = f"https://api.app.predibase.com/v1/llms/{llm_deployment_name}"
 headers = {
     "Authorization": f"Bearer {api_token}"
 }
