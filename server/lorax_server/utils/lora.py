@@ -22,9 +22,8 @@ DOWN_PROJ = "down_proj"
 
 LM_HEAD = "lm_head"
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
-
-ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
+# TODO(travis): push this down into the model
+ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD, "c_proj"}
 
 EMPTY_TENSOR = torch.tensor([])
 
@@ -122,6 +121,16 @@ class BatchedLoraWeights:
         return len(self.lora_weights) == 0
 
     def get_data(self, meta: AdapterBatchMetadata) -> AdapterWeightData:
+        """
+        Get the adapter weight data for a given metadata.
+
+        Args:
+            meta (AdapterBatchMetadata): The metadata for the adapter batch.
+
+        Returns:
+            AdapterWeightData: The adapter weight data.
+
+        """
         device = list(self.lora_weights.values())[0].weights_a.device
         segment_indices = meta.segment_indices
 

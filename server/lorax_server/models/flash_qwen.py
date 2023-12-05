@@ -1,33 +1,36 @@
-from collections import defaultdict
 import torch
 import torch.distributed
 
 from loguru import logger
 from opentelemetry import trace
-from transformers import AutoTokenizer, GPT2Model
-from tqdm import tqdm
-from typing import Dict, Optional
+from transformers import AutoTokenizer
+from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
-from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
-    FlashGPT2ForCausalLM,
-    GPT2Config,
+from lorax_server.models.custom_modeling.flash_qwen_modeling import (
+    C_ATTN,
+    C_PROJ,
+    W1,
+    W2,
+    FlashQwenForCausalLM,
+    QwenConfig,
 )
 from lorax_server.utils import (
-    compute_delta_weight,
     create_merged_weight_files,
-    get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
-    load_module_map,
     weight_files,
     Weights,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
 
 
-class FlashGPT2(FlashCausalLM):
+ADAPTER_LAYERS = [C_ATTN, C_PROJ, W1, W2, LM_HEAD]
+
+
+class FlashQwen(FlashCausalLM):
     def __init__(
         self,
         model_id: str,
@@ -43,7 +46,7 @@ class FlashGPT2(FlashCausalLM):
             device = torch.device(f"cuda:{rank}")
             dtype = torch.float16 if dtype is None else dtype
         else:
-            raise NotImplementedError("FlashLlama is only available on GPU")
+            raise NotImplementedError("FlashQwen is only available on GPU")
 
         tokenizer = AutoTokenizer.from_pretrained(
             model_id,
@@ -53,7 +56,7 @@ class FlashGPT2(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = GPT2Config.from_pretrained(
+        config = QwenConfig.from_pretrained(
             model_id, revision=revision, trust_remote_code=trust_remote_code
         )
         config.quantize = quantize
@@ -89,25 +92,43 @@ class FlashGPT2(FlashCausalLM):
             weights._set_gptq_params(model_id)
 
         self.model_id = model_id
-        model = FlashGPT2ForCausalLM(config, weights)
+        model = FlashQwenForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
-        super(FlashGPT2, self).__init__(
+        super(FlashQwen, self).__init__(
             model=model,
             tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
+            num_layers=len(model.transformer.h),
+            num_kv_heads=model.transformer.num_key_value_heads,
+            head_size=model.transformer.head_size,
             dtype=dtype,
             device=device,
             rank=rank,
             world_size=world_size,
         )
     
-    def get_adaptable_weights(self):
-        # TODO: enable dynamic adapter loading in LoRAX
-        return {}
-    
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+    
+    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        layer_weights = {}
+
+        prefix = "transformer.h"
+        for i, layer in enumerate(self.model.transformer.h):
+            layer_weights[(i, C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
+            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
+
+            layer_weights[(i, W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
+            layer_weights[(i, W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
+            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
+        
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
+        return layer_weights
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return ADAPTER_LAYERS
+    
+    def get_num_layers_for_type(self, layer_type: str) -> int:
+        return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)

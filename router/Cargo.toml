@@ -1,6 +1,6 @@
 [package]
 name = "lorax-router"
-description = "Text Generation Webserver"
+description = "LoRAX Webserver"
 build = "build.rs"
 version.workspace = true
 edition.workspace = true

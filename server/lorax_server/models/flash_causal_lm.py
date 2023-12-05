@@ -30,7 +30,7 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
-from lorax_server.utils.lora import ADAPTER_LAYERS, DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 
 tracer = trace.get_tracer(__name__)
@@ -696,6 +696,7 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+<<<<<<< HEAD
         self.layer_weights = self.get_layer_weights()
 
     def get_layer_weights(self):
@@ -714,10 +715,23 @@ class FlashCausalLM(Model):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+=======
+        self.layer_weights = self.get_adaptable_weights()
+>>>>>>> main
 
     @property
     def supports_adapter_loading(self) -> bool:
         return False
+    
+    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        return {}
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return []
+    
+    def get_num_layers_for_type(self, layer_type: str) -> int:
+        return 0
 
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.
@@ -745,7 +759,7 @@ class FlashCausalLM(Model):
             logger.info(f"Loading adapter weights into model: {adapter_id}")
             weight_names = tuple([v[0] for v in self.layer_weights.values()])
             module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
-            for layer_name in ADAPTER_LAYERS:
+            for layer_name in self.adapter_layers:
                 self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, layer_name)
 
             self.adapter_id = adapter_id
@@ -757,7 +771,7 @@ class FlashCausalLM(Model):
         adapter_index: int, 
         layer_type: str,
     ):
-        nlayers = len(self.model.model.layers) if layer_type != LM_HEAD else 1
+        nlayers = self.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
         
@@ -802,7 +816,7 @@ class FlashCausalLM(Model):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             return
         else:
-            for layer_name in ADAPTER_LAYERS:
+            for layer_name in self.adapter_layers:
                 if layer_name in self.batched_lora_weights:
                     self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
 

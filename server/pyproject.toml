@@ -29,6 +29,7 @@ tokenizers = "0.15.0"
 huggingface-hub = "^0.19.4"
 transformers = "4.35.2"
 einops = "^0.6.1"
+tiktoken = "^0.5.2"
 texttable = { version = "^1.6.7", optional = true }
 datasets = { version = "^2.14.0", optional = true }
 

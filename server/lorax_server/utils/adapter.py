@@ -86,7 +86,17 @@ def merge_adapter_weights(
     adapter_weights: Dict[str, torch.Tensor], 
     adapter_config: LoraConfig
 ) -> Tuple[Dict[str, torch.Tensor], Set[str]]:
-    """Merges the adapter weights into the model weights."""
+    """
+    Merges the adapter weights into the model weights.
+
+    Args:
+        model_weights (Dict[str, torch.Tensor]): The weights of the base model.
+        adapter_weights (Dict[str, torch.Tensor]): The weights of the adapters.
+        adapter_config (LoraConfig): The configuration for the LoRA adapter.
+
+    Returns:
+        Tuple[Dict[str, torch.Tensor], Set[str]]: A tuple containing the merged weights and the set of processed adapter weight names.
+    """
     module_mapping = defaultdict(dict)
     processed_adapter_weight_names = set()
 

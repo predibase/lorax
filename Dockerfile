@@ -151,14 +151,14 @@ COPY server/punica_kernels/ .
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
 
-# Text Generation Inference base image
+# LoRAX base image
 FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
     CONDA_PREFIX=/opt/conda
 
-# Text Generation Inference base env
+# LoRAX base env
 ENV HUGGINGFACE_HUB_CACHE=/data \
     HF_HUB_ENABLE_HF_TRANSFER=1 \
     PORT=80

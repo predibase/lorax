@@ -10,6 +10,25 @@ import torch.distributed
 import os
 
 class Weights:
+    """
+    A class representing weights for a model.
+
+    Args:
+        filenames (List[Path]): List of file paths containing the weights.
+        device: The device to load the weights onto.
+        dtype: The data type to convert the weights to.
+        process_group: The process group for distributed training.
+        aliases (Optional[Dict[str, List[str]]]): Dictionary of aliases for weight names.
+        merged_weight_filenames (Optional[List]): List of file paths containing merged weights.
+
+    Attributes:
+        aliases (Dict[str, List[str]]): Dictionary of aliases for weight names.
+        routing (Dict[str, str]): Dictionary mapping weight names to file paths.
+        device: The device to load the weights onto.
+        dtype: The data type of the weights.
+        process_group: The process group for distributed training.
+        _handles (Dict[str, Any]): Dictionary of file handles for opened weight files.
+    """
     def __init__(
         self,
         filenames: List[Path],

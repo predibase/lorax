@@ -8,6 +8,20 @@ B = TypeVar("B", bound=Batch)
 
 
 class Cache:
+    """
+    A class representing a cache.
+
+    Attributes:
+        cache (Dict[int, B]): A dictionary representing the cache, where the keys are batch IDs and the values are entries.
+
+    Methods:
+        pop(batch_id: int) -> Optional[B]: Removes and returns the entry with the specified batch ID from the cache.
+        set(entry: B): Adds the specified entry to the cache.
+        delete(batch_id: int): Deletes the entry with the specified batch ID from the cache.
+        clear(): Clears the cache.
+        __len__(): Returns the number of entries in the cache.
+    """
+
     def __init__(self):
         self.cache: Dict[int, B] = {}
 

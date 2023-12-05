@@ -6,7 +6,7 @@ use tonic::transport::Uri;
 use tracing::instrument;
 
 #[derive(Debug, Clone)]
-/// Text Generation Inference gRPC multi client
+/// LoRAX gRPC multi client
 pub struct ShardedClient {
     clients: Vec<Client>,
 }

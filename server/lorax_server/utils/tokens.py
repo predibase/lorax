@@ -22,6 +22,25 @@ from lorax_server.utils.logits_process import (
 
 
 class NextTokenChooser:
+    """
+    Class representing a next token chooser.
+
+    Args:
+        watermark (bool): Whether to apply watermark processing to logits. Default is False.
+        temperature (float): The temperature value for warping logits. Default is 1.0.
+        repetition_penalty (float): The penalty value for repetition in logits. Default is 1.0.
+        top_k (int): The value for top-k warping of logits. Default is None.
+        top_p (float): The value for top-p warping of logits. Default is None.
+        typical_p (float): The value for typical-p warping of logits. Default is None.
+        do_sample (bool): Whether to perform sampling. Default is False.
+        seed (int): The seed value for random number generation. Default is 0.
+        device (str): The device to use for computation. Default is "cpu".
+
+    Returns:
+        next_id (torch.Tensor): The next token ID.
+        next_logprob (torch.Tensor): The log probability of the next token.
+    """
+
     def __init__(
         self,
         watermark=False,
@@ -80,6 +99,16 @@ class NextTokenChooser:
         pb: generate_pb2.NextTokenChooserParameters,
         device: torch.device,
     ) -> "NextTokenChooser":
+        """
+        Create a NextTokenChooser instance from a protobuf message.
+
+        Args:
+            pb (generate_pb2.NextTokenChooserParameters): The protobuf message containing the parameters.
+            device (torch.device): The device to use for computation.
+
+        Returns:
+            NextTokenChooser: The NextTokenChooser instance.
+        """
         return NextTokenChooser(
             watermark=pb.watermark,
             temperature=pb.temperature,
@@ -105,6 +134,16 @@ class StopSequenceCriteria:
 
 
 class StoppingCriteria:
+    """
+    Class representing the stopping criteria for token generation.
+
+    Args:
+        eos_token_id (int): The ID of the end-of-sequence token.
+        stop_sequence_criterias (List[StopSequenceCriteria]): A list of stop sequence criteria.
+        max_new_tokens (int, optional): The maximum number of new tokens to generate. Defaults to 20.
+        ignore_eos_token (bool, optional): Whether to ignore the end-of-sequence token. Defaults to False.
+    """
+
     def __init__(
         self,
         eos_token_id: int,
@@ -152,6 +191,32 @@ class StoppingCriteria:
 
 
 class HeterogeneousNextTokenChooser:
+    """
+    A class that represents a heterogeneous next token chooser for generating tokens.
+
+    Args:
+        dtype (torch.dtype): The data type of the tokens.
+        device (torch.device): The device on which the tokens are processed.
+        watermark (List[bool]): A list of booleans indicating whether watermark processing should be applied for each token.
+        temperature (List[float]): A list of temperature values for temperature-based logits warping.
+        repetition_penalty (List[float]): A list of repetition penalty values for repetition penalty-based logits warping.
+        top_k (List[int]): A list of top-k values for top-k-based logits warping.
+        top_p (List[float]): A list of top-p values for top-p-based logits warping.
+        typical_p (List[float]): A list of typical-p values for typical-p-based logits warping.
+        do_sample (List[bool]): A list of booleans indicating whether sampling should be applied for each token.
+        seeds (List[int]): A list of seed values for random number generation.
+
+    Attributes:
+        watermark_processor (HeterogeneousProcessorWrapper): The watermark logits processor.
+        repetition_processor (HeterogeneousRepetitionPenaltyLogitsProcessor): The repetition penalty logits processor.
+        warpers (List[HeterogeneousLogitsWarper]): The list of logits warpers.
+        choice (HeterogeneousSampling or Greedy): The token choice strategy.
+        seeds (List[int]): The list of seed values.
+        do_sample (List[bool]): The list of booleans indicating whether sampling should be applied.
+        dtype (torch.dtype): The data type of the tokens.
+        device (torch.device): The device on which the tokens are processed.
+    """
+
     def __init__(
         self,
         dtype: torch.dtype,
@@ -220,6 +285,17 @@ class HeterogeneousNextTokenChooser:
         self.device = device
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor):
+        """
+        Chooses the next tokens based on the input IDs and scores.
+
+        Args:
+            input_ids (torch.Tensor): The input tensor containing the token IDs.
+            scores (torch.Tensor): The tensor containing the scores for each token.
+
+        Returns:
+            torch.Tensor: The tensor containing the next token IDs.
+            torch.Tensor: The tensor containing the log probabilities of the next tokens.
+        """
         if self.watermark_processor is not None:
             scores = self.watermark_processor(input_ids, scores)
         if self.repetition_processor is not None:
@@ -236,6 +312,15 @@ class HeterogeneousNextTokenChooser:
         return next_ids, next_logprobs
 
     def filter(self, indices):
+        """
+        Filters the chooser based on the given indices.
+
+        Args:
+            indices: The indices to filter the chooser with.
+
+        Returns:
+            HeterogeneousNextTokenChooser: The filtered chooser.
+        """
         if self.watermark_processor is not None:
             self.watermark_processor = self.watermark_processor.filter(indices)
 
@@ -266,6 +351,17 @@ class HeterogeneousNextTokenChooser:
         dtype: torch.dtype,
         device: torch.device,
     ) -> "HeterogeneousNextTokenChooser":
+        """
+        Creates a `HeterogeneousNextTokenChooser` instance from the given protocol buffer.
+
+        Args:
+            pb (List[generate_pb2.NextTokenChooserParameters]): The protocol buffer containing the parameters.
+            dtype (torch.dtype): The data type of the tokens.
+            device (torch.device): The device on which the tokens are processed.
+
+        Returns:
+            HeterogeneousNextTokenChooser: The created `HeterogeneousNextTokenChooser` instance.
+        """
         return HeterogeneousNextTokenChooser(
             watermark=[pb_.watermark for pb_ in pb],
             temperature=[pb_.temperature for pb_ in pb],

@@ -22,6 +22,15 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
+    """
+    Implementation of the LoraxService gRPC service.
+
+    Args:
+        model (Model): The model used for inference.
+        cache (Cache): The cache used for storing and retrieving batches.
+        server_urls (List[str]): List of server URLs for service discovery.
+    """
+
     def __init__(self, model: Model, cache: Cache, server_urls: List[str]):
         self.cache = cache
         self.model = model
@@ -223,7 +232,7 @@ def serve(
                 # When using GPTQ, Exllama kernels need some global kernels
                 # For which we have the finale shapes only after the model has loaded
                 # This will allocate those buffers.
-                from lorax_server.utils.gptq.exllama import (
+                from lorax_server.utils.gptq.exllamav2 import (
                     create_exllama_buffers,
                     set_device,
                 )

@@ -51,6 +51,7 @@ try:
     from lorax_server.models.flash_neox import FlashNeoXSharded
     from lorax_server.models.flash_llama import FlashLlama
     from lorax_server.models.flash_gpt2 import FlashGPT2
+    from lorax_server.models.flash_qwen import FlashQwen
     from lorax_server.models.flash_santacoder import (
         FlashSantacoderSharded,
     )
@@ -64,6 +65,7 @@ if FLASH_ATTENTION:
     __all__.append(FlashRWSharded)
     __all__.append(FlashSantacoderSharded)
     __all__.append(FlashLlama)
+    __all__.append(FlashQwen)
     
 MISTRAL = True
 try:
@@ -293,6 +295,19 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
         raise NotImplementedError("Mistral model requires flash attention v2")
+    
+    if model_type == "qwen":
+        if FLASH_ATTENTION:
+            return FlashQwen(
+                model_id,
+                adapter_id,
+                adapter_source,
+                revision,
+                quantize=quantize,
+                dtype=dtype,
+                trust_remote_code=trust_remote_code,
+            )
+        raise NotImplementedError("Qwen model requires flash attention v2")
 
     if model_type == "opt":
         return OPTSharded(
