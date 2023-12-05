@@ -74,15 +74,13 @@ jobs:
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           outputs: type=oci,dest=/tmp/lorax-${{ steps.vars.outputs.sha_short }}.tar
-    
+      
       - name: Import image in containerd
         env:
           sha_short: ${{ steps.vars.outputs.sha_short }}
         run: |
           echo "Importing $sha_short to GHCR"
           sudo ctr i import --digests /tmp/lorax-$sha_short.tar
-          # Delete the on disk copy
-          rm -rf /tmp/lorax-$sha_short.tar
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v1
@@ -90,16 +88,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
-
-      - name: Push image with containerd
-        env:
-          tags: ${{ steps.meta.outputs.tags }}
-        run: |
-          for tag in $tags
-          do
-            echo "Pushing $tag to GHCR"
-            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
-          done
 
       - name: Create and push soci index
         env:
@@ -114,14 +102,26 @@ jobs:
             sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
 
+      - name: Push image with containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            echo "Pushing $tag to GHCR"
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+          done
+
       - name: Prune older images
         env:
           sha_short: ${{ steps.vars.outputs.sha_short }}
         run: |
           # Delete images older than a day from docker store
-          docker image prune -a --filter "until=24h"
+          docker image prune -a -f --filter "until=24h"
 
-          # Delete the SHA image from containerd store
-          # Leave the latest around for faster import next time
-          sudo ctr i rm ghcr.io/predibase/lorax:$sha_short
+          # Delete the on disk copy
+          rm -rf "/tmp/lorax-$sha_short.tar"
+
+          # Delete the SHA image(s) from containerd store
+          sudo ctr i rm $(sudo ctr i ls -q)
   
