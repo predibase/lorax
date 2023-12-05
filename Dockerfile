@@ -97,12 +97,10 @@ COPY server/Makefile-flash-att Makefile
 
 # Build specific version of flash attention
 RUN make build-flash-attention
-
 # Build Flash Attention v2 CUDA kernels
 FROM kernel-builder as flash-att-v2-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att-v2 Makefile
-
 # Build specific version of flash attention v2
 RUN make build-flash-attention-v2
 
@@ -110,7 +108,6 @@ RUN make build-flash-attention-v2
 FROM kernel-builder as exllama-kernels-builder
 WORKDIR /usr/src
 COPY server/exllamav2_kernels/ .
-
 # Build specific version of transformers
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
@@ -118,14 +115,13 @@ RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 FROM kernel-builder as awq-kernels-builder
 WORKDIR /usr/src
 COPY server/Makefile-awq Makefile
-# Build specific version of transformers
+# Build specific version of awq
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
 
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
 WORKDIR /usr/src
 COPY server/custom_kernels/ .
-
 # Build specific version of transformers
 RUN python setup.py build
 
@@ -134,17 +130,13 @@ FROM kernel-builder as vllm-builder
 RUN /opt/conda/bin/conda install packaging
 WORKDIR /usr/src
 COPY server/Makefile-vllm Makefile
-
 # Build specific version of vllm
 RUN make build-vllm
 
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
-
 WORKDIR /usr/src
-
 COPY server/punica_kernels/ .
-
 # Build specific version of punica
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
