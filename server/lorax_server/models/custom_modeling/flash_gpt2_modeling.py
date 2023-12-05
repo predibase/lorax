@@ -107,20 +107,10 @@ class FlashGPT2Attention(torch.nn.Module):
         )
         self.num_key_value_heads = self.num_heads
 
-        self.rope_theta = 10000
-        self.rotary_emb = PositionRotaryEmbedding.static(
-            config=config,
-            dim=self.head_size,
-            base=self.rope_theta,
-            device=weights.device,
-        )
-
 
     def forward(
         self,
         hidden_states,
-        cos,
-        sin,
         cu_seqlen_prefill,
         kv_cache,
         block_tables,
@@ -130,10 +120,6 @@ class FlashGPT2Attention(torch.nn.Module):
     ):
         qkv = self.c_attn(hidden_states)
         qkv = qkv.view(-1, 3, self.num_heads, self.head_size)
-
-        # Inplace rotary
-        self.rotary_emb(qkv[:, 0], cos, sin)
-        self.rotary_emb(qkv[:, 1], cos, sin)
 
         paged_attn.reshape_and_cache(
             qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots
@@ -222,8 +208,6 @@ class GPT2Block(nn.Module):
     def forward(
         self,
         hidden_states,
-        cos,
-        sin,
         cu_seqlen_prefill,
         kv_cache,
         block_tables,
@@ -235,8 +219,6 @@ class GPT2Block(nn.Module):
         hidden_states, _ = self.ln_1(hidden_states)
         attn_outputs = self.attn(
             hidden_states,
-            cos,
-            sin,
             cu_seqlen_prefill,
             kv_cache,
             block_tables,
@@ -252,8 +234,6 @@ class GPT2Block(nn.Module):
             hidden_states, residual = self.ln_cross_attn(hidden_states)
             attn_outputs = self.crossattention(
                 hidden_states,
-                cos,
-                sin,
                 cu_seqlen_prefill,
                 kv_cache,
                 block_tables,
@@ -321,18 +301,10 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         inputs_embeds = self.wte(input_ids)
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds
-        
-        # Get rotary cos and sin for this forward
-        # Avoid to index in each layer
-        cos, sin = self.layers[0].attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
 
         for i, layer in enumerate(self.layers):
             hidden_states = layer(
                 hidden_states,
-                cos,
-                sin,
                 cu_seqlen_prefill,
                 kv_cache[i],
                 block_tables,
