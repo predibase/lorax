@@ -106,20 +106,21 @@ jobs:
         env:
           tags: ${{ steps.meta.outputs.tags }}
         run: |
+          export SOCI_PATH=$HOME/.soci/soci
           for tag in $tags
           do
             echo "Creating soci index for $tag"
-            sudo soci create $tag
+            sudo $SOCI_PATH create $tag
             echo "Pushing soci index for $tag"
-            sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
+            sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
 
       - name: Prune older images
         env:
           short_sha: ${{ steps.vars.outputs.sha_short }}
         run: |
-          # Delete images older than a week from docker store
-          docker image prune -a --filter "until=7d"
+          # Delete images older than a day from docker store
+          docker image prune -a --filter "until=24h"
 
           # Delete the SHA image from containerd store
           # Leave the latest around for faster import next time
