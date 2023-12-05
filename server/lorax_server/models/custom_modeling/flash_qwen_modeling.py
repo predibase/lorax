@@ -298,15 +298,15 @@ class QwenMLP(nn.Module):
         # Fuse gate and up proj
         gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
-            prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
+            prefixes=[f"{prefix}.w1", f"{prefix}.w2"],
             weights=weights,
             dim=0,
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [GATE_PROJ, UP_PROJ], sizes=[
-                config.intermediate_size,
-                config.intermediate_size,
+            gate_up_proj, layer_id, ["w1", "w2"], sizes=[
+                config.intermediate_size // 2,
+                config.intermediate_size // 2,
             ], process_group=weights.process_group
         )
 
@@ -329,7 +329,7 @@ class QwenMLP(nn.Module):
 class FlashQwenLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = f"transformer.h.{layer_id}"
         self.attn = FlashQwenAttention(
             prefix=f"{prefix}.attn", config=config, weights=weights, layer_id=layer_id,
         )
@@ -392,7 +392,7 @@ class FlashQwenModel(torch.nn.Module):
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
         self.wte = TensorParallelEmbedding(
-            prefix="model.wte", weights=weights
+            prefix="transformer.wte", weights=weights
         )
         self.h = nn.ModuleList(
             [
@@ -405,14 +405,14 @@ class FlashQwenModel(torch.nn.Module):
             ]
         )
         self.ln_f = QwenRMSNorm(
-            prefix="model.ln_f", weights=weights, eps=config.layer_norm_epsilon
+            prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon
         )
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.h[0].self_attn.head_size
-        self.num_heads = self.h[0].self_attn.num_heads
-        self.num_key_value_heads = self.h[0].self_attn.num_key_value_heads
+        self.head_size = self.h[0].attn.head_size
+        self.num_heads = self.h[0].attn.num_heads
+        self.num_key_value_heads = self.h[0].attn.num_key_value_heads
 
     def forward(
         self,

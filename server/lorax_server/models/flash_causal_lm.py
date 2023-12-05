@@ -696,23 +696,7 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
-        layer_weights = {}
-
-        # TODO(travis): generalize this
-        prefix = "model.layers"
-        for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
-
-            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
-        
-        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
-        
-        self.layer_weights = layer_weights
+        self.layer_weights = self.model.layer_weights
 
     @property
     def supports_adapter_loading(self) -> bool:

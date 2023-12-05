@@ -5,10 +5,12 @@ from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
 from tqdm import tqdm
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen_modeling import (
+    C_ATTN,
+    C_PROJ,
     FlashQwenForCausalLM,
     QwenConfig,
 )
@@ -19,6 +21,7 @@ from lorax_server.utils import (
     Weights,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from server.lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
 
@@ -46,7 +49,7 @@ class FlashQwen(FlashCausalLM):
             revision=revision,
             padding_side="left",
             truncation_side="left",
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=True,
         )
 
         config = QwenConfig.from_pretrained(
@@ -91,9 +94,9 @@ class FlashQwen(FlashCausalLM):
         super(FlashQwen, self).__init__(
             model=model,
             tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
+            num_layers=len(model.transformer.h),
+            num_kv_heads=model.transformer.num_key_value_heads,
+            head_size=model.transformer.head_size,
             dtype=dtype,
             device=device,
             rank=rank,
@@ -103,3 +106,19 @@ class FlashQwen(FlashCausalLM):
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+    
+    @property
+    def layer_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        layer_weights = {}
+
+        prefix = "transformer.h"
+        for i, layer in enumerate(self.model.transformer.h):
+            layer_weights[(i, C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
+            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
+
+            layer_weights[(i, "w1")] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
+            layer_weights[(i, "w2")] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
+            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
+        
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
+        return layer_weights
