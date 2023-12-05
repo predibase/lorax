@@ -1,37 +1,36 @@
-from collections import defaultdict
 import torch
 import torch.distributed
 
 from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from tqdm import tqdm
 from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
-from lorax_server.models.custom_modeling.flash_llama_modeling import (
-    FlashLlamaForCausalLM,
-    LlamaConfig,
+from lorax_server.models.custom_modeling.flash_qwen_modeling import (
+    C_ATTN,
+    C_PROJ,
+    W1,
+    W2,
+    FlashQwenForCausalLM,
+    QwenConfig,
 )
 from lorax_server.utils import (
-    compute_delta_weight,
     create_merged_weight_files,
-    get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
-    load_module_map,
     weight_files,
     Weights,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
+ADAPTER_LAYERS = [C_ATTN, C_PROJ, W1, W2, LM_HEAD]
 
 
-class FlashLlama(FlashCausalLM):
+class FlashQwen(FlashCausalLM):
     def __init__(
         self,
         model_id: str,
@@ -47,7 +46,7 @@ class FlashLlama(FlashCausalLM):
             device = torch.device(f"cuda:{rank}")
             dtype = torch.float16 if dtype is None else dtype
         else:
-            raise NotImplementedError("FlashLlama is only available on GPU")
+            raise NotImplementedError("FlashQwen is only available on GPU")
 
         tokenizer = AutoTokenizer.from_pretrained(
             model_id,
@@ -57,7 +56,7 @@ class FlashLlama(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = LlamaConfig.from_pretrained(
+        config = QwenConfig.from_pretrained(
             model_id, revision=revision, trust_remote_code=trust_remote_code
         )
         config.quantize = quantize
@@ -93,15 +92,15 @@ class FlashLlama(FlashCausalLM):
             weights._set_gptq_params(model_id)
 
         self.model_id = model_id
-        model = FlashLlamaForCausalLM(config, weights)
+        model = FlashQwenForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
-        super(FlashLlama, self).__init__(
+        super(FlashQwen, self).__init__(
             model=model,
             tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
+            num_layers=len(model.transformer.h),
+            num_kv_heads=model.transformer.num_key_value_heads,
+            head_size=model.transformer.head_size,
             dtype=dtype,
             device=device,
             rank=rank,
@@ -115,16 +114,14 @@ class FlashLlama(FlashCausalLM):
     def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
-        prefix = "model.layers"
-        for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+        prefix = "transformer.h"
+        for i, layer in enumerate(self.model.transformer.h):
+            layer_weights[(i, C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
+            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
 
-            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
+            layer_weights[(i, W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
+            layer_weights[(i, W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
+            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
@@ -134,4 +131,4 @@ class FlashLlama(FlashCausalLM):
         return ADAPTER_LAYERS
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
+        return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)

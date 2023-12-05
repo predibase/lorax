@@ -10,7 +10,7 @@ from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
 from transformers.models.llama import LlamaTokenizerFast
 from tqdm import tqdm
-from typing import Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from lorax_server.pb import generate_pb2
 from lorax_server.models import FlashCausalLM
@@ -34,7 +34,7 @@ from lorax_server.utils import (
     StoppingCriteria,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import find_segments
 
 tracer = trace.get_tracer(__name__)
@@ -42,6 +42,8 @@ tracer = trace.get_tracer(__name__)
 # Will be set in init
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
+
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
 
 
 # Adds windowing logic to FlashCausalLMBatch
@@ -412,3 +414,27 @@ class FlashMistral(FlashCausalLM):
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None
         return logits
+    
+    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        layer_weights = {}
+
+        prefix = "model.layers"
+        for i, layer in enumerate(self.model.model.layers):
+            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+
+            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
+        
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
+        return layer_weights
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return ADAPTER_LAYERS
+    
+    def get_num_layers_for_type(self, layer_type: str) -> int:
+        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
