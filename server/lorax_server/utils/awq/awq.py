@@ -1,4 +1,4 @@
-# Copied logic from https://github.com/mit-han-lab/llm-awq/blob/f084f40bd996f3cf3a0633c1ad7d9d476c318aaa/awq/quantize/qmodule.py
+# Copied logic from https://github.com/mit-han-lab/llm-awq/blob/19a5a2c9db47f69a2851c83fea90f81ed49269ab/awq/quantize/qmodule.py
 
 import math
 import torch
