@@ -696,9 +696,11 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+        self.layer_weights = self.get_layer_weights()
+
+    def get_layer_weights(self):
         layer_weights = {}
 
-        # TODO(travis): generalize this
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
             layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
@@ -711,8 +713,7 @@ class FlashCausalLM(Model):
             layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
-        
-        self.layer_weights = layer_weights
+        return layer_weights
 
     @property
     def supports_adapter_loading(self) -> bool:

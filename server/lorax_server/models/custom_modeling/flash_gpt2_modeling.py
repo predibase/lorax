@@ -40,46 +40,7 @@ from lorax_server.utils.layers import (
     get_linear,
 )
 
-
-def load_row(config, prefix: str, weights, bias: bool):
-    weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
-
-    if bias and weights.process_group.rank() == 0:
-        # Rank is only on the first rank process
-        bias = weights.get_tensor(f"{prefix}.bias")
-    else:
-        bias = None
-
-    linear = get_linear(weight, bias, config.quantize)
-    if config.use_parallel_residual:
-        return linear
-    else:
-        return TensorParallelRowLinear(linear, process_group=weights.process_group)
-
-
-def load_qkv(config, prefix: str, weights, num_heads, head_size, hidden_size):
-    weight = weights.get_multi_weights_col([prefix], quantize=config.quantize, dim=0)
-    if isinstance(weight, torch.Tensor):
-        # Only on non quantized versions
-        weight = (
-            weight.view(
-                num_heads,
-                3,
-                head_size,
-                hidden_size,
-            )
-            .permute(1, 0, 2, 3)
-            .reshape(-1, hidden_size)
-        )
-
-    bias = weights.get_sharded(f"{prefix}.bias", dim=0)
-    bias = bias.view(num_heads, 3, head_size).permute(1, 0, 2).reshape(-1)
-
-    linear = get_linear(weight, bias, config.quantize)
-    if config.use_parallel_residual:
-        return linear
-    else:
-        return TensorParallelColumnLinear(linear)
+from lorax_server.utils.lora import AdapterBatchData
 
 
 class FlashGPT2Attention(torch.nn.Module):
@@ -107,6 +68,10 @@ class FlashGPT2Attention(torch.nn.Module):
             )
 
         self.scale_attn_weights = config.scale_attn_weights
+        if self.scale_attn_weights:
+            self.softmax_scale = self.head_dim ** -0.5
+        else:
+            self.softmax_scale = 1.0
         self.is_cross_attention = config.add_cross_attention
 
         # Layer-wise attention scaling, reordering, and upcasting
@@ -140,6 +105,16 @@ class FlashGPT2Attention(torch.nn.Module):
         self.kv_head_mapping = torch.arange(
             0, self.num_heads, dtype=torch.int32, device=weights.device
         )
+        self.num_key_value_heads = self.num_heads
+
+        self.rope_theta = 10000
+        self.rotary_emb = PositionRotaryEmbedding.static(
+            config=config,
+            dim=self.head_size,
+            base=self.rope_theta,
+            device=weights.device,
+        )
+
 
     def forward(
         self,
@@ -153,7 +128,7 @@ class FlashGPT2Attention(torch.nn.Module):
         input_lengths,
         max_s,
     ):
-        qkv = self.query_key_value(hidden_states)
+        qkv = self.c_attn(hidden_states)
         qkv = qkv.view(-1, 3, self.num_heads, self.head_size)
 
         # Inplace rotary
@@ -194,35 +169,24 @@ class FlashGPT2Attention(torch.nn.Module):
                 max_s,
             )
 
-        return self.dense(attn_output.view(-1, self.num_heads * self.head_size))
+        attn_output = attn_output.view(-1, self.num_heads * self.head_size)
+        out = self.c_proj(attn_output)
+        return out
 
 
-class FlashMLP(nn.Module):
+class GPT2MLP(nn.Module):
     def __init__(self, config, prefix, weights):
         super().__init__()
-        act = config.hidden_act
-        self.act = (
-            ACT2FN[act]
-            if "gelu" not in act
-            else lambda x: torch.nn.functional.gelu(
-                x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
-            )
-        )
+        self.c_fc = FastConv1D.load(config, prefix=f"{prefix}.c_fc", weights=weights)
+        self.c_proj = FastConv1D.load(config, prefix=f"{prefix}.c_proj", weights=weights)
+        self.act = ACT2FN[config.activation_function]
+        self.dropout = nn.Dropout(config.resid_pdrop)
 
-        self.dense_h_to_4h = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.dense_h_to_4h", weights=weights, bias=True
-        )
-        self.dense_4h_to_h = load_row(
-            config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True
-        )
-
-    def forward(self, hidden_states):
-        hidden_states = self.dense_h_to_4h(hidden_states)
+    def forward(self, hidden_states: Optional[Tuple[torch.FloatTensor]]) -> torch.FloatTensor:
+        hidden_states = self.c_fc(hidden_states)
         hidden_states = self.act(hidden_states)
-        hidden_states = self.dense_4h_to_h(hidden_states)
+        hidden_states = self.c_proj(hidden_states)
+        hidden_states = self.dropout(hidden_states)
         return hidden_states
 
 
@@ -230,8 +194,8 @@ class GPT2Block(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
 
-        layer_norm_eps = config.layer_norm_eps
-        prefix = f"transformer.h.{layer_id}"
+        layer_norm_eps = config.layer_norm_epsilon
+        prefix = f"h.{layer_id}"
 
         self.ln_1 = FastLayerNorm.load(
             prefix=f"{prefix}.ln_1", weights=weights, eps=layer_norm_eps
@@ -252,13 +216,12 @@ class GPT2Block(nn.Module):
                 prefix=f"{prefix}.ln_cross_attn", weights=weights, eps=layer_norm_eps
             )
         
-        self.mlp = FlashMLP(config, prefix=f"{prefix}.mlp", weights=weights)
+        self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights)
         self.process_group = weights.process_group
 
     def forward(
         self,
         hidden_states,
-        residual,
         cos,
         sin,
         cu_seqlen_prefill,
@@ -268,7 +231,8 @@ class GPT2Block(nn.Module):
         input_lengths,
         max_s,
     ):
-        hidden_states, residual = self.ln_1(hidden_states)
+        residual = hidden_states
+        hidden_states, _ = self.ln_1(hidden_states)
         attn_outputs = self.attn(
             hidden_states,
             cos,
@@ -280,8 +244,9 @@ class GPT2Block(nn.Module):
             input_lengths,
             max_s,
         )
-        hidden_states = attn_outputs[0] + residual
-        outputs = attn_outputs[1:]
+
+        # residual connection
+        hidden_states = attn_outputs + residual
 
         if self.add_cross_attention:
             hidden_states, residual = self.ln_cross_attn(hidden_states)
@@ -296,16 +261,15 @@ class GPT2Block(nn.Module):
                 input_lengths,
                 max_s,
             )
-            hidden_states = residual + attn_outputs[0]
-            outputs = outputs + attn_outputs[2:]  # add cross attentions if we output attention weights
-        
-        hidden_states, residual = self.ln_2(hidden_states)
-        feed_forward_hidden_states = self.mlp(hidden_states)
-        
-        # residual connection
-        hidden_states = residual + feed_forward_hidden_states
+            hidden_states = attn_outputs + residual
 
-        return outputs, hidden_states
+        residual = hidden_states
+        hidden_states, _ = self.ln_2(hidden_states)
+        feed_forward_hidden_states = self.mlp(hidden_states)
+        # residual connection
+        hidden_states = feed_forward_hidden_states + residual
+
+        return hidden_states
 
 
 class FlashGPT2PreTrainedModel(PreTrainedModel):
@@ -322,25 +286,26 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
 
         self.embed_dim = config.hidden_size
 
-        self.wte = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
-        self.wpe = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
+        self.wte = TensorParallelEmbedding(prefix="wte", weights=weights)
+        self.wpe = TensorParallelEmbedding(prefix="wpe", weights=weights)
 
-        self.h = nn.ModuleList(
+        self.layers = nn.ModuleList(
             [
                 GPT2Block(layer_id, config, weights)
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
         self.ln_f = FastLayerNorm.load(
-            prefix="transformer.ln_f",
+            prefix="ln_f",
             weights=weights,
             eps=config.layer_norm_epsilon,
         )
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.layers[0].attention.head_size
-        self.num_heads = self.layers[0].attention.num_heads
+        self.head_size = self.layers[0].attn.head_size
+        self.num_heads = self.layers[0].attn.num_heads
+        self.num_key_value_heads = self.layers[0].attn.num_key_value_heads
 
     def forward(
         self,
@@ -356,12 +321,16 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         inputs_embeds = self.wte(input_ids)
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds
+        
+        # Get rotary cos and sin for this forward
+        # Avoid to index in each layer
+        cos, sin = self.layers[0].attn.rotary_emb.get_cos_sin(
+            position_ids, max_s, hidden_states.dtype
+        )
 
-        residual = None
-        for i, layer in enumerate(self.h):
-            hidden_states, residual = layer(
+        for i, layer in enumerate(self.layers):
+            hidden_states = layer(
                 hidden_states,
-                residual,
                 cos,
                 sin,
                 cu_seqlen_prefill,
@@ -372,19 +341,14 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
                 max_s,
             )
 
-        hidden_states, _ = self.ln_f(hidden_states, residual)
-
+        hidden_states, _ = self.ln_f(hidden_states)
         return hidden_states
 
 
 class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
-        self.transformer = FlashGPT2Model(config, weights)
-
-        self.embed_out = TensorParallelHead.load(
-            config, prefix="lm_head", weights=weights
-        )
+        self.model = FlashGPT2Model(config, weights)
 
     def forward(
         self,
@@ -396,9 +360,10 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_data: AdapterBatchData,  # TODO: plumb this through
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        hidden_states = self.transformer(
+        hidden_states = self.model(
             input_ids,
             position_ids,
             cu_seqlen_prefill,
@@ -410,5 +375,8 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.embed_out(hidden_states)
+
+        # lm_head reuses the weights of the embedding layer
+        # https://github.com/huggingface/transformers/issues/6291
+        logits = hidden_states @ self.model.wte.weight.T
         return logits

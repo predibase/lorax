@@ -104,6 +104,10 @@ class FlashGPT2(FlashCausalLM):
             world_size=world_size,
         )
     
+    def get_layer_weights(self):
+        # TODO: enable dynamic adapter loading in LoRAX
+        return {}
+    
     @property
     def supports_adapter_loading(self) -> bool:
-        return False
+        return True
