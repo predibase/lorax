@@ -152,6 +152,10 @@ class QuantLinear(nn.Module):
     
     def scratch_spacing(self, max_input_len=8192, max_batch_size=32):
         return self.temp_dq_size() + self.temp_fwd_size(max_input_len, max_batch_size)
+
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.qweight
                
     
 class ExLlamaV2DeviceTensors:
