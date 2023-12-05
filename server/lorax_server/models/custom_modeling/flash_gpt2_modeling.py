@@ -72,18 +72,16 @@ class FlashGPT2Attention(torch.nn.Module):
             self.softmax_scale = self.head_dim ** -0.5
         else:
             self.softmax_scale = 1.0
-        self.is_cross_attention = config.add_cross_attention
+        
+        if config.add_cross_attention:
+            raise ValueError("Cross attention in GPT-2 is not supported.")
 
         # Layer-wise attention scaling, reordering, and upcasting
         self.scale_attn_by_inverse_layer_idx = config.scale_attn_by_inverse_layer_idx
         self.layer_idx = layer_id
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
-        if self.is_cross_attention:
-            self.c_attn = FastConv1D.load(config, prefix=f"{prefix}.c_attn", weights=weights)
-            self.q_attn = FastConv1D.load(config, prefix=f"{prefix}.q_attn", weights=weights)
-        else:
-            self.c_attn = FastConv1D.load(config, prefix=f"{prefix}.c_attn", weights=weights)
+        self.c_attn = FastConv1D.load(config, prefix=f"{prefix}.c_attn", weights=weights)
         self.c_proj = FastConv1D.load(config, prefix=f"{prefix}.c_proj", weights=weights)
 
         self.pruned_heads = set()
@@ -166,13 +164,11 @@ class GPT2MLP(nn.Module):
         self.c_fc = FastConv1D.load(config, prefix=f"{prefix}.c_fc", weights=weights)
         self.c_proj = FastConv1D.load(config, prefix=f"{prefix}.c_proj", weights=weights)
         self.act = ACT2FN[config.activation_function]
-        self.dropout = nn.Dropout(config.resid_pdrop)
 
     def forward(self, hidden_states: Optional[Tuple[torch.FloatTensor]]) -> torch.FloatTensor:
         hidden_states = self.c_fc(hidden_states)
         hidden_states = self.act(hidden_states)
         hidden_states = self.c_proj(hidden_states)
-        hidden_states = self.dropout(hidden_states)
         return hidden_states
 
 
@@ -193,15 +189,6 @@ class GPT2Block(nn.Module):
             prefix=f"{prefix}.ln_2", weights=weights, eps=layer_norm_eps
         )
 
-        self.add_cross_attention = config.add_cross_attention
-        if self.add_cross_attention:
-            self.crossattention = FlashGPT2Attention(
-                config, prefix=f"{prefix}.crossattention", weights=weights
-            )
-            self.ln_cross_attn = FastLayerNorm.load(
-                prefix=f"{prefix}.ln_cross_attn", weights=weights, eps=layer_norm_eps
-            )
-        
         self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights)
         self.process_group = weights.process_group
 
@@ -229,19 +216,6 @@ class GPT2Block(nn.Module):
 
         # residual connection
         hidden_states = attn_outputs + residual
-
-        if self.add_cross_attention:
-            hidden_states, residual = self.ln_cross_attn(hidden_states)
-            attn_outputs = self.crossattention(
-                hidden_states,
-                cu_seqlen_prefill,
-                kv_cache,
-                block_tables,
-                slots,
-                input_lengths,
-                max_s,
-            )
-            hidden_states = attn_outputs + residual
 
         residual = hidden_states
         hidden_states, _ = self.ln_2(hidden_states)
@@ -351,4 +325,5 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         # lm_head reuses the weights of the embedding layer
         # https://github.com/huggingface/transformers/issues/6291
         logits = hidden_states @ self.model.wte.weight.T
+        logits = logits[:, :self.model.config.vocab_size]
         return logits
