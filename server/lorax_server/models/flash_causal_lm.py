@@ -708,6 +708,9 @@ class FlashCausalLM(Model):
     @property
     def adapter_layers(self) -> List[str]:
         return []
+    
+    def get_num_layers_for_type(self, layer_type: str) -> int:
+        return 0
 
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.
@@ -747,7 +750,7 @@ class FlashCausalLM(Model):
         adapter_index: int, 
         layer_type: str,
     ):
-        nlayers = len(self.model.model.layers) if layer_type != LM_HEAD else 1
+        nlayers = self.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
         
