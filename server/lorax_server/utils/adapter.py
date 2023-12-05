@@ -49,6 +49,7 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
         adapter_weights.update(load_file(filename))
         
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
+    adapter_weight_names = set()
     module_map = {}
     for weight_name in weight_names:
         lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
@@ -57,10 +58,12 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
             continue
         
         module_map[weight_name] = {
-            "lora_A": adapter_weights[lora_a_name],
-            "lora_B": adapter_weights[lora_b_name],
+            "lora_A": (adapter_weights[lora_a_name], lora_a_name),
+            "lora_B": (adapter_weights[lora_b_name], lora_b_name),
         }
-    return module_map, adapter_config
+        adapter_weight_names.add(lora_a_name)
+        adapter_weight_names.add(lora_b_name)
+    return module_map, adapter_config, adapter_weight_names
 
 
 def compute_delta_weight(

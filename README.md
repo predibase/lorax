@@ -61,6 +61,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
     - [CodeLlama](https://huggingface.co/codellama)
 - 🌬️[Mistral](https://huggingface.co/mistralai)
     - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
+- 🔮 [Qwen](https://huggingface.co/Qwen)
 
 Other architectures are supported on a best effort basis, but do not support dynamical adapter loading.
 

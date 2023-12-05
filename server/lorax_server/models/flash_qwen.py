@@ -111,7 +111,7 @@ class FlashQwen(FlashCausalLM):
     def supports_adapter_loading(self) -> bool:
         return True
     
-    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "transformer.h"
