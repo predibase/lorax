@@ -123,7 +123,7 @@ REST:
 ```shell
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs": "蒙古国的首都是乌兰巴托（Ulaanbaatar）\n冰岛的首都是雷克雅未克（Reykjavik）\n埃塞俄比亚的首都是", "parameters": {"max_new_tokens": 64}}' \
+    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64}}' \
     -H 'Content-Type: application/json'
 ```
 
