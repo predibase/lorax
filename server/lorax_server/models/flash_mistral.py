@@ -9,7 +9,6 @@ from loguru import logger
 from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
 from transformers.models.llama import LlamaTokenizerFast
-from tqdm import tqdm
 from typing import Dict, List, Optional, Tuple, Type
 
 from lorax_server.pb import generate_pb2
@@ -23,11 +22,8 @@ from lorax_server.models.custom_modeling.flash_mistral_modeling import (
     MistralConfig,
 )
 from lorax_server.utils import (
-    compute_delta_weight,
     create_merged_weight_files,
-    get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
-    load_module_map,
     weight_files,
     Weights,
     HeterogeneousNextTokenChooser,
@@ -202,7 +198,7 @@ class FlashMistralBatch(FlashCausalLMBatch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
-        adapter_indices = torch.tensor(torch.cat(adapter_indices_list), dtype=torch.int64, device=device)
+        adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
         
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
@@ -415,7 +411,7 @@ class FlashMistral(FlashCausalLM):
             batch.prefill_cache_indices = None
         return logits
     
-    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
