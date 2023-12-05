@@ -41,7 +41,11 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, LM_HEAD, O_PROJ, UP_PROJ, AdapterBatchData
+
+
+C_ATTN = "c_attn"
+C_PROJ = "c_proj"
 
 
 class QwenConfig(PretrainedConfig):
@@ -151,52 +155,21 @@ class QwenRMSNorm(nn.Module):
 
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
-    head_size = config.hidden_size // config.num_attention_heads
+    projection_size = config.kv_channels * config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
-            head_size * config.num_attention_heads,
-            head_size * config.num_key_value_heads,
-            head_size * config.num_key_value_heads,
+        base_layer, layer_id, [C_ATTN], sizes=[
+            3 * projection_size,
         ], process_group=weights.process_group
     )
 
 
 def load_attention_multi(config, prefix, weights):
-    if config.num_attention_heads != config.num_key_value_heads:
-        return _load_gqa(config, prefix, weights)
-    else:
-        return TensorParallelColumnLinear.load_multi(
-            config,
-            prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
-            dim=0,
-            weights=weights,
-            bias=False,
-        )
-
-
-def _load_gqa(config, prefix: str, weights):
-    assert config.hidden_size % config.num_attention_heads == 0
-    assert config.num_attention_heads % weights.process_group.size() == 0
-
-    weight = weights.get_multi_weights_col(
-        prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
-        quantize=config.quantize,
+    return TensorParallelColumnLinear.load_multi(
+        config,
+        prefixes=[f"{prefix}.c_attn"],
         dim=0,
-    )
-
-    if config.quantize not in ["gptq"]:
-        weight = weight.to(dtype=weights.dtype).to(device=weights.device)
-
-        head_size = config.hidden_size // config.num_attention_heads
-        num_heads = config.num_attention_heads // weights.process_group.size()
-        num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert list(weight.shape) == [
-            (num_heads + 2 * num_key_value_heads) * head_size,
-            config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
-
-    return TensorParallelColumnLinear(
-        get_linear(weight, bias=None, quantize=config.quantize)
+        weights=weights,
+        bias=True,
     )
 
 
@@ -212,6 +185,7 @@ class FlashQwenAttention(torch.nn.Module):
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
+        self.projection_size = config.kv_channels * config.num_attention_heads
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
@@ -228,15 +202,13 @@ class FlashQwenAttention(torch.nn.Module):
                 f"and `num_shards`: {weights.process_group.size()}"
             )
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = (
-            config.num_key_value_heads // weights.process_group.size()
-        )
+        self.num_key_value_heads = self.num_heads
 
-        self.query_key_value = load_attention(config, prefix, weights, layer_id)
+        self.c_attn = load_attention(config, prefix, weights, layer_id)
 
-        self.o_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
-            prefix=f"{prefix}.o_proj",
+            prefix=f"{prefix}.c_proj",
             weights=weights,
             bias=False,
         ), layer_id, O_PROJ, process_group=weights.process_group)
@@ -244,27 +216,6 @@ class FlashQwenAttention(torch.nn.Module):
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
-
-    def get_query_key_value_weights(self, clone=True):
-        """Gets the query, key, and value weights from the attention layer.
-        
-        If `clone`, then the weights are cloned before being returned.
-        
-        NOTE: if not `clone`, then the weights are returned as views, meaning
-        that changes to the weights will be reflected in the attention layer.
-        """
-        query, key, value = self.query_key_value.base_layer.linear.weight.split(
-            [
-                self.head_size * self.num_heads,
-                self.head_size * self.num_key_value_heads,
-                self.head_size * self.num_key_value_heads,
-            ],
-            dim=0,
-        )
-
-        if clone:
-            return query.clone(), key.clone(), value.clone()
-        return query, key, value
 
     def forward(
         self,
@@ -279,11 +230,11 @@ class FlashQwenAttention(torch.nn.Module):
         max_s,
         adapter_data,
     ):
-        qkv = self.query_key_value(hidden_states, adapter_data)
+        qkv = self.c_attn(hidden_states, adapter_data)
         query, kv = qkv.split(
             [
-                self.head_size * self.num_heads,
-                2 * self.head_size * self.num_key_value_heads,
+                self.projection_size,
+                2 * self.projection_size,
             ],
             dim=1,
         )
@@ -327,7 +278,7 @@ class FlashQwenAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
+        return self.c_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
 class QwenMLP(nn.Module):
@@ -359,12 +310,12 @@ class QwenMLP(nn.Module):
             ], process_group=weights.process_group
         )
 
-        self.down_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
-            prefix=f"{prefix}.down_proj",
+            prefix=f"{prefix}.c_proj",
             weights=weights,
             bias=False,
-        ), layer_id, DOWN_PROJ, process_group=weights.process_group)
+        ), layer_id, C_PROJ, process_group=weights.process_group)
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
@@ -372,7 +323,7 @@ class QwenMLP(nn.Module):
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
         gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
+        return self.c_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
 class FlashQwenLayer(nn.Module):
