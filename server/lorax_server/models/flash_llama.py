@@ -1,4 +1,3 @@
-from collections import defaultdict
 import torch
 import torch.distributed
 
@@ -14,11 +13,8 @@ from lorax_server.models.custom_modeling.flash_llama_modeling import (
     LlamaConfig,
 )
 from lorax_server.utils import (
-    compute_delta_weight,
     create_merged_weight_files,
-    get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
-    load_module_map,
     weight_files,
     Weights,
 )
@@ -112,7 +108,7 @@ class FlashLlama(FlashCausalLM):
     def supports_adapter_loading(self) -> bool:
         return True
     
-    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"

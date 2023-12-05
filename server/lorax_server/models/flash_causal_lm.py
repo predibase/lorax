@@ -696,13 +696,13 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
-        self.layer_weights = self.get_adaptable_weights()
+        self.target_to_layer = self.adapter_target_to_layer()
 
     @property
     def supports_adapter_loading(self) -> bool:
         return False
     
-    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         return {}
     
     @property
@@ -736,10 +736,19 @@ class FlashCausalLM(Model):
             return
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
             logger.info(f"Loading adapter weights into model: {adapter_id}")
-            weight_names = tuple([v[0] for v in self.layer_weights.values()])
-            module_map, adapter_config = load_module_map(self.model_id, adapter_id, adapter_source, weight_names)
+            weight_names = tuple([v[0] for v in self.target_to_layer.values()])
+            module_map, adapter_config, adapter_weight_names = load_module_map(
+                self.model_id, adapter_id, adapter_source, weight_names
+            )
+
+            unused_weight_names = adapter_weight_names.copy()
             for layer_name in self.adapter_layers:
-                self.load_batched_adapter_weights(module_map, adapter_config, adapter_index, layer_name)
+                self.load_batched_adapter_weights(
+                    module_map, adapter_config, adapter_index, layer_name, unused_weight_names
+                )
+            
+            if len(unused_weight_names) > 0:
+                logger.warning(f"{adapter_id} unused adapter weights: {unused_weight_names}")
 
             self.adapter_id = adapter_id
 
@@ -749,6 +758,7 @@ class FlashCausalLM(Model):
         adapter_config: LoraConfig, 
         adapter_index: int, 
         layer_type: str,
+        unused_weight_names: Set[str],
     ):
         nlayers = self.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
@@ -756,7 +766,7 @@ class FlashCausalLM(Model):
         
         for layer_id in range(nlayers):
             key = (layer_id, layer_type)
-            weight_name, layer = self.layer_weights[key]
+            weight_name, layer = self.target_to_layer[key]
         
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
@@ -765,9 +775,12 @@ class FlashCausalLM(Model):
                 # There is no LoRA weight for this layer type in the adapter
                 return
             
-            lora_a = module_map[weight_name]["lora_A"].to(base_device, self.dtype)
-            lora_b = module_map[weight_name]["lora_B"].to(base_device, self.dtype)
+            lora_a, lora_a_name = module_map[weight_name]["lora_A"].to(base_device, self.dtype)
+            lora_b, lora_b_name = module_map[weight_name]["lora_B"].to(base_device, self.dtype)
             scale = adapter_config.lora_alpha / adapter_config.r
+
+            unused_weight_names.discard(lora_a_name)
+            unused_weight_names.discard(lora_b_name)
 
             # Merge scaling factor into lora_b due to associativity of matrix multiplication:
             # (A * B) * C = A * (B * C)
