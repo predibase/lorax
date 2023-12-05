@@ -85,7 +85,7 @@ class FlashLlama(FlashCausalLM):
             merged_weight_filenames=merged_weight_filenames
         )
 
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq"]:
             weights._set_gptq_params(model_id)
 
         self.model_id = model_id
