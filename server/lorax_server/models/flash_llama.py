@@ -109,8 +109,7 @@ class FlashLlama(FlashCausalLM):
     def supports_adapter_loading(self) -> bool:
         return True
     
-    @property
-    def layer_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"

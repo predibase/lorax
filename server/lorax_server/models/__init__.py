@@ -285,7 +285,7 @@ def get_model(
         raise NotImplementedError("Mistral model requires flash attention v2")
     
     if model_type == "qwen":
-        if MISTRAL:
+        if FLASH_ATTENTION:
             return FlashQwen(
                 model_id,
                 adapter_id,

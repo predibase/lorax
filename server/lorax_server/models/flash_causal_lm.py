@@ -696,11 +696,14 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
-        self.layer_weights = self.model.layer_weights
+        self.layer_weights = self.get_adaptable_weights()
 
     @property
     def supports_adapter_loading(self) -> bool:
         return False
+    
+    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        return {}
 
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.

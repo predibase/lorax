@@ -21,7 +21,7 @@ from lorax_server.utils import (
     Weights,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from server.lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
 
@@ -107,8 +107,7 @@ class FlashQwen(FlashCausalLM):
     def supports_adapter_loading(self) -> bool:
         return True
     
-    @property
-    def layer_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+    def get_adaptable_weights(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "transformer.h"
