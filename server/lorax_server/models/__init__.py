@@ -49,9 +49,8 @@ FLASH_ATTENTION = True
 try:
     from lorax_server.models.flash_rw import FlashRWSharded
     from lorax_server.models.flash_neox import FlashNeoXSharded
-    from lorax_server.models.flash_llama import (
-        FlashLlama,
-    )
+    from lorax_server.models.flash_llama import FlashLlama
+    from lorax_server.models.flash_gpt2 import FlashGPT2
     from lorax_server.models.flash_qwen import FlashQwen
     from lorax_server.models.flash_santacoder import (
         FlashSantacoderSharded,
@@ -239,6 +238,19 @@ def get_model(
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
+
+    if model_type == "gpt2":
+        if FLASH_ATTENTION:
+            return FlashGPT2(
+                model_id,
+                adapter_id,
+                adapter_source,
+                revision,
+                quantize=quantize,
+                dtype=dtype,
+                trust_remote_code=trust_remote_code,
+            )
+        raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format("GPT-2"))
 
     if model_type in ["RefinedWeb", "RefinedWebModel", "falcon"]:
         if sharded:

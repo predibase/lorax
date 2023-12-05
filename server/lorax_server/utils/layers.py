@@ -85,6 +85,33 @@ class FastLinear(nn.Module):
         return F.linear(input, self.weight, self.bias)
 
 
+class FastConv1D(nn.Module):
+    def __init__(
+        self,
+        weight,
+        bias,
+    ) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(weight)
+        if bias is not None:
+            self.bias = nn.Parameter(bias)
+        else:
+            self.bias = None
+        self.nf = weight.shape[1]
+
+    @classmethod
+    def load(cls, config, prefix: str, weights):
+        weight = weights.get_tensor(f"{prefix}.weight")
+        bias = weights.get_tensor(f"{prefix}.bias")
+        return cls(weight, bias)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        size_out = input.size()[:-1] + (self.nf,)
+        x = torch.addmm(self.bias, input.view(-1, input.size(-1)), self.weight)
+        x = x.view(size_out)
+        return x
+
+
 class Linear8bitLt(nn.Module):
     def __init__(
         self,
