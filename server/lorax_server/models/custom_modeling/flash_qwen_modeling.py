@@ -330,18 +330,18 @@ class FlashQwenLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
-        self.self_attn = FlashQwenAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
+        self.attn = FlashQwenAttention(
+            prefix=f"{prefix}.attn", config=config, weights=weights, layer_id=layer_id,
         )
         self.mlp = QwenMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
-        self.input_layernorm = QwenRMSNorm(
-            prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
+        self.ln_1 = QwenRMSNorm(
+            prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon
         )
-        self.post_attention_layernorm = QwenRMSNorm(
-            prefix=f"{prefix}.post_attention_layernorm",
+        self.ln_2 = QwenRMSNorm(
+            prefix=f"{prefix}.ln_2",
             weights=weights,
-            eps=config.rms_norm_eps,
+            eps=config.layer_norm_epsilon,
         )
 
     def forward(
@@ -358,10 +358,10 @@ class FlashQwenLayer(nn.Module):
         max_s,
         adapter_data,
     ):
-        normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
+        normed_hidden_states, res = self.ln_1(hidden_states, residual)
 
         # Self Attention
-        attn_output = self.self_attn(
+        attn_output = self.attn(
             normed_hidden_states,
             cos,
             sin,
@@ -375,7 +375,7 @@ class FlashQwenLayer(nn.Module):
         )
 
         # faster post attention rms norm
-        normed_attn_res_output, attn_res = self.post_attention_layernorm(
+        normed_attn_res_output, attn_res = self.ln_2(
             attn_output, res
         )
 
@@ -391,10 +391,10 @@ class FlashQwenModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix="model.embed_tokens", weights=weights
+        self.wte = TensorParallelEmbedding(
+            prefix="model.wte", weights=weights
         )
-        self.layers = nn.ModuleList(
+        self.h = nn.ModuleList(
             [
                 FlashQwenLayer(
                     layer_id,
@@ -404,15 +404,15 @@ class FlashQwenModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = QwenRMSNorm(
-            prefix="model.norm", weights=weights, eps=config.rms_norm_eps
+        self.ln_f = QwenRMSNorm(
+            prefix="model.ln_f", weights=weights, eps=config.layer_norm_epsilon
         )
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.layers[0].self_attn.head_size
-        self.num_heads = self.layers[0].self_attn.num_heads
-        self.num_key_value_heads = self.layers[0].self_attn.num_key_value_heads
+        self.head_size = self.h[0].self_attn.head_size
+        self.num_heads = self.h[0].self_attn.num_heads
+        self.num_key_value_heads = self.h[0].self_attn.num_key_value_heads
 
     def forward(
         self,
@@ -426,16 +426,16 @@ class FlashQwenModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
-        hidden_states = self.embed_tokens(input_ids)
+        hidden_states = self.wte(input_ids)
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
+        cos, sin = self.h[0].attn.rotary_emb.get_cos_sin(
             position_ids, max_s, hidden_states.dtype
         )
 
         residual = None
-        for i, layer in enumerate(self.layers):
+        for i, layer in enumerate(self.h):
             hidden_states, residual = layer(
                 hidden_states,
                 residual,
@@ -450,7 +450,7 @@ class FlashQwenModel(torch.nn.Module):
                 adapter_data,
             )
 
-        hidden_states, _ = self.norm(hidden_states, residual)
+        hidden_states, _ = self.ln_f(hidden_states, residual)
 
         return hidden_states
 
@@ -459,7 +459,7 @@ class FlashQwenForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
-        self.model = FlashQwenModel(config, weights)
+        self.transformer = FlashQwenModel(config, weights)
         self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
@@ -479,7 +479,7 @@ class FlashQwenForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        hidden_states = self.model(
+        hidden_states = self.transformer(
             input_ids,
             position_ids,
             cu_seqlen_prefill,
