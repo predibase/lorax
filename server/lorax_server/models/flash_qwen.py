@@ -53,7 +53,7 @@ class FlashQwen(FlashCausalLM):
             revision=revision,
             padding_side="left",
             truncation_side="left",
-            trust_remote_code=True,
+            trust_remote_code=trust_remote_code,
         )
 
         config = QwenConfig.from_pretrained(
