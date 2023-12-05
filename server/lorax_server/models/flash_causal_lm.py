@@ -236,7 +236,7 @@ class FlashCausalLMBatch(Batch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
-        adapter_indices = torch.tensor(torch.cat(adapter_indices_list), dtype=torch.int64, device=device)
+        adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
@@ -775,8 +775,12 @@ class FlashCausalLM(Model):
                 # There is no LoRA weight for this layer type in the adapter
                 return
             
-            lora_a, lora_a_name = module_map[weight_name]["lora_A"].to(base_device, self.dtype)
-            lora_b, lora_b_name = module_map[weight_name]["lora_B"].to(base_device, self.dtype)
+            lora_a, lora_a_name = module_map[weight_name]["lora_A"]
+            lora_a = lora_a.to(base_device, self.dtype)
+
+            lora_b, lora_b_name = module_map[weight_name]["lora_B"]
+            lora_b = lora_b.to(base_device, self.dtype)
+
             scale = adapter_config.lora_alpha / adapter_config.r
 
             unused_weight_names.discard(lora_a_name)
