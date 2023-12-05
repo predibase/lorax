@@ -41,7 +41,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, LM_HEAD, O_PROJ, UP_PROJ, AdapterBatchData
+from lorax_server.utils.lora import LM_HEAD, AdapterBatchData
 
 
 C_ATTN = "c_attn"
@@ -105,7 +105,7 @@ class QwenConfig(PretrainedConfig):
 class QwenRMSNorm(nn.Module):
     def __init__(self, prefix, weights, eps=1e-6):
         """
-        QwenRMSNorm is equivalent to T5LayerNorm
+        QwenRMSNorm is equivalent to LlamaLayerNorm
         """
         super().__init__()
 
@@ -213,7 +213,7 @@ class FlashQwenAttention(torch.nn.Module):
             prefix=f"{prefix}.c_proj",
             weights=weights,
             bias=False,
-        ), layer_id, O_PROJ, process_group=weights.process_group)
+        ), layer_id, C_PROJ, process_group=weights.process_group)
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -300,13 +300,13 @@ class QwenMLP(nn.Module):
         # Fuse gate and up proj
         gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
-            prefixes=[f"{prefix}.w1", f"{prefix}.w2"],
+            prefixes=[f"{prefix}.w2", f"{prefix}.w1"],
             weights=weights,
             dim=0,
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [W1, W2], sizes=[
+            gate_up_proj, layer_id, [W2, W1], sizes=[
                 config.intermediate_size // 2,
                 config.intermediate_size // 2,
             ], process_group=weights.process_group

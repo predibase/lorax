@@ -10,7 +10,7 @@ from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
 from transformers.models.llama import LlamaTokenizerFast
 from tqdm import tqdm
-from typing import Dict, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from lorax_server.pb import generate_pb2
 from lorax_server.models import FlashCausalLM
@@ -42,6 +42,8 @@ tracer = trace.get_tracer(__name__)
 # Will be set in init
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
+
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
 
 
 # Adds windowing logic to FlashCausalLMBatch
@@ -429,3 +431,7 @@ class FlashMistral(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return ADAPTER_LAYERS

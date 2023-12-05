@@ -4,8 +4,7 @@ import torch.distributed
 from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from tqdm import tqdm
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen_modeling import (
@@ -26,6 +25,9 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
+
+
+ADAPTER_LAYERS = [C_ATTN, C_PROJ, W1, W2, LM_HEAD]
 
 
 class FlashQwen(FlashCausalLM):
@@ -123,3 +125,7 @@ class FlashQwen(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return ADAPTER_LAYERS

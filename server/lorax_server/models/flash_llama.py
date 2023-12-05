@@ -6,7 +6,7 @@ from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
 from tqdm import tqdm
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
@@ -26,6 +26,9 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)
+
+
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
 
 
 class FlashLlama(FlashCausalLM):
@@ -125,3 +128,7 @@ class FlashLlama(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return ADAPTER_LAYERS
