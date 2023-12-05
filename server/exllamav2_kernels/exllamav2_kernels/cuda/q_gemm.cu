@@ -19,6 +19,9 @@
 #include "q_gemm_kernel_gptq.cuh"
 
 #if defined(USE_ROCM)
+
+#include <hipblas/hipblas.h>
+
 __host__ __forceinline__ hipblasStatus_t __compat_hipblasHgemm(hipblasHandle_t    handle,
                                                                hipblasOperation_t transA,
                                                                hipblasOperation_t transB,
