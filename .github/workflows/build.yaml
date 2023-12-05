@@ -38,12 +38,6 @@ jobs:
           large-packages: false
           swap-storage: true
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2.10.0
-
-      - name: Set up containerd for ubuntu
-        uses: crazy-max/ghaction-setup-containerd@v2.2.0
-        
       - name: Install soci
         uses: lerentis/soci-installer@v1.0.1
         with:
@@ -51,6 +45,12 @@ jobs:
       
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2.1.0
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2.10.0
+
+      - name: Set up containerd for ubuntu
+        uses: crazy-max/ghaction-setup-containerd@v2.2.0
 
       - name: Docker meta
         id: meta
@@ -64,6 +64,10 @@ jobs:
             type=sha,prefix=,suffix=,format=short
             type=raw,value=latest
       
+      - name: Set output
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
       - name: Build Docker image
         uses: docker/build-push-action@v2
         with:
@@ -71,18 +75,16 @@ jobs:
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=oci,dest=/tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          outputs: type=oci,dest=/tmp/lorax-${{ steps.vars.outputs.sha_short }}.tar
     
       - name: Import image in containerd
         env:
-          tags: ${{ steps.meta.outputs.tags }}
+          sha_short: ${{ steps.vars.outputs.sha_short }}
         run: |
-          echo $tags
-          for tag in $tags
-          do
-            sudo ctr i import --base-name $tag --digests /tmp/lorax-${{ steps.meta.outputs.version }}.tar
-          done
-          rm -rf /tmp/lorax-${{ steps.meta.outputs.version }}.tar
+          echo "Importing $sha_short to GHCR"
+          sudo ctr i import --digests /tmp/lorax-$sha_short.tar
+          # Delete the on disk copy
+          rm -rf /tmp/lorax-$sha_short.tar
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v1
@@ -97,6 +99,7 @@ jobs:
         run: |
           for tag in $tags
           do
+            echo "Pushing $tag to GHCR"
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
 
@@ -104,8 +107,23 @@ jobs:
         env:
           tags: ${{ steps.meta.outputs.tags }}
         run: |
+          export SOCI_PATH=$HOME/.soci/soci
           for tag in $tags
           do
-            sudo soci create $tag
-            sudo soci push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
+            echo "Creating soci index for $tag"
+            sudo $SOCI_PATH create $tag
+            echo "Pushing soci index for $tag"
+            sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
+
+      - name: Prune older images
+        env:
+          sha_short: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          # Delete images older than a day from docker store
+          docker image prune -a --filter "until=24h"
+
+          # Delete the SHA image from containerd store
+          # Leave the latest around for faster import next time
+          sudo ctr i rm ghcr.io/predibase/lorax:$sha_short
+  
