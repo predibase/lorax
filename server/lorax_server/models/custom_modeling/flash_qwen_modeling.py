@@ -46,6 +46,8 @@ from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, LM_HEAD, O_PROJ, UP_PR
 
 C_ATTN = "c_attn"
 C_PROJ = "c_proj"
+W1 = "w1"
+W2 = "w2"
 
 
 class QwenConfig(PretrainedConfig):
@@ -304,7 +306,7 @@ class QwenMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, ["w1", "w2"], sizes=[
+            gate_up_proj, layer_id, [W1, W2], sizes=[
                 config.intermediate_size // 2,
                 config.intermediate_size // 2,
             ], process_group=weights.process_group
@@ -322,7 +324,7 @@ class QwenMLP(nn.Module):
 
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
-        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
+        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size // 2)
         return self.c_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 

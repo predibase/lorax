@@ -11,6 +11,8 @@ from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen_modeling import (
     C_ATTN,
     C_PROJ,
+    W1,
+    W2,
     FlashQwenForCausalLM,
     QwenConfig,
 )
@@ -115,8 +117,8 @@ class FlashQwen(FlashCausalLM):
             layer_weights[(i, C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
             layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
 
-            layer_weights[(i, "w1")] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
-            layer_weights[(i, "w2")] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
+            layer_weights[(i, W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
+            layer_weights[(i, W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
             layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
