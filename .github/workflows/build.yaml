@@ -91,6 +91,17 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
 
+    
+      - name: Push image with containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            echo "Pushing $tag to GHCR"
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+          done
+      
       - name: Create and push soci index
         env:
           tags: ${{ steps.meta.outputs.tags }}
@@ -104,10 +115,11 @@ jobs:
             sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
 
-      - name: Push image with containerd
+      - name: Push image with containerd (again) to ensure latest tag is "latest"
         env:
           tags: ${{ steps.meta.outputs.tags }}
         run: |
+          # We do this because if soci index is the last one pushed, it messes up the quick start on GHCR
           for tag in $tags
           do
             echo "Pushing $tag to GHCR"
