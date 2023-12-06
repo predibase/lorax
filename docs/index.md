@@ -4,7 +4,7 @@
     <img src="images/lorax_guy.png" alt="LoRAX Logo" style="width:200px;" />
 </p>
 <p align="center">
-    <em>The LLM inference server that speaks for the GPUs</em>
+    <em>Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs</em>
 </p>
 <p align="center">
 
