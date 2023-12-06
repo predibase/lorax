@@ -1,0 +1,35 @@
+site_name: LoRAX Docs
+theme:
+  name: material
+  font:
+    text: Roboto
+  palette:
+    # primary: deep orange
+    # accent: deep orange
+    # Palette toggle for light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+      primary: deep orange
+      accent: deep orange
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+      primary: deep orange
+      accent: deep orange
+
+repo_url: https://github.com/predibase/lorax
+repo_name: predibase/lorax
+
+copyright: Copyright &copy; 2023 Predibase, Inc.
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github 
+      link: https://github.com/predibase/lorax
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/CBgdrGnZjy
