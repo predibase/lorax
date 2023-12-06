@@ -24,6 +24,13 @@ theme:
       primary: deep orange
       accent: deep orange
 
+nav:
+  - LoRAX: index.md
+  - 🚀 Getting Started:
+      - Docker: getting_started/docker.md
+      - Kubernetes (Helm): getting_started/kubernetes.md
+      - Local: getting_started/local.md
+
 repo_url: https://github.com/predibase/lorax
 repo_name: predibase/lorax
 
