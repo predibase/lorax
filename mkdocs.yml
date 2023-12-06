@@ -30,6 +30,18 @@ nav:
       - Docker: getting_started/docker.md
       - Kubernetes (Helm): getting_started/kubernetes.md
       - Local: getting_started/local.md
+  - 🧮 Models:
+      - Base Models: reference/base_models.md
+      - Adapters: reference/adapters.md
+  - 📚 Reference:
+      - REST API: reference/rest_api.md
+      - Python Client: reference/python_client.md
+  - 🔬 Guides:
+      - Fine-Tuning: guides/fine_tuning.md
+      - Storage: guides/storage.md
+      - Quantization: guides/quantization.md
+      - Multi-GPU: guides/multi_gpu.md
+      - Memory Management: guides/memory_management.md
 
 repo_url: https://github.com/predibase/lorax
 repo_name: predibase/lorax
