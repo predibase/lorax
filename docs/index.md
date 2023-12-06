@@ -57,9 +57,7 @@ Supported adapters include LoRA adapters trained using the [PEFT](https://github
 
 We recommend starting with our pre-built Docker image to avoid compiling custom CUDA kernels and other dependencies.
 
-For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](./getting_started/docker.md).
-
-**Run the Docker container:**
+### Launch LoRAX Server
 
 ```shell
 model=mistralai/Mistral-7B-Instruct-v0.1
@@ -69,7 +67,11 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
     ghcr.io/predibase/lorax:latest --model-id $model
 ```
 
-**Prompt the base LLM:**
+For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](./getting_started/docker.md).
+
+### Prompt via REST API
+
+Prompt base LLM:
 
 ```shell
 curl 127.0.0.1:8080/generate \
@@ -78,7 +80,7 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-**Prompt a LoRA adapter:**
+Prompt a LoRA adapter:
 
 ```shell
 curl 127.0.0.1:8080/generate \
@@ -86,6 +88,34 @@ curl 127.0.0.1:8080/generate \
     -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
     -H 'Content-Type: application/json'
 ```
+
+See [Reference - REST API](./reference/rest_api.md) for full details.
+
+### Prompt via Python Client
+
+Install:
+
+```shell
+pip install lorax-client
+```
+
+Run:
+
+```python
+from lorax import Client
+
+client = Client("http://127.0.0.1:8080")
+
+# Prompt the base LLM
+prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
+print(client.generate(prompt, max_new_tokens=64).generated_text)
+
+# Prompt a LoRA adapter
+adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
+print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
+```
+
+See [Reference - Python Client](./reference/python_client.md) for full details.
 
 For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md) and [Getting Started - Local](./getting_started/local.md).
 
