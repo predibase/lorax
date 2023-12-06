@@ -20,11 +20,21 @@ from lorax_server.utils import (
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.models.flash_causal_lm import AdapterLayerMeta
 
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
+ADAPTER_LAYERS = [
+    AdapterLayerMeta(Q_PROJ, Q_PROJ),
+    AdapterLayerMeta(K_PROJ, K_PROJ),
+    AdapterLayerMeta(V_PROJ, V_PROJ),
+    AdapterLayerMeta(O_PROJ, O_PROJ),
+    AdapterLayerMeta(GATE_PROJ, GATE_PROJ),
+    AdapterLayerMeta(UP_PROJ, UP_PROJ),
+    AdapterLayerMeta(DOWN_PROJ, DOWN_PROJ),
+    AdapterLayerMeta(LM_HEAD, LM_HEAD),
+]
 
 
 class FlashLlama(FlashCausalLM):
@@ -126,7 +136,7 @@ class FlashLlama(FlashCausalLM):
         return layer_weights
     
     @property
-    def adapter_layers(self) -> List[str]:
+    def adapter_layers(self) -> List[AdapterLayerMeta]:
         return ADAPTER_LAYERS
     
     def get_num_layers_for_type(self, layer_type: str) -> int:

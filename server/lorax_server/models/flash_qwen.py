@@ -23,11 +23,21 @@ from lorax_server.utils import (
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD
+from lorax_server.models.flash_causal_lm import AdapterLayerMeta
 
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [C_ATTN, C_PROJ, W1, W2, LM_HEAD]
+C_PROJ_ATTN = f"{C_PROJ}_attn"
+C_PROJ_MLP = f"{C_PROJ}_mlp"
+ADAPTER_LAYERS = [
+    AdapterLayerMeta(C_ATTN, C_ATTN),
+    AdapterLayerMeta(C_PROJ, C_PROJ_ATTN),
+    AdapterLayerMeta(W1, W1),
+    AdapterLayerMeta(W2, W2),
+    AdapterLayerMeta(C_PROJ, C_PROJ_MLP),
+    AdapterLayerMeta(LM_HEAD, LM_HEAD),
+]
 
 
 class FlashQwen(FlashCausalLM):
@@ -117,11 +127,11 @@ class FlashQwen(FlashCausalLM):
         prefix = "transformer.h"
         for i, layer in enumerate(self.model.transformer.h):
             layer_weights[(i, C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
-            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
+            layer_weights[(i, C_PROJ_ATTN)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
 
             layer_weights[(i, W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
             layer_weights[(i, W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
-            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
+            layer_weights[(i, C_PROJ_MLP)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights

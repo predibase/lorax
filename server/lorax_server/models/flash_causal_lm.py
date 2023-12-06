@@ -661,6 +661,12 @@ class FlashCausalLMBatch(Batch):
 
     def __len__(self):
         return len(self.requests)
+    
+
+@dataclass
+class AdapterLayerMeta:
+    layer_type: str
+    layer_key: str
 
 
 class FlashCausalLM(Model):
@@ -706,7 +712,7 @@ class FlashCausalLM(Model):
         return {}
     
     @property
-    def adapter_layers(self) -> List[str]:
+    def adapter_layers(self) -> List[AdapterLayerMeta]:
         return []
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
@@ -742,9 +748,9 @@ class FlashCausalLM(Model):
             )
 
             unused_weight_names = adapter_weight_names.copy()
-            for layer_name in self.adapter_layers:
+            for layer_meta in self.adapter_layers:
                 self.load_batched_adapter_weights(
-                    module_map, adapter_config, adapter_index, layer_name, unused_weight_names
+                    module_map, adapter_config, adapter_index, layer_meta, unused_weight_names
                 )
             
             if len(unused_weight_names) > 0:
@@ -757,15 +763,15 @@ class FlashCausalLM(Model):
         module_map: Dict[str, Dict], 
         adapter_config: LoraConfig, 
         adapter_index: int, 
-        layer_type: str,
+        layer_meta: AdapterLayerMeta,
         unused_weight_names: Set[str],
     ):
-        nlayers = self.get_num_layers_for_type(layer_type)
+        nlayers = self.get_num_layers_for_type(layer_meta.layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
         
         for layer_id in range(nlayers):
-            key = (layer_id, layer_type)
+            key = (layer_id, layer_meta.layer_key)
             weight_name, layer = self.target_to_layer[key]
         
             base_weight = layer.base_layer.linear.weight
@@ -791,8 +797,8 @@ class FlashCausalLM(Model):
             lora_a_list[layer_id] = lora_a.transpose(0, 1)
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
 
-        q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group)
-        q_lora_weights = self.batched_lora_weights[layer_type]
+        q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, layer_meta.layer_type, self.process_group)
+        q_lora_weights = self.batched_lora_weights[layer_meta.layer_key]
         q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):
@@ -812,9 +818,9 @@ class FlashCausalLM(Model):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             return
         else:
-            for layer_name in self.adapter_layers:
-                if layer_name in self.batched_lora_weights:
-                    self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
+            for layer_meta in self.adapter_layers:
+                if layer_meta.layer_key in self.batched_lora_weights:
+                    self.batched_lora_weights[layer_meta.layer_key].remove_adapter(adapter_index)
 
             self.adapter_id = BASE_MODEL_ADAPTER_ID
 

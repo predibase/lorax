@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple, Type
 
 from lorax_server.pb import generate_pb2
 from lorax_server.models import FlashCausalLM
-from lorax_server.models.flash_causal_lm import FlashCausalLMBatch, BLOCK_SIZE
+from lorax_server.models.flash_causal_lm import AdapterLayerMeta, FlashCausalLMBatch, BLOCK_SIZE
 from lorax_server.models.cache_manager import (
     get_cache_manager,
 )
@@ -39,7 +39,16 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
+ADAPTER_LAYERS = [
+    AdapterLayerMeta(Q_PROJ, Q_PROJ),
+    AdapterLayerMeta(K_PROJ, K_PROJ),
+    AdapterLayerMeta(V_PROJ, V_PROJ),
+    AdapterLayerMeta(O_PROJ, O_PROJ),
+    AdapterLayerMeta(GATE_PROJ, GATE_PROJ),
+    AdapterLayerMeta(UP_PROJ, UP_PROJ),
+    AdapterLayerMeta(DOWN_PROJ, DOWN_PROJ),
+    AdapterLayerMeta(LM_HEAD, LM_HEAD),
+]
 
 
 # Adds windowing logic to FlashCausalLMBatch
@@ -429,7 +438,7 @@ class FlashMistral(FlashCausalLM):
         return layer_weights
     
     @property
-    def adapter_layers(self) -> List[str]:
+    def adapter_layers(self) -> List[AdapterLayerMeta]:
         return ADAPTER_LAYERS
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
