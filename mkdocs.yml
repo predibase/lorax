@@ -54,3 +54,6 @@ extra:
       link: https://github.com/predibase/lorax
     - icon: fontawesome/brands/discord
       link: https://discord.gg/CBgdrGnZjy
+
+plugins:
+  - render_swagger
