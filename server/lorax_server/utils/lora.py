@@ -22,9 +22,6 @@ DOWN_PROJ = "down_proj"
 
 LM_HEAD = "lm_head"
 
-# TODO(travis): push this down into the model
-ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD, "c_proj"}
-
 EMPTY_TENSOR = torch.tensor([])
 
 
@@ -87,9 +84,10 @@ class MergedLoraWeights:
         adapter_config: LoraConfig,
         layer_type: str,
         process_group: ProcessGroup,
+        is_row_parallel: bool,
     ):
         # [num_layers, hidden_size, r]
-        split_dim = 0 if layer_type in ROW_PARALLEL else 1
+        split_dim = 0 if is_row_parallel else 1
         weights_a = [
             orient_for_rank(shard_on_dim(w, dim=split_dim, process_group=process_group), adapter_config.r)
             for w in weights_a

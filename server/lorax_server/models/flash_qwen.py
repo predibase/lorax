@@ -8,10 +8,11 @@ from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen_modeling import (
-    C_ATTN,
-    C_PROJ,
-    W1,
-    W2,
+    ATTN_C_ATTN,
+    ATTN_C_PROJ,
+    MLP_C_PROJ,
+    MLP_W1,
+    MLP_W2,
     FlashQwenForCausalLM,
     QwenConfig,
 )
@@ -27,7 +28,8 @@ from lorax_server.utils.lora import LM_HEAD
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [C_ATTN, C_PROJ, W1, W2, LM_HEAD]
+ADAPTER_LAYERS = [ATTN_C_ATTN, ATTN_C_PROJ, MLP_W1, MLP_W2, MLP_C_PROJ, LM_HEAD]
+ROW_PARALLEL = {ATTN_C_PROJ, MLP_C_PROJ, LM_HEAD}
 
 
 class FlashQwen(FlashCausalLM):
@@ -116,12 +118,12 @@ class FlashQwen(FlashCausalLM):
 
         prefix = "transformer.h"
         for i, layer in enumerate(self.model.transformer.h):
-            layer_weights[(i, C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
-            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
+            layer_weights[(i, ATTN_C_ATTN)] = (f"{prefix}.{i}.attn.c_attn", layer.attn.c_attn)
+            layer_weights[(i, ATTN_C_PROJ)] = (f"{prefix}.{i}.attn.c_proj", layer.attn.c_proj)
 
-            layer_weights[(i, W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
-            layer_weights[(i, W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
-            layer_weights[(i, C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
+            layer_weights[(i, MLP_W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
+            layer_weights[(i, MLP_W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
+            layer_weights[(i, MLP_C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
@@ -132,3 +134,6 @@ class FlashQwen(FlashCausalLM):
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
+    
+    def is_row_parallel(self, layer_type: str) -> bool:
+        return layer_type in ROW_PARALLEL
