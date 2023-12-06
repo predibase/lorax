@@ -205,11 +205,13 @@ class GPT2MLP(nn.Module):
             bias=True,
             fan_in_fan_out=True,
         )
+        # https://huggingface.co/docs/transformers/model_doc/gpt2#transformers.GPT2Config.n_inner
+        n_inner = config.n_inner if config.n_inner is not None else config.n_embd * 4
         self.c_fc = TensorParallelMultiAdapterLinear.load(
             c_fc, 
             layer_id, 
             [MLP_C_FC], 
-            sizes=[config.n_embd],
+            sizes=[n_inner],
             process_group=weights.process_group
         )
 
