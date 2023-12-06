@@ -58,5 +58,12 @@ extra:
     - icon: fontawesome/brands/discord
       link: https://discord.gg/CBgdrGnZjy
 
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
 plugins:
   - render_swagger
