@@ -30,7 +30,9 @@ from typing import Optional, List, Tuple
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
-    FastConv1D,
+    FastLinear,
+    TensorParallelAdapterRowLinear,
+    TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
@@ -39,8 +41,37 @@ from lorax_server.utils.layers import (
     PositionRotaryEmbedding,
     get_linear,
 )
-
 from lorax_server.utils.lora import AdapterBatchData
+
+ATTN_C_ATTN = "attn.c_attn"
+ATTN_C_PROJ = "attn.c_proj"
+MLP_C_FC = "mlp.c_fc"
+MLP_C_PROJ = "mlp.c_proj"
+LM_HEAD = "lm_head"
+
+ADAPTER_LAYERS = [ATTN_C_ATTN, ATTN_C_PROJ, MLP_C_FC, MLP_C_PROJ]
+
+
+def load_attention_multi(config, prefix, weights, fan_in_fan_out=False):
+    return TensorParallelColumnLinear.load_multi(
+        config,
+        prefixes=[f"{prefix}.c_attn"],
+        dim=0,
+        weights=weights,
+        bias=True,
+        fan_in_fan_out=fan_in_fan_out,
+    )
+
+
+def load_attention(config, prefix, weights, layer_id, layer_names, fan_in_fan_out=False):
+    base_layer = load_attention_multi(config, prefix, weights, fan_in_fan_out=fan_in_fan_out)
+    projection_size = config.n_embd
+    return TensorParallelMultiAdapterLinear.load(
+        base_layer, layer_id, layer_names, sizes=[
+            3 * projection_size,
+        ], process_group=weights.process_group
+    )
+    
 
 
 class FlashGPT2Attention(torch.nn.Module):
@@ -81,8 +112,16 @@ class FlashGPT2Attention(torch.nn.Module):
         self.layer_idx = layer_id
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
-        self.c_attn = FastConv1D.load(config, prefix=f"{prefix}.c_attn", weights=weights)
-        self.c_proj = FastConv1D.load(config, prefix=f"{prefix}.c_proj", weights=weights)
+        self.c_attn = load_attention(config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True)
+        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+            config,
+            prefix=f"{prefix}.c_proj",
+            weights=weights,
+            bias=True,
+            fan_in_fan_out=True,
+        ), layer_id, ATTN_C_PROJ, process_group=weights.process_group)
+
+        # self.c_proj = FastLinear.load(config, prefix=f"{prefix}.c_proj", weights=weights, bias=True, fan_in_fan_out=True)
 
         self.pruned_heads = set()
 
@@ -115,8 +154,9 @@ class FlashGPT2Attention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_data
     ):
-        qkv = self.c_attn(hidden_states)
+        qkv = self.c_attn(hidden_states, adapter_data)
         qkv = qkv.view(-1, 3, self.num_heads, self.head_size)
 
         paged_attn.reshape_and_cache(
@@ -154,21 +194,40 @@ class FlashGPT2Attention(torch.nn.Module):
             )
 
         attn_output = attn_output.view(-1, self.num_heads * self.head_size)
-        out = self.c_proj(attn_output)
+        out = self.c_proj(attn_output, adapter_data)
         return out
 
 
 class GPT2MLP(nn.Module):
-    def __init__(self, config, prefix, weights):
+    def __init__(self, config, prefix, weights, layer_id):
         super().__init__()
-        self.c_fc = FastConv1D.load(config, prefix=f"{prefix}.c_fc", weights=weights)
-        self.c_proj = FastConv1D.load(config, prefix=f"{prefix}.c_proj", weights=weights)
+
+        self.c_fc = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+            config,
+            prefix=f"{prefix}.c_fc",
+            weights=weights,
+            bias=True,
+            fan_in_fan_out=True,
+        ), layer_id, MLP_C_FC, process_group=weights.process_group)
+
+        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+            config,
+            prefix=f"{prefix}.c_proj",
+            weights=weights,
+            bias=True,
+            fan_in_fan_out=True,
+        ), layer_id, MLP_C_PROJ, process_group=weights.process_group)
+
         self.act = ACT2FN[config.activation_function]
 
-    def forward(self, hidden_states: Optional[Tuple[torch.FloatTensor]]) -> torch.FloatTensor:
-        hidden_states = self.c_fc(hidden_states)
+    def forward(
+        self, 
+        hidden_states: Optional[Tuple[torch.FloatTensor]],
+        adapter_data: AdapterBatchData,
+    ) -> torch.FloatTensor:
+        hidden_states = self.c_fc(hidden_states, adapter_data)
         hidden_states = self.act(hidden_states)
-        hidden_states = self.c_proj(hidden_states)
+        hidden_states = self.c_proj(hidden_states, adapter_data)
         return hidden_states
 
 
@@ -189,7 +248,7 @@ class GPT2Block(nn.Module):
             prefix=f"{prefix}.ln_2", weights=weights, eps=layer_norm_eps
         )
 
-        self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights)
+        self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights, layer_id=layer_id)
         self.process_group = weights.process_group
 
     def forward(
@@ -201,6 +260,7 @@ class GPT2Block(nn.Module):
         slots,
         input_lengths,
         max_s,
+        adapter_data,
     ):
         residual = hidden_states
         hidden_states, _ = self.ln_1(hidden_states)
@@ -212,6 +272,7 @@ class GPT2Block(nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_data,
         )
 
         # residual connection
@@ -219,7 +280,7 @@ class GPT2Block(nn.Module):
 
         residual = hidden_states
         hidden_states, _ = self.ln_2(hidden_states)
-        feed_forward_hidden_states = self.mlp(hidden_states)
+        feed_forward_hidden_states = self.mlp(hidden_states, adapter_data)
         # residual connection
         hidden_states = feed_forward_hidden_states + residual
 
@@ -243,7 +304,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         self.wte = TensorParallelEmbedding(prefix="wte", weights=weights)
         self.wpe = TensorParallelEmbedding(prefix="wpe", weights=weights)
 
-        self.layers = nn.ModuleList(
+        self.h = nn.ModuleList(
             [
                 GPT2Block(layer_id, config, weights)
                 for layer_id in range(config.num_hidden_layers)
@@ -257,9 +318,9 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.layers[0].attn.head_size
-        self.num_heads = self.layers[0].attn.num_heads
-        self.num_key_value_heads = self.layers[0].attn.num_key_value_heads
+        self.head_size = self.h[0].attn.head_size
+        self.num_heads = self.h[0].attn.num_heads
+        self.num_key_value_heads = self.h[0].attn.num_key_value_heads
 
     def forward(
         self,
@@ -271,12 +332,13 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
         inputs_embeds = self.wte(input_ids)
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds
 
-        for i, layer in enumerate(self.layers):
+        for i, layer in enumerate(self.h):
             hidden_states = layer(
                 hidden_states,
                 cu_seqlen_prefill,
@@ -285,6 +347,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
                 slots,
                 input_lengths,
                 max_s,
+                adapter_data,
             )
 
         hidden_states, _ = self.ln_f(hidden_states)
@@ -294,7 +357,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
 class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
-        self.model = FlashGPT2Model(config, weights)
+        self.transformer = FlashGPT2Model(config, weights)
 
     def forward(
         self,
@@ -309,7 +372,7 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         adapter_data: AdapterBatchData,  # TODO: plumb this through
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        hidden_states = self.model(
+        hidden_states = self.transformer(
             input_ids,
             position_ids,
             cu_seqlen_prefill,
@@ -318,12 +381,13 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
             slots,
             input_lengths,
             max_s,
+            adapter_data,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
 
         # lm_head reuses the weights of the embedding layer
         # https://github.com/huggingface/transformers/issues/6291
-        logits = hidden_states @ self.model.wte.weight.T
-        logits = logits[:, :self.model.config.vocab_size]
+        logits = hidden_states @ self.transformer.wte.weight.T
+        logits = logits[:, :self.transformer.config.vocab_size]
         return logits

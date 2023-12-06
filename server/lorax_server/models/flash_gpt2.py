@@ -6,12 +6,18 @@ from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer, GPT2Model
 from tqdm import tqdm
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
     FlashGPT2ForCausalLM,
     GPT2Config,
+    ADAPTER_LAYERS,
+    ATTN_C_ATTN,
+    ATTN_C_PROJ,
+    MLP_C_FC,
+    MLP_C_PROJ,
+    LM_HEAD,
 )
 from lorax_server.utils import (
     compute_delta_weight,
@@ -95,19 +101,37 @@ class FlashGPT2(FlashCausalLM):
         super(FlashGPT2, self).__init__(
             model=model,
             tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
+            num_layers=len(model.transformer.h),
+            num_kv_heads=model.transformer.num_key_value_heads,
+            head_size=model.transformer.head_size,
             dtype=dtype,
             device=device,
             rank=rank,
             world_size=world_size,
         )
-    
-    def get_adaptable_weights(self):
-        # TODO: enable dynamic adapter loading in LoRAX
-        return {}
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+    
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        layer_weights = {}
+
+        prefix = "transformer.h"
+        for i, layer in enumerate(self.model.transformer.h):
+            layer_weights[(i, ATTN_C_ATTN)] = (f"{prefix}.{i}.{ATTN_C_ATTN}", layer.attn.c_attn)
+            layer_weights[(i, ATTN_C_PROJ)] = (f"{prefix}.{i}.{ATTN_C_PROJ}", layer.attn.c_proj)
+
+            layer_weights[(i, MLP_C_FC)] = (f"{prefix}.{i}.{MLP_C_FC}", layer.mlp.c_fc)
+            layer_weights[(i, MLP_C_PROJ)] = (f"{prefix}.{i}.{MLP_C_PROJ}", layer.mlp.c_proj)
+
+        # TODO: make Embedding layers adapter-compatible
+        # layer_weights[(0, LM_HEAD)] = ("transformer.wte", self.model.transformer.wte)
+        return layer_weights
+    
+    @property
+    def adapter_layers(self) -> List[str]:
+        return ADAPTER_LAYERS
+    
+    def get_num_layers_for_type(self, layer_type: str) -> int:
+        return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)

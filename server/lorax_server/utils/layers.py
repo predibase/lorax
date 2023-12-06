@@ -208,7 +208,12 @@ class Linear4bit(nn.Module):
 
         return out
 
-def get_linear(weight, bias, quantize):
+def get_linear(weight, bias, quantize, fan_in_fan_out=False):
+    # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
+    # Set to True if replacing a Conv1D layer with a Linear layer
+    if fan_in_fan_out:
+        weight = weight.T
+
     if quantize is None:
         linear = FastLinear(weight, bias)
     elif quantize == "bitsandbytes":
@@ -345,7 +350,15 @@ class TensorParallelColumnLinear(SuperLayer):
         return cls.load_multi(config, [prefix], weights, bias, dim=0)
 
     @classmethod
-    def load_multi(cls, config, prefixes: List[str], weights, bias: bool, dim: int):
+    def load_multi(
+        cls, 
+        config, 
+        prefixes: List[str], 
+        weights, 
+        bias: bool, 
+        dim: int, 
+        fan_in_fan_out=False
+    ):
         weight = weights.get_multi_weights_col(
             prefixes, quantize=config.quantize, dim=dim
         )
@@ -355,7 +368,7 @@ class TensorParallelColumnLinear(SuperLayer):
             bias = torch.cat(b, dim=dim)
         else:
             bias = None
-        linear = get_linear(weight, bias, config.quantize)
+        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
     
 
@@ -514,7 +527,14 @@ class TensorParallelRowLinear(SuperLayer):
         self.process_group = process_group
 
     @classmethod
-    def load(cls, config, prefix: str, weights, bias: bool):
+    def load(
+        cls, 
+        config, 
+        prefix: str, 
+        weights, 
+        bias: bool, 
+        fan_in_fan_out: bool = False
+    ):
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
 
         if bias and weights.process_group.rank() == 0:
@@ -523,7 +543,7 @@ class TensorParallelRowLinear(SuperLayer):
         else:
             bias = None
         return cls(
-            get_linear(weight, bias, config.quantize),
+            get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out),
             process_group=weights.process_group,
         )
 
