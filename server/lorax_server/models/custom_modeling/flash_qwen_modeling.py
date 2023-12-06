@@ -25,15 +25,15 @@ from lorax_server.utils.layers import (
     TensorParallelMultiAdapterLinear,
     PositionRotaryEmbedding,
     TensorParallelHead,
-    get_linear,
 )
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData
 
 
-C_ATTN = "c_attn"
-C_PROJ = "c_proj"
-W1 = "w1"
-W2 = "w2"
+ATTN_C_ATTN = "attn.c_attn"
+ATTN_C_PROJ = "attn.c_proj"
+MLP_W1 = "mlp.w1"
+MLP_W2 = "mlp.w2"
+MLP_C_PROJ = "mlp.c_proj"
 
 
 class QwenConfig(PretrainedConfig):
@@ -145,7 +145,7 @@ def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     projection_size = config.kv_channels * config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [C_ATTN], sizes=[
+        base_layer, layer_id, [ATTN_C_ATTN], sizes=[
             3 * projection_size,
         ], process_group=weights.process_group
     )
@@ -199,7 +199,7 @@ class FlashQwenAttention(torch.nn.Module):
             prefix=f"{prefix}.c_proj",
             weights=weights,
             bias=False,
-        ), layer_id, C_PROJ, process_group=weights.process_group)
+        ), layer_id, ATTN_C_PROJ, process_group=weights.process_group)
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -292,7 +292,7 @@ class QwenMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [W2, W1], sizes=[
+            gate_up_proj, layer_id, [MLP_W2, MLP_W1], sizes=[
                 config.intermediate_size // 2,
                 config.intermediate_size // 2,
             ], process_group=weights.process_group
@@ -303,7 +303,7 @@ class QwenMLP(nn.Module):
             prefix=f"{prefix}.c_proj",
             weights=weights,
             bias=False,
-        ), layer_id, C_PROJ, process_group=weights.process_group)
+        ), layer_id, MLP_C_PROJ, process_group=weights.process_group)
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
