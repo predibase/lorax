@@ -40,11 +40,11 @@ nav:
       - REST API: reference/rest_api.md
       - Python Client: reference/python_client.md
   - 🔬 Guides:
+      - GPUs: guides/gpus.md
       - Fine-Tuning: guides/fine_tuning.md
-      - Storage: guides/storage.md
       - Quantization: guides/quantization.md
-      - Multi-GPU: guides/multi_gpu.md
       - Memory Management: guides/memory_management.md
+      - Storage: guides/storage.md
 
 repo_url: https://github.com/predibase/lorax
 repo_name: predibase/lorax
