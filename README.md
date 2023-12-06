@@ -19,7 +19,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 ## 📖 Table of contents
 
 - [📖 Table of contents](#-table-of-contents)
-- [🔥 Features](#-features)
+- [🌳 Features](#-features)
 - [🏠 Supported Models and Adapters](#-supported-models-and-adapters)
   - [Models](#models)
     - [Quantization](#quantization)
@@ -38,7 +38,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 - [🙇 Acknowledgements](#-acknowledgements)
 - [🗺️ Roadmap](#️-roadmap)
 
-## 🔥 Features
+## 🌳 Features
 
 - 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter in your request, it will be loaded just-in-time without blocking concurrent requests.
 - 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
