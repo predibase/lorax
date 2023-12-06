@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/predibase/lorax">
-    <img src="https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent">
+    <img src="images/lorax_guy.png" alt="LoRAX Logo" style="width:200px;" />
   </a>
 </p>
 

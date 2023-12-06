@@ -3,6 +3,8 @@ theme:
   name: material
   font:
     text: Roboto
+  features:
+    - navigation.sections
   palette:
     # primary: deep orange
     # accent: deep orange

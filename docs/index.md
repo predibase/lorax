@@ -1,48 +1,31 @@
-![LoRAX logo](https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent)
+# LoRAX
 
 <p align="center">
-
+    <img src="images/lorax_guy.png" alt="LoRAX Logo" style="width:200px;" />
+</p>
+<p align="center">
     <em>The LLM inference server that speaks for the GPUs</em>
-
 </p>
 <p align="center">
 
-<a href="https://badge.fury.io/py/ludwig" target="_blank" style="text-decoration: none;">
-    <img src="https://badge.fury.io/py/ludwig.svg" alt="pypi package">
+<a href="https://discord.gg/CBgdrGnZjy" target="_blank" style="text-decoration: none;">
+    <img src="https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted" alt="discord">
 </a>
-<a href="https://pepy.tech/project/ludwig" target="_blank" style="text-decoration: none;">
-    <img src="https://pepy.tech/badge/ludwig" alt="downloads">
-</a>
-<a href="https://github.com/ludwig-ai/ludwig" alt="Activity" target="_blank" style="text-decoration: none;">
-        <img src="https://img.shields.io/github/commit-activity/m/ludwig-ai/ludwig" /></a>
-<a href="https://github.com/ludwig-ai/ludwig/blob/master/LICENSE" target="_blank" style="text-decoration: none;">
+<a href="https://github.com/predibase/lorax/blob/master/LICENSE" target="_blank" style="text-decoration: none;">
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="license">
 </a>
-<a href="https://join.slack.com/t/ludwig-ai/shared_invite/zt-mrxo87w6-DlX5~73T2B4v_g6jj0pJcQ" target="_blank" style="text-decoration: none;">
-    <img src="https://img.shields.io/badge/slack-chat-green.svg?logo=slack" alt="slack">
+<a href="https://artifacthub.io/packages/search?repo=lorax" target="_blank" style="text-decoration: none;">
+    <img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax" alt="artifacthub">
 </a>
 </p>
 
+---
 
-<p align="center">
-  <a href="https://github.com/predibase/lorax">
-    <img src="https://images.ctfassets.net/ft0odixqevnv/3cWNkdDkt08y0Tz7Sx8ZZQ/794ced27db7253025790c248595499ac/LoraxBlog-SocialCard.png?w=1104&h=585&q=100&fm=webp&bg=transparent">
-  </a>
-</p>
-
-<div align="center">
-
-_The LLM inference server that speaks for the GPUs!_
-
-[![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted)](https://discord.gg/CBgdrGnZjy)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax)](https://artifacthub.io/packages/search?repo=lorax)
-
-</div>
+## 📖 What is LoRAX?
 
 LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
-## 🔥 Features
+## 🌳 Features
 
 - 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter in your request, it will be loaded just-in-time without blocking concurrent requests.
 - 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
