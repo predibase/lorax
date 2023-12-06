@@ -80,11 +80,9 @@ Just make sure that the adapter was trained on the same base model used in the d
 
 ## 🏃‍♂️ Getting started
 
-### Docker
-
 We recommend starting with our pre-build Docker image to avoid compiling custom CUDA kernels and other dependencies.
 
-#### 1. Start Docker container with base LLM
+### 1. Start Docker container with base LLM
 
 In this example, we'll use Mistral-7B-Instruct as the base model, but you can use any Mistral or Llama model from HuggingFace.
 
@@ -102,7 +100,7 @@ To see all options to serve your models:
 lorax-launcher --help
 ```
 
-#### 2. Prompt the base model
+### 2. Prompt the base model
 
 LoRAX supports the same `/generate` and `/generate_stream` REST API from [text-generation-inference](https://github.com/huggingface/text-generation-inference) for prompting the base model.
 
@@ -143,7 +141,7 @@ for response in client.generate_stream(prompt, max_new_tokens=64):
 print(text)
 ```
 
-#### 3. Prompt with a LoRA Adapter
+### 3. Prompt with a LoRA Adapter
 
 You probably noticed that the response from the base model wasn't what you would expect. So let's now prompt our LLM again with a LoRA adapter
 trained to answer this type of question.
@@ -176,92 +174,6 @@ for response in client.generate_stream(prompt, max_new_tokens=64, adapter_id=ada
     if not response.token.special:
         text += response.token.text
 print(text)
-```
-
-### Kubernetes (Helm)
-
-LoRAX includes Helm charts that make it easy to start using LoRAX in production with high availability and load balancing on Kubernetes.
-
-To spin up a LoRAX deployment with Helm, you only need to be connected to a Kubernetes cluster through `kubectl``. We provide a default values.yaml file that can be used to deploy a Mistral 7B base model to your Kubernetes cluster:
-
-```shell
-helm install mistral-7b-release charts/lorax
-```
-
-The default [values.yaml](charts/lorax/values.yaml) configuration deploys a single replica of the Mistral 7B model. You can tailor configuration parameters to deploy any Llama or Mistral model by creating a new values file from the template and updating variables. Once a new values file is created, you can run the following command to deploy your LLM with LoRAX:
-
-```shell
-helm install -f your-values-file.yaml your-model-release charts/lorax
-```
-
-To delete the resources:
-
-```shell
-helm uninstall your-model-release
-```
-
-### 📓 API documentation
-
-You can consult the OpenAPI documentation of the `lorax` REST API using the `/docs` route.
-
-### 🛠️ Local Development
-
-You can also opt to install `lorax` locally.
-
-First [install Rust](https://rustup.rs/) and create a Python virtual environment with at least
-Python 3.9, e.g. using `conda`:
-
-```shell
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-conda create -n lorax python=3.9 
-conda activate lorax
-```
-
-You may also need to install Protoc.
-
-On Linux:
-
-```shell
-PROTOC_ZIP=protoc-21.12-linux-x86_64.zip
-curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP
-sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc
-sudo unzip -o $PROTOC_ZIP -d /usr/local 'include/*'
-rm -f $PROTOC_ZIP
-```
-
-On MacOS, using Homebrew:
-
-```shell
-brew install protobuf
-```
-
-Then run:
-
-```shell
-BUILD_EXTENSIONS=True make install # Install repository and HF/transformer fork with CUDA kernels
-make run-mistral-7b-instruct
-```
-
-**Note:** on some machines, you may also need the OpenSSL libraries and gcc. On Linux machines, run:
-
-```shell
-sudo apt-get install libssl-dev gcc -y
-```
-
-### CUDA Kernels
-
-The custom CUDA kernels are only tested on NVIDIA A100s. If you have any installation or runtime issues, you can remove 
-the kernels by using the `DISABLE_CUSTOM_KERNELS=True` environment variable.
-
-Be aware that the official Docker image has them enabled by default.
-
-## Run Mistral
-
-### Run
-
-```shell
-make run-mistral-7b-instruct
 ```
 
 ## 🙇 Acknowledgements
