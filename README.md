@@ -95,7 +95,7 @@ Just make sure that the adapter was trained on the same base model used in the d
 
 ### Docker
 
-We recommend starting with our pre-build Docker image to avoid compiling custom CUDA kernels and other dependencies.
+We recommend starting with our [pre-built Docker image](https://ghcr.io/predibase/lorax) to avoid compiling custom CUDA kernels and other dependencies.
 
 #### 1. Start Docker container with base LLM
 
@@ -269,9 +269,7 @@ the kernels by using the `DISABLE_CUSTOM_KERNELS=True` environment variable.
 
 Be aware that the official Docker image has them enabled by default.
 
-## Run Mistral
-
-### Run
+### Run Mistral
 
 ```shell
 make run-mistral-7b-instruct

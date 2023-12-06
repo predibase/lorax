@@ -1,3 +1,5 @@
+# Docker
+
 We recommend starting with our [pre-built Docker image](https://ghcr.io/predibase/lorax) to avoid compiling custom CUDA kernels and other dependencies.
 
 ## Run container with base LLM

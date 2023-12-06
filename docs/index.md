@@ -40,71 +40,36 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred f
 </p>
 
 
-## 🏠 Supported Models and Adapters
+## 🏠 Models
 
-### Models
+Serving a fine-tuned model with LoRAX consists of two components:
 
-- 🦙 [Llama](https://huggingface.co/meta-llama)
-    - [CodeLlama](https://huggingface.co/codellama)
-- 🌬️[Mistral](https://huggingface.co/mistralai)
-    - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
-- 🔮 [Qwen](https://huggingface.co/Qwen)
+- [Base Model](./models/base_models.md): pretrained large model shared across all adapters.
+- [Adapter](./models/adapter.md): task-specific adapter weights dynamically loaded per request.
 
-Other architectures are supported on a best effort basis, but do not support dynamical adapter loading.
+LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). 
 
-Check the [HuggingFace Hub](https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads) to find supported base models.
+Base models can be loaded in fp16 or quantized with `bitsandbytes` or [GPT-Q](https://arxiv.org/abs/2210.17323).
 
-#### Quantization
+Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) library. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
 
-Base models can be loaded in fp16 (default) or with quantization using either the `bitsandbytes` or [GPT-Q](https://arxiv.org/abs/2210.17323) format. When using quantization, it is not necessary that
-the adapter was fine-tuned using the quantized version of the base model, but be aware that enabling quantization can have an effect on the response.
+## 🏃‍♂️ Getting started with Docker
 
-### Adapters
+We recommend starting with our pre-built Docker image to avoid compiling custom CUDA kernels and other dependencies.
 
-LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
+For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](./getting_started/docker.md).
 
-Any combination of linear layers can be targeted in the adapters, including:
-
-- `q_proj`
-- `k_proj`
-- `v_proj`
-- `o_proj`
-- `gate_proj`
-- `up_proj`
-- `down_proj`
-- `lm_head`
-
-You can provide an adapter from the HuggingFace Hub, a local file path, or S3. 
-
-Just make sure that the adapter was trained on the same base model used in the deployment. LoRAX only supports one base model at a time, but any number of adapters derived from it!
-
-## 🏃‍♂️ Getting started
-
-We recommend starting with our pre-build Docker image to avoid compiling custom CUDA kernels and other dependencies.
-
-### 1. Start Docker container with base LLM
-
-In this example, we'll use Mistral-7B-Instruct as the base model, but you can use any Mistral or Llama model from HuggingFace.
+**Run the Docker container:**
 
 ```shell
 model=mistralai/Mistral-7B-Instruct-v0.1
-volume=$PWD/data # share a volume with the Docker container to avoid downloading weights every run
+volume=$PWD/data
 
-docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data ghcr.io/predibase/lorax:latest --model-id $model
-```
-**Note:** To use GPUs, you need to install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). We also recommend using NVIDIA drivers with CUDA version 11.8 or higher.
-
-To see all options to serve your models:
-
-```
-lorax-launcher --help
+docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
+    ghcr.io/predibase/lorax:latest --model-id $model
 ```
 
-### 2. Prompt the base model
-
-LoRAX supports the same `/generate` and `/generate_stream` REST API from [text-generation-inference](https://github.com/huggingface/text-generation-inference) for prompting the base model.
-
-REST:
+**Prompt the base LLM:**
 
 ```shell
 curl 127.0.0.1:8080/generate \
@@ -113,40 +78,7 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-```shell
-curl 127.0.0.1:8080/generate_stream \
-    -X POST \
-    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64}}' \
-    -H 'Content-Type: application/json'
-```
-
-Python:
-
-```shell
-pip install lorax-client
-```
-
-```python
-from lorax import Client
-
-client = Client("http://127.0.0.1:8080")
-prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
-
-print(client.generate(prompt, max_new_tokens=64).generated_text)
-
-text = ""
-for response in client.generate_stream(prompt, max_new_tokens=64):
-    if not response.token.special:
-        text += response.token.text
-print(text)
-```
-
-### 3. Prompt with a LoRA Adapter
-
-You probably noticed that the response from the base model wasn't what you would expect. So let's now prompt our LLM again with a LoRA adapter
-trained to answer this type of question.
-
-REST:
+**Prompt a LoRA adapter:**
 
 ```shell
 curl 127.0.0.1:8080/generate \
@@ -155,26 +87,7 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-```shell
-curl 127.0.0.1:8080/generate_stream \
-    -X POST \
-    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
-    -H 'Content-Type: application/json'
-```
-
-Python:
-
-```python
-adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
-
-print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
-
-text = ""
-for response in client.generate_stream(prompt, max_new_tokens=64, adapter_id=adapter_id):
-    if not response.token.special:
-        text += response.token.text
-print(text)
-```
+For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md) and [Getting Started - Local](./getting_started/local.md).
 
 ## 🙇 Acknowledgements
 
