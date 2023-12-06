@@ -34,6 +34,15 @@ lorax-launcher --help
         -H 'Content-Type: application/json'
     ```
 
+=== "REST (Streaming)"
+
+    ```shell
+    curl 127.0.0.1:8080/generate_stream \
+        -X POST \
+        -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64}}' \
+        -H 'Content-Type: application/json'
+    ```
+
 === "Python"
 
     ```shell
@@ -47,6 +56,19 @@ lorax-launcher --help
     prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
 
     print(client.generate(prompt, max_new_tokens=64).generated_text)
+    ```
+
+=== "Python (Streaming)"
+
+    ```shell
+    pip install lorax-client
+    ```
+
+    ```python
+    from lorax import Client
+
+    client = Client("http://127.0.0.1:8080")
+    prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
 
     text = ""
     for response in client.generate_stream(prompt, max_new_tokens=64):
@@ -66,12 +88,43 @@ lorax-launcher --help
         -H 'Content-Type: application/json'
     ```
 
+=== "REST (Streaming)"
+
+    ```shell
+    curl 127.0.0.1:8080/generate_stream \
+        -X POST \
+        -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64, "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"}}' \
+        -H 'Content-Type: application/json'
+    ```
+
 === "Python"
 
+    ```shell
+    pip install lorax-client
+    ```
+
     ```python
+    from lorax import Client
+
+    client = Client("http://127.0.0.1:8080")
+    prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
     adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 
     print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
+    ```
+
+=== "Python (Streaming)"
+
+    ```shell
+    pip install lorax-client
+    ```
+
+    ```python
+    from lorax import Client
+
+    client = Client("http://127.0.0.1:8080")
+    prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
+    adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 
     text = ""
     for response in client.generate_stream(prompt, max_new_tokens=64, adapter_id=adapter_id):
