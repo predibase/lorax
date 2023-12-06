@@ -12,7 +12,6 @@ from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
     FlashGPT2ForCausalLM,
     GPT2Config,
-    ADAPTER_LAYERS,
     ATTN_C_ATTN,
     ATTN_C_PROJ,
     MLP_C_FC,
@@ -31,6 +30,9 @@ from lorax_server.utils import (
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 tracer = trace.get_tracer(__name__)
+
+ADAPTER_LAYERS = [ATTN_C_ATTN, ATTN_C_PROJ, MLP_C_FC, MLP_C_PROJ]
+ROW_PARALLEL = {ATTN_C_PROJ, MLP_C_PROJ}
 
 
 class FlashGPT2(FlashCausalLM):
@@ -135,3 +137,6 @@ class FlashGPT2(FlashCausalLM):
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
+    
+    def is_row_parallel(self, layer_type: str) -> bool:
+        return layer_type in ROW_PARALLEL

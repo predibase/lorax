@@ -49,8 +49,6 @@ MLP_C_FC = "mlp.c_fc"
 MLP_C_PROJ = "mlp.c_proj"
 LM_HEAD = "lm_head"
 
-ADAPTER_LAYERS = [ATTN_C_ATTN, ATTN_C_PROJ, MLP_C_FC, MLP_C_PROJ]
-
 
 def load_attention_multi(config, prefix, weights, fan_in_fan_out=False):
     return TensorParallelColumnLinear.load_multi(
@@ -120,8 +118,6 @@ class FlashGPT2Attention(torch.nn.Module):
             bias=True,
             fan_in_fan_out=True,
         ), layer_id, ATTN_C_PROJ, process_group=weights.process_group)
-
-        # self.c_proj = FastLinear.load(config, prefix=f"{prefix}.c_proj", weights=weights, bias=True, fan_in_fan_out=True)
 
         self.pruned_heads = set()
 
@@ -202,13 +198,20 @@ class GPT2MLP(nn.Module):
     def __init__(self, config, prefix, weights, layer_id):
         super().__init__()
 
-        self.c_fc = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+        c_fc = TensorParallelColumnLinear.load(
             config,
             prefix=f"{prefix}.c_fc",
             weights=weights,
             bias=True,
             fan_in_fan_out=True,
-        ), layer_id, MLP_C_FC, process_group=weights.process_group)
+        )
+        self.c_fc = TensorParallelMultiAdapterLinear.load(
+            c_fc, 
+            layer_id, 
+            [MLP_C_FC], 
+            sizes=[config.n_embd],
+            process_group=weights.process_group
+        )
 
         self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
