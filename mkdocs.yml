@@ -5,6 +5,8 @@ theme:
     text: Roboto
   features:
     - navigation.sections
+  logo: images/lorax_guy.png
+  favicon: favicon.ico
   palette:
     # primary: deep orange
     # accent: deep orange
@@ -34,6 +36,7 @@ nav:
       - Base Models: reference/base_models.md
       - Adapters: reference/adapters.md
   - 📚 Reference:
+      - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md
       - Python Client: reference/python_client.md
   - 🔬 Guides:
