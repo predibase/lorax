@@ -335,19 +335,20 @@ class TensorParallelHead(SuperLayer):
 
 class TensorParallelColumnLinear(SuperLayer):
     @classmethod
-    def load_qkv(cls, config, prefix: str, weights, bias: bool):
+    def load_qkv(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out=False):
         """Specific method when the QKV was joined after the fact"""
         weight = weights.get_weights_col_packed_qkv(prefix, quantize=config.quantize)
         if bias:
             raise NotImplementedError("packed_qkv only implemented for baichuan")
         else:
             bias = None
-        linear = get_linear(weight, bias, config.quantize)
+        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
 
     @classmethod
-    def load(cls, config, prefix: str, weights, bias: bool):
-        return cls.load_multi(config, [prefix], weights, bias, dim=0)
+    def load(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out: bool = False):
+        return cls.load_multi(
+            config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out)
 
     @classmethod
     def load_multi(
