@@ -6,7 +6,7 @@
 
 <div align="center">
 
-_Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs_
+_LoRAX: Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs_
 
 [![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted)](https://discord.gg/CBgdrGnZjy)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
@@ -22,7 +22,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 - [🌳 Features](#-features)
 - [🏠 Models](#-models)
 - [🏃‍♂️ Getting started with Docker](#️-getting-started-with-docker)
-  - [Launch LoRAX Server](#launch-lora-server)
+  - [Launch LoRAX Server](#launch-lorax-server)
   - [Prompt via REST API](#prompt-via-rest-api)
   - [Prompt via Python Client](#prompt-via-python-client)
 - [🙇 Acknowledgements](#-acknowledgements)
@@ -50,7 +50,7 @@ Serving a fine-tuned model with LoRAX consists of two components:
 - [Base Model](https://predibase.github.io/lorax/models/base_models): pretrained large model shared across all adapters.
 - [Adapter](https://predibase.github.io/lorax/models/adapters): task-specific adapter weights dynamically loaded per request.
 
-LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). 
+LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). See [Supported Architectures](https://predibase.github.io/lorax/models/base_models/#supported-architectures) for a complete list of supported base models. 
 
 Base models can be loaded in fp16 or quantized with `bitsandbytes`, [GPT-Q](https://arxiv.org/abs/2210.17323), or [AWQ](https://arxiv.org/abs/2306.00978).
 
