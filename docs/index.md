@@ -1,32 +1,29 @@
+# LoRAX
+
 <p align="center">
-  <a href="https://github.com/predibase/lorax">
-    <img src="docs/images/lorax_guy.png" alt="LoRAX Logo" style="width:200px;" />
-  </a>
+    <img src="images/lorax_guy.png" alt="LoRAX Logo" style="width:200px;" />
+</p>
+<p align="center">
+    <em>Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs</em>
+</p>
+<p align="center">
+
+<a href="https://discord.gg/CBgdrGnZjy" target="_blank" style="text-decoration: none;">
+    <img src="https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted" alt="discord">
+</a>
+<a href="https://github.com/predibase/lorax/blob/master/LICENSE" target="_blank" style="text-decoration: none;">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="license">
+</a>
+<a href="https://artifacthub.io/packages/search?repo=lorax" target="_blank" style="text-decoration: none;">
+    <img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax" alt="artifacthub">
+</a>
 </p>
 
-<div align="center">
+---
 
-_Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs_
-
-[![](https://dcbadge.vercel.app/api/server/CBgdrGnZjy?style=flat&theme=discord-inverted)](https://discord.gg/CBgdrGnZjy)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/predibase/lorax/blob/master/LICENSE)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/lorax)](https://artifacthub.io/packages/search?repo=lorax)
-
-</div>
+## 📖 What is LoRAX?
 
 LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
-
-## 📖 Table of contents
-
-- [📖 Table of contents](#-table-of-contents)
-- [🌳 Features](#-features)
-- [🏠 Models](#-models)
-- [🏃‍♂️ Getting started with Docker](#️-getting-started-with-docker)
-  - [Launch LoRAX Server](#launch-lora-server)
-  - [Prompt via REST API](#prompt-via-rest-api)
-  - [Prompt via Python Client](#prompt-via-python-client)
-- [🙇 Acknowledgements](#-acknowledgements)
-- [🗺️ Roadmap](#️-roadmap)
 
 ## 🌳 Features
 
@@ -47,10 +44,10 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 
 Serving a fine-tuned model with LoRAX consists of two components:
 
-- [Base Model](https://predibase.github.io/lorax/models/base_models): pretrained large model shared across all adapters.
-- [Adapter](https://predibase.github.io/lorax/models/adapters): task-specific adapter weights dynamically loaded per request.
+- [Base Model](./models/base_models.md): pretrained large model shared across all adapters.
+- [Adapter](./models/adapter.md): task-specific adapter weights dynamically loaded per request.
 
-LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). 
+LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). See [Supported Architectures](./models/base_models.md#supported-architectures) for a complete list of supported base models.
 
 Base models can be loaded in fp16 or quantized with `bitsandbytes`, [GPT-Q](https://arxiv.org/abs/2210.17323), or [AWQ](https://arxiv.org/abs/2306.00978).
 
@@ -70,7 +67,7 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
     ghcr.io/predibase/lorax:latest --model-id $model
 ```
 
-For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](https://predibase.github.io/lorax/getting_started/docker).
+For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](./getting_started/docker.md).
 
 ### Prompt via REST API
 
@@ -92,7 +89,7 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-See [Reference - REST API](https://predibase.github.io/lorax/reference/rest_api) for full details.
+See [Reference - REST API](./reference/rest_api.md) for full details.
 
 ### Prompt via Python Client
 
@@ -118,9 +115,9 @@ adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
 ```
 
-See [Reference - Python Client](https://predibase.github.io/lorax/reference/python_client) for full details.
+See [Reference - Python Client](./reference/python_client.md) for full details.
 
-For other ways to run LoRAX, see [Getting Started - Kubernetes](https://predibase.github.io/lorax/getting_started/kubernetes) and [Getting Started - Local](https://predibase.github.io/lorax/getting_started/local).
+For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md) and [Getting Started - Local](./getting_started/local.md).
 
 ## 🙇 Acknowledgements
 
