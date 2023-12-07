@@ -23,7 +23,7 @@
 
 ## 📖 What is LoRAX?
 
-LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
+LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
 ## 🌳 Features
 
@@ -47,11 +47,11 @@ Serving a fine-tuned model with LoRAX consists of two components:
 - [Base Model](./models/base_models.md): pretrained large model shared across all adapters.
 - [Adapter](./models/adapter.md): task-specific adapter weights dynamically loaded per request.
 
-LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). 
+LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). See [Supported Architectures](./models/base_models.md#supported-architectures) for a complete list of supported base models.
 
 Base models can be loaded in fp16 or quantized with `bitsandbytes` or [GPT-Q](https://arxiv.org/abs/2210.17323).
 
-Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) library. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
+Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/) libraries. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
 
 ## 🏃‍♂️ Getting started with Docker
 

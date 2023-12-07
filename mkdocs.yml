@@ -33,8 +33,8 @@ nav:
       - Kubernetes (Helm): getting_started/kubernetes.md
       - Local: getting_started/local.md
   - 🧮 Models:
-      - Base Models: reference/base_models.md
-      - Adapters: reference/adapters.md
+      - Base Models: models/base_models.md
+      - Adapters: models/adapters.md
   - 📚 Reference:
       - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md

@@ -14,7 +14,7 @@ _Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs_
 
 </div>
 
-LoRAX (LoRA eXchange) is a framework that allows users to serve over a hundred fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
+LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
 ## 📖 Table of contents
 
@@ -54,7 +54,7 @@ LoRAX supports a number of Large Language Models as the base model including [Ll
 
 Base models can be loaded in fp16 or quantized with `bitsandbytes` or [GPT-Q](https://arxiv.org/abs/2210.17323).
 
-Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) library. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
+Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/) libraries. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
 
 ## 🏃‍♂️ Getting started with Docker
 
