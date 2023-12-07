@@ -711,6 +711,9 @@ class FlashCausalLM(Model):
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 0
+    
+    def is_row_parallel(self, layer_type: str) -> bool:
+        return False
 
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         """Physically loads the adapter weights into the model.
@@ -791,7 +794,9 @@ class FlashCausalLM(Model):
             lora_a_list[layer_id] = lora_a.transpose(0, 1)
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
 
-        q_lora_merged = MergedLoraWeights(lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group)
+        q_lora_merged = MergedLoraWeights(
+            lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group, self.is_row_parallel(layer_type),
+        )
         q_lora_weights = self.batched_lora_weights[layer_type]
         q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     

@@ -15,6 +15,12 @@ try:
 except ImportError:
     HAS_BITS_AND_BYTES = False
 
+HAS_AWQ = True
+try: 
+    from lorax_server.utils.awq.awq import AWQLinear
+except ImportError:
+    HAS_AWQ = False
+
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -208,7 +214,12 @@ class Linear4bit(nn.Module):
 
         return out
 
-def get_linear(weight, bias, quantize):
+def get_linear(weight, bias, quantize, fan_in_fan_out=False):
+    # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
+    # Set to True if replacing a Conv1D layer with a Linear layer
+    if fan_in_fan_out:
+        weight = weight.T
+
     if quantize is None:
         linear = FastLinear(weight, bias)
     elif quantize == "bitsandbytes":
@@ -252,6 +263,14 @@ def get_linear(weight, bias, quantize):
                 bits,
                 groupsize,
             )
+    elif quantize == "awq":
+        try:
+            qweight, qzeros, scales, _, bits, groupsize, _ = weight
+        except Exception:
+            raise NotImplementedError(
+                f"The passed weight is not compatible with `awq`"
+            )
+        linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
@@ -330,22 +349,31 @@ class TensorParallelHead(SuperLayer):
 
 class TensorParallelColumnLinear(SuperLayer):
     @classmethod
-    def load_qkv(cls, config, prefix: str, weights, bias: bool):
+    def load_qkv(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out=False):
         """Specific method when the QKV was joined after the fact"""
         weight = weights.get_weights_col_packed_qkv(prefix, quantize=config.quantize)
         if bias:
             raise NotImplementedError("packed_qkv only implemented for baichuan")
         else:
             bias = None
-        linear = get_linear(weight, bias, config.quantize)
+        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
 
     @classmethod
-    def load(cls, config, prefix: str, weights, bias: bool):
-        return cls.load_multi(config, [prefix], weights, bias, dim=0)
+    def load(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out: bool = False):
+        return cls.load_multi(
+            config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out)
 
     @classmethod
-    def load_multi(cls, config, prefixes: List[str], weights, bias: bool, dim: int):
+    def load_multi(
+        cls, 
+        config, 
+        prefixes: List[str], 
+        weights, 
+        bias: bool, 
+        dim: int, 
+        fan_in_fan_out=False
+    ):
         weight = weights.get_multi_weights_col(
             prefixes, quantize=config.quantize, dim=dim
         )
@@ -355,7 +383,7 @@ class TensorParallelColumnLinear(SuperLayer):
             bias = torch.cat(b, dim=dim)
         else:
             bias = None
-        linear = get_linear(weight, bias, config.quantize)
+        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
     
 
@@ -514,7 +542,14 @@ class TensorParallelRowLinear(SuperLayer):
         self.process_group = process_group
 
     @classmethod
-    def load(cls, config, prefix: str, weights, bias: bool):
+    def load(
+        cls, 
+        config, 
+        prefix: str, 
+        weights, 
+        bias: bool, 
+        fan_in_fan_out: bool = False
+    ):
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
 
         if bias and weights.process_group.rank() == 0:
@@ -523,7 +558,7 @@ class TensorParallelRowLinear(SuperLayer):
         else:
             bias = None
         return cls(
-            get_linear(weight, bias, config.quantize),
+            get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out),
             process_group=weights.process_group,
         )
 

@@ -337,6 +337,10 @@ def get_model(
         raise ValueError(
             "4bit quantization is not supported for AutoModel"
         )
+    if quantize == "awq":
+        raise ValueError(
+            "awq quantization is not supported for AutoModel"
+        )
 
     if model_type in modeling_auto.MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
         return CausalLM(
