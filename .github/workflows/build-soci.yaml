@@ -13,7 +13,7 @@ jobs:
       cancel-in-progress: true
     runs-on: a100-runner
     permissions:
-      contents: read
+      contents: write
       packages: write
       # This is used to complete the identity challenge
       # with sigstore/fulcio when running outside of PRs.
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
-      
+
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -41,14 +41,17 @@ jobs:
         with:
           soci-release: 'v0.4.0'
       
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v2.1.0
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2.10.0
 
       - name: Set up containerd for ubuntu
-        uses: crazy-max/ghaction-setup-containerd@v2.2.0
+        uses: crazy-max/ghaction-setup-containerd@v3.0.0
+      
+      - name: Install skopeo
+        run: sudo apt-get -y update && sudo apt-get -y install skopeo
 
       - name: Docker meta
         id: meta
@@ -62,25 +65,35 @@ jobs:
             type=sha,prefix=,suffix=,format=short
             type=raw,value=latest
       
-      - name: Set output
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-      
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
+      - name: Build Docker Image
+        uses: docker/build-push-action@v2
         with:
           context: .
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=oci,dest=/tmp/lorax-${{ steps.vars.outputs.sha_short }}.tar
-      
+
+      - name: Export image to OCI using skopeo
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            tag_sanitized=$(echo -n "$tag" | md5sum)
+            echo "Converting $tag to OCI"
+            skopeo copy docker-daemon:$tag oci:/tmp/lorax-$tag_sanitized.tar
+          done
+
       - name: Import image in containerd
         env:
-          sha_short: ${{ steps.vars.outputs.sha_short }}
+          tags: ${{ steps.meta.outputs.tags }}
         run: |
-          echo "Importing $sha_short to GHCR"
-          sudo ctr i import --digests /tmp/lorax-$sha_short.tar
+          for tag in $tags
+          do
+            tag_sanitized=$(echo -n "$tag" | md5sum)
+            echo "Importing $tag_sanitized to GHCR"
+            sudo ctr i import --digests /tmp/lorax-$tag_sanitized.tar
+          done
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v1
@@ -88,7 +101,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
-
+    
       - name: Push image with containerd
         env:
           tags: ${{ steps.meta.outputs.tags }}
@@ -120,7 +133,12 @@ jobs:
           docker image prune -a -f --filter "until=24h"
 
           # Delete the on disk copy
-          rm -rf "/tmp/lorax-$sha_short.tar"
+          for tag in $tags
+          do
+            tag_sanitized=$(echo -n "$tag" | md5sum)
+            echo "Deleting $tag_sanitized from Disk"
+            rm -rf "/tmp/lorax-$tag_sanitized.tar"
+          done
 
           # Delete the SHA image(s) from containerd store
           sudo ctr i rm $(sudo ctr i ls -q)
