@@ -41,17 +41,17 @@ jobs:
         with:
           soci-release: 'v0.4.0'
       
-      # - name: Set up QEMU
-      #   uses: docker/setup-qemu-action@v2.1.0
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2.1.0
       
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2.10.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2.10.0
 
       - name: Set up containerd for ubuntu
         uses: crazy-max/ghaction-setup-containerd@v3.0.0
       
       - name: Install skopeo
-        run: sudo apt-get -y update && sudo apt-get -y install skopeo
+        run: sudo snap install skopeo --edge --devmode
 
       - name: Docker meta
         id: meta
@@ -65,35 +65,38 @@ jobs:
             type=sha,prefix=,suffix=,format=short
             type=raw,value=latest
       
-      - name: Build Docker Image
+      - name: Create a hash from tags
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        id: vars
+        run: |
+          tag_hash=$(echo -n "tags" | md5sum)
+          echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
+      
+      - name: Build Docker Image Cache
         uses: docker/build-push-action@v2
         with:
           context: .
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=cacheonly
 
-      - name: Export image to OCI using skopeo
-        env:
+      - name: Export Docker image as OCI
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile  # Path to your Dockerfile
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
-        run: |
-          for tag in $tags
-          do
-            tag_sanitized=$(echo -n "$tag" | md5sum)
-            echo "Converting $tag to OCI"
-            skopeo copy docker-daemon:$tag oci:/tmp/lorax-$tag_sanitized.tar
-          done
+          outputs: type=oci,oci-mediatypes=true,dest=/tmp/lorax-${{ steps.vars.outputs.tag_hash }}.tar
 
       - name: Import image in containerd
         env:
-          tags: ${{ steps.meta.outputs.tags }}
+          tag_hash: ${{ steps.vars.outputs.tag_hash }}
         run: |
-          for tag in $tags
-          do
-            tag_sanitized=$(echo -n "$tag" | md5sum)
-            echo "Importing $tag_sanitized to GHCR"
-            sudo ctr i import --digests /tmp/lorax-$tag_sanitized.tar
-          done
+          echo "Importing $tag_hash to Containerd"
+          sudo ctr i import --digests /tmp/lorax-$tag_hash.tar
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v1
@@ -101,7 +104,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
-    
+
       - name: Push image with containerd
         env:
           tags: ${{ steps.meta.outputs.tags }}
@@ -127,18 +130,13 @@ jobs:
 
       - name: Prune older images
         env:
-          sha_short: ${{ steps.vars.outputs.sha_short }}
+          tag_hash: ${{ steps.vars.outputs.tag_hash }}
         run: |
           # Delete images older than a day from docker store
           docker image prune -a -f --filter "until=24h"
 
           # Delete the on disk copy
-          for tag in $tags
-          do
-            tag_sanitized=$(echo -n "$tag" | md5sum)
-            echo "Deleting $tag_sanitized from Disk"
-            rm -rf "/tmp/lorax-$tag_sanitized.tar"
-          done
+          rm -rf "/tmp/lorax-$tag_hash.tar"
 
           # Delete the SHA image(s) from containerd store
           sudo ctr i rm $(sudo ctr i ls -q)
