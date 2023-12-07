@@ -156,3 +156,4 @@ cython_debug/
 
 transformers
 safetensors
+llm-awq/
