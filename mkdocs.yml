@@ -5,6 +5,8 @@ theme:
     text: Roboto
   features:
     - navigation.sections
+    - search.suggest
+    - search.highlight
   logo: images/lorax_guy.png
   favicon: favicon.ico
   palette:
@@ -39,12 +41,12 @@ nav:
       - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md
       - Python Client: reference/python_client.md
-  - 🔬 Guides:
-      - GPUs: guides/gpus.md
-      - Fine-Tuning: guides/fine_tuning.md
-      - Quantization: guides/quantization.md
-      - Memory Management: guides/memory_management.md
-      - Storage: guides/storage.md
+  # - 🔬 Guides:
+  #     - GPUs: guides/gpus.md
+  #     - Fine-Tuning: guides/fine_tuning.md
+  #     - Quantization: guides/quantization.md
+  #     - Memory Management: guides/memory_management.md
+  #     - Storage: guides/storage.md
 
 repo_url: https://github.com/predibase/lorax
 repo_name: predibase/lorax
@@ -67,3 +69,4 @@ markdown_extensions:
 
 plugins:
   - render_swagger
+  - search
