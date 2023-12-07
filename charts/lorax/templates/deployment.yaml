@@ -50,8 +50,6 @@ spec:
           value: "8000"
         - name: HUGGING_FACE_HUB_TOKEN
           value: {{ .Values.deployment.env.huggingFaceHubToken | quote }}
-        - name: LORAX_ENABLED_MODEL_TYPES
-          value: {{ .Values.deployment.env.loraxEnabledModelTypes | quote }}
         image: {{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}
         imagePullPolicy: IfNotPresent
         livenessProbe: {{ toYaml .Values.deployment.livenessProbe | nindent 10 }}
