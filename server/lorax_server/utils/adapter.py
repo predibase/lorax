@@ -130,7 +130,8 @@ def merge_adapter_weights(
         # transpose delta weight if necessary
         # TODO(geoffrey): I believe this is required when using Conv1D layers (gpt2).
         # We can likely take this out once we've switched to using Linear layers.
-        if delta_weight.T.shape == model_weights[weight_name].shape:
+        if (delta_weight.shape != model_weights[weight_name].shape and 
+            delta_weight.T.shape == model_weights[weight_name].shape):
             delta_weight = delta_weight.T
         merged_weights[weight_name] = model_weights[weight_name] + delta_weight
     return merged_weights, processed_adapter_weight_names
