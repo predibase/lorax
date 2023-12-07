@@ -23,7 +23,7 @@ lorax-launcher --model-id mistralai/Mistral-7B-v0.1 ...
 
 ## Quantization
 
-Base models can be loaded in fp16 (default) or with quantization using either the `bitsandbytes` or [GPT-Q](https://arxiv.org/abs/2210.17323) format. When using quantization, it is not necessary that
+Base models can be loaded in fp16 (default) or with quantization using any of `bitsandbytes`, [GPT-Q](https://arxiv.org/abs/2210.17323), or [AWQ](https://arxiv.org/abs/2306.00978) format. When using quantization, it is not necessary that
 the adapter was fine-tuned using the quantized version of the base model, but be aware that enabling quantization can have an effect on the response.
 
 ### bitsandbytes
@@ -50,4 +50,14 @@ Usage:
 
 ```shell
 lorax-launcher --model-id TheBloke/Mistral-7B-v0.1-GPTQ --quantize gptq ...
+```
+
+### AWQ
+
+[AWQ](https://arxiv.org/abs/2306.00978) is similar to GPT-Q in that the weights are quantized in advance of inference (statically). AWQ is generally faster than GPT-Q for inference, and achieves similarly high levels of quality.
+
+Usage:
+
+```shell
+lorax-launcher --model-id TheBloke/Mistral-7B-v0.1-AWQ --quantize awq ...
 ```
