@@ -2,8 +2,8 @@ apiVersion: v2
 name: lorax
 description: LoRAX is the open-source framework for serving 
   hundreds of fine-tuned LLMs in production for the price of one.
-version: 0.2.1
-appVersion: 0.2.1
+version: 0.3.0
+appVersion: 0.3.0
 
 home: https://github.com/predibase/lorax
 
