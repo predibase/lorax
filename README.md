@@ -23,8 +23,8 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 - [🏠 Models](#-models)
 - [🏃‍♂️ Getting started with Docker](#️-getting-started-with-docker)
   - [Launch LoRAX Server](#launch-lora-server)
-  - [Prompt via REST API](#2-prompt-via-rest-api)
-  - [Prompt via Python Client](#3-prompt-via-python-client)
+  - [Prompt via REST API](#prompt-via-rest-api)
+  - [Prompt via Python Client](#prompt-via-python-client)
 - [🙇 Acknowledgements](#-acknowledgements)
 - [🗺️ Roadmap](#️-roadmap)
 
@@ -47,8 +47,8 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 
 Serving a fine-tuned model with LoRAX consists of two components:
 
-- [Base Model](./models/base_models.md): pretrained large model shared across all adapters.
-- [Adapter](./models/adapter.md): task-specific adapter weights dynamically loaded per request.
+- [Base Model](https://predibase.github.io/lorax/models/base_models): pretrained large model shared across all adapters.
+- [Adapter](https://predibase.github.io/lorax/models/adapters): task-specific adapter weights dynamically loaded per request.
 
 LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). 
 
@@ -70,7 +70,7 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
     ghcr.io/predibase/lorax:latest --model-id $model
 ```
 
-For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](./getting_started/docker.md).
+For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](https://predibase.github.io/lorax/getting_started/docker).
 
 ### Prompt via REST API
 
@@ -92,7 +92,7 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-See [Reference - REST API](./reference/rest_api.md) for full details.
+See [Reference - REST API](https://predibase.github.io/lorax/reference/rest_api) for full details.
 
 ### Prompt via Python Client
 
@@ -118,9 +118,9 @@ adapter_id = "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k"
 print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
 ```
 
-See [Reference - Python Client](./reference/python_client.md) for full details.
+See [Reference - Python Client](https://predibase.github.io/lorax/reference/python_client) for full details.
 
-For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md) and [Getting Started - Local](./getting_started/local.md).
+For other ways to run LoRAX, see [Getting Started - Kubernetes](https://predibase.github.io/lorax/getting_started/kubernetes) and [Getting Started - Local](https://predibase.github.io/lorax/getting_started/local).
 
 ## 🙇 Acknowledgements
 
