@@ -13,7 +13,7 @@ jobs:
       cancel-in-progress: true
     runs-on: a100-runner
     permissions:
-      contents: write
+      contents: read
       packages: write
       # This is used to complete the identity challenge
       # with sigstore/fulcio when running outside of PRs.
@@ -42,10 +42,10 @@ jobs:
           soci-release: 'v0.4.0'
       
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2.1.0
+        uses: docker/setup-qemu-action@v3
       
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2.10.0
+        uses: docker/setup-buildx-action@v3
 
       - name: Set up containerd for ubuntu
         uses: crazy-max/ghaction-setup-containerd@v2.2.0
@@ -67,21 +67,13 @@ jobs:
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       
       - name: Build Docker image
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
-
-      - name: Export docker image to disk
-        env:
-          sha_short: ${{ steps.vars.outputs.sha_short }}
-          tags: ${{ steps.meta.outputs.tags }}
-        run: |
-          tags_space=$(echo "$tags" | tr '\n' ' ')
-          echo "Exporting $tags_space to Disk"
-          docker save -o /tmp/lorax-sha_short.tar $tags_space
+          outputs: type=oci,dest=/tmp/lorax-${{ steps.vars.outputs.sha_short }}.tar
       
       - name: Import image in containerd
         env:
