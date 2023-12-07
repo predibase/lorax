@@ -70,8 +70,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
         id: vars
         run: |
-          tag_hash=$(echo -n "tags" | md5sum)
+          tag_hash=$(echo -n "$tags" | md5sum | awk '{print $1}')
           echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
+          echo "image_path=/var/lib/kubelet/lorax" >> $GITHUB_OUTPUT
       
       - name: Build Docker Image Cache
         uses: docker/build-push-action@v2
@@ -89,14 +90,15 @@ jobs:
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=oci,oci-mediatypes=true,dest=/tmp/lorax-${{ steps.vars.outputs.tag_hash }}.tar
+          outputs: type=oci,oci-mediatypes=true,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar
 
       - name: Import image in containerd
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
+          image_path: ${{ steps.vars.outputs.image_path }}
         run: |
-          echo "Importing $tag_hash to Containerd"
-          sudo ctr i import --digests /tmp/lorax-$tag_hash.tar
+          echo "Importing $image_path-$tag_hash to Containerd"
+          sudo ctr i import --digests $image_path-$tag_hash.tar
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v1
@@ -131,12 +133,13 @@ jobs:
       - name: Prune older images
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
+          image_path: ${{ steps.vars.outputs.image_path }}
         run: |
           # Delete images older than a day from docker store
           docker image prune -a -f --filter "until=24h"
 
           # Delete the on disk copy
-          rm -rf "/tmp/lorax-$tag_hash.tar"
+          rm -rf "$image_path-$tag_hash.tar"
 
           # Delete the SHA image(s) from containerd store
           sudo ctr i rm $(sudo ctr i ls -q)
