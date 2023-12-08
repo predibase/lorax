@@ -92,8 +92,8 @@ jobs:
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           outputs: type=oci,oci-mediatypes=true,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar
-          cache-from: type=local,dest=${{ steps.vars.outputs.cache_dir }}
-          cache-to: type=local,mode=max,image-manifest=true,src=${{ steps.vars.outputs.cache_dir }}
+          cache-from: type=local,src=${{ steps.vars.outputs.cache_dir }}
+          cache-to: type=local,mode=max,image-manifest=true,dest=${{ steps.vars.outputs.cache_dir }}
 
       - name: Import image in containerd
         env:
