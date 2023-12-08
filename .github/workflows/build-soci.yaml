@@ -46,6 +46,8 @@ jobs:
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2.10.0
+        with:
+          cleanup: false # Keep buildkit cache around
 
       - name: Set up containerd for ubuntu
         uses: crazy-max/ghaction-setup-containerd@v3.0.0
@@ -72,7 +74,15 @@ jobs:
         run: |
           tag_hash=$(echo -n "$tags" | md5sum | awk '{print $1}')
           echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
-          echo "image_path=/var/lib/kubelet/lorax" >> $GITHUB_OUTPUT
+          echo "image_dir=/var/lib/kubelet/images" >> $GITHUB_OUTPUT
+          echo "image_path=/var/lib/kubelet/images/lorax" >> $GITHUB_OUTPUT
+
+      - name: Create and update image directory
+        env:
+          image_dir: ${{ steps.vars.outputs.image_dir }}
+        run: |
+          sudo mkdir -p $image_dir
+          sudo chown ubuntu:ubuntu $image_dir
       
       - name: Build Docker Image Cache
         uses: docker/build-push-action@v2
