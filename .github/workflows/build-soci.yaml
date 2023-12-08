@@ -107,7 +107,7 @@ jobs:
           image_path: ${{ steps.vars.outputs.image_path }}
         run: |
           echo "Importing $image_path-$tag_hash to Containerd"
-          sudo ctr i import --digests $image_path-$tag_hash.tar
+          sudo ctr i import --no-unpack --digests $image_path-$tag_hash.tar
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v1
