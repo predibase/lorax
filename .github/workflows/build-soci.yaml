@@ -42,18 +42,13 @@ jobs:
           soci-release: 'v0.4.0'
       
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2.1.0
+        uses: docker/setup-qemu-action@v3
       
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2.10.0
-        with:
-          cleanup: false # Keep buildkit cache around
+        uses: docker/setup-buildx-action@v3
 
       - name: Set up containerd for ubuntu
         uses: crazy-max/ghaction-setup-containerd@v3.0.0
-      
-      - name: Install skopeo
-        run: sudo snap install skopeo --edge --devmode
 
       - name: Docker meta
         id: meta
@@ -74,33 +69,31 @@ jobs:
         run: |
           tag_hash=$(echo -n "$tags" | md5sum | awk '{print $1}')
           echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
+          echo "cache_dir=/var/lib/kubelet/images/cache" >> $GITHUB_OUTPUT
           echo "image_dir=/var/lib/kubelet/images" >> $GITHUB_OUTPUT
           echo "image_path=/var/lib/kubelet/images/lorax" >> $GITHUB_OUTPUT
 
-      - name: Create and update image directory
+      - name: Create and update image/cache directory
         env:
           image_dir: ${{ steps.vars.outputs.image_dir }}
+          cache_dir: ${{ steps.vars.outputs.cache_dir }}
         run: |
           sudo mkdir -p $image_dir
           sudo chown ubuntu:ubuntu $image_dir
-      
-      - name: Build Docker Image Cache
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: ./Dockerfile  # Path to your Dockerfile
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=cacheonly
+
+          sudo mkdir -p $cache_dir
+          sudo chown ubuntu:ubuntu $cache_dir
 
       - name: Export Docker image as OCI
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           outputs: type=oci,oci-mediatypes=true,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar
+          cache-from: type=local,dest=${{ steps.vars.outputs.cache_dir }}
+          cache-to: type=local,mode=max,image-manifest=true,src=${{ steps.vars.outputs.cache_dir }}
 
       - name: Import image in containerd
         env:
