@@ -33,6 +33,7 @@ nav:
   - 🚀 Getting Started:
       - Docker: getting_started/docker.md
       - Kubernetes (Helm): getting_started/kubernetes.md
+      - SkyPilot: getting_started/skypilot.md
       - Local: getting_started/local.md
   - 🧮 Models:
       - Base Models: models/base_models.md
