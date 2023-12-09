@@ -11,7 +11,7 @@ pip install skypilot
 sky check
 ```
 
-## Running LoRAX in your cloud
+## Launch a deployment
 
 Create a YAML configuration file called `lorax.yaml`:
 
@@ -47,9 +47,9 @@ By default, this config will deploy Mistral-7B-Instruct, but this can be overrid
     
     This config will launch the instance on a public IP. It's highly recommended to secure the instance within a private subnet. See the [Advanced Configurations](https://skypilot.readthedocs.io/en/latest/reference/config.html#config-yaml) section of the SkyPilot docs for options to run within VPC and setup private IPs.
 
-## Prompting LoRAX
+## Prompt LoRAX
 
-In a separate window, obtain the IP address of the new created instance:
+In a separate window, obtain the IP address of the newly created instance:
 
 ```shell
 sky status --ip lorax-cluster
@@ -66,7 +66,7 @@ curl http://$IP:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
-## Stopping the LoRAX deployment
+## Stop the deployment
 
 Stopping the deployment will shut down the instance, but keep the storage volume:
 
@@ -76,7 +76,7 @@ sky stop lorax-cluster
 
 Because we set `docker run ... -v ~/data:/data` in our config from before, this means any model weights or adapters we downloaded will be persisted the next time we run `sky launch`. The LoRAX Docker image will also be cached, meaning tags like `latest` won't be updated on restart unless you add `docker pull` to your `run` configuration.
 
-## Deleting the LoRAX deployment
+## Delete the deployment
 
 To completely delete the deployment, including the storage volume:
 
@@ -84,4 +84,4 @@ To completely delete the deployment, including the storage volume:
 sky down lorax-cluster
 ```
 
-THe next time you run `sky launch`, the deployment will be recreated from scratch.
+The next time you run `sky launch`, the deployment will be recreated from scratch.
