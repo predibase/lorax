@@ -21,7 +21,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 - [📖 Table of contents](#-table-of-contents)
 - [🌳 Features](#-features)
 - [🏠 Models](#-models)
-- [🏃‍♂️ Getting started with Docker](#️-getting-started-with-docker)
+- [🏃‍♂️ Getting Started](#️-getting-started)
   - [Launch LoRAX Server](#launch-lorax-server)
   - [Prompt via REST API](#prompt-via-rest-api)
   - [Prompt via Python Client](#prompt-via-python-client)
@@ -56,7 +56,7 @@ Base models can be loaded in fp16 or quantized with `bitsandbytes`, [GPT-Q](http
 
 Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/) libraries. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
 
-## 🏃‍♂️ Getting started with Docker
+## 🏃‍♂️ Getting Started
 
 We recommend starting with our pre-built Docker image to avoid compiling custom CUDA kernels and other dependencies.
 
@@ -120,7 +120,7 @@ print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generate
 
 See [Reference - Python Client](https://predibase.github.io/lorax/reference/python_client) for full details.
 
-For other ways to run LoRAX, see [Getting Started - Kubernetes](https://predibase.github.io/lorax/getting_started/kubernetes) and [Getting Started - Local](https://predibase.github.io/lorax/getting_started/local).
+For other ways to run LoRAX, see [Getting Started - Kubernetes](https://predibase.github.io/lorax/getting_started/kubernetes), [Getting Started - SkyPilot](https://predibase.github.io/lorax/getting_started/skypilot), and [Getting Started - Local](https://predibase.github.io/lorax/getting_started/local).
 
 ## 🙇 Acknowledgements
 
