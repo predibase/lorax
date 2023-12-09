@@ -33,6 +33,7 @@ tiktoken = "^0.5.2"
 texttable = { version = "^1.6.7", optional = true }
 datasets = { version = "^2.14.0", optional = true }
 torch = {version = "2.1.1+cu118", source = "torch"}
+peft = "^0.4.0"
 
 [tool.poetry.extras]
 accelerate = ["accelerate"]
