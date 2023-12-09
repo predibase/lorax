@@ -15,6 +15,12 @@ try:
 except ImportError:
     HAS_BITS_AND_BYTES = False
 
+HAS_AWQ = True
+try: 
+    from lorax_server.utils.awq.awq import AWQLinear
+except ImportError:
+    HAS_AWQ = False
+
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -257,6 +263,14 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 bits,
                 groupsize,
             )
+    elif quantize == "awq":
+        try:
+            qweight, qzeros, scales, _, bits, groupsize, _ = weight
+        except Exception:
+            raise NotImplementedError(
+                f"The passed weight is not compatible with `awq`"
+            )
+        linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear

@@ -77,8 +77,6 @@ except ImportError as e:
 if MISTRAL:
     __all__.append(FlashMistral)
 
-LORAX_ENABLED_MODEL_TYPES = os.environ.get("PREDIBASE_LORAX_ENABLED_MODEL_TYPES", "").split(",")
-
 
 def get_model(
     model_id: str,
@@ -111,10 +109,6 @@ def get_model(
         raise ValueError(f"Unknown source {source}")
     
     model_type = config_dict["model_type"]
-    if len(adapter_id) > 0 and model_type not in LORAX_ENABLED_MODEL_TYPES:
-        raise ValueError(
-            f"adapter_id is only supported for models with type {LORAX_ENABLED_MODEL_TYPES}."
-        )
 
     if dtype is None:
         dtype = torch.float16
@@ -336,6 +330,10 @@ def get_model(
     elif (quantize == "bitsandbytes-fp4") or (quantize == "bitsandbytes-nf4"):
         raise ValueError(
             "4bit quantization is not supported for AutoModel"
+        )
+    if quantize == "awq":
+        raise ValueError(
+            "awq quantization is not supported for AutoModel"
         )
 
     if model_type in modeling_auto.MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:

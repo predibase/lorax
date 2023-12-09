@@ -1,0 +1,73 @@
+site_name: LoRAX Docs
+theme:
+  name: material
+  font:
+    text: Roboto
+  features:
+    - navigation.sections
+    - search.suggest
+    - search.highlight
+  logo: images/lorax_guy.png
+  favicon: favicon.ico
+  palette:
+    # primary: deep orange
+    # accent: deep orange
+    # Palette toggle for light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+      primary: deep orange
+      accent: deep orange
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+      primary: deep orange
+      accent: deep orange
+
+nav:
+  - LoRAX: index.md
+  - 🚀 Getting Started:
+      - Docker: getting_started/docker.md
+      - Kubernetes (Helm): getting_started/kubernetes.md
+      - SkyPilot: getting_started/skypilot.md
+      - Local: getting_started/local.md
+  - 🧮 Models:
+      - Base Models: models/base_models.md
+      - Adapters: models/adapters.md
+  - 📚 Reference:
+      - Launcher: reference/launcher.md
+      - REST API: reference/rest_api.md
+      - Python Client: reference/python_client.md
+  # - 🔬 Guides:
+  #     - GPUs: guides/gpus.md
+  #     - Fine-Tuning: guides/fine_tuning.md
+  #     - Quantization: guides/quantization.md
+  #     - Memory Management: guides/memory_management.md
+  #     - Storage: guides/storage.md
+
+repo_url: https://github.com/predibase/lorax
+repo_name: predibase/lorax
+
+copyright: Copyright &copy; 2023 Predibase, Inc.
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github 
+      link: https://github.com/predibase/lorax
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/CBgdrGnZjy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - render_swagger
+  - search
