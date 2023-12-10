@@ -828,7 +828,6 @@ class FlashCausalLM(Model):
         return FlashCausalLMBatch
 
     def warmup(self, batch: FlashCausalLMBatch):
-
         torch.cuda.empty_cache()
         try:
             cache_manager = set_cache_manager(
@@ -841,11 +840,14 @@ class FlashCausalLM(Model):
                 self.device,
             )
             _, batch = self.generate_token(batch)
-        except Exception as e:
-            raise RuntimeError(
-                f"Not enough memory to handle {len(batch.input_ids)} prefill tokens. "
-                f"You need to decrease `--max-batch-prefill-tokens`"
-            ) from e
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
+                raise RuntimeError(
+                    f"Not enough memory to handle {len(batch.input_ids)} prefill tokens. "
+                    f"You need to decrease `--max-batch-prefill-tokens`"
+                ) from e
+            else:
+                raise
 
         torch.cuda.synchronize(self.device)
 
