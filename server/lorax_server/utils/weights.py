@@ -115,6 +115,18 @@ class Weights:
         return tensor
 
     def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
+        """Loads tensor with the given name and shards it along the given dimension.
+
+        The optional range argument can be used to load and split on only a subset of the tensor.
+        This is useful in cases where the tensor is stored as one contiguous block, but is logically
+        split into different components that need to be sharded separately. For example, when storing
+        QKV weights together as a single tensor on disk.
+
+        Args:
+            tensor_name (str): Name of the tensor to load.
+            dim (int): Dimension to shard along.
+            range (Optional[Tuple[int, int]]): Range of indices to load and shard as (offset, size).
+        """
         filename, tensor_name = self.get_filename(tensor_name)
         world_size = self.process_group.size()
         rank = self.process_group.rank()
