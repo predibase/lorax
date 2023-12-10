@@ -5,7 +5,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List
+from typing import List, Tuple, Union
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -368,7 +368,7 @@ class TensorParallelColumnLinear(SuperLayer):
     def load_multi(
         cls, 
         config, 
-        prefixes: List[str], 
+        prefixes: List[Union[str, Tuple]], 
         weights, 
         bias: bool, 
         dim: int, 
@@ -379,7 +379,7 @@ class TensorParallelColumnLinear(SuperLayer):
         )
 
         if bias:
-            b = [weights.get_sharded(f"{p}.bias", dim=0) for p in prefixes]
+            b = weights.get_sharded_list("bias", prefixes, dim=0)
             bias = torch.cat(b, dim=dim)
         else:
             bias = None
