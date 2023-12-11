@@ -240,6 +240,32 @@ class MixtralRMSNorm(nn.Module):
             return normed_hidden_states, res
 
 class MixtralAttention(torch.nn.Module):
+    """
+    MixtralAttention module performs attention computation for the Mixtral model.
+
+    Args:
+        prefix (str): The prefix for the configuration.
+        config: The configuration object.
+        weights: The weights for the module.
+
+    Attributes:
+        max_past (int): The maximum number of past elements to consider.
+        num_heads (int): The number of attention heads.
+        hidden_size (int): The hidden size of the model.
+        head_size (int): The size of each attention head.
+        rotary_emb (PositionRotaryEmbedding): The positional rotary embedding.
+        softmax_scale (float): The scale factor for the softmax operation.
+        num_key_value_heads (int): The number of key-value attention heads.
+        query_key_value: The query-key-value attention module.
+        o_proj (TensorParallelRowLinear): The output projection layer.
+        num_groups (int): The number of groups for key-value attention heads.
+        kv_head_mapping (torch.Tensor): The mapping of key-value attention heads.
+
+    Methods:
+        forward: Performs forward pass of the attention module.
+
+    """
+
     def __init__(
             self,
             prefix: str,
@@ -299,6 +325,25 @@ class MixtralAttention(torch.nn.Module):
             max_s,
             prefill_cache_indices,
     ):
+        """
+        Performs forward pass of the attention module.
+
+        Args:
+            hidden_states: The input hidden states.
+            cos: The cosine values for positional encoding.
+            sin: The sine values for positional encoding.
+            cu_seqlen_prefill: The prefill sequence length for flash attention.
+            kv_cache: The key-value cache.
+            block_tables: The block tables for attention computation.
+            slots: The number of slots.
+            input_lengths: The lengths of the input sequences.
+            max_s: The maximum sequence length.
+            prefill_cache_indices: The indices for prefilling the cache.
+
+        Returns:
+            The output of the attention module.
+
+        """
         qkv = self.query_key_value(hidden_states)
         query, kv = qkv.split(
             [
