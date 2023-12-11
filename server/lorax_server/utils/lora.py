@@ -82,7 +82,6 @@ class MergedLoraWeights:
         weights_a: List[torch.Tensor],
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
-        layer_type: str,
         process_group: ProcessGroup,
         is_row_parallel: bool,
     ):
