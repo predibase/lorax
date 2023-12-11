@@ -1,0 +1,9 @@
+vllm_commit := 059542da8ec7e76965ad18743a65f8e8d6087f9a
+
+megablocks:
+    # Clone vllm
+	git clone https://github.com/stanford-futuredata/megablocks.git
+
+build-megablocks: megablocks
+	cd vllm && git fetch && git checkout $(vllm_commit)
+	cd vllm && python setup.py build

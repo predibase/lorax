@@ -90,9 +90,7 @@ RUN /opt/conda/bin/conda install -c "nvidia/label/cuda-11.8.0"  cuda==11.8 && \
 
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
-
 WORKDIR /usr/src
-
 COPY server/Makefile-flash-att Makefile
 
 # Build specific version of flash attention
@@ -117,6 +115,13 @@ WORKDIR /usr/src
 COPY server/awq_kernels/ .
 # Build specific version of transformers
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+
+# Build awq kernels
+FROM kernel-builder as megablocks-kernels-builder
+WORKDIR /usr/src
+COPY server/Makefile-megablocks Makefile
+# Build specific version of vllm
+RUN make build-megablocks
 
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
@@ -164,6 +169,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Copy conda with PyTorch installed
 COPY --from=pytorch-install /opt/conda /opt/conda
+
+COPY --from=megablocks-kernels-builder /opt/conda /opt/conda
 
 # Copy build artifacts from flash attention builder
 COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-cpython-39 /opt/conda/lib/python3.9/site-packages
