@@ -224,6 +224,8 @@ enum AdapterSource {
     S3 = 1;
     /// Adapters loaded via local filesystem path
     LOCAL = 2;
+    /// Adapters loaded via local filesystem path
+    PBASE = 3;
 }
 
 message DownloadAdapterRequest {

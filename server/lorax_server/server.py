@@ -17,7 +17,7 @@ from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
+from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
@@ -281,5 +281,7 @@ def _adapter_source_enum_to_string(adapter_source: int) -> str:
         return S3
     elif adapter_source == generate_pb2.AdapterSource.LOCAL:
         return LOCAL
+    elif adapter_source == generate_pb2.AdapterSource.PBASE:
+        return S3
     else:
         raise ValueError(f"Unknown adapter source {adapter_source}")

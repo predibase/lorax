@@ -7,6 +7,7 @@ from .s3 import S3ModelSource, get_s3_model_local_dir
 HUB = "hub"
 S3 = "s3"
 LOCAL = "local"
+PBASE = "predibase"
 
 
 # TODO(travis): refactor into registry pattern
