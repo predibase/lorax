@@ -24,6 +24,7 @@ from lorax_server.utils import (
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.weights import shard_on_dim
 
 tracer = trace.get_tracer(__name__)
 
@@ -95,6 +96,7 @@ class FlashQwen(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashQwenForCausalLM(config, weights)
+        self.config = config
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashQwen, self).__init__(
@@ -137,3 +139,42 @@ class FlashQwen(FlashCausalLM):
     
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
+    
+    def split_lora_b_qkv(self, t: torch.Tensor, projection_size: int) -> torch.Tensor:
+        # Because we're splitting on the hidden size dimension, we need to
+        # account for the separate q, k, and v matrices.
+        chunks = torch.split(t, projection_size, dim=1)
+        assert len(chunks) == 3
+        chunks = [
+            shard_on_dim(w, dim=1, process_group=self.process_group)
+            for w in chunks
+        ]
+        return torch.cat(chunks, dim=1)
+    
+    def shard_lora_weights(
+        self,
+        weights_a: List[torch.Tensor],
+        weights_b: List[torch.Tensor],
+        layer_type: str,
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        # TODO(travis): genralize this for other layers and architectures
+        if layer_type == ATTN_C_ATTN:
+            # [hidden_size, r]
+            split_dim = 0 if self.is_row_parallel(layer_type) else 1
+            weights_a = [
+                shard_on_dim(w, dim=split_dim, process_group=self.process_group)
+                for w in weights_a
+            ]
+
+            # [r, hidden_size]
+            # Because we're splitting on the hidden size dimension, we need to
+            # account for the separate q, k, and v matrices.
+            projection_size = (self.config.hidden_size // self.config.num_attention_heads) * self.config.num_attention_heads
+            weights_b = [
+                self.split_lora_b_qkv(w, projection_size)
+                for w in weights_b
+            ]
+
+            return weights_a, weights_b
+        else:
+            return super().shard_lora_weights(weights_a, weights_b, layer_type)

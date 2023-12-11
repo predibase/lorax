@@ -32,6 +32,7 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
+from lorax_server.utils.weights import shard_on_dim
 
 tracer = trace.get_tracer(__name__)
 
@@ -755,6 +756,27 @@ class FlashCausalLM(Model):
 
             self.adapter_id = adapter_id
 
+    def shard_lora_weights(
+        self,
+        weights_a: List[torch.Tensor],
+        weights_b: List[torch.Tensor],
+        layer_type: str,
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        # [hidden_size, r]
+        split_dim = 0 if self.is_row_parallel(layer_type) else 1
+        weights_a = [
+            shard_on_dim(w, dim=split_dim, process_group=self.process_group)
+            for w in weights_a
+        ]
+
+        # [r, hidden_size]
+        weights_b = [
+            shard_on_dim(w, dim=1, process_group=self.process_group)
+            for w in weights_b
+        ]
+
+        return weights_a, weights_b
+
     def load_batched_adapter_weights(
         self, 
         module_map: Dict[str, Dict], 
@@ -795,7 +817,7 @@ class FlashCausalLM(Model):
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
 
         q_lora_merged = MergedLoraWeights(
-            lora_a_list, lora_b_list, adapter_config, layer_type, self.process_group, self.is_row_parallel(layer_type),
+            *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type), adapter_config,
         )
         q_lora_weights = self.batched_lora_weights[layer_type]
         q_lora_weights.add_adapter(adapter_index, q_lora_merged)
@@ -828,7 +850,6 @@ class FlashCausalLM(Model):
         return FlashCausalLMBatch
 
     def warmup(self, batch: FlashCausalLMBatch):
-
         torch.cuda.empty_cache()
         try:
             cache_manager = set_cache_manager(
@@ -841,11 +862,14 @@ class FlashCausalLM(Model):
                 self.device,
             )
             _, batch = self.generate_token(batch)
-        except Exception as e:
-            raise RuntimeError(
-                f"Not enough memory to handle {len(batch.input_ids)} prefill tokens. "
-                f"You need to decrease `--max-batch-prefill-tokens`"
-            ) from e
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
+                raise RuntimeError(
+                    f"Not enough memory to handle {len(batch.input_ids)} prefill tokens. "
+                    f"You need to decrease `--max-batch-prefill-tokens`"
+                ) from e
+            else:
+                raise
 
         torch.cuda.synchronize(self.device)
 
