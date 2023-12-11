@@ -82,19 +82,15 @@ class MergedLoraWeights:
         weights_a: List[torch.Tensor],
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
-        process_group: ProcessGroup,
-        is_row_parallel: bool,
     ):
         # [num_layers, hidden_size, r]
-        split_dim = 0 if is_row_parallel else 1
         weights_a = [
-            orient_for_rank(shard_on_dim(w, dim=split_dim, process_group=process_group), adapter_config.r)
+            orient_for_rank(w, adapter_config.r)
             for w in weights_a
         ]
         self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
-        weights_b = [shard_on_dim(w, dim=1, process_group=process_group) for w in weights_b]
         self.weights_b = torch.stack(weights_b)
 
         self.adapter_config = adapter_config
