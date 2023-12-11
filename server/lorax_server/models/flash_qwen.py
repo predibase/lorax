@@ -144,6 +144,7 @@ class FlashQwen(FlashCausalLM):
         # Because we're splitting on the hidden size dimension, we need to
         # account for the separate q, k, and v matrices.
         chunks = torch.split(t, projection_size, dim=1)
+        assert len(chunks) == 3
         chunks = [
             shard_on_dim(w, dim=1, process_group=self.process_group)
             for w in chunks
@@ -164,7 +165,6 @@ class FlashQwen(FlashCausalLM):
                 shard_on_dim(w, dim=split_dim, process_group=self.process_group)
                 for w in weights_a
             ]
-            weights_a = torch.stack(weights_a)
 
             # [r, hidden_size]
             # Because we're splitting on the hidden size dimension, we need to
@@ -174,7 +174,6 @@ class FlashQwen(FlashCausalLM):
                 self.split_lora_b_qkv(w, projection_size)
                 for w in weights_b
             ]
-            weights_b = torch.stack(weights_b)
 
             return weights_a, weights_b
         else:
