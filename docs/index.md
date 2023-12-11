@@ -53,7 +53,7 @@ Base models can be loaded in fp16 or quantized with `bitsandbytes`, [GPT-Q](http
 
 Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/) libraries. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
 
-## 🏃‍♂️ Getting started with Docker
+## 🏃‍♂️ Getting Started
 
 We recommend starting with our pre-built Docker image to avoid compiling custom CUDA kernels and other dependencies.
 
@@ -117,7 +117,7 @@ print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generate
 
 See [Reference - Python Client](./reference/python_client.md) for full details.
 
-For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md) and [Getting Started - Local](./getting_started/local.md).
+For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md), [Getting Started - SkyPilot](./getting_started/skypilot.md), and [Getting Started - Local](./getting_started/local.md).
 
 ## 🙇 Acknowledgements
 

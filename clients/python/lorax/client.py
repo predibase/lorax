@@ -40,7 +40,7 @@ class Client:
         base_url: str,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
-        timeout: int = 10,
+        timeout: int = 60,
     ):
         """
         Args:
@@ -298,7 +298,7 @@ class AsyncClient:
         base_url: str,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
-        timeout: int = 10,
+        timeout: int = 60,
     ):
         """
         Args:
