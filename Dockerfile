@@ -37,7 +37,7 @@ RUN cargo build --release
 # Adapted from: https://github.com/pytorch/pytorch/blob/master/Dockerfile
 FROM debian:bullseye-slim as pytorch-install
 
-ARG PYTORCH_VERSION=2.0.0
+ARG PYTORCH_VERSION=2.1.1
 ARG PYTHON_VERSION=3.9
 ARG CUDA_VERSION=11.8
 ARG MAMBA_VERSION=23.1.0-1
@@ -74,7 +74,7 @@ RUN case ${TARGETPLATFORM} in \
     "linux/arm64")  exit 1 ;; \
     *)              /opt/conda/bin/conda update -y conda &&  \
     /opt/conda/bin/conda install -y "python=3.9" && \
-    /opt/conda/bin/pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu118 ;; \
+    /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}" -y "python=${PYTHON_VERSION}" pytorch==$PYTORCH_VERSION "pytorch-cuda=$(echo $CUDA_VERSION | cut -d'.' -f 1-2)"  ;; \
     esac && \
     /opt/conda/bin/conda clean -ya
 
