@@ -216,7 +216,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Final image
 FROM base
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo curl unzip parallel time
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo curl unzip parallel time software-properties-common git openssh-server
 
 COPY container-entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
@@ -231,10 +231,10 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
 # ENTRYPOINT ["./entrypoint.sh"]
 # ENTRYPOINT ["lorax-launcher"]
 # CMD ["--json-output"]
-COPY builder/requirements.txt /requirements.txt
-RUN python -m pip install --upgrade pip && \
-    python -m pip install --upgrade -r /requirements.txt --no-cache-dir && \
-    rm /requirements.txt
+# COPY builder/requirements.txt /requirements.txt
+# RUN python -m pip install --upgrade pip && \
+#     python -m pip install --upgrade -r /requirements.txt --no-cache-dir && \
+#     rm /requirements.txt
 
 # NOTE: The base image comes with multiple Python versions pre-installed.
 #       It is reccommended to specify the version of Python when running your code.
