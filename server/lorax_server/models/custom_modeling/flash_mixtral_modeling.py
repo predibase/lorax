@@ -401,7 +401,7 @@ class MixtralAttention(torch.nn.Module):
             )
         # Decode
         else:
-            paged_attn.attention(
+            paged_attn.single_query_cached_kv_attention(
                 attn_output,
                 query,
                 kv_cache[0],
