@@ -116,13 +116,6 @@ COPY server/awq_kernels/ .
 # Build specific version of transformers
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
-# Build awq kernels
-FROM kernel-builder as megablocks-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-megablocks Makefile
-# Build specific version of vllm
-RUN make build-megablocks
-
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
 WORKDIR /usr/src
@@ -137,6 +130,12 @@ WORKDIR /usr/src
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
 RUN make build-vllm
+
+# Build megablocks kernels
+FROM kernel-builder as megablocks-kernels-builder
+WORKDIR /usr/src
+COPY server/Makefile-megablocks Makefile
+RUN make build-megablocks
 
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
@@ -170,8 +169,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Copy conda with PyTorch installed
 COPY --from=pytorch-install /opt/conda /opt/conda
 
-COPY --from=megablocks-kernels-builder /opt/conda /opt/conda
-
 # Copy build artifacts from flash attention builder
 COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
@@ -192,6 +189,9 @@ COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/c
 
 # Copy builds artifacts from punica builder
 COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+
+# Copy build artifacts from megablocks builder
+COPY --from=megablocks-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir

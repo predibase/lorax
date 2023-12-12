@@ -29,8 +29,11 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 from typing import Optional, List, Tuple
 
-from lorax_server.utils import paged_attention, flash_attn
-from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
+# Flash attention imports
+import dropout_layer_norm
+
+from lorax_server.utils import paged_attn, flash_attn
+from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils.layers import (
     FastLinear,
     TensorParallelRowLinear,
@@ -41,8 +44,7 @@ from lorax_server.utils.layers import (
     get_linear,
 )
 
-import dropout_layer_norm
-if not HAS_FLASH_ATTN_V2_CUDA:
+if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mixtral model requires flash attn v2")
 
 try:
@@ -363,7 +365,7 @@ class MixtralAttention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attention.reshape_and_cache(
+        paged_attn.reshape_and_cache(
             kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
         )
 
@@ -385,7 +387,7 @@ class MixtralAttention(torch.nn.Module):
             )
         # Decode
         else:
-            paged_attention.attention(
+            paged_attn.attention(
                 attn_output,
                 query,
                 kv_cache[0],

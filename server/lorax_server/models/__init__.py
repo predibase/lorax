@@ -75,11 +75,11 @@ except ImportError as e:
     MISTRAL = False
 
 MIXTRAL = True
-try:
-    from lorax_server.models.flash_mixtral import FlashMixtral
-except ImportError as e:
-    logger.warning(f"Could not import Mixtral model: {e}")
-    MIXTRAL = False
+# try:
+from lorax_server.models.flash_mixtral import FlashMixtral
+# except ImportError as e:
+    # logger.warning(f"Could not import Mixtral model: {e}")
+    # MIXTRAL = False
 
 if MISTRAL:
     __all__.append(FlashMistral)
