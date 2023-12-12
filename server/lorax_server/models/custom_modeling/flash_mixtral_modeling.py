@@ -742,7 +742,7 @@ class DenseMoE(nn.Module):
         ]
         self.w2 = [
             TensorParallelRowLinear.load(
-                config, prefix=f"{prefix}.experts.{i}.w2", weights=weights, bias=False
+                config, prefix=f"{prefix}.experts.{i}.w2", weights=weights, bias=False, all_reduce=False,
             )
             for i in range(self.num_experts)
         ]
@@ -781,7 +781,7 @@ class DenseMoE(nn.Module):
         out = x.new_zeros(x.shape[0], self.hidden_dim)
         for i in range(self.num_experts):
             h = self.act(self.w1[i](x)) * self.w3[i](x)
-            h = self.w2[i](h, reduce=False)
+            h = self.w2[i](h)
             # Add expert output to out with masking
             out += h * weights[:, i].view(-1, 1)
 
