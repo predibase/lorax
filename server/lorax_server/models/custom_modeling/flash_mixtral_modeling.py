@@ -59,6 +59,15 @@ except ImportError:
     raise ImportError("Mixtral model requires stk to be installed")
 
 
+ATTN_Q_PROJ = "attn.q_proj"
+ATTN_K_PROJ = "attn.k_proj"
+ATTN_V_PROJ = "attn.v_proj"
+ATTN_O_PROJ = "attn.o_proj"
+MOE_W1 = "moe.w1"
+MOE_W2 = "moe.w2"
+MOE_W3 = "moe.w3"
+
+
 class MixtralConfig(PretrainedConfig):
     model_type = "mixtral"
 

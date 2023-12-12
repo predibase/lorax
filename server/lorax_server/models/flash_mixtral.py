@@ -18,6 +18,13 @@ from lorax_server.models.cache_manager import (
     get_cache_manager,
 )
 from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
+    ATTN_K_PROJ,
+    ATTN_O_PROJ,
+    ATTN_Q_PROJ,
+    ATTN_V_PROJ,
+    MOE_W1,
+    MOE_W2,
+    MOE_W3,
     FlashMixtralForCausalLM,
     MixtralConfig,
 )
@@ -30,7 +37,7 @@ from lorax_server.utils import (
     StoppingCriteria,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import find_segments
 
 tracer = trace.get_tracer(__name__)
@@ -39,8 +46,8 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
-ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
+ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_O_PROJ, MOE_W1, MOE_W2, MOE_W3, LM_HEAD]
+ROW_PARALLEL = {ATTN_O_PROJ, MOE_W2, LM_HEAD}
 
 
 # Adds windowing logic to FlashCausalLMBatch
@@ -417,12 +424,14 @@ class FlashMixtral(FlashCausalLM):
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+            layer_weights[(i, ATTN_Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, ATTN_K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, ATTN_V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, ATTN_O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
-            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.moe.gate", layer.moe.gate)
+            layer_weights[(i, MOE_W1)] = (f"{prefix}.{i}.moe.w1", layer.moe.w1)
+            layer_weights[(i, MOE_W2)] = (f"{prefix}.{i}.moe.w2", layer.moe.w2)
+            layer_weights[(i, MOE_W3)] = (f"{prefix}.{i}.moe.w3", layer.moe.w3)
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
