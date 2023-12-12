@@ -60,6 +60,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+      - name: Filter test dependencies
+        run: |
+          # remove stanford-stk from tst requirements as it cannot install correctly without GPUs
+          sed -i '/stanford-stk/d' server/requirements.txt
       - name: Install
         run: |
           make install
