@@ -2026,6 +2026,23 @@ files = [
 ]
 
 [[package]]
+name = "stanford-stk"
+version = "0.0.6"
+description = "Sparse Toolkit"
+optional = false
+python-versions = "*"
+files = [
+    {file = "stanford-stk-0.0.6.tar.gz", hash = "sha256:d4ee731f3a5d3219a56ae8793211e2163c0467d1590060c7ff25ad8e046172d2"},
+]
+
+[package.dependencies]
+triton = "2.1.0"
+
+[package.extras]
+all = ["absl-py"]
+dev = ["absl-py"]
+
+[[package]]
 name = "sympy"
 version = "1.12"
 description = "Computer algebra system (CAS) in Python"
@@ -2770,4 +2787,4 @@ quantize = ["accelerate", "datasets", "texttable"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "fa140cecc24f6b2112ffc01dcc47483cc2a497c688469e3241c54fe700f7a632"
+content-hash = "39a97cf6383dcd4719f7db7a2ba5aced79734059250e28704adf320727f1601b"
