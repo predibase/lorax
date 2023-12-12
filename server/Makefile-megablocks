@@ -1,4 +1,4 @@
-megablocks_commit := 059542da8ec7e76965ad18743a65f8e8d6087f9a
+megablocks_commit := 5897cd6f254b7b3edf7a708a3a3314ecb54b6f78
 
 megablocks:
 	git clone https://github.com/stanford-futuredata/megablocks.git
