@@ -142,7 +142,7 @@ ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
 
 # LoRAX base image
-FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
+FROM runpod/base:0.4.0-cuda11.8.0 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
@@ -229,5 +229,18 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     sudo ./aws/install
 
 # ENTRYPOINT ["./entrypoint.sh"]
-ENTRYPOINT ["lorax-launcher"]
-CMD ["--json-output"]
+# ENTRYPOINT ["lorax-launcher"]
+# CMD ["--json-output"]
+COPY builder/requirements.txt /requirements.txt
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --upgrade -r /requirements.txt --no-cache-dir && \
+    rm /requirements.txt
+
+# NOTE: The base image comes with multiple Python versions pre-installed.
+#       It is reccommended to specify the version of Python when running your code.
+
+
+# Add src files (Worker Template)
+ADD src .
+
+CMD python -u /handler.py
