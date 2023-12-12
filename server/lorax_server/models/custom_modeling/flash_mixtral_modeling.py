@@ -191,6 +191,7 @@ def _load_experts(config, prefix, mat, weights):
         tensor[i * block_size:(i + 1) * block_size] = expert_slice.to(dtype=weights.dtype).to(device=weights.device)
     return tensor
 
+
 class MixtralRMSNorm(nn.Module):
     def __init__(self, prefix, weights, eps=1e-6):
         """
@@ -361,7 +362,8 @@ class MixtralAttention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         kv = kv.view(-1, 2, self.num_key_value_heads, self.head_size)
 
-        self.rotary_emb(query, torch.select(kv, dim=1, index=0), cos, sin)
+        self.rotary_emb(query, cos, sin)
+        self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
         if prefill_cache_indices is not None:
             kv_to_cache = kv[prefill_cache_indices]
@@ -792,10 +794,10 @@ class MixtralLayer(nn.Module):
         moe_cls = BlockSparseMoE if config.quantize is None else DenseMoE
         self.moe = moe_cls(f"{prefix}.block_sparse_moe", config, weights)
 
-        self.input_layernorm = MixtralRMSNorm.load(
+        self.input_layernorm = MixtralRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
         )
-        self.post_attention_layernorm = MixtralRMSNorm.load(
+        self.post_attention_layernorm = MixtralRMSNorm(
             prefix=f"{prefix}.post_attention_layernorm",
             weights=weights,
             eps=config.rms_norm_eps,
@@ -861,7 +863,7 @@ class MixtralModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MixtralRMSNorm.load(
+        self.norm = MixtralRMSNorm(
             prefix="model.norm", weights=weights, eps=config.rms_norm_eps
         )
 
