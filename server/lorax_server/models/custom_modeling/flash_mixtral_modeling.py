@@ -43,6 +43,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
+from lorax_server.utils.lora import AdapterBatchData
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mixtral model requires flash attn v2")
@@ -326,6 +327,7 @@ class MixtralAttention(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_data,
             prefill_cache_indices,
     ):
         """
@@ -341,6 +343,7 @@ class MixtralAttention(torch.nn.Module):
             slots: The number of slots.
             input_lengths: The lengths of the input sequences.
             max_s: The maximum sequence length.
+            adapter_data: The adapter data.
             prefill_cache_indices: The indices for prefilling the cache.
 
         Returns:
@@ -810,6 +813,7 @@ class MixtralLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_data,
             prefill_cache_indices,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
@@ -825,6 +829,7 @@ class MixtralLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_data,
             prefill_cache_indices,
         )
 
@@ -874,6 +879,7 @@ class MixtralModel(torch.nn.Module):
             slots: torch.Tensor,
             input_lengths: torch.Tensor,
             max_s: int,
+            adapter_data: AdapterBatchData,
             prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
@@ -897,6 +903,7 @@ class MixtralModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                adapter_data,
                 prefill_cache_indices,
             )
 
@@ -929,6 +936,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
             slots: torch.Tensor,
             input_lengths: torch.Tensor,
             max_s: int,
+            adapter_data: AdapterBatchData,
             prefill_cache_indices: Optional[torch.Tensor],
             lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -950,6 +958,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            adapter_data,
             prefill_cache_indices,
         )
         if lm_head_indices is not None:

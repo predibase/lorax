@@ -304,6 +304,8 @@ def get_model(
         if MIXTRAL:
             return FlashMixtral(
                 model_id,
+                adapter_id,
+                adapter_source,
                 revision,
                 quantize=quantize,
                 dtype=dtype,
