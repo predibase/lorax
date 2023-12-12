@@ -135,6 +135,7 @@ RUN make build-vllm
 FROM kernel-builder as megablocks-kernels-builder
 WORKDIR /usr/src
 COPY server/Makefile-megablocks Makefile
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN make build-megablocks
 
 # Build punica CUDA kernels
