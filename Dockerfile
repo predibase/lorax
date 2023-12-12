@@ -90,9 +90,7 @@ RUN /opt/conda/bin/conda install -c "nvidia/label/cuda-11.8.0"  cuda==11.8 && \
 
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
-
 WORKDIR /usr/src
-
 COPY server/Makefile-flash-att Makefile
 
 # Build specific version of flash attention
@@ -132,6 +130,12 @@ WORKDIR /usr/src
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
 RUN make build-vllm
+
+# Build megablocks kernels
+FROM kernel-builder as megablocks-kernels-builder
+WORKDIR /usr/src
+COPY server/Makefile-megablocks Makefile
+RUN make build-megablocks
 
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
@@ -185,6 +189,9 @@ COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/c
 
 # Copy builds artifacts from punica builder
 COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+
+# Copy build artifacts from megablocks builder
+COPY --from=megablocks-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir

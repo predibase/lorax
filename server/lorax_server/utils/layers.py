@@ -537,9 +537,10 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
     
 
 class TensorParallelRowLinear(SuperLayer):
-    def __init__(self, linear, process_group):
+    def __init__(self, linear, process_group, all_reduce: bool = True):
         super().__init__(linear)
         self.process_group = process_group
+        self.all_reduce = all_reduce
 
     @classmethod
     def load(
@@ -548,7 +549,8 @@ class TensorParallelRowLinear(SuperLayer):
         prefix: str, 
         weights, 
         bias: bool, 
-        fan_in_fan_out: bool = False
+        fan_in_fan_out: bool = False,
+        all_reduce: bool = True,
     ):
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
 
@@ -560,11 +562,12 @@ class TensorParallelRowLinear(SuperLayer):
         return cls(
             get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out),
             process_group=weights.process_group,
+            all_reduce=all_reduce,
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         out = super().forward(input)
-        if self.process_group.size() > 1:
+        if self.process_group.size() > 1 and self.all_reduce:
             torch.distributed.all_reduce(out, group=self.process_group)
         return out
 
