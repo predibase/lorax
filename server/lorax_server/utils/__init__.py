@@ -15,6 +15,7 @@ from lorax_server.utils.sources import (
     weight_files,
     EntryNotFoundError,
     HUB,
+    PBASE,
     LOCAL,
     LocalEntryNotFoundError,
     RevisionNotFoundError,
