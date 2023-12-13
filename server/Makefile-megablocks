@@ -1,0 +1,8 @@
+megablocks_commit := 5897cd6f254b7b3edf7a708a3a3314ecb54b6f78
+
+megablocks:
+	git clone https://github.com/stanford-futuredata/megablocks.git
+
+build-megablocks: megablocks
+	cd megablocks && git fetch && git checkout $(megablocks_commit)
+	cd megablocks && python setup.py build

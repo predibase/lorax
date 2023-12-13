@@ -142,8 +142,8 @@ class QwenRMSNorm(nn.Module):
         
 
 def load_attention(config, prefix, weights, layer_id):
-    base_layer = load_attention_multi(config, prefix, weights)
-    projection_size = config.kv_channels * config.num_attention_heads
+    projection_size = (config.hidden_size // config.num_attention_heads) * config.num_attention_heads
+    base_layer = load_attention_multi(config, prefix, weights, projection_size)
     return TensorParallelMultiAdapterLinear.load(
         base_layer, layer_id, [ATTN_C_ATTN], sizes=[
             3 * projection_size,
@@ -151,10 +151,14 @@ def load_attention(config, prefix, weights, layer_id):
     )
 
 
-def load_attention_multi(config, prefix, weights):
+def load_attention_multi(config, prefix, weights, projection_size):
     return TensorParallelColumnLinear.load_multi(
         config,
-        prefixes=[f"{prefix}.c_attn"],
+        prefixes=[
+            (f"{prefix}.c_attn", (0, projection_size)),
+            (f"{prefix}.c_attn", (projection_size, projection_size)),
+            (f"{prefix}.c_attn", (2 * projection_size, projection_size)),
+        ],
         dim=0,
         weights=weights,
         bias=True,
@@ -173,7 +177,8 @@ class FlashQwenAttention(torch.nn.Module):
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
-        self.projection_size = config.kv_channels * config.num_attention_heads
+        self.projection_size = (self.head_size * config.num_attention_heads) // weights.process_group.size()
+        self.process_group = weights.process_group
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
