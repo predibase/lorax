@@ -100,10 +100,10 @@ struct Args {
     source: String,
 
     /// The source of the model to load.
-    /// Can be `hub` or `s3` or 'predibase'
+    /// Can be `hub` or `s3` or `pbase`
     /// `hub` will load the model from the huggingface hub.
     /// `s3` will load the model from the predibase S3 bucket.
-    /// `predibase` will load an s3 model but resolve the metadata from a predibase server
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
     #[clap(default_value = "hub", long, env)]
     adapter_source: String,
 
