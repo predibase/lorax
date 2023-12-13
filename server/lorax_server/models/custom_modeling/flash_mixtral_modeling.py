@@ -45,7 +45,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.utils.lora import AdapterBatchData, LM_HEAD
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mixtral model requires flash attn v2")
@@ -943,11 +943,11 @@ class FlashMixtralForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = MixtralModel(config, weights)
-        self.lm_head = TensorParallelHead.load(
+        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
-        )
+        ), 0, LM_HEAD, process_group=weights.process_group)
         self.max_past = config.sliding_window
         if self.max_past is None:
             raise ValueError("max_past cannot be None")
