@@ -183,6 +183,7 @@ impl Client {
         &mut self,
         adapter_id: String,
         adapter_source: String,
+        predibase_api_token: Option<String>,
     ) -> Result<String> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
@@ -190,6 +191,7 @@ impl Client {
             let request = tonic::Request::new(DownloadAdapterRequest {
                 adapter_id,
                 adapter_source: adapter_source_enum.into(),
+                predibase_api_token: predibase_api_token,
             })
             .inject_context();
             let response = self.stub.download_adapter(request).await?.into_inner();
@@ -210,6 +212,7 @@ impl Client {
         adapter_id: String,
         adapter_source: String,
         adapter_index: u32,
+        predibase_api_token: Option<String>
     ) -> Result<String> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
@@ -218,6 +221,7 @@ impl Client {
                 adapter_id,
                 adapter_source: adapter_source_enum.into(),
                 adapter_index,
+                predibase_api_token: predibase_api_token,
             })
             .inject_context();
             let response = self.stub.load_adapter(request).await?.into_inner();

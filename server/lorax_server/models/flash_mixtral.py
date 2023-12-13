@@ -341,9 +341,6 @@ class FlashMixtral(FlashCausalLM):
         )
         config.quantize = quantize
 
-        if config.sliding_window is None:
-            config.sliding_window = config.max_position_embeddings
-
         # Set context windows
         SLIDING_WINDOW = config.sliding_window
         SLIDING_WINDOW_BLOCKS = math.ceil(config.sliding_window / BLOCK_SIZE)

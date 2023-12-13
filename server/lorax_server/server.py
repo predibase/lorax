@@ -128,7 +128,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         adapter_source = _adapter_source_enum_to_string(request.adapter_source)
         if adapter_source == PBASE:
-            adapter_id = map_pbase_model_id_to_s3(adapter_id)
+            adapter_id = map_pbase_model_id_to_s3(adapter_id, request.predibase_api_token)
             adapter_source = S3
         try:
             # fail fast if ID is not an adapter (i.e. it is a full model)
@@ -163,7 +163,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
             if adapter_source == PBASE:
-                adapter_id = map_pbase_model_id_to_s3(adapter_id)
+                adapter_id = map_pbase_model_id_to_s3(adapter_id, request.predibase_api_token)
                 adapter_source = S3
             self.model.load_adapter(adapter_id, adapter_source, adapter_index)
             
