@@ -17,13 +17,11 @@ pub(crate) struct Adapter {
     source: String,
     /// index of the adapter
     index: u32,
-    /// Optional - Api token from predibase
-    predibase_api_token: Option<String>,
 }
 
 impl Adapter {
-    pub(crate) fn new(id: String, source: String, index: u32, predibase_api_token: Option<String>) -> Self {   
-        Self { id, source, index, predibase_api_token}
+    pub(crate) fn new(id: String, source: String, index: u32) -> Self {
+        Self { id, source, index }
     }
 
     pub(crate) fn id(&self) -> &str {
@@ -32,10 +30,6 @@ impl Adapter {
 
     pub(crate) fn source(&self) -> &str {
         &self.source
-    }
-
-    pub(crate) fn predibase_api_token(&self) -> &std::option::Option<std::string::String> {
-        &self.predibase_api_token
     }
 
     pub(crate) fn index(&self) -> u32 {

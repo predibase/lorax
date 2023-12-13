@@ -151,11 +151,10 @@ impl ShardedClient {
         &mut self,
         adapter_id: String,
         adapter_source: String,
-        predibase_api_token: Option<String>,
     ) -> Result<String> {
         // Only download the adapter with one client, since they share a single disk
         self.clients[0]
-            .download_adapter(adapter_id, adapter_source, predibase_api_token)
+            .download_adapter(adapter_id, adapter_source)
             .await
     }
 
@@ -164,7 +163,6 @@ impl ShardedClient {
         adapter_id: String,
         adapter_source: String,
         adapter_index: u32,
-        predibase_api_token: Option<String>,
     ) -> Result<String> {
         // Load the adapter in all clients since there is sharding done between them
         let futures: Vec<_> = self
@@ -175,7 +173,6 @@ impl ShardedClient {
                     adapter_id.clone(),
                     adapter_source.clone(),
                     adapter_index,
-                    predibase_api_token.clone(),
                 ))
             })
             .collect();
