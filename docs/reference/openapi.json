@@ -596,6 +596,10 @@
           "adapter_source": {
             "type": "string",
             "nullable": true
+          },
+          "predibase_api_token": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

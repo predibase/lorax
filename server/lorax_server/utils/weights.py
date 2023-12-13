@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 from safetensors import safe_open, SafetensorError
 import torch
 from loguru import logger
@@ -114,15 +114,31 @@ class Weights:
         tensor = tensor.to(device=self.device)
         return tensor
 
-    def get_partial_sharded(self, tensor_name: str, dim: int):
+    def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
+        """Loads tensor with the given name and shards it along the given dimension.
+
+        The optional range argument can be used to load and split on only a subset of the tensor.
+        This is useful in cases where the tensor is stored as one contiguous block, but is logically
+        split into different components that need to be sharded separately. For example, when storing
+        QKV weights together as a single tensor on disk.
+
+        Args:
+            tensor_name (str): Name of the tensor to load.
+            dim (int): Dimension to shard along.
+            range (Optional[Tuple[int, int]]): Range of indices to load and shard as (offset, size).
+        """
         filename, tensor_name = self.get_filename(tensor_name)
         world_size = self.process_group.size()
         rank = self.process_group.rank()
 
         f = self._get_handle(filename)
         slice_ = f.get_slice(tensor_name)
-        size = slice_.get_shape()[dim]
-        start, stop = get_start_stop_idxs_for_rank(size, rank, world_size)
+        if range is not None:
+            offset, size = range
+        else:
+            offset = 0
+            size = slice_.get_shape()[dim]
+        start, stop = get_start_stop_idxs_for_rank(offset, size, rank, world_size)
 
         if dim == 0:
             tensor = slice_[start:stop]
@@ -137,22 +153,33 @@ class Weights:
         tensor = tensor.to(device=self.device)
         return tensor
 
-    def get_sharded(self, tensor_name: str, dim: int):
+    def get_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
         filename, tensor_name = self.get_filename(tensor_name)
         f = self._get_handle(filename)
         slice_ = f.get_slice(tensor_name)
         world_size = self.process_group.size()
-        size = slice_.get_shape()[dim]
+        size = slice_.get_shape()[dim] if range is None else range[1]
         assert (
             size % world_size == 0
         ), f"The choosen size {size} is not compatible with sharding on {world_size} shards"
-        return self.get_partial_sharded(tensor_name, dim)
+        return self.get_partial_sharded(tensor_name, dim, range=range)
+    
+    def get_sharded_prefix(self, module_name: str, prefix: Union[str, Tuple], dim: int):
+        if isinstance(prefix, str):
+            return self.get_sharded(f"{prefix}.{module_name}", dim=dim)
+        else:
+            assert isinstance(prefix, tuple)
+            assert len(prefix) == 2
+            return self.get_sharded(f"{prefix[0]}.{module_name}", dim=dim, range=prefix[1])
+    
+    def get_sharded_list(self, module_name: str, prefixes: List[Union[str, Tuple]], dim: int):
+        return [self.get_sharded_prefix(module_name, p, dim=dim) for p in prefixes]
 
-    def get_multi_weights_col(self, prefixes: List[str], quantize: str, dim: int):
+    def get_multi_weights_col(self, prefixes: List[Union[str, Tuple]], quantize: str, dim: int):
         if quantize in ["gptq", "awq"]:
             try:
                 qweight = torch.cat(
-                    [self.get_sharded(f"{p}.qweight", dim=1) for p in prefixes], dim=1
+                    self.get_sharded_list("qweight", prefixes, dim=1), dim=1
                 )
             except RuntimeError:
                 raise RuntimeError(
@@ -160,12 +187,14 @@ class Weights:
                 )
 
             qzeros = torch.cat(
-                [self.get_sharded(f"{p}.qzeros", dim=1) for p in prefixes], dim=1
+                self.get_sharded_list("qzeros", prefixes, dim=1), dim=1
             )
             scales = torch.cat(
-                [self.get_sharded(f"{p}.scales", dim=1) for p in prefixes], dim=1
+                self.get_sharded_list("scales", prefixes, dim=1), dim=1
             )
             if quantize == "gptq":
+                # no tensor parallelism, so remove the range if provided
+                prefixes = [p[0] if isinstance(p, tuple) else p for p in prefixes]
                 w = [self.get_tensor(f"{p}.g_idx") for p in prefixes]
                 for w2 in w[1:]:
                     torch.testing.assert_close(w2, w[0])
@@ -176,7 +205,7 @@ class Weights:
             bits, groupsize = self._get_gptq_params()
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         else:
-            w = [self.get_sharded(f"{p}.weight", dim=0) for p in prefixes]
+            w = self.get_sharded_list("weight", prefixes, dim=0)
             weight = torch.cat(w, dim=dim)
         return weight
 
@@ -314,10 +343,10 @@ class Weights:
                 except Exception:
                     pass
 
-def get_start_stop_idxs_for_rank(size, rank, world_size):
+def get_start_stop_idxs_for_rank(offset, size, rank, world_size):
     block_size = size // world_size
-    start = rank * block_size
-    stop = (rank + 1) * block_size
+    start = offset + rank * block_size
+    stop = offset + (rank + 1) * block_size
     return start, stop
 
 
@@ -326,7 +355,7 @@ def shard_on_dim(t: torch.Tensor, dim: int, process_group: torch.distributed.Pro
     rank = process_group.rank()
     
     size = t.shape[dim]
-    start, stop = get_start_stop_idxs_for_rank(size, rank, world_size)
+    start, stop = get_start_stop_idxs_for_rank(0, size, rank, world_size)
 
     if dim == 0:
         tensor = t[start:stop]
