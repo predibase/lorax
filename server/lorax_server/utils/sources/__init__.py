@@ -18,10 +18,10 @@ PREDIBASE_MODEL_URL_ENDPOINT = "/v1/models/version/name/{}?version={}"
 PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://api.predibase.com")
 
 @lru_cache(maxsize=256)
-def map_pbase_model_id_to_s3(model_id: str, predibase_api_token: str) -> str:
+def map_pbase_model_id_to_s3(model_id: str) -> str:
     name, version = model_id.split("/")
     url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_URL_ENDPOINT.format(name, version)
-    headers = {"Authorization": f"Bearer {predibase_api_token}"}
+    headers = {"Authorization": f"Bearer {PREDIBASE_API_TOKEN}"}
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
     uuid, best_run_id = resp.json()["uuid"], resp.json()["bestRunID"]
