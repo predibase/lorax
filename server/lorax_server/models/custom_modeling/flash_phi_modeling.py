@@ -40,6 +40,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
+from transformers.models.phi import PhiConfig
 from typing import Optional, List, Tuple
 
 # Flash attention imports
@@ -63,58 +64,6 @@ ATTN_WQKV = "mixer.Wqkv"
 ATTN_OUT_PROJ = "mixer.out_proj"
 MLP_FC1 = "mlp.fc1"
 MLP_FC2 = "mlp.fc2"
-
-
-class PhiConfig(PretrainedConfig):
-    def __init__(
-        self,
-        vocab_size=32000,
-        hidden_size=4096,
-        intermediate_size=11008,
-        num_hidden_layers=32,
-        n_head=32,
-        num_key_value_heads=None,
-        hidden_act="silu",
-        max_position_embeddings=2048,
-        initializer_range=0.02,
-        rms_norm_eps=1e-6,
-        use_cache=True,
-        pad_token_id=0,
-        bos_token_id=1,
-        eos_token_id=2,
-        pretraining_tp=1,
-        tie_word_embeddings=False,
-        rope_scaling=None,
-        rope_theta=10000.0,
-        **kwargs,
-    ):
-        self.vocab_size = vocab_size
-        self.max_position_embeddings = max_position_embeddings
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size
-        self.num_hidden_layers = num_hidden_layers
-        self.n_head = n_head
-
-        # for backward compatibility
-        if num_key_value_heads is None:
-            num_key_value_heads = n_head
-
-        self.num_key_value_heads = num_key_value_heads
-        self.hidden_act = hidden_act
-        self.initializer_range = initializer_range
-        self.rms_norm_eps = rms_norm_eps
-        self.pretraining_tp = pretraining_tp
-        self.use_cache = use_cache
-        self.rope_scaling = rope_scaling
-        self.rope_theta = rope_theta
-
-        super().__init__(
-            pad_token_id=pad_token_id,
-            bos_token_id=bos_token_id,
-            eos_token_id=eos_token_id,
-            tie_word_embeddings=tie_word_embeddings,
-            **kwargs,
-        )
 
 
 class PhiRMSNorm(nn.Module):
@@ -359,6 +308,7 @@ class FlashPhiLayer(nn.Module):
             prefix=f"{prefix}.mixer", config=config, weights=weights, layer_id=layer_id,
         )
         self.mlp = PhiMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.process_group = weights.process_group
 
     def forward(
         self,
@@ -374,7 +324,6 @@ class FlashPhiLayer(nn.Module):
         max_s,
         adapter_data,
     ):
-        residual = hidden_states
         normed_hidden_states, _ = self.ln(hidden_states, residual=None)
 
         attn_output = self.mixer(
@@ -391,9 +340,12 @@ class FlashPhiLayer(nn.Module):
         )
 
         mlp_output = self.mlp(normed_hidden_states, adapter_data)
-        hidden_states = attn_output + mlp_output + residual
+        intermediate = mlp_output + attn_output
 
-        return mlp_output, residual
+        if self.process_group.size() > 1:
+            torch.distributed.all_reduce(intermediate, group=self.process_group)
+
+        return intermediate + hidden_states, None
 
 
 class FlashPhiModel(torch.nn.Module):
@@ -413,7 +365,7 @@ class FlashPhiModel(torch.nn.Module):
                     config,
                     weights,
                 )
-                for layer_id in range(config.num_hidden_layers)
+                for layer_id in range(config.n_layer)
             ]
         )
 
