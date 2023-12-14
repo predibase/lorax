@@ -212,7 +212,7 @@ impl Client {
         adapter_id: String,
         adapter_source: String,
         adapter_index: u32,
-        api_token: Option<String>
+        api_token: Option<String>,
     ) -> Result<String> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
