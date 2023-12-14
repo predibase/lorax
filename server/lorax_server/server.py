@@ -17,7 +17,7 @@ from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, get_config_path, get_local_dir
+from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
@@ -127,6 +127,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             )
 
         adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+        if adapter_source == PBASE:
+            adapter_id = map_pbase_model_id_to_s3(adapter_id, request.api_token)
+            adapter_source = S3
         try:
             # fail fast if ID is not an adapter (i.e. it is a full model)
             # TODO(geoffrey): do this for S3– can't do it this way because the
@@ -159,6 +162,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_id = request.adapter_id
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
+            if adapter_source == PBASE:
+                adapter_id = map_pbase_model_id_to_s3(adapter_id, request.api_token)
+                adapter_source = S3
             self.model.load_adapter(adapter_id, adapter_source, adapter_index)
             
             return generate_pb2.LoadAdapterResponse(
@@ -281,5 +287,7 @@ def _adapter_source_enum_to_string(adapter_source: int) -> str:
         return S3
     elif adapter_source == generate_pb2.AdapterSource.LOCAL:
         return LOCAL
+    elif adapter_source == generate_pb2.AdapterSource.PBASE:
+        return PBASE
     else:
         raise ValueError(f"Unknown adapter source {adapter_source}")
