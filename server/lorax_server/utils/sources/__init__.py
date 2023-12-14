@@ -20,6 +20,8 @@ PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://ap
 
 @lru_cache(maxsize=256)
 def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
+    if api_token is None:
+        raise ValueError("api_token must be provided to for a model of source pbase")
     headers = {"Authorization": f"Bearer {api_token}"}
     name_components = model_id.split("/")
     # version is optional
