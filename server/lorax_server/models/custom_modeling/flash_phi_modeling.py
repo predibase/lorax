@@ -156,10 +156,13 @@ class FlashPhiAttention(torch.nn.Module):
         self.projection_size = (self.head_size * config.n_head) // weights.process_group.size()
         self.process_group = weights.process_group
 
+        rope_theta = 10000
+        config.max_position_embeddings = getattr(config, "n_positions", 2048)
+
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
-            dim=self.head_size,
-            base=config.rope_theta,
+            dim=config.rotary_dim,
+            base=rope_theta,
             device=weights.device,
         )
 
