@@ -363,6 +363,7 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
         self.transformer = FlashGPT2Model(config, weights)
+        self.wte_t = self.transformer.wte.weight.T.contiguous()
 
     def forward(
         self,
@@ -393,6 +394,6 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
 
         # lm_head reuses the weights of the embedding layer
         # https://github.com/huggingface/transformers/issues/6291
-        logits = hidden_states @ self.transformer.wte.weight.T
+        logits = hidden_states @ self.wte_t
         logits = logits[:, :self.transformer.config.vocab_size]
         return logits

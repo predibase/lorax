@@ -218,7 +218,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
     # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
     # Set to True if replacing a Conv1D layer with a Linear layer
     if fan_in_fan_out:
-        weight = weight.T
+        weight = weight.T.contiguous()
 
     if quantize is None:
         linear = FastLinear(weight, bias)
