@@ -19,8 +19,8 @@ PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://ap
 
 
 @lru_cache(maxsize=256)
-def map_pbase_model_id_to_s3(model_id: str, predibase_api_token: str) -> str:
-    headers = {"Authorization": f"Bearer {predibase_api_token}"}
+def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
+    headers = {"Authorization": f"Bearer {api_token}"}
     name_components = model_id.split("/")
     # version is optional
     if len(name_components) == 1:

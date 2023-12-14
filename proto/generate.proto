@@ -233,8 +233,8 @@ message DownloadAdapterRequest {
     string adapter_id = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
-    /// API Token for predibase
-    optional string predibase_api_token = 3;
+    /// Token for external API (predibase / HuggingFace)
+    optional string api_token = 3;
 }
 
 message DownloadAdapterResponse {
@@ -251,8 +251,8 @@ message LoadAdapterRequest {
     AdapterSource adapter_source = 2;
     /// Adapter index
     uint32 adapter_index = 3;
-    /// API Token for predibase
-    optional string predibase_api_token = 4;
+    /// Token for external API (predibase / HuggingFace)
+    optional string api_token = 4;
 }
 
 message LoadAdapterResponse {

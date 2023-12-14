@@ -139,7 +139,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                 }
 
                 match client
-                    .download_adapter(adapter.id().to_string(), adapter.source().to_string(), adapter.predibase_api_token().clone())       
+                    .download_adapter(adapter.id().to_string(), adapter.source().to_string(), adapter.api_token().clone())       
                     .await
                 {
                     Ok(_) => {
@@ -185,7 +185,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                         adapter.id().to_string(),
                         adapter.source().to_string(),
                         adapter.index(),
-                        adapter.predibase_api_token().clone(),
+                        adapter.api_token().clone(),
                     )
                     .await
                 {
