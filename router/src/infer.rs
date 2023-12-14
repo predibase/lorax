@@ -138,8 +138,8 @@ impl Infer {
             }
         }
 
-        let predibase_api_token = request.parameters.predibase_api_token.clone();
-        let adapter = Adapter::new(adapter_id.unwrap(), adapter_source.unwrap(), adapter_idx, predibase_api_token);
+        let api_token = request.parameters.api_token.clone();
+        let adapter = Adapter::new(adapter_id.unwrap(), adapter_source.unwrap(), adapter_idx, api_token);
 
         // Validate request
         let valid_request = self

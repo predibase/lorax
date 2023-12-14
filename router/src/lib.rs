@@ -79,7 +79,7 @@ pub(crate) struct GenerateParameters {
     pub adapter_source: Option<String>,
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "<token from predibase>")]
-    pub predibase_api_token: Option<String>,
+    pub api_token: Option<String>,
     #[serde(default)]
     #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 1)]
     pub best_of: Option<usize>,
@@ -162,7 +162,7 @@ fn default_parameters() -> GenerateParameters {
     GenerateParameters {
         adapter_id: None,
         adapter_source: None,
-        predibase_api_token: None,
+        api_token: None,
         best_of: None,
         temperature: None,
         repetition_penalty: None,

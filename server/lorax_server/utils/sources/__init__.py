@@ -29,6 +29,8 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
     elif len(name_components) == 2:
         name, version = name_components
         url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_VERSION_URL_ENDPOINT.format(name, version)
+    else:
+        raise ValueError(f"Invalid model id {model_id}")
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
     uuid, best_run_id = resp.json()["uuid"], resp.json()["bestRunID"]
