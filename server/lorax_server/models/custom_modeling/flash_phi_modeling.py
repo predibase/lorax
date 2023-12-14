@@ -477,7 +477,7 @@ class PhiCausalLMHead(torch.nn.Module):
         ), 0, LM_HEAD, process_group=weights.process_group)
     
     def forward(self, hidden_states, adapter_data):
-        hidden_states = self.ln(hidden_states)
+        hidden_states, _ = self.ln(hidden_states)
         hidden_states = self.linear(hidden_states, adapter_data)
         return hidden_states
 
