@@ -139,7 +139,12 @@ impl Infer {
         }
 
         let api_token = request.parameters.api_token.clone();
-        let adapter = Adapter::new(adapter_id.unwrap(), adapter_source.unwrap(), adapter_idx, api_token);
+        let adapter = Adapter::new(
+            adapter_id.unwrap(),
+            adapter_source.unwrap(),
+            adapter_idx,
+            api_token,
+        );
 
         // Validate request
         let valid_request = self

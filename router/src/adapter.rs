@@ -22,8 +22,13 @@ pub(crate) struct Adapter {
 }
 
 impl Adapter {
-    pub(crate) fn new(id: String, source: String, index: u32, api_token: Option<String>) -> Self {   
-        Self { id, source, index, api_token}
+    pub(crate) fn new(id: String, source: String, index: u32, api_token: Option<String>) -> Self {
+        Self {
+            id,
+            source,
+            index,
+            api_token,
+        }
     }
 
     pub(crate) fn id(&self) -> &str {
