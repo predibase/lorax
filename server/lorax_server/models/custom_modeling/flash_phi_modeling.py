@@ -268,9 +268,6 @@ class PhiMLP(nn.Module):
             )
         )
 
-        n_inner = getattr(config, "n_inner", None)
-        n_inner = n_inner if n_inner is not None else 4 * config.hidden_size
-
         fc1 = TensorParallelColumnLinear.load_multi(
             config,
             prefixes=[f"{prefix}.fc1"],
@@ -279,8 +276,9 @@ class PhiMLP(nn.Module):
             bias=True,
         )
 
+        out_size = fc1.linear.weight.shape[-1] * weights.process_group.size()
         self.fc1 = TensorParallelMultiAdapterLinear.load(
-            fc1, layer_id, [MLP_FC1], sizes=[n_inner], process_group=weights.process_group
+            fc1, layer_id, [MLP_FC1], sizes=[out_size], process_group=weights.process_group
         )
         self.fc2 = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
