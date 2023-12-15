@@ -63,8 +63,13 @@ aws s3 ls "${S3_PATH}" --recursive | awk '{print $4}'
 aws s3 ls "${S3_PATH}" --recursive | awk '{print $4}' | xargs -I {} bash -c 'sudo mkdir -p "${HUGGINGFACE_HUB_CACHE}/$(dirname "{}")"'
 
 copy_file() {
+    # The files are a list of files without the bucket prefix. 
+    # In the event that the env variable HF_CACHE_BUCKET is not just a bucket, but a bucket plus a subfolder, 
+    # the subfolder will already be included into the file variable. 
+    # In this case, strip all subpaths from the env variable HF_CACHE_BUCKET before attempting to download weights. 
     file="$1"
-    sudo -E aws s3 cp "s3://${HF_CACHE_BUCKET}/${file}" "${HUGGINGFACE_HUB_CACHE}/${file}"
+    true_bucket=`echo $HF_CACHE_BUCKET | cut -d / -f 1`
+    sudo -E aws s3 cp "s3://${true_bucket}/${file}" "${HUGGINGFACE_HUB_CACHE}/${file}"
 }
 export -f copy_file
 
