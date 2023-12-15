@@ -155,9 +155,6 @@ class FlashPhiAttention(torch.nn.Module):
         adapter_data,
     ):
         qkv = self.Wqkv(hidden_states, adapter_data)
-        if self.layer_id == 0:
-            print(qkv.shape, qkv.norm().item())
-
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -174,10 +171,6 @@ class FlashPhiAttention(torch.nn.Module):
         paged_attn.reshape_and_cache(
             kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
         )
-
-        if self.layer_id == 0:
-            print(query.shape, query.norm().item())
-            print(kv.shape, kv.norm().item())
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -282,8 +275,6 @@ class FlashPhiLayer(nn.Module):
         adapter_data,
     ):
         normed_hidden_states, _ = self.ln(hidden_states, residual=None)
-        if self.mixer.layer_id == 0:
-            print(normed_hidden_states.shape, normed_hidden_states.norm().item())
 
         attn_output = self.mixer(
             normed_hidden_states,
@@ -347,7 +338,6 @@ class FlashPhiModel(torch.nn.Module):
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
         hidden_states = self.embd(input_ids)
-        print(hidden_states.shape, hidden_states.norm().item())
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer

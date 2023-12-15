@@ -79,7 +79,7 @@ Prompt base LLM:
 ```shell
 curl 127.0.0.1:8080/generate \
     -X POST \
-    -d '{"inputs": "Instruct: Write a detailed analogy between mathematics and a lighthouse.\nOutput:", "parameters": {"max_new_tokens": 64}}' \
+    -d '{"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]", "parameters": {"max_new_tokens": 64}}' \
     -H 'Content-Type: application/json'
 ```
 
