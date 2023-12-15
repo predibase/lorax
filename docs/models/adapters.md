@@ -50,6 +50,7 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `out_proj`
 - `fc1`
 - `fc2`
+- `lm_head`
 
 ### GPT2
 
