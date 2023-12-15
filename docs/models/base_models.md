@@ -6,7 +6,9 @@
     - [CodeLlama](https://huggingface.co/codellama)
 - 🌬️[Mistral](https://huggingface.co/mistralai)
     - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
+- 🔄 [Mixtral](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1)
 - 🔮 [Qwen](https://huggingface.co/Qwen)
+- 🏛️ [Phi](https://huggingface.co/microsoft/phi-2)
 - 🤖 [GPT2](https://huggingface.co/gpt2)
 
 Other architectures are supported on a best effort basis, but do not support dynamic adapter loading.
