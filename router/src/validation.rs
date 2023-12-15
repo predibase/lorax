@@ -474,7 +474,7 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0),
+                Adapter::new("".to_string(), "hf".to_string(), 0, None),
             )
             .await
         {
@@ -508,7 +508,7 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0),
+                Adapter::new("".to_string(), "hf".to_string(), 0, None),
             )
             .await
         {
@@ -526,7 +526,7 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0),
+                Adapter::new("".to_string(), "hf".to_string(), 0, None),
             )
             .await
         {
@@ -544,7 +544,7 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0),
+                Adapter::new("".to_string(), "hf".to_string(), 0, None),
             )
             .await
             .unwrap();
