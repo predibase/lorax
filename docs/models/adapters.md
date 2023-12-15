@@ -28,6 +28,14 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `down_proj`
 - `lm_head`
 
+### Mixtral
+
+- `q_proj`
+- `k_proj`
+- `v_proj`
+- `o_proj`
+- `lm_head`
+
 ### Qwen
 
 - `c_attn`
@@ -35,6 +43,13 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `w1`
 - `w2`
 - `lm_head`
+
+### Phi
+
+- `Wqkv`
+- `out_proj`
+- `fc1`
+- `fc2`
 
 ### GPT2
 
