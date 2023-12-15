@@ -14,12 +14,8 @@ import torch.distributed
 
 from torch import nn
 from transformers.activations import ACT2FN
-from transformers.configuration_utils import PretrainedConfig
 from transformers.models.phi import PhiConfig
 from typing import Optional, List, Tuple
-
-# Flash attention imports
-import dropout_layer_norm
 
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
@@ -76,7 +72,6 @@ class FlashPhiAttention(torch.nn.Module):
         self.num_heads = config.n_head
         self.hidden_size = config.n_embd
         self.head_size = self.hidden_size // self.num_heads
-        self.projection_size = (self.head_size * config.n_head) // weights.process_group.size()
         self.process_group = weights.process_group
 
         rope_theta = 10000
@@ -106,7 +101,7 @@ class FlashPhiAttention(torch.nn.Module):
             bias=True,
         ), layer_id, ATTN_OUT_PROJ, process_group=weights.process_group)
 
-
+        # After initializing layers, scale num heads by num shards for use in forward() to split outputs
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = self.num_key_value_heads // weights.process_group.size()
 

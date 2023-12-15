@@ -329,7 +329,7 @@ def get_model(
             )
         raise NotImplementedError("Qwen model requires flash attention v2")
     
-    if model_type == "phi-msft" or model_type == "phi":
+    if model_type in ["phi-msft", "phi"]:
         if FLASH_ATTENTION:
             return FlashPhi(
                 model_id,
