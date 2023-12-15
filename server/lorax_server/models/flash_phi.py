@@ -95,7 +95,6 @@ class FlashPhi(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashPhiForCausalLM(config, weights)
-        print(model)
         self.config = config
 
         torch.distributed.barrier(group=self.process_group)
