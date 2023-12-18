@@ -82,8 +82,18 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, uds_path, source, adapter_source
+        model_id,
+        adapter_id,
+        revision,
+        sharded,
+        quantize,
+        dtype,
+        trust_remote_code,
+        uds_path,
+        source,
+        adapter_source,
     )
+
 
 def _download_weights(
     model_id: str,
@@ -95,6 +105,7 @@ def _download_weights(
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
     from lorax_server.utils import sources
+
     model_source = sources.get_model_source(source, model_id, revision, extension)
 
     # Test if files were already download
@@ -168,7 +179,7 @@ def _download_weights(
             discard_names = getattr(class_, "_tied_weights_keys", [])
             discard_names.extend(getattr(class_, "_keys_to_ignore_on_load_missing", []))
 
-        except Exception as e:
+        except Exception:
             discard_names = []
         # Convert pytorch weights to safetensors
         utils.convert_files(local_pt_files, local_st_files, discard_names)

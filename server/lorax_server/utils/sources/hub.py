@@ -10,8 +10,7 @@ from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
     LocalEntryNotFoundError,
-    EntryNotFoundError,
-    RevisionNotFoundError,  # Import here to ease try/except in other part of the lib
+    EntryNotFoundError,  # Import here to ease try/except in other part of the lib
 )
 
 from .source import BaseModelSource, try_to_load_from_cache
@@ -48,7 +47,6 @@ def weight_hub_files(
         )
 
     return filenames
-
 
 
 def weight_files(
@@ -157,7 +155,12 @@ def download_weights(
 
 
 class HubModelSource(BaseModelSource):
-    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+    def __init__(
+        self,
+        model_id: str,
+        revision: Optional[str] = None,
+        extension: str = ".safetensors",
+    ):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension

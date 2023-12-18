@@ -8,6 +8,7 @@ from transformers import PreTrainedTokenizerBase
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import InfoResponse
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.globals import get_speculation_num
 
 B = TypeVar("B", bound=Batch)
 
@@ -23,6 +24,7 @@ class Model(ABC):
         rank: int = 0,
         world_size: int = 1,
         sliding_window: Optional[int] = None,
+        speculation: Optional[int] = None,
     ):
         self.model = model.eval()
         self.tokenizer = tokenizer
@@ -33,6 +35,10 @@ class Model(ABC):
         self.rank = rank
         self.world_size = world_size
         self.sliding_window = sliding_window
+
+        if speculation is None:
+            speculation = get_speculation_num()
+        self.speculation = speculation
 
         self.has_position_ids = (
             inspect.signature(model.forward).parameters.get("position_ids", None)
@@ -51,6 +57,7 @@ class Model(ABC):
             dtype=str(self.dtype),
             device_type=self.device.type,
             window_size=self.sliding_window,
+            speculation=self.speculation,
         )
 
     @property
@@ -102,7 +109,7 @@ class Model(ABC):
             raise RuntimeError(
                 f"found uninitialized parameters in model {self.__class__.__name__}: {uninitialized_parameters}"
             )
-    
+
     def load_adapter(self, adapter_id, adapter_source, adapter_index):
         if adapter_id == BASE_MODEL_ADAPTER_ID:
             return

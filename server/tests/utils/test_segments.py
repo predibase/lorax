@@ -4,7 +4,6 @@ import torch
 from lorax_server.utils.segments import find_segments, SegmentConcatBuilder
 
 
-
 @pytest.mark.parametrize(
     "adapter_indices,expected_segments,expected_segment_indices",
     [

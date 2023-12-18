@@ -30,8 +30,21 @@ from lorax_server.utils import (
     StoppingCriteria,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils.lora import (
+    DOWN_PROJ,
+    GATE_PROJ,
+    K_PROJ,
+    LM_HEAD,
+    O_PROJ,
+    Q_PROJ,
+    UP_PROJ,
+    V_PROJ,
+    AdapterBatchData,
+    AdapterBatchMetadata,
+)
 from lorax_server.utils.segments import find_segments
+from lorax_server.utils.medusa import MedusaModel
+from huggingface_hub import hf_hub_download
 
 tracer = trace.get_tracer(__name__)
 
@@ -39,7 +52,16 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
+ADAPTER_LAYERS = [
+    Q_PROJ,
+    K_PROJ,
+    V_PROJ,
+    O_PROJ,
+    GATE_PROJ,
+    UP_PROJ,
+    DOWN_PROJ,
+    LM_HEAD,
+]
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 
@@ -199,8 +221,10 @@ class FlashMistralBatch(FlashCausalLMBatch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
-        adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
-        
+        adapter_indices = torch.cat(adapter_indices_list).to(
+            dtype=torch.int64, device=device
+        )
+
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
         )
@@ -242,7 +266,9 @@ class FlashMistralBatch(FlashCausalLMBatch):
         )
 
         adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
-        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
+        adapter_segments = torch.tensor(
+            adapter_segments, dtype=torch.int32, device=device
+        )
 
         if all_prefill_logprobs:
             prefill_head_indices = None
@@ -310,6 +336,7 @@ class FlashMistral(FlashCausalLM):
         quantize: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
+        medusa_id: Optional[str] = None,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -345,27 +372,32 @@ class FlashMistral(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
 
-        # if adapter_id passed in as part of model instantiation, then we merge 
+        # if adapter_id passed in as part of model instantiation, then we merge
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
         self.dynamic_adapter_loading_enabled = True
         self.adapter_id = BASE_MODEL_ADAPTER_ID
         if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
+            logger.info(
+                f"Merging adapter weights from adapter_id {adapter_id} into model weights."
+            )
             # Need to pass the adapter source here
             merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
+                adapter_id,
+                model_id,
+                model_weight_filenames=filenames,
+                adapter_source=adapter_source,
             )
             self.dynamic_adapter_loading_enabled = False
             self.adapter_id = adapter_id
 
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
-            merged_weight_filenames=merged_weight_filenames
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
+            merged_weight_filenames=merged_weight_filenames,
         )
 
         if config.quantize in ["gptq", "awq"]:
@@ -373,6 +405,22 @@ class FlashMistral(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashMistralForCausalLM(config, weights)
+
+        if medusa_id is not None:
+            medusa_config = hf_hub_download(
+                medusa_id, revision=revision, filename="config.json"
+            )
+            with open(medusa_config, "r") as f:
+                config = json.load(f)
+            medusa_head = hf_hub_download(
+                medusa_id, revision=revision, filename="medusa_lm_head.pt"
+            )
+            medusa_sf = medusa_head[: -len(".pt")] + ".safetensors"
+            weights = Weights(
+                [medusa_sf], device, dtype, process_group=self.process_group
+            )
+            lm_head = model.lm_head
+            model.lm_head = MedusaModel(config, weights, lm_head)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashMistral, self).__init__(
@@ -396,7 +444,9 @@ class FlashMistral(FlashCausalLM):
     def batch_type(self) -> Type[FlashMistralBatch]:
         return FlashMistralBatch
 
-    def forward(self, batch: FlashMistralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, batch: FlashMistralBatch, adapter_data: AdapterBatchData
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Model Forward
         logits = self.model.forward(
             input_ids=batch.input_ids,
@@ -414,30 +464,51 @@ class FlashMistral(FlashCausalLM):
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None
         return logits
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+            layer_weights[(i, Q_PROJ)] = (
+                f"{prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, K_PROJ)] = (
+                f"{prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, V_PROJ)] = (
+                f"{prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, O_PROJ)] = (
+                f"{prefix}.{i}.self_attn.o_proj",
+                layer.self_attn.o_proj,
+            )
 
-            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
-        
+            layer_weights[(i, GATE_PROJ)] = (
+                f"{prefix}.{i}.mlp.gate_proj",
+                layer.mlp.gate_up_proj,
+            )
+            layer_weights[(i, UP_PROJ)] = (
+                f"{prefix}.{i}.mlp.up_proj",
+                layer.mlp.gate_up_proj,
+            )
+            layer_weights[(i, DOWN_PROJ)] = (
+                f"{prefix}.{i}.mlp.down_proj",
+                layer.mlp.down_proj,
+            )
+
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

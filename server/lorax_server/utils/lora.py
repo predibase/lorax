@@ -7,7 +7,6 @@ from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
 from lorax_server.utils.sgmv import MIN_SGMV_RANK, orient_for_rank
-from lorax_server.utils.weights import shard_on_dim
 
 
 # Constants
@@ -40,16 +39,16 @@ class AdapterWeightData:
     lora_b: Dict[int, torch.Tensor]
     adapter_index_configs: Dict[int, LoraConfig]
     rank_data: Dict[int, RankSegments]
-    
+
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
-    
+
     def can_vectorize(self, pg: ProcessGroup) -> bool:
         return all(
             rank_data.rank // pg.size() >= MIN_SGMV_RANK
             for rank_data in self.rank_data.values()
         )
-    
+
 
 @dataclass
 class AdapterBatchMetadata:
@@ -65,7 +64,9 @@ class AdapterBatchData:
     data: Dict[str, AdapterWeightData]
 
     @staticmethod
-    def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, "BatchedLoraWeights"]) -> "AdapterBatchData":
+    def from_meta(
+        meta: AdapterBatchMetadata, weights: Dict[str, "BatchedLoraWeights"]
+    ) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
@@ -84,10 +85,7 @@ class MergedLoraWeights:
         adapter_config: LoraConfig,
     ):
         # [num_layers, hidden_size, r]
-        weights_a = [
-            orient_for_rank(w, adapter_config.r)
-            for w in weights_a
-        ]
+        weights_a = [orient_for_rank(w, adapter_config.r) for w in weights_a]
         self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
@@ -136,9 +134,10 @@ class BatchedLoraWeights:
             [
                 (
                     self.lora_weights[idx].weights_a.data_ptr()
-                    if idx in self.lora_weights 
+                    if idx in self.lora_weights
                     else EMPTY_TENSOR.data_ptr()
-                ) for idx in segment_indices
+                )
+                for idx in segment_indices
             ],
             dtype=torch.int64,
             device=device,
@@ -151,10 +150,11 @@ class BatchedLoraWeights:
         lora_b_ptr = torch.tensor(
             [
                 (
-                    self.lora_weights[idx].weights_b.data_ptr() 
-                    if idx in self.lora_weights 
+                    self.lora_weights[idx].weights_b.data_ptr()
+                    if idx in self.lora_weights
                     else EMPTY_TENSOR.data_ptr()
-                ) for idx in segment_indices
+                )
+                for idx in segment_indices
             ],
             dtype=torch.int64,
             device=device,
@@ -170,7 +170,9 @@ class BatchedLoraWeights:
         for segment_idx, adapter_idx in enumerate(segment_indices):
             if adapter_idx not in self.lora_weights:
                 continue
-            rank_indices[self.lora_weights[adapter_idx].adapter_config.r].append(segment_idx)
+            rank_indices[self.lora_weights[adapter_idx].adapter_config.r].append(
+                segment_idx
+            )
 
         rank_data = {}
         for rank, indices in rank_indices.items():
@@ -179,11 +181,11 @@ class BatchedLoraWeights:
                 lora_a_ptr=lora_a_ptr[indices],
                 lora_b_ptr=lora_b_ptr[indices],
                 segment_starts=meta.adapter_segments[indices],
-                segment_ends=meta.adapter_segments[[i+1 for i in indices]],
+                segment_ends=meta.adapter_segments[[i + 1 for i in indices]],
             )
 
         return AdapterWeightData(
-            lora_a=lora_a, 
+            lora_a=lora_a,
             lora_b=lora_b,
             adapter_index_configs=adapter_index_configs,
             rank_data=rank_data,

@@ -67,27 +67,32 @@ class FlashPhi(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
 
-        # if adapter_id passed in as part of model instantiation, then we merge 
+        # if adapter_id passed in as part of model instantiation, then we merge
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
         self.dynamic_adapter_loading_enabled = True
         self.adapter_id = BASE_MODEL_ADAPTER_ID
         if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
+            logger.info(
+                f"Merging adapter weights from adapter_id {adapter_id} into model weights."
+            )
             # Need to pass the adapter source here
             merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
+                adapter_id,
+                model_id,
+                model_weight_filenames=filenames,
+                adapter_source=adapter_source,
             )
             self.dynamic_adapter_loading_enabled = False
             self.adapter_id = adapter_id
 
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
-            merged_weight_filenames=merged_weight_filenames
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
+            merged_weight_filenames=merged_weight_filenames,
         )
 
         if config.quantize == "gptq":
@@ -109,36 +114,44 @@ class FlashPhi(FlashCausalLM):
             rank=rank,
             world_size=world_size,
         )
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "transformer.h"
         for i, layer in enumerate(self.model.transformer.h):
-            layer_weights[(i, ATTN_WQKV)] = (f"{prefix}.{i}.mixer.Wqkv", layer.mixer.Wqkv)
-            layer_weights[(i, ATTN_OUT_PROJ)] = (f"{prefix}.{i}.mixer.out_proj", layer.mixer.out_proj)
+            layer_weights[(i, ATTN_WQKV)] = (
+                f"{prefix}.{i}.mixer.Wqkv",
+                layer.mixer.Wqkv,
+            )
+            layer_weights[(i, ATTN_OUT_PROJ)] = (
+                f"{prefix}.{i}.mixer.out_proj",
+                layer.mixer.out_proj,
+            )
 
             layer_weights[(i, MLP_FC1)] = (f"{prefix}.{i}.mlp.fc1", layer.mlp.fc1)
             layer_weights[(i, MLP_FC2)] = (f"{prefix}.{i}.mlp.fc2", layer.mlp.fc2)
-        
+
         layer_weights[(0, LM_HEAD)] = ("lm_head.linear", self.model.lm_head.linear)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
-    
-    def split_lora_b_qkv(self, t: torch.Tensor, head_size: int, num_heads: int, num_key_value_heads: int) -> torch.Tensor:
+
+    def split_lora_b_qkv(
+        self, t: torch.Tensor, head_size: int, num_heads: int, num_key_value_heads: int
+    ) -> torch.Tensor:
         # Because we're splitting on the hidden size dimension, we need to
         # account for the separate q, k, and v matrices.
         chunks = t.split(
@@ -151,11 +164,10 @@ class FlashPhi(FlashCausalLM):
         )
         assert len(chunks) == 3
         chunks = [
-            shard_on_dim(w, dim=1, process_group=self.process_group)
-            for w in chunks
+            shard_on_dim(w, dim=1, process_group=self.process_group) for w in chunks
         ]
         return torch.cat(chunks, dim=1)
-    
+
     def shard_lora_weights(
         self,
         weights_a: List[torch.Tensor],

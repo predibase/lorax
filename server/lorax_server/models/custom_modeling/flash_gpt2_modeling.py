@@ -30,16 +30,12 @@ from typing import Optional, List, Tuple
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
-    FastLinear,
     TensorParallelAdapterRowLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelHead,
     FastLayerNorm,
-    PositionRotaryEmbedding,
-    get_linear,
 )
 from lorax_server.utils.lora import AdapterBatchData
 
@@ -61,15 +57,22 @@ def load_attention_multi(config, prefix, weights, fan_in_fan_out=False):
     )
 
 
-def load_attention(config, prefix, weights, layer_id, layer_names, fan_in_fan_out=False):
-    base_layer = load_attention_multi(config, prefix, weights, fan_in_fan_out=fan_in_fan_out)
+def load_attention(
+    config, prefix, weights, layer_id, layer_names, fan_in_fan_out=False
+):
+    base_layer = load_attention_multi(
+        config, prefix, weights, fan_in_fan_out=fan_in_fan_out
+    )
     projection_size = config.n_embd
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, layer_names, sizes=[
+        base_layer,
+        layer_id,
+        layer_names,
+        sizes=[
             3 * projection_size,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
-    
 
 
 class FlashGPT2Attention(torch.nn.Module):
@@ -79,9 +82,9 @@ class FlashGPT2Attention(torch.nn.Module):
         max_positions = config.max_position_embeddings
         self.register_buffer(
             "bias",
-            torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)).view(
-                1, 1, max_positions, max_positions
-            ),
+            torch.tril(
+                torch.ones((max_positions, max_positions), dtype=torch.bool)
+            ).view(1, 1, max_positions, max_positions),
             persistent=False,
         )
         self.register_buffer("masked_bias", torch.tensor(-1e4), persistent=False)
@@ -98,10 +101,10 @@ class FlashGPT2Attention(torch.nn.Module):
 
         self.scale_attn_weights = config.scale_attn_weights
         if self.scale_attn_weights:
-            self.softmax_scale = self.head_dim ** -0.5
+            self.softmax_scale = self.head_dim**-0.5
         else:
             self.softmax_scale = 1.0
-        
+
         if config.add_cross_attention:
             raise ValueError("Cross attention in GPT-2 is not supported.")
 
@@ -110,14 +113,21 @@ class FlashGPT2Attention(torch.nn.Module):
         self.layer_idx = layer_id
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
-        self.c_attn = load_attention(config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True)
-        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.c_proj",
-            weights=weights,
-            bias=True,
-            fan_in_fan_out=True,
-        ), layer_id, ATTN_C_PROJ, process_group=weights.process_group)
+        self.c_attn = load_attention(
+            config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True
+        )
+        self.c_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.c_proj",
+                weights=weights,
+                bias=True,
+                fan_in_fan_out=True,
+            ),
+            layer_id,
+            ATTN_C_PROJ,
+            process_group=weights.process_group,
+        )
 
         self.pruned_heads = set()
 
@@ -140,7 +150,6 @@ class FlashGPT2Attention(torch.nn.Module):
         )
         self.num_key_value_heads = self.num_heads
 
-
     def forward(
         self,
         hidden_states,
@@ -150,7 +159,7 @@ class FlashGPT2Attention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
-        adapter_data
+        adapter_data,
     ):
         qkv = self.c_attn(hidden_states, adapter_data)
         qkv = qkv.view(-1, 3, self.num_heads, self.head_size)
@@ -208,25 +217,30 @@ class GPT2MLP(nn.Module):
         # https://huggingface.co/docs/transformers/model_doc/gpt2#transformers.GPT2Config.n_inner
         n_inner = config.n_inner if config.n_inner is not None else config.n_embd * 4
         self.c_fc = TensorParallelMultiAdapterLinear.load(
-            c_fc, 
-            layer_id, 
-            [MLP_C_FC], 
+            c_fc,
+            layer_id,
+            [MLP_C_FC],
             sizes=[n_inner],
-            process_group=weights.process_group
+            process_group=weights.process_group,
         )
 
-        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.c_proj",
-            weights=weights,
-            bias=True,
-            fan_in_fan_out=True,
-        ), layer_id, MLP_C_PROJ, process_group=weights.process_group)
+        self.c_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.c_proj",
+                weights=weights,
+                bias=True,
+                fan_in_fan_out=True,
+            ),
+            layer_id,
+            MLP_C_PROJ,
+            process_group=weights.process_group,
+        )
 
         self.act = ACT2FN[config.activation_function]
 
     def forward(
-        self, 
+        self,
         hidden_states: Optional[Tuple[torch.FloatTensor]],
         adapter_data: AdapterBatchData,
     ) -> torch.FloatTensor:
@@ -253,7 +267,9 @@ class GPT2Block(nn.Module):
             prefix=f"{prefix}.ln_2", weights=weights, eps=layer_norm_eps
         )
 
-        self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights, layer_id=layer_id)
+        self.mlp = GPT2MLP(
+            config, prefix=f"{prefix}.mlp", weights=weights, layer_id=layer_id
+        )
         self.process_group = weights.process_group
 
     def forward(
@@ -395,5 +411,5 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         # lm_head reuses the weights of the embedding layer
         # https://github.com/huggingface/transformers/issues/6291
         logits = hidden_states @ self.wte_t
-        logits = logits[:, :self.transformer.config.vocab_size]
+        logits = logits[:, : self.transformer.config.vocab_size]
         return logits

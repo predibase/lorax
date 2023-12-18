@@ -2,7 +2,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.cuda.amp import custom_fwd
 
 try:
     import triton
@@ -357,7 +357,7 @@ class QuantLinear(nn.Module):
         )
         out = out + self.bias if self.bias is not None else out
         return out.reshape(out_shape)
-    
+
     @property
     def weight(self) -> torch.Tensor:
         return self.qweight

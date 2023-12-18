@@ -1,5 +1,4 @@
 import torch
-import inspect
 
 from dataclasses import dataclass
 from opentelemetry import trace
@@ -99,7 +98,9 @@ class CausalLMBatch(Batch):
             )
             adapter_indices_list.append(r.adapter_index)
 
-        adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
+        adapter_indices = torch.tensor(
+            adapter_indices_list, dtype=torch.int64, device=device
+        )
 
         tokenized_inputs = tokenizer(
             inputs,

@@ -1,5 +1,5 @@
 from lorax_server.utils.adapter import (
-    compute_delta_weight, 
+    compute_delta_weight,
     create_merged_weight_files,
     load_module_map,
 )
@@ -13,7 +13,6 @@ from lorax_server.utils.sources import (
     download_weights,
     map_pbase_model_id_to_s3,
     weight_hub_files,
-    weight_files,
     EntryNotFoundError,
     HUB,
     PBASE,

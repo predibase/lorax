@@ -41,7 +41,17 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import (
+    DOWN_PROJ,
+    GATE_PROJ,
+    K_PROJ,
+    LM_HEAD,
+    O_PROJ,
+    Q_PROJ,
+    UP_PROJ,
+    V_PROJ,
+    AdapterBatchData,
+)
 
 
 class LlamaConfig(PretrainedConfig):
@@ -147,17 +157,21 @@ class LlamaRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-        
+
 
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
+        base_layer,
+        layer_id,
+        [Q_PROJ, K_PROJ, V_PROJ],
+        sizes=[
             head_size * config.num_attention_heads,
             head_size * config.num_key_value_heads,
             head_size * config.num_key_value_heads,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
 
 
@@ -234,12 +248,17 @@ class FlashLlamaAttention(torch.nn.Module):
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
-        self.o_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.o_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, O_PROJ, process_group=weights.process_group)
+        self.o_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.o_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            O_PROJ,
+            process_group=weights.process_group,
+        )
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -247,9 +266,9 @@ class FlashLlamaAttention(torch.nn.Module):
 
     def get_query_key_value_weights(self, clone=True):
         """Gets the query, key, and value weights from the attention layer.
-        
+
         If `clone`, then the weights are cloned before being returned.
-        
+
         NOTE: if not `clone`, then the weights are returned as views, meaning
         that changes to the weights will be reflected in the attention layer.
         """
@@ -327,7 +346,9 @@ class FlashLlamaAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
+        return self.o_proj(
+            attn_output.view(-1, self.num_heads * self.head_size), adapter_data
+        )
 
 
 class LlamaMLP(nn.Module):
@@ -353,18 +374,27 @@ class LlamaMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [GATE_PROJ, UP_PROJ], sizes=[
+            gate_up_proj,
+            layer_id,
+            [GATE_PROJ, UP_PROJ],
+            sizes=[
                 config.intermediate_size,
                 config.intermediate_size,
-            ], process_group=weights.process_group
+            ],
+            process_group=weights.process_group,
         )
 
-        self.down_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.down_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, DOWN_PROJ, process_group=weights.process_group)
+        self.down_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.down_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            DOWN_PROJ,
+            process_group=weights.process_group,
+        )
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
@@ -372,7 +402,9 @@ class LlamaMLP(nn.Module):
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
         gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
+        return self.down_proj(
+            self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data
+        )
 
 
 class FlashLlamaLayer(nn.Module):
@@ -380,9 +412,14 @@ class FlashLlamaLayer(nn.Module):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
         self.self_attn = FlashLlamaAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.self_attn",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
-        self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = LlamaMLP(
+            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        )
 
         self.input_layernorm = LlamaRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
@@ -509,11 +546,16 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = FlashLlamaModel(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
-            config,
-            prefix="lm_head",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
+        self.lm_head = TensorParallelAdapterRowLinear.load(
+            TensorParallelHead.load(
+                config,
+                prefix="lm_head",
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
 
     def forward(
         self,

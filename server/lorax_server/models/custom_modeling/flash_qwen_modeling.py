@@ -139,15 +139,21 @@ class QwenRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-        
+
 
 def load_attention(config, prefix, weights, layer_id):
-    projection_size = (config.hidden_size // config.num_attention_heads) * config.num_attention_heads
+    projection_size = (
+        config.hidden_size // config.num_attention_heads
+    ) * config.num_attention_heads
     base_layer = load_attention_multi(config, prefix, weights, projection_size)
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [ATTN_C_ATTN], sizes=[
+        base_layer,
+        layer_id,
+        [ATTN_C_ATTN],
+        sizes=[
             3 * projection_size,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
 
 
@@ -177,7 +183,9 @@ class FlashQwenAttention(torch.nn.Module):
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
-        self.projection_size = (self.head_size * config.num_attention_heads) // weights.process_group.size()
+        self.projection_size = (
+            self.head_size * config.num_attention_heads
+        ) // weights.process_group.size()
         self.process_group = weights.process_group
 
         self.rotary_emb = PositionRotaryEmbedding.static(
@@ -199,12 +207,17 @@ class FlashQwenAttention(torch.nn.Module):
 
         self.c_attn = load_attention(config, prefix, weights, layer_id)
 
-        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.c_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, ATTN_C_PROJ, process_group=weights.process_group)
+        self.c_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.c_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            ATTN_C_PROJ,
+            process_group=weights.process_group,
+        )
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -271,7 +284,9 @@ class FlashQwenAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.c_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
+        return self.c_proj(
+            attn_output.view(-1, self.num_heads * self.head_size), adapter_data
+        )
 
 
 class QwenMLP(nn.Module):
@@ -297,18 +312,27 @@ class QwenMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [MLP_W2, MLP_W1], sizes=[
+            gate_up_proj,
+            layer_id,
+            [MLP_W2, MLP_W1],
+            sizes=[
                 config.intermediate_size // 2,
                 config.intermediate_size // 2,
-            ], process_group=weights.process_group
+            ],
+            process_group=weights.process_group,
         )
 
-        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.c_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, MLP_C_PROJ, process_group=weights.process_group)
+        self.c_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.c_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            MLP_C_PROJ,
+            process_group=weights.process_group,
+        )
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
@@ -316,7 +340,9 @@ class QwenMLP(nn.Module):
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
         gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size // 2)
-        return self.c_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
+        return self.c_proj(
+            self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data
+        )
 
 
 class FlashQwenLayer(nn.Module):
@@ -324,9 +350,14 @@ class FlashQwenLayer(nn.Module):
         super().__init__()
         prefix = f"transformer.h.{layer_id}"
         self.attn = FlashQwenAttention(
-            prefix=f"{prefix}.attn", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.attn",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
-        self.mlp = QwenMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = QwenMLP(
+            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        )
 
         self.ln_1 = QwenRMSNorm(
             prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon
@@ -368,9 +399,7 @@ class FlashQwenLayer(nn.Module):
         )
 
         # faster post attention rms norm
-        normed_attn_res_output, attn_res = self.ln_2(
-            attn_output, res
-        )
+        normed_attn_res_output, attn_res = self.ln_2(attn_output, res)
 
         mlp_output = self.mlp(normed_attn_res_output, adapter_data)
 
@@ -384,9 +413,7 @@ class FlashQwenModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.wte = TensorParallelEmbedding(
-            prefix="transformer.wte", weights=weights
-        )
+        self.wte = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
         self.h = nn.ModuleList(
             [
                 FlashQwenLayer(
@@ -453,11 +480,16 @@ class FlashQwenForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.transformer = FlashQwenModel(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
-            config,
-            prefix="lm_head",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
+        self.lm_head = TensorParallelAdapterRowLinear.load(
+            TensorParallelHead.load(
+                config,
+                prefix="lm_head",
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
 
     def forward(
         self,

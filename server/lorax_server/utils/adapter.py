@@ -15,7 +15,7 @@ from transformers import AutoConfig
 from tqdm import tqdm
 from filelock import FileLock
 
-from lorax_server.utils.sources import get_model_source, get_config_path, weight_files    
+from lorax_server.utils.sources import get_model_source, get_config_path, weight_files
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
@@ -24,13 +24,15 @@ BASE_MODEL_ADAPTER_ID = "__base_model__"
 @lru_cache(maxsize=128)
 def load_module_map(model_id, adapter_id, adapter_source, weight_names):
     # TODO(geoffrey): refactor this and merge parts of this function with
-    # lorax_server/utils/adapter.py::create_merged_weight_files       
+    # lorax_server/utils/adapter.py::create_merged_weight_files
     source = get_model_source(adapter_source, adapter_id, extension=".safetensors")
     config_path = get_config_path(adapter_id, adapter_source)
     adapter_config = LoraConfig.from_pretrained(config_path)
     if adapter_config.base_model_name_or_path != model_id:
         expected_config = AutoConfig.from_pretrained(model_id)
-        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
+        model_config = AutoConfig.from_pretrained(
+            adapter_config.base_model_name_or_path
+        )
         if model_config.architectures == expected_config.architectures:
             warnings.warn(
                 f"Adapter '{adapter_id}' was not trained on base model '{model_id}'. "
@@ -38,16 +40,18 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
             )
         else:
             # TODO(travis): revisit this when we support clasification heads which will not use CausalLM
-            raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
-                             f"Architectures differ: {model_config.architectures} != {expected_config.architectures}. "
-                             f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+            raise ValueError(
+                f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
+                f"Architectures differ: {model_config.architectures} != {expected_config.architectures}. "
+                f"Use --model-id '{adapter_config.base_model_name_or_path}' instead."
+            )
 
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_filenames = source.weight_files()
     adapter_weights = {}
     for filename in adapter_filenames:
         adapter_weights.update(load_file(filename))
-        
+
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
     adapter_weight_names = set()
     module_map = {}
@@ -56,7 +60,7 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
         lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
         if lora_a_name not in adapter_weights or lora_b_name not in adapter_weights:
             continue
-        
+
         module_map[weight_name] = {
             "lora_A": (adapter_weights[lora_a_name], lora_a_name),
             "lora_B": (adapter_weights[lora_b_name], lora_b_name),
@@ -67,16 +71,16 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
 
 
 def compute_delta_weight(
-    lora_A: torch.Tensor, 
-    lora_B: torch.Tensor, 
-    fan_in_fan_out: bool, 
-    alpha: float, 
-    r: float
+    lora_A: torch.Tensor,
+    lora_B: torch.Tensor,
+    fan_in_fan_out: bool,
+    alpha: float,
+    r: float,
 ) -> torch.Tensor:
     """Computes the delta weight for a Linear layer given A and B LoRA matrices.
-    
+
     TODO: add logic for other module types beyond Linear layers.
-    
+
     Reference: https://github.com/huggingface/peft/blob/v0.4.0/src/peft/tuners/lora.py#L799-L806
     """
     scaling = alpha / r
@@ -85,9 +89,9 @@ def compute_delta_weight(
 
 
 def merge_adapter_weights(
-    model_weights: Dict[str, torch.Tensor], 
-    adapter_weights: Dict[str, torch.Tensor], 
-    adapter_config: LoraConfig
+    model_weights: Dict[str, torch.Tensor],
+    adapter_weights: Dict[str, torch.Tensor],
+    adapter_config: LoraConfig,
 ) -> Tuple[Dict[str, torch.Tensor], Set[str]]:
     """
     Merges the adapter weights into the model weights.
@@ -114,31 +118,40 @@ def merge_adapter_weights(
                 matrix_type = adapter_weight_name.split(".")[-2]
                 module_mapping[weight_name][matrix_type] = adapter_weight_name
                 processed_adapter_weight_names.add(adapter_weight_name)
-    
+
     # merge adapter weights into model weights
     merged_weights = {}
     for weight_name, adapter_weight_names in tqdm(
-        module_mapping.items(), desc="Merging adapter weights", total=len(module_mapping)):
-
+        module_mapping.items(),
+        desc="Merging adapter weights",
+        total=len(module_mapping),
+    ):
         # TODO: support adapter types beyond LoRA
         # TODO: put this on GPU if it is available. This should greatly speedup compute_delta_weight
         lora_A = adapter_weights[adapter_weight_names["lora_A"]]
         lora_B = adapter_weights[adapter_weight_names["lora_B"]]
         delta_weight = compute_delta_weight(
-            lora_A, lora_B, adapter_config.fan_in_fan_out, adapter_config.lora_alpha, adapter_config.r)
-        
+            lora_A,
+            lora_B,
+            adapter_config.fan_in_fan_out,
+            adapter_config.lora_alpha,
+            adapter_config.r,
+        )
+
         # transpose delta weight if necessary
         # TODO(geoffrey): I believe this is required when using Conv1D layers (gpt2).
         # We can likely take this out once we've switched to using Linear layers.
-        if (delta_weight.shape != model_weights[weight_name].shape and 
-            delta_weight.T.shape == model_weights[weight_name].shape):
+        if (
+            delta_weight.shape != model_weights[weight_name].shape
+            and delta_weight.T.shape == model_weights[weight_name].shape
+        ):
             delta_weight = delta_weight.T
         merged_weights[weight_name] = model_weights[weight_name] + delta_weight
     return merged_weights, processed_adapter_weight_names
 
 
 def create_merged_weight_files(
-    adapter_id: str, 
+    adapter_id: str,
     model_id: str,
     model_weight_filenames: List[Path],
     adapter_source: str = "hub",
@@ -150,21 +163,27 @@ def create_merged_weight_files(
     adapter_path = get_config_path(adapter_id, adapter_source)
     adapter_config = LoraConfig.from_pretrained(adapter_path)
     if adapter_config.base_model_name_or_path != model_id:
-        raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
-                         f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
-    
+        raise ValueError(
+            f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
+            f"Use --model-id '{adapter_config.base_model_name_or_path}' instead."
+        )
+
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_weights = {}
     for filename in adapter_filenames:
         adapter_weights.update(load_file(filename))
     remaining_adapter_weight_names = set(adapter_weights.keys())
 
-    merged_weight_directory = Path(HUGGINGFACE_HUB_CACHE) / f"models--{adapter_id.replace('/', '--')}-merged"
+    merged_weight_directory = (
+        Path(HUGGINGFACE_HUB_CACHE) / f"models--{adapter_id.replace('/', '--')}-merged"
+    )
     # just grab the existing files if they already exist and return immediately
-    lock = FileLock(str(merged_weight_directory)+ ".lock")
+    lock = FileLock(str(merged_weight_directory) + ".lock")
     with lock:
         if merged_weight_directory.is_dir():
-            logger.info(f"Merged weight directory {merged_weight_directory} exist, skipping merge computation.")
+            logger.info(
+                f"Merged weight directory {merged_weight_directory} exist, skipping merge computation."
+            )
             return weight_files(merged_weight_directory)
         else:
             logger.info("Merged weight files do not exist, computing merge.")
@@ -178,23 +197,30 @@ def create_merged_weight_files(
             )
             model_weights = load_file(filename)
             merged_weights, processed_adapter_weight_names = merge_adapter_weights(
-                model_weights, adapter_weights, adapter_config)
-            
-            merged_adapter_filename = Path(merged_weight_directory, os.path.basename(filename))
+                model_weights, adapter_weights, adapter_config
+            )
+
+            merged_adapter_filename = Path(
+                merged_weight_directory, os.path.basename(filename)
+            )
             save_file(merged_weights, merged_adapter_filename)
             logger.debug(f"Saved merged weights into {merged_adapter_filename}")
 
             merged_weight_filenames.append(merged_adapter_filename)
             remaining_adapter_weight_names = remaining_adapter_weight_names.difference(
-                processed_adapter_weight_names)
-        
+                processed_adapter_weight_names
+            )
+
         if len(remaining_adapter_weight_names) > 0:
-            logger.warning("WARNING: The following lora weights were not merged into the model weights:")
+            logger.warning(
+                "WARNING: The following lora weights were not merged into the model weights:"
+            )
             for lora_name in remaining_adapter_weight_names:
                 logger.warning("\t" + lora_name)
 
         logger.info(
-            f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}")
+            f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}"
+        )
         return merged_weight_filenames
 
 
@@ -203,10 +229,12 @@ def main():
     adapter_config = LoraConfig.from_pretrained(adapter_id)
     model_id = adapter_config.base_model_name_or_path
     model_weight_filenames = weight_files(model_id, extension=".safetensors")
-    
-    merged_adapter_filenames = create_merged_weight_files(adapter_id, model_id, model_weight_filenames)
+
+    merged_adapter_filenames = create_merged_weight_files(
+        adapter_id, model_id, model_weight_filenames
+    )
     print(merged_adapter_filenames)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

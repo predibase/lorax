@@ -26,7 +26,7 @@ def _get_bucket_resource():
             mode="standard",
         )
     )
-    s3 = boto3.resource('s3', config=config)
+    s3 = boto3.resource("s3", config=config)
     bucket = os.getenv("PREDIBASE_MODEL_BUCKET")
     if not bucket:
         raise ValueError("PREDIBASE_MODEL_BUCKET environment variable is not set")
@@ -44,7 +44,11 @@ def weight_s3_files(
 ) -> List[str]:
     """Get the weights filenames from s3"""
     model_files = bucket.objects.filter(Prefix=model_id)
-    filenames = [f.key.removeprefix(model_id).lstrip("/") for f in model_files if f.key.endswith(extension)]
+    filenames = [
+        f.key.removeprefix(model_id).lstrip("/")
+        for f in model_files
+        if f.key.endswith(extension)
+    ]
     if not filenames:
         raise EntryNotFoundError(
             f"No {extension} weights found for model {model_id}",
@@ -54,9 +58,13 @@ def weight_s3_files(
 
 
 def download_files_from_s3(
-    bucket: Any, filenames: List[str], model_id: str, revision: str = "",
+    bucket: Any,
+    filenames: List[str],
+    model_id: str,
+    revision: str = "",
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
+
     def download_file(filename):
         repo_cache = get_s3_model_local_dir(model_id)
         local_file = try_to_load_from_cache(repo_cache, revision, filename)
@@ -75,7 +83,7 @@ def download_files_from_s3(
         # TODO: add support for revision
         logger.info(
             f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}."
-        ) 
+        )
         if not local_file_path.is_file():
             raise FileNotFoundError(f"File {local_file_path} not found")
         return local_file_path
@@ -129,9 +137,7 @@ def weight_files_s3(
     repo_cache = get_s3_model_local_dir(model_id)
     files = []
     for filename in filenames:
-        cache_file = try_to_load_from_cache(
-            repo_cache, revision, filename
-        )
+        cache_file = try_to_load_from_cache(repo_cache, revision, filename)
         if cache_file is None:
             raise LocalEntryNotFoundError(
                 f"File {filename} of model {model_id} not found in "
@@ -155,7 +161,9 @@ def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safete
     logger.info(filenames)
     download_files_from_s3(bucket, filenames, model_id)
     logger.info(f"Downloaded {len(filenames)} files")
-    logger.info(f"Contents of the cache folder: {os.listdir(get_s3_model_local_dir(model_id))}")
+    logger.info(
+        f"Contents of the cache folder: {os.listdir(get_s3_model_local_dir(model_id))}"
+    )
 
     # Raise an error if none of the files we downloaded have the correct extension
     filenames_with_extension = [f for f in model_files if f.key.endswith(extension)]
@@ -167,7 +175,12 @@ def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safete
 
 
 class S3ModelSource(BaseModelSource):
-    def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
+    def __init__(
+        self,
+        model_id: str,
+        revision: Optional[str] = "",
+        extension: str = ".safetensors",
+    ):
         if len(model_id) < 5:
             raise ValueError(f"model_id '{model_id}' is too short for prefix filtering")
 
@@ -184,9 +197,11 @@ class S3ModelSource(BaseModelSource):
     def weight_files(self, extension: str = None):
         extension = extension or self.extension
         return weight_files_s3(self.bucket, self.model_id, self.revision, extension)
-    
+
     def download_weights(self, filenames: List[str]):
-        return download_files_from_s3(self.bucket, filenames, self.model_id, self.revision)
+        return download_files_from_s3(
+            self.bucket, filenames, self.model_id, self.revision
+        )
 
     def download_model_assets(self):
         return download_model_from_s3(self.bucket, self.model_id, self.extension)

@@ -17,7 +17,15 @@ from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
+from lorax_server.utils import (
+    HUB,
+    LOCAL,
+    S3,
+    PBASE,
+    get_config_path,
+    get_local_dir,
+    map_pbase_model_id_to_s3,
+)
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 
@@ -116,7 +124,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             generations=[generation.to_pb() for generation in generations],
             batch=next_batch.to_pb() if next_batch else None,
         )
-        
+
     async def DownloadAdapter(self, request, context):
         adapter_id = request.adapter_id
         if adapter_id == BASE_MODEL_ADAPTER_ID:
@@ -147,14 +155,16 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             logger.exception("Error when downloading adapter")
 
             if adapter_source != LOCAL:
-                # delete safetensors files if there is an issue downloading or converting 
+                # delete safetensors files if there is an issue downloading or converting
                 # the weights to prevent cache hits by subsequent calls
                 try:
                     local_path = get_local_dir(adapter_id, adapter_source)
                     shutil.rmtree(local_path)
                 except Exception as e:
-                    logger.warning(f"Error cleaning up safetensors files after "
-                                f"download error: {e}\nIgnoring.")
+                    logger.warning(
+                        f"Error cleaning up safetensors files after "
+                        f"download error: {e}\nIgnoring."
+                    )
             raise
 
     async def LoadAdapter(self, request, context):
@@ -166,7 +176,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 adapter_id = map_pbase_model_id_to_s3(adapter_id, request.api_token)
                 adapter_source = S3
             self.model.load_adapter(adapter_id, adapter_source, adapter_index)
-            
+
             return generate_pb2.LoadAdapterResponse(
                 adapter_id=adapter_id,
                 adapter_source=request.adapter_source,
@@ -182,7 +192,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
             self.model.offload_adapter(adapter_id, adapter_source, adapter_index)
-            
+
             return generate_pb2.OffloadAdapterResponse(
                 adapter_id=adapter_id,
                 adapter_source=request.adapter_source,
@@ -227,7 +237,15 @@ def serve(
 
         try:
             model = get_model(
-                model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, source, adapter_source
+                model_id,
+                adapter_id,
+                revision,
+                sharded,
+                quantize,
+                dtype,
+                trust_remote_code,
+                source,
+                adapter_source,
             )
         except Exception:
             logger.exception("Error when initializing model")
@@ -275,7 +293,9 @@ def serve(
             await server.stop(0)
 
     asyncio.run(
-        serve_inner(model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code)
+        serve_inner(
+            model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code
+        )
     )
 
 

@@ -14,12 +14,12 @@ def lora_ref_impl(
     layer_idx: int,
 ):
     for i in range(len(wa)):
-        xi = x[s_start[i]:s_end[i]]
+        xi = x[s_start[i] : s_end[i]]
         wai = wa[i][layer_idx, :, :]
         wbi = wb[i][layer_idx, :, :]
-        yi = y[s_start[i]:s_end[i]]
-        tmp = (xi @ wai)
-        y[s_start[i]:s_end[i]] = (yi + tmp @ wbi)
+        yi = y[s_start[i] : s_end[i]]
+        tmp = xi @ wai
+        y[s_start[i] : s_end[i]] = yi + tmp @ wbi
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -32,15 +32,19 @@ def test_add_lora_sgmv_cutlass(lora_rank: int):
     nlayers = 2
 
     device = torch.device("cuda:0")
-    
+
     y = torch.zeros((B, H), dtype=torch.float16, device=device)
     x = torch.randn((B, H), dtype=torch.float16, device=device)
     wa = torch.randn(nlayers, H, r, dtype=torch.float16, device=device)
     wb = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
 
     wa_sgmv = orient_for_rank(wa, lora_rank)
-    wa_ptr = torch.tensor([wa_sgmv.data_ptr(), wa_sgmv.data_ptr()], dtype=torch.int64, device=device)
-    wb_ptr = torch.tensor([wb.data_ptr(), wb.data_ptr()], dtype=torch.int64, device=device)
+    wa_ptr = torch.tensor(
+        [wa_sgmv.data_ptr(), wa_sgmv.data_ptr()], dtype=torch.int64, device=device
+    )
+    wb_ptr = torch.tensor(
+        [wb.data_ptr(), wb.data_ptr()], dtype=torch.int64, device=device
+    )
 
     s_start = torch.tensor([0, 2], dtype=torch.int32, device=device)
     s_end = torch.tensor([1, 3], dtype=torch.int32, device=device)

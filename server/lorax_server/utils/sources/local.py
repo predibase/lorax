@@ -1,34 +1,29 @@
 import os
-import time
-from datetime import timedelta
-from typing import Optional, List, Any
+from typing import Optional, List
 
-from loguru import logger
 from pathlib import Path
-import boto3
-from botocore.config import Config
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
 
-from huggingface_hub.utils import (
-    LocalEntryNotFoundError,
-    EntryNotFoundError,
-)
 
-from .s3 import get_s3_model_local_dir
-from .source import BaseModelSource, try_to_load_from_cache
+from .source import BaseModelSource
 
 
 def get_model_local_dir(model_id: str):
     if os.path.isabs(model_id):
         return Path(model_id)
-    
+
     repo_cache = Path(HUGGINGFACE_HUB_CACHE) / model_id
     return repo_cache
 
 
 class LocalModelSource(BaseModelSource):
-    def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
+    def __init__(
+        self,
+        model_id: str,
+        revision: Optional[str] = "",
+        extension: str = ".safetensors",
+    ):
         if len(model_id) < 5:
             raise ValueError(f"model_id '{model_id}' is too short for prefix filtering")
 
@@ -52,11 +47,11 @@ class LocalModelSource(BaseModelSource):
                     f"No local weights found in {model_id} with extension {extension}"
                 )
             return local_files
-        
+
         raise FileNotFoundError(
             f"No local weights found in {model_id} with extension {extension}"
         )
-    
+
     def download_weights(self, filenames: List[str]):
         return []
 

@@ -284,32 +284,99 @@ class HeterogeneousNextTokenChooser:
         self.dtype = dtype
         self.device = device
 
-    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor):
+    def __call__(
+        self,
+        input_ids: torch.Tensor,
+        scores: torch.Tensor,
+        speculate: int,
+        speculation_ids: Optional[torch.Tensor] = None,
+        speculation_scores: Optional[torch.Tensor] = None,
+        verbose=False,
+    ):
         """
-        Chooses the next tokens based on the input IDs and scores.
+        Perform token processing and selection based on input scores.
 
         Args:
-            input_ids (torch.Tensor): The input tensor containing the token IDs.
-            scores (torch.Tensor): The tensor containing the scores for each token.
+            input_ids (torch.Tensor): The input tensor of token IDs.
+            scores (torch.Tensor): The scores tensor representing the likelihood of each token.
+            speculate (int): The number of speculative tokens to generate.
+            speculation_ids (Optional[torch.Tensor]): The tensor of speculated token IDs.
+            speculation_scores (Optional[torch.Tensor]): The scores tensor for speculated tokens.
+            verbose (bool): Whether to enable verbose mode.
 
         Returns:
-            torch.Tensor: The tensor containing the next token IDs.
-            torch.Tensor: The tensor containing the log probabilities of the next tokens.
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]: A tuple containing the following:
+                - next_ids (torch.Tensor): The selected token IDs for the next step.
+                - next_logprobs (torch.Tensor): The log probabilities of the selected token IDs.
+                - logprobs (torch.Tensor): The log probabilities of all token IDs.
+                - accepted_ids (torch.Tensor): The accepted tokens for each input sequence.
+                - speculative_ids (Optional[torch.Tensor]): The selected speculative token IDs.
         """
-        if self.watermark_processor is not None:
-            scores = self.watermark_processor(input_ids, scores)
-        if self.repetition_processor is not None:
-            scores = self.repetition_processor(input_ids, scores)
+        if speculation_ids is not None:
+            B = scores.shape[0] // (speculation_ids.shape[1] + 1) if speculation_ids is not None else scores.shape[0]
+            S = speculation_ids.shape[1] + 1 if speculation_ids is not None else 1
+            scores = scores.view(B, S, -1)
 
-        for warper in self.warpers:
-            scores = warper(input_ids, scores)
+        next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
+        for j in range(S):
+            _scores = scores[:, j]
+            if self.watermark_processor is not None:
+                _scores = self.watermark_processor(input_ids, _scores)
+            if self.repetition_processor is not None:
+                _scores = self.repetition_processor(input_ids, _scores)
 
-        next_ids = self.choice(scores)
+            for warper in self.warpers:
+                _scores = warper(input_ids, _scores)
+
+            _next_ids = self.choice(_scores)
+            scores[:, j] = _scores
+            next_ids[:, j] = _next_ids
+        next_ids = next_ids.view(B * S)
+        scores = scores.view(B * S, -1)
+
+        if speculation_ids is not None:
+            accepted_ids = []
+            B = next_ids.shape[0] // (speculation_ids.shape[1] + 1)
+            S = speculation_ids.shape[1] + 1
+            indices = []
+            for i in range(B):
+                _next_ids = next_ids[i * S : (i + 1) * S]
+                _speculated_ids = speculation_ids[i]
+                validate_speculative = _next_ids[:-1] == _speculated_ids
+                index = i * S
+                accepted = 1
+                indices.append(index)
+                for valid in validate_speculative.tolist():
+                    if valid:
+                        index += 1
+                        accepted += 1
+                        indices.append(index)
+                    else:
+                        break
+                accepted_ids.append(accepted)
+
+            accepted_ids = torch.tensor(
+                accepted_ids, device=input_ids.device, dtype=input_ids.dtype
+            )
+            next_ids = next_ids[indices]
+            scores = scores[indices]
+            indices = torch.arange(B, device=input_ids.device) * S
+            if speculation_scores is not None:
+                speculation_scores = speculation_scores[indices + accepted_ids - 1]
+        else:
+            accepted_ids = torch.ones_like(next_ids)
+
+        logprobs = torch.log_softmax(scores, -1)
         next_logprobs = torch.gather(
             torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)
         ).view(-1)
 
-        return next_ids, next_logprobs
+        if speculate > 0:
+            speculative_ids = Greedy()(speculation_scores)
+        else:
+            speculative_ids = None
+
+        return next_ids, next_logprobs, logprobs, accepted_ids, speculative_ids
 
     def filter(self, indices):
         """

@@ -3,16 +3,17 @@ import torch
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-common_setup_kwargs = {
-}
+common_setup_kwargs = {}
 
 
 def get_generator_flag():
     generator_flag = []
     torch_dir = torch.__path__[0]
-    if os.path.exists(os.path.join(torch_dir, "include", "ATen", "CUDAGeneratorImpl.h")):
+    if os.path.exists(
+        os.path.join(torch_dir, "include", "ATen", "CUDAGeneratorImpl.h")
+    ):
         generator_flag = ["-DOLD_GENERATOR_PATH"]
-    
+
     return generator_flag
 
 
@@ -23,7 +24,9 @@ def get_compute_capabilities():
         cc = major * 10 + minor
 
         if cc < 75:
-            raise RuntimeError("GPUs with compute capability less than 7.5 are not supported.")
+            raise RuntimeError(
+                "GPUs with compute capability less than 7.5 are not supported."
+            )
 
     # figure out compute capability
     compute_capabilities = {75, 80, 86, 89, 90}
@@ -34,14 +37,15 @@ def get_compute_capabilities():
 
     return capability_flags
 
+
 generator_flags = get_generator_flag()
 arch_flags = get_compute_capabilities()
 
 
-extra_compile_args={
+extra_compile_args = {
     "cxx": ["-g", "-O3", "-fopenmp", "-lgomp", "-std=c++17", "-DENABLE_BF16"],
     "nvcc": [
-        "-O3", 
+        "-O3",
         "-std=c++17",
         "-DENABLE_BF16",
         "-U__CUDA_NO_HALF_OPERATORS__",
@@ -53,7 +57,9 @@ extra_compile_args={
         "--expt-relaxed-constexpr",
         "--expt-extended-lambda",
         "--use_fast_math",
-    ] + arch_flags + generator_flags
+    ]
+    + arch_flags
+    + generator_flags,
 }
 
 extensions = [
@@ -64,8 +70,9 @@ extensions = [
             "awq_cuda/quantization/gemm_cuda_gen.cu",
             "awq_cuda/layernorm/layernorm.cu",
             "awq_cuda/position_embedding/pos_encoding_kernels.cu",
-            "awq_cuda/quantization/gemv_cuda.cu"
-        ], extra_compile_args=extra_compile_args
+            "awq_cuda/quantization/gemv_cuda.cu",
+        ],
+        extra_compile_args=extra_compile_args,
     )
 ]
 
@@ -75,18 +82,17 @@ extensions.append(
         [
             "awq_cuda/pybind_ft.cpp",
             "awq_cuda/attention/ft_attention.cpp",
-            "awq_cuda/attention/decoder_masked_multihead_attention.cu"
-        ], extra_compile_args=extra_compile_args
+            "awq_cuda/attention/decoder_masked_multihead_attention.cu",
+        ],
+        extra_compile_args=extra_compile_args,
     )
 )
 
 additional_setup_kwargs = {
     "ext_modules": extensions,
-    "cmdclass": {'build_ext': BuildExtension}
+    "cmdclass": {"build_ext": BuildExtension},
 }
 
 common_setup_kwargs.update(additional_setup_kwargs)
 
-setup(
-    **common_setup_kwargs
-)
+setup(**common_setup_kwargs)

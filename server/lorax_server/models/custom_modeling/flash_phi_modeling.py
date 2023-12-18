@@ -14,7 +14,6 @@ import torch.distributed
 
 from torch import nn
 from transformers.activations import ACT2FN
-from transformers.models.phi import PhiConfig
 from typing import Optional, List, Tuple
 
 from lorax_server.utils import flash_attn
@@ -36,13 +35,19 @@ ATTN_WQKV = "mixer.Wqkv"
 ATTN_OUT_PROJ = "mixer.out_proj"
 MLP_FC1 = "mlp.fc1"
 MLP_FC2 = "mlp.fc2"
-        
+
 
 def load_attention(config, prefix, weights, layer_id, head_dim, n_head, n_head_kv):
     op_size = head_dim * (n_head + 2 * n_head_kv)
-    base_layer = load_attention_multi(config, prefix, weights, head_dim, n_head, n_head_kv)
+    base_layer = load_attention_multi(
+        config, prefix, weights, head_dim, n_head, n_head_kv
+    )
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [ATTN_WQKV], sizes=[op_size], process_group=weights.process_group
+        base_layer,
+        layer_id,
+        [ATTN_WQKV],
+        sizes=[op_size],
+        process_group=weights.process_group,
     )
 
 
@@ -52,7 +57,10 @@ def load_attention_multi(config, prefix, weights, head_dim, n_head, n_head_kv):
         prefixes=[
             (f"{prefix}.Wqkv", (0, head_dim * n_head)),
             (f"{prefix}.Wqkv", (head_dim * n_head, head_dim * n_head_kv)),
-            (f"{prefix}.Wqkv", ((head_dim * n_head) + (head_dim * n_head_kv), head_dim * n_head_kv)),
+            (
+                f"{prefix}.Wqkv",
+                ((head_dim * n_head) + (head_dim * n_head_kv), head_dim * n_head_kv),
+            ),
         ],
         dim=0,
         weights=weights,
@@ -93,17 +101,32 @@ class FlashPhiAttention(torch.nn.Module):
             )
         self.num_key_value_heads = getattr(config, "n_head_kv", None) or self.num_heads
 
-        self.Wqkv = load_attention(config, prefix, weights, layer_id, self.head_size, self.num_heads, self.num_key_value_heads)
-        self.out_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+        self.Wqkv = load_attention(
             config,
-            prefix=f"{prefix}.out_proj",
-            weights=weights,
-            bias=True,
-        ), layer_id, ATTN_OUT_PROJ, process_group=weights.process_group)
+            prefix,
+            weights,
+            layer_id,
+            self.head_size,
+            self.num_heads,
+            self.num_key_value_heads,
+        )
+        self.out_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.out_proj",
+                weights=weights,
+                bias=True,
+            ),
+            layer_id,
+            ATTN_OUT_PROJ,
+            process_group=weights.process_group,
+        )
 
         # After initializing layers, scale num heads by num shards for use in forward() to split outputs
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = self.num_key_value_heads // weights.process_group.size()
+        self.num_key_value_heads = (
+            self.num_key_value_heads // weights.process_group.size()
+        )
 
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
@@ -172,7 +195,9 @@ class FlashPhiAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.out_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
+        return self.out_proj(
+            attn_output.view(-1, self.num_heads * self.head_size), adapter_data
+        )
 
 
 class PhiMLP(nn.Module):
@@ -200,15 +225,24 @@ class PhiMLP(nn.Module):
 
         out_size = fc1.linear.weight.shape[-1] * weights.process_group.size()
         self.fc1 = TensorParallelMultiAdapterLinear.load(
-            fc1, layer_id, [MLP_FC1], sizes=[out_size], process_group=weights.process_group
+            fc1,
+            layer_id,
+            [MLP_FC1],
+            sizes=[out_size],
+            process_group=weights.process_group,
         )
-        self.fc2 = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.fc2",
-            weights=weights,
-            bias=True,
-        ), layer_id, MLP_FC2, process_group=weights.process_group)
-        
+        self.fc2 = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.fc2",
+                weights=weights,
+                bias=True,
+            ),
+            layer_id,
+            MLP_FC2,
+            process_group=weights.process_group,
+        )
+
     def forward(self, hidden_states, adapter_data):
         hidden_states = self.fc1(hidden_states, adapter_data)
         hidden_states = self.act(hidden_states)
@@ -220,14 +254,19 @@ class FlashPhiLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"transformer.h.{layer_id}"
-        
+
         self.ln = FastLayerNorm.load(
             prefix=f"{prefix}.ln", weights=weights, eps=config.layer_norm_epsilon
         )
         self.mixer = FlashPhiAttention(
-            prefix=f"{prefix}.mixer", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.mixer",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
-        self.mlp = PhiMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = PhiMLP(
+            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        )
         self.process_group = weights.process_group
 
     def forward(
@@ -342,12 +381,17 @@ class PhiCausalLMHead(torch.nn.Module):
         self.ln = FastLayerNorm.load(
             prefix=f"{prefix}.ln", weights=weights, eps=config.layer_norm_epsilon
         )
-        self.linear = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
-            config,
-            prefix=f"{prefix}.linear",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
-    
+        self.linear = TensorParallelAdapterRowLinear.load(
+            TensorParallelHead.load(
+                config,
+                prefix=f"{prefix}.linear",
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
+
     def forward(self, hidden_states, adapter_data):
         hidden_states, _ = self.ln(hidden_states)
         hidden_states = self.linear(hidden_states, adapter_data)

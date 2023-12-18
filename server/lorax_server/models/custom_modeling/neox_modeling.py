@@ -21,24 +21,14 @@ import torch
 import torch.distributed
 import torch.utils.checkpoint
 from torch import nn
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from torch.nn import CrossEntropyLoss
 
 from transformers.activations import ACT2FN
-from transformers.file_utils import (
-    add_code_sample_docstrings,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    replace_return_docstrings,
-)
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
-    QuestionAnsweringModelOutput,
-    SequenceClassifierOutputWithPast,
-    TokenClassifierOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers import GPTNeoXConfig
 from loguru import logger
 from lorax_server.utils.layers import (
     TensorParallelColumnLinear,
