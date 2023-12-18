@@ -5,7 +5,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Optional, Tuple, Union
+from typing import List, Tuple, Union
 
 HAS_BITS_AND_BYTES = True
 try:
