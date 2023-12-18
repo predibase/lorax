@@ -1,7 +1,6 @@
 from collections import defaultdict
 import math
 import itertools
-import time
 from loguru import logger
 import torch
 import torch.distributed
@@ -958,9 +957,7 @@ class FlashCausalLM(Model):
         adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
 
         try:
-            start_t = time.time()
             out = self.forward(batch, adapter_data)
-            print(f"forward time: {time.time() - start_t}")
         except Exception as e:
             del batch
             raise e
