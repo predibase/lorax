@@ -404,8 +404,12 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
+        
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
-            proj = torch.zeros_like(result[:, start_idx:end_idx])
+            if end_idx - start_idx != result.shape[1]:
+                proj = torch.zeros_like(result[:, start_idx:end_idx])
+            else:
+                proj = result
 
             for r, rank_segments in data.rank_data.items():
                 lora_a_ptr = rank_segments.lora_a_ptr
@@ -433,7 +437,8 @@ class TensorParallelAdapterLinear(nn.Module):
                         self.layer_id,
                     )
             
-            result[:, start_idx:end_idx] += proj
+            if end_idx - start_idx != result.shape[1]:
+                result[:, start_idx:end_idx] += proj
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
