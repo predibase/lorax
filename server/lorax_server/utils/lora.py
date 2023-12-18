@@ -85,7 +85,7 @@ class MergedLoraWeights:
     ):
         # [num_layers, hidden_size, r]
         weights_a = [
-            orient_for_rank(w, adapter_config.r)
+            orient_for_rank(w, adapter_config.r).contiguous()
             for w in weights_a
         ]
         self.weights_a = torch.stack(weights_a)

@@ -1,3 +1,4 @@
+from functools import lru_cache
 import os
 import warnings
 from typing import Tuple
@@ -84,6 +85,11 @@ def _add_lora_sgmv_cutlass_legacy(
     _kernels.sgmv_cutlass(y, v, wb_ptr, s_start, s_end, tmp, layer_idx)
 
 
+@lru_cache(maxsize=1)
+def get_tmp_tensor(device: torch.device) -> torch.Tensor:
+    return torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=device)
+
+
 def lora_a_sgmv_cutlass(
     x: torch.Tensor,
     wa_ptr: torch.Tensor,
@@ -94,7 +100,7 @@ def lora_a_sgmv_cutlass(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     v = torch.zeros((x.size(0), lora_rank), dtype=x.dtype, device=x.device)
     if MIN_RANK_CUSTOM <= lora_rank <= MAX_RANK_CUSTOM:
-        tmp1 = torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=x.device)
+        tmp1 = get_tmp_tensor(x.device)
         tmp2_size = _kernels.sgmv_cutlass_tmp_size(wa_ptr.size(0))
         tmp = torch.empty((tmp2_size,), dtype=torch.uint8, device=x.device)
         _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp1, layer_idx)
