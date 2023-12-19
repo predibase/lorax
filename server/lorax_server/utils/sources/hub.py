@@ -11,6 +11,7 @@ from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
     LocalEntryNotFoundError,
     EntryNotFoundError,  # Import here to ease try/except in other part of the lib
+    RevisionNotFoundError,
 )
 
 from .source import BaseModelSource, try_to_load_from_cache
