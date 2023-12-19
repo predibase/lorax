@@ -313,12 +313,12 @@ class HeterogeneousNextTokenChooser:
                 - speculative_ids (Optional[torch.Tensor]): The selected speculative token IDs.
         """
         if speculation_ids is not None:
-            B = scores.shape[0] // (speculation_ids.shape[1] + 1) if speculation_ids is not None else scores.shape[0]
-            S = speculation_ids.shape[1] + 1 if speculation_ids is not None else 1
-            scores = scores.view(B, S, -1)
+            _batches = scores.shape[0] // (speculation_ids.shape[1] + 1) if speculation_ids is not None else scores.shape[0]
+            _speculations = speculation_ids.shape[1] + 1 if speculation_ids is not None else 1
+            scores = scores.view(_batches, _speculations, -1)
 
-        next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
-        for j in range(S):
+        next_ids = torch.zeros((_batches, _speculations), device=scores.device, dtype=torch.long)
+        for j in range(_speculations):
             _scores = scores[:, j]
             if self.watermark_processor is not None:
                 _scores = self.watermark_processor(input_ids, _scores)
@@ -331,19 +331,21 @@ class HeterogeneousNextTokenChooser:
             _next_ids = self.choice(_scores)
             scores[:, j] = _scores
             next_ids[:, j] = _next_ids
-        next_ids = next_ids.view(B * S)
-        scores = scores.view(B * S, -1)
+        next_ids = next_ids.view(_batches * _speculations)
+        scores = scores.view(_batches * _speculations, -1)
 
         if speculation_ids is not None:
             accepted_ids = []
-            B = next_ids.shape[0] // (speculation_ids.shape[1] + 1)
-            S = speculation_ids.shape[1] + 1
+            # number of batches
+            _batches = next_ids.shape[0] // (speculation_ids.shape[1] + 1)
+            # number of speculations
+            _speculations = speculation_ids.shape[1] + 1
             indices = []
-            for i in range(B):
-                _next_ids = next_ids[i * S : (i + 1) * S]
+            for i in range(_batches):
+                _next_ids = next_ids[i * _speculations : (i + 1) * _speculations]
                 _speculated_ids = speculation_ids[i]
                 validate_speculative = _next_ids[:-1] == _speculated_ids
-                index = i * S
+                index = i * _speculations
                 accepted = 1
                 indices.append(index)
                 for valid in validate_speculative.tolist():
@@ -360,7 +362,7 @@ class HeterogeneousNextTokenChooser:
             )
             next_ids = next_ids[indices]
             scores = scores[indices]
-            indices = torch.arange(B, device=input_ids.device) * S
+            indices = torch.arange(_batches, device=input_ids.device) * _speculations
             if speculation_scores is not None:
                 speculation_scores = speculation_scores[indices + accepted_ids - 1]
         else:
