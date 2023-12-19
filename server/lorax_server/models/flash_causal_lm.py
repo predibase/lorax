@@ -1,6 +1,7 @@
 from collections import defaultdict
 import math
 import itertools
+import time
 from loguru import logger
 import torch
 import torch.distributed
@@ -892,7 +893,6 @@ class FlashCausalLM(Model):
             + cache_manager.num_blocks
         )
 
-        del batch
         del cache_manager
 
         set_cache_manager(
@@ -904,6 +904,35 @@ class FlashCausalLM(Model):
             self.dtype,
             self.device,
         )
+
+        memory_pool = None
+
+        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
+
+        # Capture the graph.
+        self.graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(self.graph, pool=memory_pool):  # noqa: SIM117
+            t0 = time.time()
+            out = self.forward(batch, adapter_data)
+            print(f"forward: {time.time() - t0}")
+            # _, batch = self.generate_token(batch)
+        
+        print(self.graph)
+
+        torch.cuda.synchronize(self.device)
+
+        # self.graph_memory_pool = graph_runner.graph.pool()
+        # self.graph_runners[batch_size] = graph_runner
+
+        print(out)
+        t0 = time.time()
+        self.graph.replay()
+        print(f"replay: {time.time() - t0}")
+        print(out)
+
+        torch.cuda.synchronize(self.device)
+
+        del batch
 
         return int(num_blocks * BLOCK_SIZE)
 
