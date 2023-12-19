@@ -20,6 +20,7 @@ from lorax_server.utils.sources import (
     LocalEntryNotFoundError,
     RevisionNotFoundError,
     S3,
+    weight_files,
 )
 from lorax_server.utils.tokens import (
     NextTokenChooser,
