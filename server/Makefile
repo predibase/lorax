@@ -15,14 +15,10 @@ gen-server:
 	find lorax_server/pb/ -type f -name "*.py" -print0 -exec sed -i -e 's/^\(import.*pb2\)/from . \1/g' {} \;
 	touch lorax_server/pb/__init__.py
 
-install-torch:
-	# Install specific version of torch
-	pip install torch --extra-index-url https://download.pytorch.org/whl/cu118 --no-cache-dir
-
-install: gen-server install-torch
+install: gen-server
 	pip install pip --upgrade
 	pip install -r requirements.txt
-	pip install -e ".[bnb, accelerate]"
+	pip install -e ".[bnb, accelerate, quantize, peft]"
 
 run-dev:
 	# SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=1 lorax_server/cli.py serve gpt2
