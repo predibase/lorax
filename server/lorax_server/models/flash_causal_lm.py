@@ -34,6 +34,7 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.graph import GraphCache
 
 tracer = trace.get_tracer(__name__)
 
@@ -712,6 +713,8 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
+        self.model_wrapper = GraphCache(self.model)
+
         self.target_to_layer = self.adapter_target_to_layer()
 
     @property
@@ -959,7 +962,7 @@ class FlashCausalLM(Model):
         global CACHE_MANAGER
 
         # Model Forward
-        return self.model.forward(
+        return self.model_wrapper.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
