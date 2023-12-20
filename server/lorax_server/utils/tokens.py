@@ -284,7 +284,7 @@ class HeterogeneousNextTokenChooser:
         self.dtype = dtype
         self.device = device
 
-    def speculate_n_grams(self, input_ids, next_ids, accepted_ids, speculate, verbose):
+    def create_n_gram_speculation(self, input_ids, next_ids, accepted_ids, speculate, verbose):
         batch_size = accepted_ids.shape[0]
         device = input_ids.device
 
