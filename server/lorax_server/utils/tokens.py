@@ -284,6 +284,20 @@ class HeterogeneousNextTokenChooser:
         self.dtype = dtype
         self.device = device
 
+    def speculate_n_grams(self, input_ids, next_ids, accepted_ids, speculate, verbose):
+        batch_size = accepted_ids.shape[0]
+        device = input_ids.device
+
+        seed_indices = next_ids[accepted_ids.cumsum(dim=-1) - 1]
+        match_indices = (input_ids == seed_indices.unsqueeze(-1)).max(dim=1).indices + 1
+
+        spec_range = torch.arange(speculate, device=device)
+        all_indices = match_indices.unsqueeze(-1).expand(batch_size, speculate) + spec_range
+        all_indices = torch.clamp(all_indices, max=input_ids.shape[1] - 1)
+
+        speculative_ids = input_ids.gather(dim=-1, index=all_indices)
+        return speculative_ids
+
     def __call__(
         self,
         input_ids: torch.Tensor,
@@ -374,7 +388,9 @@ class HeterogeneousNextTokenChooser:
         ).view(-1)
 
         if speculate > 0:
-            speculative_ids = Greedy()(speculation_scores)
+            speculative_ids = self.create_n_gram_speculation(
+                    input_ids, next_ids, accepted_ids, speculate, verbose
+                )
         else:
             speculative_ids = None
 

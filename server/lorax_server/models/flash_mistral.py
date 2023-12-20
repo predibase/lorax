@@ -43,8 +43,6 @@ from lorax_server.utils.lora import (
     AdapterBatchMetadata,
 )
 from lorax_server.utils.segments import find_segments
-from lorax_server.utils.medusa import MedusaModel
-from huggingface_hub import hf_hub_download
 
 tracer = trace.get_tracer(__name__)
 
@@ -336,7 +334,6 @@ class FlashMistral(FlashCausalLM):
         quantize: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
-        medusa_id: Optional[str] = None,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -405,22 +402,6 @@ class FlashMistral(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashMistralForCausalLM(config, weights)
-
-        if medusa_id is not None:
-            medusa_config = hf_hub_download(
-                medusa_id, revision=revision, filename="config.json"
-            )
-            with open(medusa_config, "r") as f:
-                config = json.load(f)
-            medusa_head = hf_hub_download(
-                medusa_id, revision=revision, filename="medusa_lm_head.pt"
-            )
-            medusa_sf = medusa_head[: -len(".pt")] + ".safetensors"
-            weights = Weights(
-                [medusa_sf], device, dtype, process_group=self.process_group
-            )
-            lm_head = model.lm_head
-            model.lm_head = MedusaModel(config, weights, lm_head)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashMistral, self).__init__(

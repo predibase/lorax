@@ -18,7 +18,6 @@ from lorax_server.models.santacoder import SantaCoder
 from lorax_server.models.t5 import T5Sharded
 from lorax_server.models.gpt_neox import GPTNeoxSharded
 from lorax_server.utils.sources import get_s3_model_local_dir
-from lorax_server.utils.globals import set_speculation_num
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -103,7 +102,6 @@ def get_model(
     adapter_source: str,
 ) -> Model:
     config_dict = None
-    medusa_id = None
     if source == "s3":
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
@@ -123,13 +121,6 @@ def get_model(
         raise ValueError(f"Unknown source {source}")
 
     model_type = config_dict["model_type"]
-
-    if "medusa_num_heads" in config_dict:
-        medusa_id = model_id
-        model_id = config_dict["base_model_name_or_path"]
-        revision = "main"
-        speculate_medusa = config_dict["medusa_num_heads"]
-        set_speculation_num(speculate_medusa)
 
     if dtype is None:
         dtype = torch.float16
@@ -242,7 +233,6 @@ def get_model(
                 quantize=quantize,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
-                medusa_id=medusa_id,
             )
         elif sharded:
             raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format("Sharded Llama"))
@@ -309,7 +299,6 @@ def get_model(
                 quantize=quantize,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
-                medusa_id=medusa_id,
             )
         raise NotImplementedError("Mistral model requires flash attention v2")
 

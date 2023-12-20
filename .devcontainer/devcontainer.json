@@ -1,9 +1,7 @@
 {
-    "build": {
-        "dockerfile": "../Dockerfile"
-    },
     "runArgs": [
         "--gpus",
         "all"
-    ]
+    ],
+    "image": "ghcr.io/predibase/lorax:latest"
 }

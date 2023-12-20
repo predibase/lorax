@@ -28,9 +28,6 @@ from lorax_server.utils.lora import (
     UP_PROJ,
     V_PROJ,
 )
-from lorax_server.utils.medusa import MedusaModel
-from huggingface_hub import hf_hub_download
-import json
 
 tracer = trace.get_tracer(__name__)
 
@@ -58,7 +55,6 @@ class FlashLlama(FlashCausalLM):
         quantize: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
-        medusa_id: Optional[str] = None,
     ):
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
@@ -117,22 +113,6 @@ class FlashLlama(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashLlamaForCausalLM(config, weights)
-
-        if medusa_id is not None:
-            medusa_config = hf_hub_download(
-                medusa_id, revision=revision, filename="config.json"
-            )
-            with open(medusa_config, "r") as f:
-                config = json.load(f)
-            medusa_head = hf_hub_download(
-                medusa_id, revision=revision, filename="medusa_lm_head.pt"
-            )
-            medusa_sf = medusa_head[: -len(".pt")] + ".safetensors"
-            weights = Weights(
-                [medusa_sf], device, dtype, process_group=self.process_group
-            )
-            lm_head = model.lm_head
-            model.lm_head = MedusaModel(config, weights, lm_head)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashLlama, self).__init__(

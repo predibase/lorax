@@ -1,4 +1,4 @@
-SPECULATION_NUM = 0
+SPECULATION_NUM = 5
 
 
 def get_speculation_num() -> int:
