@@ -460,6 +460,10 @@ class CausalLMBatch(Batch):
             max_tokens=max_tokens,
             adapter_indices=adapter_indices,
         )
+    
+    def copy_(self, batch: "CausalLMBatch") -> None:
+        # TODO(travis): fix before landing
+        raise NotImplementedError
 
     def __len__(self):
         return len(self.requests)

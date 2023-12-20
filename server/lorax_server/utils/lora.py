@@ -33,6 +33,13 @@ class RankSegments:
     segment_starts: torch.Tensor
     segment_ends: torch.Tensor
 
+    def copy_(self, data: "RankSegments") -> None:
+        self.rank = data.rank
+        self.lora_a_ptr.copy_(data.lora_a_ptr)
+        self.lora_b_ptr.copy_(data.lora_b_ptr)
+        self.segment_starts.copy_(data.segment_starts)
+        self.segment_ends.copy_(data.segment_ends)
+
 
 @dataclass
 class AdapterWeightData:
@@ -72,6 +79,25 @@ class AdapterBatchData:
                 continue
             data[k] = v.get_data(meta)
         return AdapterBatchData(meta=meta, data=data)
+    
+    def copy_(self, data: "AdapterBatchData") -> None:
+        self.meta = data.meta
+
+        for layer_name, source_data in data.data.items():
+            dest_data = self.data[layer_name]
+            for r, source_rank_data in source_data.rank_data.items():
+                dest_rank_data = dest_data.rank_data[r]
+                dest_rank_data.copy_(source_rank_data)
+    
+    def key(self) -> str:
+        if len(self.data) == 0:
+            return ""
+        
+        nsegments = self.meta.adapter_segments.shape[0]
+        layers_str = "-".join(sorted(self.data.keys()))
+        layer = next(iter(self.data.values()))
+        rank_str = "-".join(sorted([r for r in layer.rank_data.keys()]))
+        return f"{nsegments}-{layers_str}-{rank_str}"
 
 
 class MergedLoraWeights:

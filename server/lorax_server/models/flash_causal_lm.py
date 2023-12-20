@@ -653,6 +653,20 @@ class FlashCausalLMBatch(Batch):
                 segment_indices=adapter_segment_indices,
             ),
         )
+    
+    def copy_(self, batch: "FlashCausalLMBatch") -> None:
+        # Copy tensors (GPU)
+        self.input_ids.copy_(batch.input_ids)
+        self.position_ids.copy_(batch.position_ids)
+        self.slot_indices.copy_(batch.slot_indices)
+        self.input_lengths_tensor.copy_(batch.input_lengths_tensor)
+        self.slots.copy_(batch.slots)
+        self.block_tables_tensor.copy_(batch.block_tables_tensor)
+        self.all_input_ids_tensor.copy_(batch.all_input_ids_tensor)
+        self.adapter_meta.adapter_indices.copy_(batch.adapter_meta.adapter_indices)
+        self.adapter_meta.adapter_segments.copy_(batch.adapter_meta.adapter_segments)
+        self.adapter_meta.segment_indices = batch.adapter_meta.segment_indices
+        self.adapter_meta.adapter_set = batch.adapter_meta.adapter_set
 
     def __del__(self):
         if self.block_tables is not None and self.block_tables:
