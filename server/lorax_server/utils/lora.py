@@ -96,7 +96,7 @@ class AdapterBatchData:
         nsegments = self.meta.adapter_segments.shape[0]
         layers_str = "-".join(sorted(self.data.keys()))
         layer = next(iter(self.data.values()))
-        rank_str = "-".join(sorted([r for r in layer.rank_data.keys()]))
+        rank_str = "-".join(sorted([str(r) for r in layer.rank_data.keys()]))
         return f"{nsegments}-{layers_str}-{rank_str}"
 
 
