@@ -67,7 +67,9 @@ Example:
 ```python
 from lorax import Client
 
-endpoint_url = f"https://api.app.predibase.com/v1/llms/{llm_deployment_name}"
+# You can get your Predibase API token by going to Settings > My Profile > Generate API Token
+# You can get your Predibase Tenant short code by going to Settings > My Profile > Overview > Tenant ID
+endpoint_url = f"https://serving.app.predibase.com/{predibase_tenant_short_code}/deployments/v2/llms/{llm_deployment_name}"
 headers = {
     "Authorization": f"Bearer {api_token}"
 }
