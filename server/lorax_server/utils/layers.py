@@ -21,6 +21,12 @@ try:
 except ImportError:
     HAS_AWQ = False
 
+HAS_HQQ = True
+try:
+    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+except ImportError:
+    HAS_HQQ = False
+
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -271,6 +277,21 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 f"The passed weight is not compatible with `awq`"
             )
         linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
+    elif "hqq-" in quantize:
+        if quantize == "hqq-4bit":
+            quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
+        elif quantize == "hqq-3bit":
+            quant_config = BaseQuantizeConfig(nbits=3, group_size=64, quant_zero=True, quant_scale=False)
+        elif quantize == "hqq-2bit":
+            quant_config = BaseQuantizeConfig(nbits=2, group_size=16, quant_zero=True, quant_scale=False)
+
+        # init nn.linear from weight and bias
+        layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
+        layer.weight.data = weight
+        if bias is not None:
+            layer.bias.data = bias
+        
+        linear = HQQLinear(layer, quant_config, del_orig=True)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
