@@ -287,9 +287,10 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
 
         # init nn.linear from weight and bias
         layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
-        layer.weight.data = weight
-        if bias is not None:
-            layer.bias.data = bias
+        with torch.no_grad():
+            layer.weight.data = weight
+            if bias is not None:
+                layer.bias.data = bias
         
         linear = HQQLinear(layer, quant_config, del_orig=True)
     else:
