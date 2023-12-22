@@ -208,7 +208,7 @@ COPY server/Makefile server/Makefile
 
 RUN cd server && \
     make gen-server && \
-    pip install ".[bnb, accelerate, quantize]" --no-cache-dir
+    pip install ".[bnb, accelerate, quantize, peft]" --no-cache-dir
 
 # Install router
 COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router
@@ -234,7 +234,8 @@ RUN chmod +x sync.sh
 
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
-    sudo ./aws/install
+    sudo ./aws/install && \
+    rm -rf aws awscliv2.zip
 
 # ENTRYPOINT ["./entrypoint.sh"]
 ENTRYPOINT ["lorax-launcher"]

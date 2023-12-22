@@ -32,15 +32,17 @@ einops = "^0.6.1"
 tiktoken = "^0.5.2"
 texttable = { version = "^1.6.7", optional = true }
 datasets = { version = "^2.14.0", optional = true }
-torch = {version = "2.1.1+cu118", source = "torch"}
-peft = "0.4.0"
+torch = {version = "2.1.1", optional = true }
+peft = {version = "0.4.0", optional = true }
 boto3 = "^1.28.34"
 urllib3 = "<=1.26.18"
 stanford-stk = "^0.0.6"
 
 [tool.poetry.extras]
+torch = ["torch"]
 accelerate = ["accelerate"]
 bnb = ["bitsandbytes"]
+peft = ["peft"]
 quantize = ["texttable", "datasets", "accelerate"]
 
 [tool.poetry.group.dev.dependencies]
@@ -49,7 +51,7 @@ pytest = "^7.3.0"
 
 
 [[tool.poetry.source]]
-name = "torch"
+name = "pytorch-gpu"
 url = "https://download.pytorch.org/whl/cu118"
 priority = "explicit"
 
