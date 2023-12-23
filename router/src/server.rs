@@ -77,6 +77,53 @@ async fn compat_generate(
     }
 }
 
+/// Generate tokens if `stream == false` or a stream of token if `stream == true`
+#[utoipa::path(
+post,
+tag = "LoRAX",
+path = "/v1/completions",
+request_body = CompatGenerateRequest,
+responses(
+(status = 200, description = "Generated Text",
+content(
+("application/json" = GenerateResponse),
+("text/event-stream" = StreamResponse),
+)),
+(status = 424, description = "Generation Error", body = ErrorResponse,
+example = json ! ({"error": "Request failed during generation"})),
+(status = 429, description = "Model is overloaded", body = ErrorResponse,
+example = json ! ({"error": "Model is overloaded"})),
+(status = 422, description = "Input validation error", body = ErrorResponse,
+example = json ! ({"error": "Input validation error"})),
+(status = 500, description = "Incomplete generation", body = ErrorResponse,
+example = json ! ({"error": "Incomplete generation"})),
+)
+)]
+#[instrument(skip(infer, req))]
+async fn completions_v1(
+    default_return_full_text: Extension<bool>,
+    infer: Extension<Infer>,
+    req: Json<CompatGenerateRequest>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let mut req = req.0;
+
+    // default return_full_text given the pipeline_tag
+    if req.parameters.return_full_text.is_none() {
+        req.parameters.return_full_text = Some(default_return_full_text.0)
+    }
+
+    // switch on stream
+    if req.stream {
+        Ok(generate_stream(infer, Json(req.into()))
+            .await
+            .into_response())
+    } else {
+        let (headers, generation) = generate(infer, Json(req.into())).await?;
+        // wrap generation inside a Vec to match api-inference
+        Ok((headers, Json(vec![generation.0])).into_response())
+    }
+}
+
 /// LoRAX endpoint info
 #[utoipa::path(
 get,
@@ -686,6 +733,7 @@ pub async fn run(
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
         .route("/generate_stream", post(generate_stream))
+        .route("/v1/completions", post(completions_v1))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate))
         // Base Health route
