@@ -5,6 +5,7 @@ from torch import nn
 
 from lorax_server.models.types import Batch
 from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.models.cache_manager import get_cache_manager
 
 
 class GraphWrapper:
@@ -21,10 +22,12 @@ class GraphWrapper:
         self.adapter_data = adapter_data
         self.output_states = output_states
         self.memory_pool = memory_pool
+        self.kv_cache = get_cache_manager().kv_cache
     
     def forward(self, batch: Batch, adapter_data: torch.Tensor) -> None:
         self.batch.copy_(batch)
         self.adapter_data.copy_(adapter_data)
+        self.kv_cache.copy_(get_cache_manager().kv_cache)
         self.graph.replay()
         return self.output_states
     
@@ -67,6 +70,7 @@ class GraphCache:
             )
         else:
             print("cache hit")
+            # output_states = self.model.forward(batch, adapter_data)
             output_states = self.cache[key].forward(batch, adapter_data)
         return output_states
     

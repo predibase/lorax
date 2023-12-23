@@ -659,10 +659,16 @@ class FlashCausalLMBatch(Batch):
         # Copy tensors (GPU)
         self.input_ids.copy_(batch.input_ids)
         self.position_ids.copy_(batch.position_ids)
-        self.slot_indices.copy_(batch.slot_indices)
-        self.input_lengths_tensor.copy_(batch.input_lengths_tensor)
-        self.slots.copy_(batch.slots)
+        if batch.cu_seqlen_prefill is not None:
+            self.cu_seqlen_prefill.copy_(batch.cu_seqlen_prefill)
         self.block_tables_tensor.copy_(batch.block_tables_tensor)
+        self.slots.copy_(batch.slots)
+        self.input_lengths_tensor.copy_(batch.input_lengths_tensor)
+        self.max_seqlen = batch.max_seqlen
+        if batch.prefill_head_indices is not None:
+            self.prefill_head_indices.copy_(batch.prefill_head_indices)
+
+        self.slot_indices.copy_(batch.slot_indices)
         self.all_input_ids_tensor.copy_(batch.all_input_ids_tensor)
         self.adapter_meta.adapter_indices.copy_(batch.adapter_meta.adapter_indices)
         self.adapter_meta.adapter_segments.copy_(batch.adapter_meta.adapter_segments)
