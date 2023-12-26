@@ -26,10 +26,20 @@ class GraphWrapper:
     
     def forward(self, batch: Batch, adapter_data: torch.Tensor) -> None:
         self.batch.copy_(batch)
-        self.adapter_data.copy_(adapter_data)
-        self.kv_cache.copy_(get_cache_manager().kv_cache)
+        # self.adapter_data.copy_(adapter_data)
+        # iterate over every list in kv_cache and every tuple in the list and copy the tensor data
+        # into the tensor in the graph
+        # batch_kv_cache = get_cache_manager().kv_cache
+        # for i, kv in enumerate(self.kv_cache):
+        #     for j, v in enumerate(kv):
+        #         v.copy_(batch_kv_cache[i][j])
+
+        # self.kv_cache.copy_(get_cache_manager().kv_cache)
         self.graph.replay()
-        return self.output_states
+
+        # batch.copy_(self.batch)
+
+        return self.output_states.clone()
     
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -43,13 +53,15 @@ class GraphWrapper:
     ) -> Tuple["GraphWrapper", torch.Tensor]:
         torch.cuda.synchronize(model.device)
 
+        batch = batch.clone()
+
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
             output_states = model.forward(batch, adapter_data)
-        
+
         torch.cuda.synchronize(model.device)
 
-        return GraphWrapper(graph, batch, adapter_data, output_states, memory_pool), output_states
+        return GraphWrapper(graph, batch, adapter_data, output_states, memory_pool)
 
 
 class GraphCache:
@@ -62,16 +74,58 @@ class GraphCache:
         key = (len(batch), adapter_data.key())
         if key not in self.cache:
             print("cache miss")
-            self.cache[key], output_states = GraphWrapper.trace(
+            print(batch.input_ids)
+            print(batch.position_ids)
+            print(batch.slots)
+            print(batch.block_tables_tensor)
+            print(batch.input_lengths_tensor)
+            print(batch.max_seqlen)
+            self.cache[key] = GraphWrapper.trace(
                 self.model,
                 batch,
                 adapter_data,
                 self.memory_pool,
             )
+
+            output_states = self.cache[key].forward(batch, adapter_data)
+
+            print()
+            print(output_states)
+
+            # print("!!! REPLAY !!!")
+            # print(batch.input_ids)
+            # print(batch.position_ids)
+            # print(batch.slots)
+            # print(batch.block_tables_tensor)
+            # print(batch.input_lengths_tensor)
+            # print(batch.max_seqlen)
+            # output_states, hidden_states = self.cache[key].forward(batch, adapter_data)
+            # print()
+            # print(output_states)
+            # print(hidden_states, hidden_states.shape, hidden_states.float().norm())
         else:
             print("cache hit")
-            # output_states = self.model.forward(batch, adapter_data)
+            # print(batch.input_ids)
+            # print(batch.position_ids)
+            # print(batch.slots)
+            # print(batch.block_tables_tensor)
+            # print(batch.input_lengths_tensor)
+            # print(batch.max_seqlen)
+            # output_states, hidden_states = self.model.forward(batch, adapter_data)
+            # print(output_states)
+            # print(hidden_states, hidden_states.shape, hidden_states.float().norm())
+
+            print("!!! REPLAY !!!")
+            print(batch.input_ids)
+            print(batch.position_ids)
+            print(batch.slots)
+            print(batch.block_tables_tensor)
+            print(batch.input_lengths_tensor)
+            print(batch.max_seqlen)
             output_states = self.cache[key].forward(batch, adapter_data)
+            print(output_states)
+            # print(hidden_states, hidden_states.shape, hidden_states.float().norm())
+
         return output_states
     
     def __call__(self, *args, **kwargs):

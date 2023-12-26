@@ -675,6 +675,45 @@ class FlashCausalLMBatch(Batch):
         self.adapter_meta.segment_indices = batch.adapter_meta.segment_indices
         self.adapter_meta.adapter_set = batch.adapter_meta.adapter_set
 
+    def clone(self) -> "FlashCausalLMBatch":
+        return type(self)(
+            batch_id=self.batch_id,
+            requests=self.requests,
+            requests_idx_mapping=self.requests_idx_mapping,
+            input_ids=self.input_ids.clone(),
+            position_ids=self.position_ids.clone(),
+            cu_seqlen_prefill=self.cu_seqlen_prefill.clone()
+            if self.cu_seqlen_prefill is not None
+            else None,
+            start_slots=self.start_slots.clone(),
+            slot_indices=self.slot_indices.clone(),
+            needed_blocks_slots=self.needed_blocks_slots,
+            block_tables=self.block_tables,
+            block_tables_tensor=self.block_tables_tensor.clone(),
+            slots=self.slots.clone(),
+            max_seqlen=self.max_seqlen,
+            prefill_head_indices=self.prefill_head_indices.clone()
+            if self.prefill_head_indices is not None
+            else None,
+            prefill_next_token_indices=self.prefill_next_token_indices
+            if self.prefill_next_token_indices is not None
+            else None,
+            prefill_cu_outlens=self.prefill_cu_outlens
+            if self.prefill_cu_outlens is not None
+            else None,
+            input_lengths=self.input_lengths,
+            input_lengths_tensor=self.input_lengths_tensor.clone(),
+            prefix_offsets=self.prefix_offsets,
+            read_offsets=self.read_offsets,
+            all_input_ids=self.all_input_ids,
+            all_input_ids_tensor=self.all_input_ids_tensor.clone(),
+            next_token_chooser=self.next_token_chooser,
+            stopping_criterias=self.stopping_criterias,
+            blocks=self.blocks,
+            max_blocks=self.max_blocks,
+            adapter_meta=self.adapter_meta,
+        )
+
     def __del__(self):
         if self.block_tables is not None and self.block_tables:
             # Free blocks
