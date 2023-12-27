@@ -985,8 +985,8 @@ class FlashCausalLM(Model):
 
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
-        if self.model_graph_wrapper is not None and not prefill:
-            model = self.model_graph_wrapper
+        # if self.model_graph_wrapper is not None and not prefill:
+            # model = self.model_graph_wrapper
 
         # Model Forward
         return model.forward(

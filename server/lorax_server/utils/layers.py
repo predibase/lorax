@@ -418,6 +418,7 @@ class TensorParallelAdapterLinear(nn.Module):
                 if lora_a_ptr is not None and lora_b_ptr is not None:
                     v, tmp = lora_a_sgmv_cutlass(
                         input,
+                        rank_segments.v,
                         lora_a_ptr,
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,

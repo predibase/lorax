@@ -28,17 +28,11 @@ EMPTY_TENSOR = torch.tensor([])
 @dataclass
 class RankSegments:
     rank: int
+    v: torch.Tensor
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
     segment_starts: torch.Tensor
     segment_ends: torch.Tensor
-
-    def copy_(self, data: "RankSegments") -> None:
-        self.rank = data.rank
-        self.lora_a_ptr.copy_(data.lora_a_ptr)
-        self.lora_b_ptr.copy_(data.lora_b_ptr)
-        self.segment_starts.copy_(data.segment_starts)
-        self.segment_ends.copy_(data.segment_ends)
 
 
 @dataclass
@@ -167,7 +161,9 @@ class BatchedLoraWeights:
             AdapterWeightData: The adapter weight data.
 
         """
-        device = list(self.lora_weights.values())[0].weights_a.device
+        first_weights = list(self.lora_weights.values())[0]
+        device = first_weights.weights_a.device
+        dtype = first_weights.weights_a.dtype
         segment_indices = meta.segment_indices
 
         lora_a = {
@@ -219,6 +215,7 @@ class BatchedLoraWeights:
         for rank, indices in rank_indices.items():
             rank_data[rank] = RankSegments(
                 rank=rank,
+                v=torch.zeros((meta.adapter_indices.shape[0], rank), dtype=dtype, device=device),
                 lora_a_ptr=lora_a_ptr[indices],
                 lora_b_ptr=lora_b_ptr[indices],
                 segment_starts=meta.adapter_segments[indices],
