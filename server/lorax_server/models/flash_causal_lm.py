@@ -759,7 +759,7 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
         )
 
-        self.model_wrapper = None
+        self.model_graph_wrapper: GraphCache = None
 
         self.target_to_layer = self.adapter_target_to_layer()
 
@@ -969,7 +969,7 @@ class FlashCausalLM(Model):
             self.device,
         )
 
-        self.model_wrapper = GraphCache(self.model, self.adapter_layers)
+        self.model_graph_wrapper = GraphCache(self.model, self.adapter_layers)
 
         torch.cuda.synchronize(self.device)
 
@@ -983,9 +983,12 @@ class FlashCausalLM(Model):
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         global CACHE_MANAGER
 
-        # Model Forward
         prefill = batch.cu_seqlen_prefill is not None
-        model = self.model_wrapper if self.model_wrapper is not None and not prefill else self.model
+        model = self.model
+        if self.model_graph_wrapper is not None and not prefill:
+            model = self.model_graph_wrapper
+
+        # Model Forward
         return model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
