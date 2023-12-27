@@ -8,6 +8,22 @@ from lorax_server.utils.lora import AdapterBatchData
 from lorax_server.models.cache_manager import get_cache_manager
 
 
+# TODO(travis): make this confgiurable by model / user
+MAX_CONTEXT_LENGTH = 8192
+
+SLOT_PAD_VALUE = -1
+
+
+def get_cached_batch_size(batch_size: int) -> int:
+    if batch_size == 1:
+        return 1
+    if batch_size == 2:
+        return 2
+    if batch_size <= 4:
+        return 4
+    return (batch_size + 7) // 8 * 8
+
+
 class GraphWrapper:
     def __init__(
         self,
@@ -50,10 +66,12 @@ class GraphWrapper:
         batch: Batch,
         adapter_data: torch.Tensor,
         memory_pool: Tuple[int, int],
+        slots_buffer: torch.Tensor,
     ) -> Tuple["GraphWrapper", torch.Tensor]:
         torch.cuda.synchronize(model.device)
 
         batch = batch.clone()
+        batch.slots = slots_buffer
 
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
@@ -69,9 +87,11 @@ class GraphCache:
         self.model = model
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache = {}
+        self.slots_buffer = torch.full((MAX_CONTEXT_LENGTH,), SLOT_PAD_VALUE, dtype=torch.int64, device=model.device)
 
     def forward(self, batch: Batch, adapter_data: AdapterBatchData) -> None:
-        key = (len(batch), adapter_data.key())
+        batch_size = get_cached_batch_size(len(batch))
+        key = (batch_size, adapter_data.key())
         if key not in self.cache:
             print("cache miss")
             print(batch.input_ids)
@@ -85,6 +105,7 @@ class GraphCache:
                 batch,
                 adapter_data,
                 self.memory_pool,
+                self.slots_buffer
             )
 
             output_states = self.cache[key].forward(batch, adapter_data)

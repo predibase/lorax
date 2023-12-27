@@ -662,7 +662,8 @@ class FlashCausalLMBatch(Batch):
         if batch.cu_seqlen_prefill is not None:
             self.cu_seqlen_prefill.copy_(batch.cu_seqlen_prefill)
         self.block_tables_tensor.copy_(batch.block_tables_tensor)
-        self.slots.copy_(batch.slots)
+        self.slots[: len(batch.slots)] = batch.slots
+        # self.slots.copy_(batch.slots)
         self.input_lengths_tensor.copy_(batch.input_lengths_tensor)
         self.max_seqlen = batch.max_seqlen
         if batch.prefill_head_indices is not None:
