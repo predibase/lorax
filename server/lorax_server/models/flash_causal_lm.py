@@ -984,7 +984,9 @@ class FlashCausalLM(Model):
         global CACHE_MANAGER
 
         # Model Forward
-        return self.model.forward(
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model_wrapper if self.model_wrapper is not None and not prefill else self.model
+        return model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
@@ -1025,8 +1027,7 @@ class FlashCausalLM(Model):
         adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
 
         try:
-            model = self.model_wrapper if self.model_wrapper is not None and not prefill else self
-            out = model.forward(batch, adapter_data)
+            out = self.forward(batch, adapter_data)
         except Exception as e:
             del batch
             raise e

@@ -1,4 +1,6 @@
-from typing import Tuple
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import List, Optional, Tuple
 
 import torch
 from torch import nn
@@ -9,6 +11,7 @@ from lorax_server.models.cache_manager import get_cache_manager
 
 
 # TODO(travis): make this confgiurable by model / user
+MAX_BATCH_SIZE = 256
 MAX_CONTEXT_LENGTH = 8192
 
 SLOT_PAD_VALUE = -1
@@ -24,23 +27,60 @@ def get_cached_batch_size(batch_size: int) -> int:
     return (batch_size + 7) // 8 * 8
 
 
+@dataclass
+class GraphState:
+    input_ids: torch.Tensor
+    position_ids: torch.Tensor
+    block_tables: torch.Tensor
+    slots: torch.Tensor
+    input_lengths: torch.Tensor
+    adapter_data: AdapterBatchData
+
+
+@lru_cache(maxsize=1)
+def get_max_graph_state(device: torch.device) -> GraphState:
+    input_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
+    position_ids = torch.zeros(MAX_BATCH_SIZE, dtype=torch.int64, device=device)
+    block_tables = torch.zeros((MAX_CONTEXT_LENGTH,), dtype=torch.int64, device=device)
+    slots = torch.full((MAX_CONTEXT_LENGTH,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
+    input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
+
+    return GraphState(
+        input_ids=input_ids,
+        position_ids=position_ids,
+        block_tables=block_tables,
+        slots=slots,
+        input_lengths=input_lengths,
+        adapter_data=None,
+    )
+
+
 class GraphWrapper:
     def __init__(
         self,
         graph: torch.cuda.CUDAGraph,
-        batch: Batch,
-        adapter_data: AdapterBatchData,
-        output_states: torch.Tensor,
         memory_pool: Tuple[int, int],
+        input_state: GraphState,
+        output_states: torch.Tensor,
     ):
         self.graph = graph
-        self.batch = batch
-        self.adapter_data = adapter_data
-        self.output_states = output_states
         self.memory_pool = memory_pool
-        self.kv_cache = get_cache_manager().kv_cache
+        self.input_state = input_state
+        self.output_states = output_states
     
-    def forward(self, batch: Batch, adapter_data: torch.Tensor) -> None:
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        lm_head_indices: Optional[torch.Tensor] = None,
+    ) -> None:
         self.batch.copy_(batch)
         # self.adapter_data.copy_(adapter_data)
         # iterate over every list in kv_cache and every tuple in the list and copy the tensor data
@@ -63,23 +103,41 @@ class GraphWrapper:
     @staticmethod
     def trace(
         model: nn.Module,
-        batch: Batch,
-        adapter_data: torch.Tensor,
+        batch_size: int,
         memory_pool: Tuple[int, int],
-        slots_buffer: torch.Tensor,
     ) -> Tuple["GraphWrapper", torch.Tensor]:
         torch.cuda.synchronize(model.device)
 
-        batch = batch.clone()
-        batch.slots = slots_buffer
+        max_input_state = get_max_graph_state(model.device)
+        input_state = GraphState(
+            input_ids=max_input_state.input_ids[:batch_size],
+            position_ids=max_input_state.position_ids[:batch_size],
+            block_tables=max_input_state.block_tables,
+            slots=max_input_state.slots,
+            input_lengths=max_input_state.input_lengths[:batch_size],
+            adapter_data=None,
+        )
 
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
-            output_states = model.forward(batch, adapter_data)
+            output_states = model.forward(
+                input_ids=input_state.input_ids,
+                position_ids=input_state.position_ids,
+                cu_seqlen_prefill=None,
+                kv_cache=get_cache_manager().kv_cache,
+                block_tables=input_state.block_tables,
+                slots=input_state.slots,
+                input_lengths=input_state.input_lengths,
+                max_s=MAX_CONTEXT_LENGTH,
+                adapter_data=input_state.adapter_data,
+                lm_head_indices=None,
+            )
 
         torch.cuda.synchronize(model.device)
 
-        return GraphWrapper(graph, batch, adapter_data, output_states, memory_pool)
+        return GraphWrapper(
+            graph, memory_pool, input_state, output_states
+        )
 
 
 class GraphCache:
@@ -87,65 +145,57 @@ class GraphCache:
         self.model = model
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache = {}
-        self.slots_buffer = torch.full((MAX_CONTEXT_LENGTH,), SLOT_PAD_VALUE, dtype=torch.int64, device=model.device)
 
-    def forward(self, batch: Batch, adapter_data: AdapterBatchData) -> None:
-        batch_size = get_cached_batch_size(len(batch))
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        lm_head_indices: Optional[torch.Tensor] = None,
+    ) -> None:
+        batch_size = get_cached_batch_size(input_ids.shape[0])
         key = (batch_size, adapter_data.key())
         if key not in self.cache:
             print("cache miss")
-            print(batch.input_ids)
-            print(batch.position_ids)
-            print(batch.slots)
-            print(batch.block_tables_tensor)
-            print(batch.input_lengths_tensor)
-            print(batch.max_seqlen)
             self.cache[key] = GraphWrapper.trace(
                 self.model,
-                batch,
-                adapter_data,
+                batch_size,
                 self.memory_pool,
-                self.slots_buffer
             )
-
-            output_states = self.cache[key].forward(batch, adapter_data)
-
-            print()
+            output_states = self.cache[key].forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                cu_seqlen_prefill=cu_seqlen_prefill,
+                kv_cache=kv_cache,
+                block_tables=block_tables,
+                slots=slots,
+                input_lengths=input_lengths,
+                max_s=max_s,
+                adapter_data=adapter_data,
+                lm_head_indices=lm_head_indices,
+            )
             print(output_states)
-
-            # print("!!! REPLAY !!!")
-            # print(batch.input_ids)
-            # print(batch.position_ids)
-            # print(batch.slots)
-            # print(batch.block_tables_tensor)
-            # print(batch.input_lengths_tensor)
-            # print(batch.max_seqlen)
-            # output_states, hidden_states = self.cache[key].forward(batch, adapter_data)
-            # print()
-            # print(output_states)
-            # print(hidden_states, hidden_states.shape, hidden_states.float().norm())
         else:
             print("cache hit")
-            # print(batch.input_ids)
-            # print(batch.position_ids)
-            # print(batch.slots)
-            # print(batch.block_tables_tensor)
-            # print(batch.input_lengths_tensor)
-            # print(batch.max_seqlen)
-            # output_states, hidden_states = self.model.forward(batch, adapter_data)
-            # print(output_states)
-            # print(hidden_states, hidden_states.shape, hidden_states.float().norm())
-
-            print("!!! REPLAY !!!")
-            print(batch.input_ids)
-            print(batch.position_ids)
-            print(batch.slots)
-            print(batch.block_tables_tensor)
-            print(batch.input_lengths_tensor)
-            print(batch.max_seqlen)
-            output_states = self.cache[key].forward(batch, adapter_data)
+            output_states = self.cache[key].forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                cu_seqlen_prefill=cu_seqlen_prefill,
+                kv_cache=kv_cache,
+                block_tables=block_tables,
+                slots=slots,
+                input_lengths=input_lengths,
+                max_s=max_s,
+                adapter_data=adapter_data,
+                lm_head_indices=lm_head_indices,
+            )
             print(output_states)
-            # print(hidden_states, hidden_states.shape, hidden_states.float().norm())
 
         return output_states
     
