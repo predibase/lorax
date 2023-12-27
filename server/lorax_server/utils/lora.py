@@ -98,6 +98,23 @@ class AdapterBatchData:
         layer = next(iter(self.data.values()))
         rank_str = "-".join(sorted([str(r) for r in layer.rank_data.keys()]))
         return f"{nsegments}-{layers_str}-{rank_str}"
+    
+    def ranks(self) -> Set[int]:
+        return set(
+            rank_data.rank
+            for layer in self.data.values()
+            for rank_data in layer.rank_data.values()
+        )
+    
+    @property
+    def max_r(self) -> int:
+        if len(self.data) == 0:
+            return 0
+        
+        return max(
+            max(rank_data.rank for rank_data in layer.rank_data.values())
+            for layer in self.data.values()
+        )
 
 
 class MergedLoraWeights:
