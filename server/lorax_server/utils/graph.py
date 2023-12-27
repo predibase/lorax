@@ -61,6 +61,7 @@ def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphSt
             rank_data={
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
+                    v=torch.zeros((MAX_BATCH_SIZE, MAX_RANK), dtype=model.dtype, device=device),
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
@@ -164,6 +165,7 @@ class GraphWrapper:
                 rank_data={
                     max_rank: RankSegments(
                         rank=max_rank,
+                        v=weight_data.rank_data[MAX_RANK].v[:batch_size, :max_rank],
                         lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:batch_size],
                         lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:batch_size],
                         segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:batch_size],
