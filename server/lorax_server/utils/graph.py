@@ -44,8 +44,8 @@ def get_max_graph_state(device: torch.device) -> GraphState:
     block_tables_arr = np.zeros((MAX_BATCH_SIZE, max_num_blocks), dtype=np.int32)
     block_tables = torch.from_numpy(block_tables_arr).to(device=device)
 
-    input_ids = torch.zeros((MAX_BATCH_SIZE, 1), dtype=torch.int64, device=device)
-    position_ids = torch.zeros((MAX_BATCH_SIZE, 1), dtype=torch.int64, device=device)
+    input_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
+    position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
 
@@ -157,6 +157,12 @@ class GraphCache:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
+        print(input_ids.shape)
+        print(position_ids.shape)
+        print(block_tables.shape)
+        print(slots.shape)
+        print(input_lengths.shape)
+
         batch_size = get_cached_batch_size(input_ids.shape[0])
         key = (batch_size, adapter_data.key())
         if key not in self.cache:
