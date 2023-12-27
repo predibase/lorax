@@ -45,9 +45,9 @@ def get_max_graph_state(device: torch.device) -> GraphState:
     block_tables = torch.from_numpy(block_tables_arr).to(device=device)
 
     input_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
-    position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
+    position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
-    input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
+    input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
     return GraphState(
         input_ids=input_ids,
@@ -173,11 +173,11 @@ class GraphCache:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
-        print(input_ids.shape)
-        print(position_ids.shape)
-        print(block_tables.shape)
-        print(slots.shape)
-        print(input_lengths.shape)
+        print(input_ids.shape, input_ids.dtype)
+        print(position_ids.shape, position_ids.dtype)
+        print(block_tables.shape, block_tables.dtype)
+        print(slots.shape, slots.dtype)
+        print(input_lengths.shape, input_lengths.dtype)
 
         batch_size = get_cached_batch_size(input_ids.shape[0])
         key = (batch_size, adapter_data.key())
