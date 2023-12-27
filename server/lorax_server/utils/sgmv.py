@@ -90,7 +90,7 @@ def get_tmp_tensor(device: torch.device) -> torch.Tensor:
     return torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=device)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=32)
 def get_tmp_tensor_for_size(size: int, device: torch.device) -> torch.Tensor:
     tmp_size = _kernels.sgmv_cutlass_tmp_size(size)
     return torch.empty((tmp_size,), dtype=torch.uint8, device=device)

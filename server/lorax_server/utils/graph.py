@@ -100,49 +100,6 @@ class GraphWrapper:
         self.memory_pool = memory_pool
         self.input_state = input_state
         self.output_states = output_states
-    
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        position_ids: torch.Tensor,
-        cu_seqlen_prefill: Optional[torch.Tensor],
-        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
-        block_tables: torch.Tensor,
-        slots: torch.Tensor,
-        input_lengths: torch.Tensor,
-        max_s: int,
-        adapter_data: AdapterBatchData,
-        lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> None:
-        self.input_state.input_ids[:input_ids.shape[0]] = input_ids
-        self.input_state.position_ids[:position_ids.shape[0]] = position_ids
-        self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
-        self.input_state.slots[:slots.shape[0]] = slots
-        self.input_state.input_lengths[:input_lengths.shape[0]] = input_lengths
-
-        for layer_name, weight_data in self.input_state.adapter_data.data.items():
-            if layer_name not in adapter_data.data:
-                continue
-            
-            source_data = adapter_data.data[layer_name]
-            dest_data = weight_data
-            for rank, source_rank_data in source_data.rank_data.items():
-                dest_rank_data = dest_data.rank_data[rank]
-                dest_rank_data.lora_a_ptr[:source_rank_data.lora_a_ptr.shape[0]] = source_rank_data.lora_a_ptr
-                dest_rank_data.lora_b_ptr[:source_rank_data.lora_b_ptr.shape[0]] = source_rank_data.lora_b_ptr
-                dest_rank_data.segment_starts[:source_rank_data.segment_starts.shape[0]] = source_rank_data.segment_starts
-                dest_rank_data.segment_ends[:source_rank_data.segment_ends.shape[0]] = source_rank_data.segment_ends
-
-                # pad remainder of segments with zeros
-                dest_rank_data.lora_a_ptr[source_rank_data.lora_a_ptr.shape[0]:] = 0
-                dest_rank_data.lora_b_ptr[source_rank_data.lora_b_ptr.shape[0]:] = 0
-        
-        self.graph.replay()
-
-        return self.output_states.clone()
-    
-    def __call__(self, *args, **kwargs):
-        return self.forward(*args, **kwargs)
         
     @staticmethod
     def trace(
@@ -211,6 +168,58 @@ class GraphWrapper:
         return GraphWrapper(
             graph, memory_pool, input_state, output_states
         )
+    
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        lm_head_indices: Optional[torch.Tensor] = None,
+    ) -> None:
+        self.input_state.input_ids[:input_ids.shape[0]] = input_ids
+        self.input_state.position_ids[:position_ids.shape[0]] = position_ids
+        self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
+        self.input_state.slots[:slots.shape[0]] = slots
+        self.input_state.input_lengths[:input_lengths.shape[0]] = input_lengths
+
+        for layer_name, weight_data in self.input_state.adapter_data.data.items():
+            if layer_name not in adapter_data.data:
+                # zero out all the segments
+                for rank_data in weight_data.rank_data.values():
+                    rank_data.segment_starts.zero_()
+                    rank_data.segment_ends.zero_()
+                continue
+            
+            source_data = adapter_data.data[layer_name]
+            dest_data = weight_data
+            for rank, source_rank_data in source_data.rank_data.items():
+                dest_rank_data = dest_data.rank_data[rank]
+                dest_rank_data.lora_a_ptr[:source_rank_data.lora_a_ptr.shape[0]] = source_rank_data.lora_a_ptr
+                dest_rank_data.lora_b_ptr[:source_rank_data.lora_b_ptr.shape[0]] = source_rank_data.lora_b_ptr
+                dest_rank_data.segment_starts[:source_rank_data.segment_starts.shape[0]] = source_rank_data.segment_starts
+                dest_rank_data.segment_ends[:source_rank_data.segment_ends.shape[0]] = source_rank_data.segment_ends
+
+                # pad remainder of segments with zeros
+                dest_rank_data.segment_starts[source_rank_data.segment_starts.shape[0]:] = 0
+                dest_rank_data.segment_ends[source_rank_data.segment_ends.shape[0]:] = 0
+
+                print(layer_name, rank, dest_rank_data.lora_a_ptr)
+                print(layer_name, rank, dest_rank_data.lora_b_ptr)
+                print(layer_name, rank, dest_rank_data.segment_starts)
+                print(layer_name, rank, dest_rank_data.segment_ends)
+        
+        self.graph.replay()
+
+        return self.output_states.clone()[:input_ids.shape[0]]
+    
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
 
 
 class GraphCache:
@@ -261,6 +270,7 @@ class GraphCache:
                 lm_head_indices=lm_head_indices,
             )
             print(output_states)
+            print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
         else:
             print("cache hit")
             output_states = self.cache[key].forward(
