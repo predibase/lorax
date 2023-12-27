@@ -39,7 +39,7 @@ class GraphState:
 
 
 @lru_cache(maxsize=1)
-def get_max_graph_state(model: nn.Module) -> GraphState:
+def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphState:
     device = model.device
     
     # TODO(travis): cite vllm
@@ -53,7 +53,7 @@ def get_max_graph_state(model: nn.Module) -> GraphState:
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
     adapter_weight_data = {}
-    for layer_name in model.adapter_layers:
+    for layer_name in adapter_layers:
         adapter_weight_data[layer_name] = AdapterWeightData(
             lora_a={},
             lora_b={},
@@ -146,13 +146,14 @@ class GraphWrapper:
     @staticmethod
     def trace(
         model: nn.Module,
+        adapter_layers: Tuple[str],
         batch_size: int,
         max_rank: int,
         memory_pool: Tuple[int, int],
     ) -> Tuple["GraphWrapper", torch.Tensor]:
         torch.cuda.synchronize(model.device)
 
-        max_input_state = get_max_graph_state(model)
+        max_input_state = get_max_graph_state(model, adapter_layers)
 
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
@@ -163,10 +164,10 @@ class GraphWrapper:
                 rank_data={
                     max_rank: RankSegments(
                         rank=max_rank,
-                        lora_a_ptr=weight_data.rank_data[max_rank].lora_a_ptr[:batch_size],
-                        lora_b_ptr=weight_data.rank_data[max_rank].lora_b_ptr[:batch_size],
-                        segment_starts=weight_data.rank_data[max_rank].segment_starts[:batch_size],
-                        segment_ends=weight_data.rank_data[max_rank].segment_ends[:batch_size],
+                        lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:batch_size],
+                        lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:batch_size],
+                        segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:batch_size],
+                        segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:batch_size],
                     ),
                 },
             )
@@ -211,8 +212,9 @@ class GraphWrapper:
 
 
 class GraphCache:
-    def __init__(self, model: nn.Module):
+    def __init__(self, model: nn.Module, adapter_layers: List[str]):
         self.model = model
+        self.adapter_layers = tuple(adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache = {}
 
@@ -239,6 +241,7 @@ class GraphCache:
             print("cache miss")
             self.cache[key] = GraphWrapper.trace(
                 self.model,
+                self.adapter_layers,
                 batch_size,
                 max_rank,
                 self.memory_pool,
