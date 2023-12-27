@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
 
 
@@ -55,7 +55,15 @@ def get_max_graph_state(device: torch.device) -> GraphState:
         block_tables=block_tables,
         slots=slots,
         input_lengths=input_lengths,
-        adapter_data=None,
+        adapter_data=AdapterBatchData(
+            meta=AdapterBatchMetadata(
+                adapter_indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                adapter_set=set(),
+                adapter_segments=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                segment_indices=[],
+            ),
+            data={},
+        ),
     )
 
 
@@ -113,7 +121,15 @@ class GraphWrapper:
             block_tables=max_input_state.block_tables[:batch_size],
             slots=max_input_state.slots[:batch_size],
             input_lengths=max_input_state.input_lengths[:batch_size],
-            adapter_data=None,
+            adapter_data=AdapterBatchData(
+                meta=AdapterBatchMetadata(
+                    adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
+                    adapter_set=max_input_state.adapter_data.meta.adapter_set,
+                    adapter_segments=max_input_state.adapter_data.meta.adapter_segments[:batch_size],
+                    segment_indices=max_input_state.adapter_data.meta.segment_indices,
+                ),
+                data={},
+            ),
         )
 
         graph = torch.cuda.CUDAGraph()
