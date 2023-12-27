@@ -39,8 +39,8 @@ class GraphState:
 
 @lru_cache(maxsize=1)
 def get_max_graph_state(device: torch.device) -> GraphState:
-    input_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
-    position_ids = torch.zeros(MAX_BATCH_SIZE, dtype=torch.int64, device=device)
+    input_ids = torch.zeros((MAX_BATCH_SIZE, 1), dtype=torch.int64, device=device)
+    position_ids = torch.zeros((MAX_BATCH_SIZE, 1), dtype=torch.int64, device=device)
     block_tables = torch.zeros((MAX_CONTEXT_LENGTH,), dtype=torch.int64, device=device)
     slots = torch.full((MAX_CONTEXT_LENGTH,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
