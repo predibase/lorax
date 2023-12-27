@@ -81,19 +81,13 @@ class GraphWrapper:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
-        self.batch.copy_(batch)
-        # self.adapter_data.copy_(adapter_data)
-        # iterate over every list in kv_cache and every tuple in the list and copy the tensor data
-        # into the tensor in the graph
-        # batch_kv_cache = get_cache_manager().kv_cache
-        # for i, kv in enumerate(self.kv_cache):
-        #     for j, v in enumerate(kv):
-        #         v.copy_(batch_kv_cache[i][j])
-
-        # self.kv_cache.copy_(get_cache_manager().kv_cache)
+        self.input_state.input_ids[:input_ids.shape[0]] = input_ids
+        self.input_state.position_ids[:position_ids.shape[0]] = position_ids
+        self.input_state.block_tables[:block_tables.shape[0]] = block_tables
+        self.input_state.slots[:slots.shape[0]] = slots
+        self.input_state.input_lengths[:input_lengths.shape[0]] = input_lengths
+        
         self.graph.replay()
-
-        # batch.copy_(self.batch)
 
         return self.output_states.clone()
     
