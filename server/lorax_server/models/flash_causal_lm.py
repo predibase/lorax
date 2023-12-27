@@ -969,7 +969,7 @@ class FlashCausalLM(Model):
             self.device,
         )
 
-        self.model_wrapper = GraphCache(self)
+        self.model_wrapper = GraphCache(self.model)
 
         torch.cuda.synchronize(self.device)
 

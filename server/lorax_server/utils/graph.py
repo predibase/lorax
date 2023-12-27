@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import List, Optional, Tuple
+import numpy as np
 
 import torch
 from torch import nn
 
-from lorax_server.models.types import Batch
 from lorax_server.utils.lora import AdapterBatchData
-from lorax_server.models.cache_manager import get_cache_manager
+from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
 
 
 # TODO(travis): make this confgiurable by model / user
@@ -39,10 +39,14 @@ class GraphState:
 
 @lru_cache(maxsize=1)
 def get_max_graph_state(device: torch.device) -> GraphState:
+    # TODO(travis): cite vllm
+    max_num_blocks = (MAX_CONTEXT_LENGTH + BLOCK_SIZE - 1) // BLOCK_SIZE
+    block_tables_arr = np.zeros((MAX_BATCH_SIZE, max_num_blocks), dtype=np.int32)
+    block_tables = torch.from_numpy(block_tables_arr).to(device=device)
+
     input_ids = torch.zeros((MAX_BATCH_SIZE, 1), dtype=torch.int64, device=device)
     position_ids = torch.zeros((MAX_BATCH_SIZE, 1), dtype=torch.int64, device=device)
-    block_tables = torch.zeros((MAX_CONTEXT_LENGTH,), dtype=torch.int64, device=device)
-    slots = torch.full((MAX_CONTEXT_LENGTH,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
+    slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
 
     return GraphState(
@@ -106,8 +110,8 @@ class GraphWrapper:
         input_state = GraphState(
             input_ids=max_input_state.input_ids[:batch_size],
             position_ids=max_input_state.position_ids[:batch_size],
-            block_tables=max_input_state.block_tables,
-            slots=max_input_state.slots,
+            block_tables=max_input_state.block_tables[:batch_size],
+            slots=max_input_state.slots[:batch_size],
             input_lengths=max_input_state.input_lengths[:batch_size],
             adapter_data=None,
         )
