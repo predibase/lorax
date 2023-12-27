@@ -95,7 +95,7 @@ class GraphWrapper:
     ) -> None:
         self.input_state.input_ids[:input_ids.shape[0]] = input_ids
         self.input_state.position_ids[:position_ids.shape[0]] = position_ids
-        self.input_state.block_tables[:block_tables.shape[0]] = block_tables
+        self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
         self.input_state.slots[:slots.shape[0]] = slots
         self.input_state.input_lengths[:input_lengths.shape[0]] = input_lengths
         
@@ -173,12 +173,6 @@ class GraphCache:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
-        print(input_ids.shape, input_ids.dtype)
-        print(position_ids.shape, position_ids.dtype)
-        print(block_tables.shape, block_tables.dtype)
-        print(slots.shape, slots.dtype)
-        print(input_lengths.shape, input_lengths.dtype)
-
         batch_size = get_cached_batch_size(input_ids.shape[0])
         key = (batch_size, adapter_data.key())
         if key not in self.cache:
