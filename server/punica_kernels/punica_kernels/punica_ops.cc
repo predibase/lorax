@@ -250,16 +250,18 @@ void append_kv(torch::Tensor kv_ptrs, torch::Tensor kv_indptr,
 //====== bgmv ======
 
 template <typename T>
-inline bool launch_bgmv_kernel(T* Y, const T* X, const T* W,
-                               const int64_t* lora_indices,
+inline bool launch_bgmv_kernel(T *Y, const T *X, const T *W,
+                               const int64_t *lora_indices,
                                uint16_t in_features, uint16_t out_features,
+                               int64_t y_offset, int64_t full_y_size,
                                int64_t batch_size, int64_t num_layers,
                                int64_t layer_idx, float scale) {
   switch (pack_u16(in_features, out_features)) {
 #define CASE_ONESIDE(_T, feat_in, feat_out)                           \
   case pack_u16(feat_in, feat_out):                                   \
-    bgmv_kernel<feat_in, feat_out>(Y, X, W, lora_indices, batch_size, \
-                                   num_layers, layer_idx, scale);     \
+    bgmv_kernel<feat_in, feat_out>(Y, X, W, lora_indices, y_offset,            \
+                                   full_y_size, batch_size, num_layers,        \
+                                   layer_idx, scale);                        \
     break;
 #define CASE(_T, narrow, wide)  \
   CASE_ONESIDE(T, narrow, wide) \
@@ -302,14 +304,14 @@ void dispatch_bgmv(torch::Tensor y, torch::Tensor x, torch::Tensor w,
         ok = launch_bgmv_kernel(static_cast<nv_half*>(y.data_ptr()),
                                 static_cast<nv_half*>(x.data_ptr()),
                                 static_cast<nv_half*>(w.data_ptr()),
-                                indicies.data_ptr<int64_t>(), h_in, h_out, B,
+                                indicies.data_ptr<int64_t>(), h_in, h_out, 0, h_out, B,
                                 num_layers, layer_idx, scale);
         break;
       case at::ScalarType::BFloat16:
         ok = launch_bgmv_kernel(static_cast<nv_bfloat16*>(y.data_ptr()),
                                 static_cast<nv_bfloat16*>(x.data_ptr()),
                                 static_cast<nv_bfloat16*>(w.data_ptr()),
-                                indicies.data_ptr<int64_t>(), h_in, h_out, B,
+                                indicies.data_ptr<int64_t>(), h_in, h_out, 0, h_out, B,
                                 num_layers, layer_idx, scale);
         break;
       default:

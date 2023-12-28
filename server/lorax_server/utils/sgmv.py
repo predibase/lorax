@@ -19,6 +19,9 @@ MIN_RANK_CUSTOM = 16
 MAX_RANK_CUSTOM = 128
 
 
+s = torch.cuda.Stream()
+
+
 def has_sgmv() -> bool:
     return HAS_SGMV
 
@@ -126,3 +129,44 @@ def lora_b_sgmv_cutlass(
     layer_idx: int,
 ):
     _kernels.sgmv_cutlass(y, v, wb_ptr, s_start, s_end, tmp, layer_idx)
+
+
+"""
+Semantics:
+    y[i] += (
+        x[i].unsqueeze(0)
+        @ wa_T_all[indices[i], layer_idx, :, :].transpose(-1, -2)
+        @ wb_T_all[indices[i], layer_idx, :, :].transpose(-1, -2)
+        * scale
+    ).squeeze(0)
+
+Args:
+    y: Shape: `[B, H2]`. Output vectors. Will be changed in-place.
+    v: Shape: `[B, R]`. Temporary vector.
+    x: Shape: `[B, H1]`. Input vectors.
+    wa_T_all: Shape: `[None, L, R, H1]`. All of the transposed LoRA A matrices.
+    wb_T_all: Shape: `[None, L, H2, R]`. All of the transposed LoRA B matrices.
+    indicies: Shape: `[B]`. Indices of the LoRA weights.
+    layer_idx: Layer index of LoRA weights.
+    scale: Scaling factor.
+"""
+
+
+def add_lora_a_bgmv(
+    v: torch.Tensor,
+    x: torch.Tensor,
+    wa_T_all: torch.Tensor,
+    indicies: torch.LongTensor,
+    layer_idx: int,
+):
+    _kernels.dispatch_bgmv(v, x, wa_T_all, indicies, layer_idx, 1.0)
+
+
+def add_lora_b_bgmv(
+    y: torch.Tensor,
+    v: torch.Tensor,
+    wb_T_all: torch.Tensor,
+    indicies: torch.LongTensor,
+    layer_idx: int,
+):
+    _kernels.dispatch_bgmv(y, v, wb_T_all, indicies, layer_idx, 1.0)
