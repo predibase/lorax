@@ -155,20 +155,6 @@ class GraphWrapper:
             ),
         )
 
-        output_states = model.forward(
-            input_ids=input_state.input_ids,
-            position_ids=input_state.position_ids,
-            cu_seqlen_prefill=None,
-            kv_cache=get_cache_manager().kv_cache,
-            block_tables=input_state.block_tables,
-            slots=input_state.slots,
-            input_lengths=input_state.input_lengths,
-            max_s=MAX_CONTEXT_LENGTH,
-            adapter_data=input_state.adapter_data,
-            lm_head_indices=None,
-        )
-        print("SUCCESS NO TRACE", output_states)
-
         torch.cuda.synchronize(model.device)
 
         graph = torch.cuda.CUDAGraph()
@@ -294,6 +280,21 @@ class GraphCache:
             )
             print("OUTPUT REPLAY", output_states)
             print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
+
+            output_states = self.model.forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                cu_seqlen_prefill=None,
+                kv_cache=get_cache_manager().kv_cache,
+                block_tables=block_tables,
+                slots=slots,
+                input_lengths=input_lengths,
+                max_s=MAX_CONTEXT_LENGTH,
+                adapter_data=adapter_data,
+                lm_head_indices=None,
+            )
+            print("SUCCESS NO TRACE", output_states)
+            print("NO TRACE v", adapter_data.data["attn.c_attn"].rank_data[16].v)
         else:
             print("cache hit")
             output_states = self.cache[key].forward(

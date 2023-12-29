@@ -990,9 +990,7 @@ class FlashCausalLM(Model):
             model = self.model_graph_wrapper
 
         # Model Forward
-        if not prefill:
-            print("tmp_tensor bfore", get_tmp_tensor(self.model.device))
-        x =  model.forward(
+        return model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
@@ -1004,9 +1002,6 @@ class FlashCausalLM(Model):
             adapter_data=adapter_data,
             lm_head_indices=batch.prefill_head_indices,
         )
-        if not prefill:
-            print("tmp_tensor after", get_tmp_tensor(self.model.device))
-        return x
 
     @tracer.start_as_current_span("generate_token")
     def generate_token(
