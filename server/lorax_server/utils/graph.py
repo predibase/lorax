@@ -101,11 +101,13 @@ class GraphWrapper:
         memory_pool: Tuple[int, int],
         input_state: GraphState,
         output_states: torch.Tensor,
+        model,
     ):
         self.graph = graph
         self.memory_pool = memory_pool
         self.input_state = input_state
         self.output_states = output_states
+        self.model = model
         
     @staticmethod
     def trace(
@@ -175,7 +177,7 @@ class GraphWrapper:
         torch.cuda.synchronize(model.device)
 
         return GraphWrapper(
-            graph, memory_pool, input_state, output_states
+            graph, memory_pool, input_state, output_states, model
         )
     
     def forward(
@@ -222,6 +224,21 @@ class GraphWrapper:
                 print(layer_name, rank, dest_rank_data.lora_b_ptr)
                 print(layer_name, rank, dest_rank_data.segment_starts)
                 print(layer_name, rank, dest_rank_data.segment_ends)
+        
+        output_states = self.model.forward(
+            input_ids=self.input_state.input_ids,
+            position_ids=self.input_state.position_ids,
+            cu_seqlen_prefill=None,
+            kv_cache=get_cache_manager().kv_cache,
+            block_tables=self.input_state.block_tables,
+            slots=self.input_state.slots,
+            input_lengths=self.input_state.input_lengths,
+            max_s=MAX_CONTEXT_LENGTH,
+            adapter_data=self.input_state.adapter_data,
+            lm_head_indices=None,
+        )
+        print("SUCCESS NO TRACE", output_states)
+        print("NO TRACE v", self.input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
         
         self.graph.replay()
 
@@ -281,20 +298,20 @@ class GraphCache:
             print("OUTPUT REPLAY", output_states)
             print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
 
-            output_states = self.model.forward(
-                input_ids=input_ids,
-                position_ids=position_ids,
-                cu_seqlen_prefill=None,
-                kv_cache=get_cache_manager().kv_cache,
-                block_tables=block_tables,
-                slots=slots,
-                input_lengths=input_lengths,
-                max_s=MAX_CONTEXT_LENGTH,
-                adapter_data=adapter_data,
-                lm_head_indices=None,
-            )
-            print("SUCCESS NO TRACE", output_states)
-            print("NO TRACE v", adapter_data.data["attn.c_attn"].rank_data[16].v)
+            # output_states = self.model.forward(
+            #     input_ids=input_ids,
+            #     position_ids=position_ids,
+            #     cu_seqlen_prefill=None,
+            #     kv_cache=get_cache_manager().kv_cache,
+            #     block_tables=block_tables,
+            #     slots=slots,
+            #     input_lengths=input_lengths,
+            #     max_s=MAX_CONTEXT_LENGTH,
+            #     adapter_data=adapter_data,
+            #     lm_head_indices=None,
+            # )
+            # print("SUCCESS NO TRACE", output_states)
+            # print("NO TRACE v", adapter_data.data["attn.c_attn"].rank_data[16].v)
         else:
             print("cache hit")
             output_states = self.cache[key].forward(
