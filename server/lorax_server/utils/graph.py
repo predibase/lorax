@@ -8,12 +8,14 @@ from torch import nn
 
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, RankSegments
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
+from lorax_server.utils.sgmv import get_tmp_expand_size
 
 
 # TODO(travis): make this configurable by model / user
 MAX_BATCH_SIZE = 256
 MAX_CONTEXT_LENGTH = 8192
 MAX_RANK = 128
+MAX_ADAPTERS = 128
 
 SLOT_PAD_VALUE = -1
 
@@ -52,6 +54,8 @@ def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphSt
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
+    tmp_expand_size = get_tmp_expand_size(MAX_BATCH_SIZE)
+
     adapter_weight_data = {}
     for layer_name in adapter_layers:
         adapter_weight_data[layer_name] = AdapterWeightData(
@@ -62,6 +66,8 @@ def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphSt
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
                     v=torch.zeros((MAX_BATCH_SIZE, MAX_RANK), dtype=model.dtype, device=device),
+                    tmp_shrink=torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=device),
+                    tmp_expand=torch.empty((tmp_expand_size,), dtype=torch.uint8, device=device),
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
@@ -109,12 +115,11 @@ class GraphWrapper:
         max_rank: int,
         memory_pool: Tuple[int, int],
     ) -> Tuple["GraphWrapper", torch.Tensor]:
-        torch.cuda.synchronize(model.device)
-
         max_input_state = get_max_graph_state(model, adapter_layers)
 
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
+            tmp_expand_size = get_tmp_expand_size(batch_size)
             adapter_weight_data[layer_name] = AdapterWeightData(
                 lora_a={},
                 lora_b={},
@@ -123,6 +128,8 @@ class GraphWrapper:
                     max_rank: RankSegments(
                         rank=max_rank,
                         v=weight_data.rank_data[MAX_RANK].v[:batch_size, :max_rank],
+                        tmp_shrink=weight_data.rank_data[MAX_RANK].tmp_shrink,
+                        tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
                         lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:batch_size],
                         lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:batch_size],
                         segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:batch_size],
@@ -147,6 +154,22 @@ class GraphWrapper:
                 data=adapter_weight_data,
             ),
         )
+
+        output_states = model.forward(
+            input_ids=input_state.input_ids,
+            position_ids=input_state.position_ids,
+            cu_seqlen_prefill=None,
+            kv_cache=get_cache_manager().kv_cache,
+            block_tables=input_state.block_tables,
+            slots=input_state.slots,
+            input_lengths=input_state.input_lengths,
+            max_s=MAX_CONTEXT_LENGTH,
+            adapter_data=input_state.adapter_data,
+            lm_head_indices=None,
+        )
+        print("SUCCESS NO TRACE", output_states)
+
+        torch.cuda.synchronize(model.device)
 
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
@@ -269,7 +292,7 @@ class GraphCache:
                 adapter_data=adapter_data,
                 lm_head_indices=lm_head_indices,
             )
-            print(output_states)
+            print("OUTPUT REPLAY", output_states)
             print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
         else:
             print("cache hit")
@@ -286,6 +309,7 @@ class GraphCache:
                 lm_head_indices=lm_head_indices,
             )
             print(output_states)
+            print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
 
         return output_states
     

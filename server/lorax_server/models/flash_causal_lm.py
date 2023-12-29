@@ -35,6 +35,7 @@ from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetad
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.weights import shard_on_dim
 from lorax_server.utils.graph import GraphCache
+from lorax_server.utils.sgmv import get_tmp_tensor
 
 tracer = trace.get_tracer(__name__)
 
@@ -989,7 +990,9 @@ class FlashCausalLM(Model):
             model = self.model_graph_wrapper
 
         # Model Forward
-        return model.forward(
+        if not prefill:
+            print("tmp_tensor bfore", get_tmp_tensor(self.model.device))
+        x =  model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
@@ -1001,6 +1004,9 @@ class FlashCausalLM(Model):
             adapter_data=adapter_data,
             lm_head_indices=batch.prefill_head_indices,
         )
+        if not prefill:
+            print("tmp_tensor after", get_tmp_tensor(self.model.device))
+        return x
 
     @tracer.start_as_current_span("generate_token")
     def generate_token(

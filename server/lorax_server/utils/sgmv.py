@@ -96,24 +96,25 @@ def get_tmp_tensor_for_size(size: int, device: torch.device) -> torch.Tensor:
     return torch.empty((tmp_size,), dtype=torch.uint8, device=device)
 
 
+def get_tmp_expand_size(size: int) -> int:
+    return _kernels.sgmv_cutlass_tmp_size(size)
+
+
 def lora_a_sgmv_cutlass(
-    x: torch.Tensor,
     v: torch.Tensor,
+    x: torch.Tensor,
+    tmp: torch.Tensor,
     wa_ptr: torch.Tensor,
     s_start: torch.IntTensor,
     s_end: torch.IntTensor,
     layer_idx: int,
     lora_rank: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+):
     v.zero_()
     if MIN_RANK_CUSTOM <= lora_rank <= MAX_RANK_CUSTOM:
-        tmp1 = get_tmp_tensor(x.device)
-        tmp = get_tmp_tensor_for_size(wa_ptr.size(0), x.device)
-        _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp1, layer_idx)
+        _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
     else:
-        tmp = get_tmp_tensor_for_size(wa_ptr.size(0), x.device)
         _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
-    return v, tmp
 
 
 def lora_b_sgmv_cutlass(

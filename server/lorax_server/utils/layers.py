@@ -406,7 +406,6 @@ class TensorParallelAdapterLinear(nn.Module):
         data = adapter_data.data.get(layer_type)
         
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
-            print("SGMV!!!")
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
             else:
@@ -416,9 +415,11 @@ class TensorParallelAdapterLinear(nn.Module):
                 lora_a_ptr = rank_segments.lora_a_ptr
                 lora_b_ptr = rank_segments.lora_b_ptr
                 if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v, tmp = lora_a_sgmv_cutlass(
+                    v = rank_segments.v
+                    lora_a_sgmv_cutlass(
+                        v,
                         input,
-                        rank_segments.v,
+                        rank_segments.tmp_shrink,
                         lora_a_ptr,
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
@@ -432,7 +433,7 @@ class TensorParallelAdapterLinear(nn.Module):
                     lora_b_sgmv_cutlass(
                         proj,
                         v,
-                        tmp,
+                        rank_segments.tmp_expand,
                         lora_b_ptr,
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
