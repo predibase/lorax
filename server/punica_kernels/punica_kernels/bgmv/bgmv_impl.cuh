@@ -18,7 +18,7 @@ __global__ void
 bgmv_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
                    T **__restrict__ W,
                    const int64_t *__restrict__ indicies, int64_t y_offset,
-                   int64_t full_y_size, int64_t num_layers, int64_t layer_idx,
+                   int64_t full_y_size, int64_t layer_idx,
                    float scale) {
   size_t batch_idx = blockIdx.y;
   int64_t idx = indicies[batch_idx];
@@ -149,7 +149,7 @@ __global__ void
 bgmv_expand_kernel(T *__restrict__ Y, const T *__restrict__ X,
                    T **__restrict__ W,
                    const int64_t *__restrict__ indicies, int64_t y_offset,
-                   int64_t full_y_size, int64_t num_layers, int64_t layer_idx,
+                   int64_t full_y_size, int64_t layer_idx,
                    float scale) {
   size_t batch_idx = blockIdx.y;
   int64_t idx = indicies[batch_idx];
@@ -195,7 +195,7 @@ template <int feat_in, int feat_out, typename T>
 void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                  T **__restrict__ W,
                  const int64_t *__restrict__ indicies, int64_t y_offset,
-                 int64_t full_y_size, int64_t batch_size, int64_t num_layers,
+                 int64_t full_y_size, int64_t batch_size,
                  int64_t layer_idx, float scale) {
   constexpr size_t vec_size = 8;
   constexpr int tz = 4;
@@ -216,7 +216,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
 
       bgmv_expand_kernel<feat_in, feat_out, vec_size, tx, ty, tz>
           <<<nblks, nthrs, 0, stream>>>(Y, X, W, indicies, y_offset,
-                                        full_y_size, num_layers, layer_idx,
+                                        full_y_size, layer_idx,
                                         scale);
     } else if (16 % tx == 0 && feat_out % (16 / tx * tz) == 0) {
       constexpr int ty = 16 / tx;
@@ -225,7 +225,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
 
       bgmv_expand_kernel<feat_in, feat_out, vec_size, tx, ty, tz>
           <<<nblks, nthrs, 0, stream>>>(Y, X, W, indicies, y_offset,
-                                        full_y_size, num_layers, layer_idx,
+                                        full_y_size, layer_idx,
                                         scale);
     } else {
       constexpr int ty = 8 / tx;
@@ -234,7 +234,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
 
       bgmv_expand_kernel<feat_in, feat_out, vec_size, tx, ty, tz>
           <<<nblks, nthrs, 0, stream>>>(Y, X, W, indicies, y_offset,
-                                        full_y_size, num_layers, layer_idx,
+                                        full_y_size, layer_idx,
                                         scale);
     }
   } else {
@@ -252,7 +252,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
       bgmv_shrink_kernel<feat_in, feat_out, vec_size, vec_size * sizeof(T),
                          vec_size * sizeof(T), tx, ty, tz>
           <<<nblks, nthrs, 0, stream>>>(Y, X, W, indicies, y_offset,
-                                        full_y_size, num_layers, layer_idx,
+                                        full_y_size, layer_idx,
                                         scale);
     } else if constexpr (feat_in % (vec_size / 2 * 32) == 0) {
       constexpr int tx = 32;
@@ -265,7 +265,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                          vec_size * sizeof(T) / 2,
                          vec_size * sizeof(T) / 2, tx, ty, tz>
           <<<nblks, nthrs, 0, stream>>>(Y, X, W, indicies, y_offset,
-                                        full_y_size, num_layers, layer_idx,
+                                        full_y_size, layer_idx,
                                         scale);
     } else if constexpr (feat_in % (vec_size / 2 * 16) == 0) {
       constexpr int tx = 16;
@@ -278,7 +278,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
                          vec_size * sizeof(T) / 2,
                          vec_size * sizeof(T) / 2, tx, ty, tz>
           <<<nblks, nthrs, 0, stream>>>(Y, X, W, indicies, y_offset,
-                                        full_y_size, num_layers, layer_idx,
+                                        full_y_size, layer_idx,
                                         scale);
     }
   }
@@ -289,7 +289,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
       T * __restrict__ Y, const T *__restrict__ X,                      \
       T **__restrict__ W, const int64_t *__restrict__ indicies,         \
       int64_t y_offset, int64_t full_y_size, int64_t batch_size,               \
-      int64_t num_layers, int64_t layer_idx, float scale);
+      int64_t layer_idx, float scale);
 
 #define INST_BGMV_TWOSIDE(T, narrow, wide)                      \
   INST_BGMV(narrow, wide, T)                                    \
