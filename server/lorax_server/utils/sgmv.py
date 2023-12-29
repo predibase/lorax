@@ -19,9 +19,6 @@ MIN_RANK_CUSTOM = 16
 MAX_RANK_CUSTOM = 128
 
 
-s = torch.cuda.Stream()
-
-
 def has_sgmv() -> bool:
     return HAS_SGMV
 

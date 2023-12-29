@@ -16,12 +16,12 @@ template <int feat_in, int feat_out, size_t vec_size, size_t X_copy_size,
           size_t W_copy_size, int tx, int ty, int tz, typename T>
 __global__ void
 bgmv_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                   const T *__restrict__ W,
+                   T **__restrict__ W,
                    const int64_t *__restrict__ indicies, int64_t y_offset,
                    int64_t full_y_size, int64_t num_layers, int64_t layer_idx,
                    float scale) {
   size_t batch_idx = blockIdx.y;
-  int64_t idx = indicies[batch_idx] * num_layers + layer_idx;
+  int64_t idx = indicies[batch_idx];
   if (idx < 0) {
     return;
   }
@@ -38,10 +38,12 @@ bgmv_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
   size_t X_shared_offset[num_pipeline_stages] = {0U, 1U * tile_size};
   auto pipe = cuda::make_pipeline();
 
+  const T* W_ptr = W[idx];
+
   // pipeline load W/X and compute WX;
   pipe.producer_acquire();
   cuda::memcpy_async(W_shared + (threadIdx.y * tx + threadIdx.x) * vec_size,
-                     W + (idx * feat_out + j) * feat_in +
+                     W_ptr + (layer_idx * feat_out + j) * feat_in +
                          (threadIdx.y * tx + threadIdx.x) * vec_size,
                      cuda::aligned_size_t<W_copy_size>(W_copy_size), pipe);
   cuda::memcpy_async(X_shared + (threadIdx.y * tx + threadIdx.x) * vec_size,
@@ -64,7 +66,7 @@ bgmv_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
     if (tile_idx * tile_size + threadIdx.y * tx * vec_size < feat_in) {
       cuda::memcpy_async(W_shared + W_shared_offset[copy_idx] +
                              (threadIdx.y * tx + threadIdx.x) * vec_size,
-                         W + (idx * feat_out + j) * feat_in +
+                         W_ptr + (layer_idx * feat_out + j) * feat_in +
                              tile_idx * tile_size +
                              (threadIdx.y * tx + threadIdx.x) * vec_size,
                          cuda::aligned_size_t<W_copy_size>(W_copy_size), pipe);
@@ -145,12 +147,12 @@ template <int feat_in, int feat_out, size_t vec_size, int tx, int ty, int tz,
           typename T>
 __global__ void
 bgmv_expand_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                   const T *__restrict__ W,
+                   T **__restrict__ W,
                    const int64_t *__restrict__ indicies, int64_t y_offset,
                    int64_t full_y_size, int64_t num_layers, int64_t layer_idx,
                    float scale) {
   size_t batch_idx = blockIdx.y;
-  int64_t idx = indicies[batch_idx] * num_layers + layer_idx;
+  int64_t idx = indicies[batch_idx];
 
   if (idx < 0) {
     return;
@@ -159,13 +161,15 @@ bgmv_expand_kernel(T *__restrict__ Y, const T *__restrict__ X,
   auto block = cg::this_thread_block();
   size_t tile_idx = blockIdx.x;
 
+  const T* W_ptr = W[idx];
+
   // load X;
   flashinfer::vec_t<T, vec_size> x_vec;
   x_vec.load(X + batch_idx * feat_in + threadIdx.x * vec_size);
 
   // load W;
   flashinfer::vec_t<T, vec_size> w_vec;
-  w_vec.load(W + (idx * feat_out + tile_idx * tz * ty) * feat_in +
+  w_vec.load(W_ptr + (layer_idx * feat_out + tile_idx * tz * ty) * feat_in +
              block.thread_rank() * vec_size);
 
   float sum = 0.f;
@@ -189,7 +193,7 @@ bgmv_expand_kernel(T *__restrict__ Y, const T *__restrict__ X,
 
 template <int feat_in, int feat_out, typename T>
 void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                 const T *__restrict__ W,
+                 T **__restrict__ W,
                  const int64_t *__restrict__ indicies, int64_t y_offset,
                  int64_t full_y_size, int64_t batch_size, int64_t num_layers,
                  int64_t layer_idx, float scale) {
@@ -283,7 +287,7 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
 #define INST_BGMV(feat_in, feat_out, T)                         \
   template void bgmv_kernel<feat_in, feat_out>(                                \
       T * __restrict__ Y, const T *__restrict__ X,                      \
-      const T *__restrict__ W, const int64_t *__restrict__ indicies,         \
+      T **__restrict__ W, const int64_t *__restrict__ indicies,         \
       int64_t y_offset, int64_t full_y_size, int64_t batch_size,               \
       int64_t num_layers, int64_t layer_idx, float scale);
 
