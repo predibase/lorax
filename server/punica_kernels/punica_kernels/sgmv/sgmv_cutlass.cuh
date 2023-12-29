@@ -61,7 +61,8 @@ inline T *alloc_from_buf(void **buf, int n) {
 
 template <typename DType>
 bool sgmv(DType *y, DType *x, DType **w, int32_t *s_start, int32_t *s_end, 
-          void *tmp_d, int num_problems, int d_in, int d_out, int layer_idx) {
+          void *tmp_d, int num_problems, int d_in, int d_out, int layer_idx,
+          cudaStream_t stream) {
   using cutlass_t = typename cutlass_dtype<DType>::type;
 
   auto ptr_Y = alloc_from_buf<cutlass_t *>(&tmp_d, num_problems);
@@ -112,13 +113,13 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s_start, int32_t *s_end,
                                          ptr_Y, ld_X, ld_W, ld_Y, ld_Y);
 
     GemmGrouped gemm;
-    auto status = gemm.initialize(args);
+    auto status = gemm.initialize(args, nullptr, stream);
     if (status != cutlass::Status::kSuccess) {
       fprintf(stderr, "sgmv_cutlass gemm.initialize failed: %s\n",
               cutlassGetStatusString(status));
       return false;
     }
-    status = gemm.run();
+    status = gemm.run(stream);
     if (status != cutlass::Status::kSuccess) {
       fprintf(stderr, "sgmv_cutlass gemm.run failed: %s\n",
               cutlassGetStatusString(status));
@@ -157,13 +158,13 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s_start, int32_t *s_end,
                                          ptr_Y, ld_X, ld_W, ld_Y, ld_Y);
 
     GemmGrouped gemm;
-    auto status = gemm.initialize(args);
+    auto status = gemm.initialize(args, nullptr, stream);
     if (status != cutlass::Status::kSuccess) {
       fprintf(stderr, "sgmv_cutlass gemm.initialize failed: %s\n",
               cutlassGetStatusString(status));
       return false;
     }
-    status = gemm.run();
+    status = gemm.run(stream);
     if (status != cutlass::Status::kSuccess) {
       fprintf(stderr, "sgmv_cutlass gemm.run failed: %s\n",
               cutlassGetStatusString(status));

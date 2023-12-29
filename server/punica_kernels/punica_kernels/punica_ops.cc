@@ -1,3 +1,4 @@
+#include <c10/cuda/CUDAStream.h>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <torch/extension.h>
@@ -342,11 +343,12 @@ void dispatch_sgmv_cutlass(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr
   int d_in = x.size(1);
   int d_out = y.size(1);
   CHECK_EQ(tmp.size(0), static_cast<int64_t>(sgmv_tmp_size(num_problems)));
+  cudaStream_t stream = c10::cuda::getCurrentCUDAStream();
   bool ok = DISPATCH_TORCH_DTYPE(x.scalar_type(), [&] {
     return sgmv<c_type>((c_type*)y.data_ptr(), (c_type*)x.data_ptr(), (c_type**)w_ptr.data_ptr(),
                         s_start.data_ptr<int32_t>(), s_end.data_ptr<int32_t>(),
                         tmp.data_ptr<uint8_t>(), num_problems, d_in, d_out,
-                        layer_idx);
+                        layer_idx, stream);
   });
   TORCH_CHECK(ok, "No suitable kernel.", " dtype=", x.scalar_type());
 }
@@ -372,13 +374,14 @@ void dispatch_sgmv_shrink(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr,
   uint32_t d_out = y.size(1);
   CHECK_EQ(tmp.scalar_type(), at::ScalarType::Byte);
   CHECK_EQ(tmp.size(0), 8 * 1024 * 1024);
+  cudaStream_t stream = c10::cuda::getCurrentCUDAStream();
 
 #define CASE(_T, D_OUT)                                    \
   case D_OUT:                                              \
     return sgmv_shrink<c_type, D_OUT>(                     \
         (c_type*)y.data_ptr(), (c_type*)x.data_ptr(),      \
         (c_type**)w_ptr.data_ptr(), s_start.data_ptr<int32_t>(), s_end.data_ptr<int32_t>(), \
-        tmp.data_ptr<uint8_t>(), num_problems, d_in, layer_idx);
+        tmp.data_ptr<uint8_t>(), num_problems, d_in, layer_idx, stream);
 
   bool ok = DISPATCH_TORCH_DTYPE(x.scalar_type(), [&] {
     switch (d_out) {
