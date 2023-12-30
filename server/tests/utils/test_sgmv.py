@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 import pytest
 import torch
 
@@ -36,8 +36,11 @@ def lora_ref_impl(
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_sgmv(), reason="SGMV not available")
+@pytest.mark.parametrize("segments", [
+    ([0, 2], [1, 3]),
+])
 @pytest.mark.parametrize("lora_rank", [8, 16, 32, 64, 128])
-def test_add_lora_sgmv_cutlass(lora_rank: int):
+def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     torch.manual_seed(42)
 
     B = 3
@@ -57,16 +60,20 @@ def test_add_lora_sgmv_cutlass(lora_rank: int):
     # TODO(travis): transpose (r, H) -> (H, r) when not using cutlass
     wb = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
 
-    wa_ptr = torch.tensor([wa.data_ptr(), wa.data_ptr()], dtype=torch.int64, device=device)
-    wb_ptr = torch.tensor([wb.data_ptr(), wb.data_ptr()], dtype=torch.int64, device=device)
+    s1, s2 = segments
+    s_start = torch.tensor(s1, dtype=torch.int32, device=device)
+    s_end = torch.tensor(s2, dtype=torch.int32, device=device)
 
-    s_start = torch.tensor([0, 2], dtype=torch.int32, device=device)
-    s_end = torch.tensor([1, 3], dtype=torch.int32, device=device)
+    wa_list = [wa for x, y in zip(s1, s2) if y - x > 0]
+    wb_list = [wb for x, y in zip(s1, s2) if y - x > 0]
+
+    wa_ptr = torch.tensor([wa.data_ptr() for wa in wa_list], dtype=torch.int64, device=device)
+    wb_ptr = torch.tensor([wb.data_ptr() for wb in wb_list], dtype=torch.int64, device=device)
 
     layer_idx = 0
 
     y_ref = y.clone()
-    lora_ref_impl(y_ref, x, [wa, wa], [wb, wb], s_start, s_end, layer_idx, r)
+    lora_ref_impl(y_ref, x, wa_list, wb_list, s_start, s_end, layer_idx, r)
 
     v = torch.zeros((x.size(0), r), dtype=x.dtype, device=x.device)
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), r, x.device)
