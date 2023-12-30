@@ -70,9 +70,25 @@ def test_add_lora_sgmv_cutlass(lora_rank: int):
 
     v = torch.zeros((x.size(0), r), dtype=x.dtype, device=x.device)
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), r, x.device)
-
     y_ours = torch.zeros((B, H), dtype=torch.float16, device=device)
+
     lora_a_sgmv_cutlass(v, x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, r)
     lora_b_sgmv_cutlass(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
 
     assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)
+
+    # graph trace
+    v = torch.zeros((x.size(0), r), dtype=x.dtype, device=x.device)
+    tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), r, x.device)
+    y_ours_graph = torch.zeros((B, H), dtype=torch.float16, device=device)
+
+    torch.cuda.synchronize(device)
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph, pool=None):
+        lora_a_sgmv_cutlass(v, x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, r)
+        lora_b_sgmv_cutlass(y_ours_graph, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
+    
+    torch.cuda.synchronize(device)
+    graph.replay()
+
+    assert torch.allclose(y_ours, y_ours_graph, rtol=1e-2, atol=1e-3)

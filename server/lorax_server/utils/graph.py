@@ -8,7 +8,7 @@ from torch import nn
 
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, RankSegments
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
-from lorax_server.utils.sgmv import get_tmp_expand_size
+from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
 
 
 # TODO(travis): make this configurable by model / user
@@ -54,7 +54,7 @@ def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphSt
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
-    tmp_expand_size = get_tmp_expand_size(MAX_BATCH_SIZE)
+    tmp_shrink, tmp_expand = get_tmp_tensors(MAX_BATCH_SIZE, MAX_RANK, device)
 
     adapter_weight_data = {}
     for layer_name in adapter_layers:
@@ -66,8 +66,8 @@ def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphSt
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
                     v=torch.zeros((MAX_BATCH_SIZE, MAX_RANK), dtype=model.dtype, device=device),
-                    tmp_shrink=torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=device),
-                    tmp_expand=torch.empty((tmp_expand_size,), dtype=torch.uint8, device=device),
+                    tmp_shrink=tmp_shrink,
+                    tmp_expand=tmp_expand,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
@@ -122,6 +122,12 @@ class GraphWrapper:
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
             tmp_expand_size = get_tmp_expand_size(batch_size)
+
+            tmp_shrink = weight_data.rank_data[MAX_RANK].tmp_shrink
+            if use_cutlass_shrink(max_rank):
+                # cutlass shrink uses a custom temp buffer per rank
+                tmp_shrink = tmp_shrink[:tmp_expand_size]
+
             adapter_weight_data[layer_name] = AdapterWeightData(
                 lora_a={},
                 lora_b={},
@@ -130,7 +136,7 @@ class GraphWrapper:
                     max_rank: RankSegments(
                         rank=max_rank,
                         v=weight_data.rank_data[MAX_RANK].v[:batch_size, :max_rank],
-                        tmp_shrink=weight_data.rank_data[MAX_RANK].tmp_shrink,
+                        tmp_shrink=tmp_shrink,
                         tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
                         lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:batch_size],
                         lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:batch_size],

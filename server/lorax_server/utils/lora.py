@@ -6,8 +6,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensor, get_tmp_tensor_for_size, orient_for_rank
-from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank
 
 
 # Constants
@@ -216,11 +215,13 @@ class BatchedLoraWeights:
         rank_data = {}
         for rank, indices in rank_indices.items():
             lora_a_ptr_indices = lora_a_ptr[indices]
+            tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+
             rank_data[rank] = RankSegments(
                 rank=rank,
                 v=torch.zeros((meta.adapter_indices.shape[0], rank), dtype=dtype, device=device),
-                tmp_shrink=get_tmp_tensor(device),
-                tmp_expand=get_tmp_tensor_for_size(lora_a_ptr_indices.size(0), device),
+                tmp_shrink=tmp_shrink,
+                tmp_expand=tmp_expand,
                 lora_a_ptr=lora_a_ptr_indices,
                 lora_b_ptr=lora_b_ptr[indices],
                 segment_starts=meta.adapter_segments[indices],
