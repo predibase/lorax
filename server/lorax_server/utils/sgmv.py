@@ -23,6 +23,10 @@ def has_sgmv() -> bool:
     return HAS_SGMV
 
 
+def use_cutlass_shrink(lora_rank: int) -> bool:
+    return lora_rank < MIN_RANK_CUSTOM
+
+
 def orient_for_rank(t: torch.Tensor, rank: int) -> torch.Tensor:
     if MIN_RANK_CUSTOM <= rank <= MAX_RANK_CUSTOM:
         return t.transpose(0, 1)
@@ -98,6 +102,16 @@ def get_tmp_tensor_for_size(size: int, device: torch.device) -> torch.Tensor:
 
 def get_tmp_expand_size(size: int) -> int:
     return _kernels.sgmv_cutlass_tmp_size(size)
+
+
+def get_tmp_tensors(nsegments: int, lora_rank: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    if use_cutlass_shrink(lora_rank):
+        tmp = get_tmp_tensor_for_size(nsegments, device)
+        return tmp, tmp
+    else:
+        tmp_shrink = get_tmp_tensor(device)
+        tmp_expand = get_tmp_tensor_for_size(nsegments, device)
+        return tmp_shrink, tmp_expand
 
 
 def lora_a_sgmv_cutlass(
