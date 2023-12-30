@@ -74,7 +74,7 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s_start, int32_t *s_end,
   auto all_problems =
       alloc_from_buf<cutlass::gemm::GemmCoord>(&tmp_d, num_problems);
 
-  precompute_sgmv_args<<<num_problems, 1>>>(
+  precompute_sgmv_args<<<num_problems, 1, 0, stream>>>(
       all_problems, ptr_Y, ptr_X, ptr_W, ld_Y, ld_X, ld_W, (cutlass_t *)y,
       (cutlass_t *)x, (cutlass_t **)w, s_start, s_end, d_in, d_out, layer_idx);
 

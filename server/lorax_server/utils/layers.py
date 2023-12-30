@@ -404,7 +404,7 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-        
+
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
