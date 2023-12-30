@@ -220,25 +220,10 @@ class GraphWrapper:
                 dest_rank_data.segment_starts[source_rank_data.segment_starts.shape[0]:] = 0
                 dest_rank_data.segment_ends[source_rank_data.segment_ends.shape[0]:] = 0
 
-                print(layer_name, rank, dest_rank_data.lora_a_ptr)
-                print(layer_name, rank, dest_rank_data.lora_b_ptr)
-                print(layer_name, rank, dest_rank_data.segment_starts)
-                print(layer_name, rank, dest_rank_data.segment_ends)
-        
-        output_states = self.model.forward(
-            input_ids=self.input_state.input_ids,
-            position_ids=self.input_state.position_ids,
-            cu_seqlen_prefill=None,
-            kv_cache=get_cache_manager().kv_cache,
-            block_tables=self.input_state.block_tables,
-            slots=self.input_state.slots,
-            input_lengths=self.input_state.input_lengths,
-            max_s=MAX_CONTEXT_LENGTH,
-            adapter_data=self.input_state.adapter_data,
-            lm_head_indices=None,
-        )
-        print("SUCCESS NO TRACE", output_states)
-        print("NO TRACE v", self.input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
+                # print(layer_name, rank, dest_rank_data.lora_a_ptr)
+                # print(layer_name, rank, dest_rank_data.lora_b_ptr)
+                # print(layer_name, rank, dest_rank_data.segment_starts)
+                # print(layer_name, rank, dest_rank_data.segment_ends)
         
         self.graph.replay()
 
@@ -295,8 +280,8 @@ class GraphCache:
                 adapter_data=adapter_data,
                 lm_head_indices=lm_head_indices,
             )
-            print("OUTPUT REPLAY", output_states)
-            print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
+            # print("OUTPUT REPLAY", output_states)
+            # print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
 
             # output_states = self.model.forward(
             #     input_ids=input_ids,
@@ -326,8 +311,8 @@ class GraphCache:
                 adapter_data=adapter_data,
                 lm_head_indices=lm_head_indices,
             )
-            print(output_states)
-            print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
+            # print(output_states)
+            # print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
 
         return output_states
     
