@@ -21,6 +21,9 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   const uint32_t problem_id = blockIdx.y;
   const uint32_t bx = blockIdx.x;
   const uint32_t s_start = s_starts[problem_id], s_end = s_ends[problem_id];
+  if (s_start >= s_end) {
+    return;
+  }
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags = 8;
   constexpr uint32_t num_cells_k = (num_k_frags * 16) / cell_capacity<T>();

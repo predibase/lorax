@@ -37,6 +37,11 @@ __global__ void precompute_sgmv_args(cutlass::gemm::GemmCoord *all_problems,
                                      int layer_idx) {
   int i = blockIdx.x;
   int m = s_end[i] - s_start[i], k = d_in, n = d_out;
+  if (m <= 0) {
+    m = 0;
+    n = 0;
+    k = 0;
+  }
   all_problems[i] = cutlass::gemm::GemmCoord(m, n, k);
   ptr_w[i] = w[i] + layer_idx * d_in * d_out;
   ptr_x[i] = x + s_start[i] * d_in;

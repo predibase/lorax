@@ -22,6 +22,9 @@ def lora_ref_impl(
     lora_rank: int,
 ):
     for i in range(len(wa)):
+        if s_end[i] - s_start[i] <= 0:
+            continue
+        
         xi = x[s_start[i]:s_end[i]]
         wai = wa[i][layer_idx, :, :]
         wbi = wb[i][layer_idx, :, :]
@@ -38,6 +41,7 @@ def lora_ref_impl(
 @pytest.mark.skipif(not has_sgmv(), reason="SGMV not available")
 @pytest.mark.parametrize("segments", [
     ([0, 2], [1, 3]),
+    ([0, -1], [1, -1]),
 ])
 @pytest.mark.parametrize("lora_rank", [8, 16, 32, 64, 128])
 def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
@@ -64,11 +68,11 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     s_start = torch.tensor(s1, dtype=torch.int32, device=device)
     s_end = torch.tensor(s2, dtype=torch.int32, device=device)
 
-    wa_list = [wa for x, y in zip(s1, s2) if y - x > 0]
-    wb_list = [wb for x, y in zip(s1, s2) if y - x > 0]
+    wa_list = [wa if y - x > 0 else None for x, y in zip(s1, s2)]
+    wb_list = [wb if y - x > 0 else None for x, y in zip(s1, s2)]
 
-    wa_ptr = torch.tensor([wa.data_ptr() for wa in wa_list], dtype=torch.int64, device=device)
-    wb_ptr = torch.tensor([wb.data_ptr() for wb in wb_list], dtype=torch.int64, device=device)
+    wa_ptr = torch.tensor([wa.data_ptr() if wa is not None else 0 for wa in wa_list], dtype=torch.int64, device=device)
+    wb_ptr = torch.tensor([wb.data_ptr() if wb is not None else 0 for wb in wb_list], dtype=torch.int64, device=device)
 
     layer_idx = 0
 
@@ -94,7 +98,7 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     with torch.cuda.graph(graph, pool=None):
         lora_a_sgmv_cutlass(v, x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, r)
         lora_b_sgmv_cutlass(y_ours_graph, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
-    
+
     torch.cuda.synchronize(device)
     graph.replay()
 
