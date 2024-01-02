@@ -939,7 +939,7 @@ class FlashCausalLM(Model):
         # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
         # Needs to be estimated here rather than fully initialized as the graph cache relies on the
         # cache manager being set.
-        self.model_graph_wrapper = GraphCache(self.model, self.adapter_layers)
+        self.model_graph_wrapper = GraphCache(self.model, self.device, self.adapter_layers)
         graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
         logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
         torch.cuda.synchronize(self.device)

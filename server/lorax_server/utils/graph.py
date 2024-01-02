@@ -58,9 +58,7 @@ class GraphState:
 
 
 @lru_cache(maxsize=1)
-def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphState:
-    device = model.device
-    
+def get_max_graph_state(device: torch.device, adapter_layers: Tuple[str]) -> GraphState:
     # TODO(travis): cite vllm
     max_num_blocks = (MAX_CONTEXT_LENGTH + BLOCK_SIZE - 1) // BLOCK_SIZE
     block_tables_arr = np.zeros((MAX_BATCH_SIZE, max_num_blocks), dtype=np.int32)
@@ -128,12 +126,13 @@ class GraphWrapper:
     @staticmethod
     def trace(
         model: nn.Module,
+        device: torch.device,
         adapter_layers: Tuple[str],
         batch_size: int,
         max_rank: int,
         memory_pool: Tuple[int, int],
     ) -> "GraphWrapper":
-        max_input_state = get_max_graph_state(model, adapter_layers)
+        max_input_state = get_max_graph_state(device, adapter_layers)
 
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
@@ -178,7 +177,7 @@ class GraphWrapper:
             ),
         )
 
-        torch.cuda.synchronize(model.device)
+        torch.cuda.synchronize(device)
 
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
@@ -195,7 +194,7 @@ class GraphWrapper:
                 lm_head_indices=None,
             )
 
-        torch.cuda.synchronize(model.device)
+        torch.cuda.synchronize(device)
 
         return GraphWrapper(
             graph, graph.pool(), input_state, output_states, model
@@ -250,8 +249,9 @@ class GraphWrapper:
 
 
 class GraphCache:
-    def __init__(self, model: nn.Module, adapter_layers: List[str]):
+    def __init__(self, model: nn.Module, device: torch.device, adapter_layers: List[str]):
         self.model = model
+        self.device = device
         self.adapter_layers = tuple(adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache = {}
@@ -285,12 +285,13 @@ class GraphCache:
 
         samples = []
         for i, max_rank in enumerate(reversed(CACHED_MAX_RANKS)):
-            torch.cuda.synchronize(self.model.device)
-            free_memory_before, _ = torch.cuda.mem_get_info(self.model.device)
+            torch.cuda.synchronize(self.device)
+            free_memory_before, _ = torch.cuda.mem_get_info(self.device)
             
             key = (batch_size, max_rank)
             graph = GraphWrapper.trace(
                 self.model,
+                self.device,
                 self.adapter_layers,
                 batch_size,
                 max_rank,
@@ -299,8 +300,8 @@ class GraphCache:
             tmp_cache[key] = graph
             pool = graph.memory_pool
 
-            torch.cuda.synchronize(self.model.device)
-            free_memory_after, _ = torch.cuda.mem_get_info(self.model.device)
+            torch.cuda.synchronize(self.device)
+            free_memory_after, _ = torch.cuda.mem_get_info(self.device)
 
             # Measure memory difference after tracing the graph,
             # discard first sample to account for global state initialization
@@ -327,6 +328,7 @@ class GraphCache:
                     key = (batch_size, max_rank)
                     graph = GraphWrapper.trace(
                         self.model,
+                        self.device,
                         self.adapter_layers,
                         batch_size,
                         max_rank,
@@ -348,6 +350,7 @@ class GraphCache:
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
+        **kwargs
     ) -> None:
         batch_size = get_cached_batch_size(input_ids.shape[0])
         max_rank = adapter_data.max_rank
@@ -356,6 +359,7 @@ class GraphCache:
         if key not in self.cache:
             self.cache[key] = GraphWrapper.trace(
                 self.model,
+                self.device,
                 self.adapter_layers,
                 batch_size,
                 max_rank,

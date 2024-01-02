@@ -549,7 +549,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
         input_lengths: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
-        prefill_cache_indices: Optional[torch.Tensor],
+        prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if prefill_cache_indices is not None:

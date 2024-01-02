@@ -397,8 +397,13 @@ class FlashMistral(FlashCausalLM):
         return FlashMistralBatch
 
     def forward(self, batch: FlashMistralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        if self.model_graph_wrapper is not None and not prefill:
+            model = self.model_graph_wrapper
+        
         # Model Forward
-        logits = self.model.forward(
+        logits = model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
