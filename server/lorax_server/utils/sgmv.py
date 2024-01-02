@@ -115,7 +115,6 @@ def get_tmp_tensors(nsegments: int, lora_rank: int, device: torch.device) -> Tup
 
 
 def lora_a_sgmv_cutlass(
-    v: torch.Tensor,
     x: torch.Tensor,
     tmp: torch.Tensor,
     wa_ptr: torch.Tensor,
@@ -123,12 +122,13 @@ def lora_a_sgmv_cutlass(
     s_end: torch.IntTensor,
     layer_idx: int,
     lora_rank: int,
-):
-    v.zero_()
+) -> torch.Tensor:
+    v = torch.zeros((x.size(0), lora_rank), dtype=x.dtype, device=x.device)
     if MIN_RANK_CUSTOM <= lora_rank <= MAX_RANK_CUSTOM:
         _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
     else:
         _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
+    return v
 
 
 def lora_b_sgmv_cutlass(

@@ -415,9 +415,7 @@ class TensorParallelAdapterLinear(nn.Module):
                 lora_a_ptr = rank_segments.lora_a_ptr
                 lora_b_ptr = rank_segments.lora_b_ptr
                 if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v = rank_segments.v
-                    lora_a_sgmv_cutlass(
-                        v,
+                    v = lora_a_sgmv_cutlass(
                         input,
                         rank_segments.tmp_shrink,
                         lora_a_ptr,

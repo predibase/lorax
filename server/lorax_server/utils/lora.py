@@ -27,7 +27,6 @@ EMPTY_TENSOR = torch.tensor([])
 @dataclass
 class RankSegments:
     rank: int
-    v: torch.Tensor
     tmp_shrink: torch.Tensor
     tmp_expand: torch.Tensor
     lora_a_ptr: torch.Tensor
@@ -214,7 +213,6 @@ class BatchedLoraWeights:
 
             rank_data[rank] = RankSegments(
                 rank=rank,
-                v=torch.zeros((meta.adapter_indices.shape[0], rank), dtype=dtype, device=device),
                 tmp_shrink=tmp_shrink,
                 tmp_expand=tmp_expand,
                 lora_a_ptr=lora_a_ptr_indices,

@@ -143,7 +143,6 @@ class GraphWrapper:
                 rank_data={
                     max_rank: RankSegments(
                         rank=max_rank,
-                        v=weight_data.rank_data[MAX_RANK].v[:batch_size, :max_rank],
                         tmp_shrink=tmp_shrink,
                         tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
                         lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:batch_size],
@@ -274,8 +273,8 @@ class GraphCache:
         )
 
     def warmup(self):
-        for batch_size in reversed(CACHED_BATCH_SIZES):
-            for max_rank in reversed(CACHED_MAX_RANKS):
+        for batch_size in [1]: #reversed(CACHED_BATCH_SIZES):
+            for max_rank in [16]: #reversed(CACHED_MAX_RANKS):
                 print("TRACE", batch_size, max_rank)
                 key = (batch_size, max_rank)
                 self.cache[key] = GraphWrapper.trace(
