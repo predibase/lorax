@@ -73,7 +73,6 @@ def get_max_graph_state(model: nn.Module, adapter_layers: Tuple[str]) -> GraphSt
             rank_data={
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
-                    v=torch.zeros((MAX_BATCH_SIZE, MAX_RANK), dtype=model.dtype, device=device),
                     tmp_shrink=tmp_shrink,
                     tmp_expand=tmp_expand,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
