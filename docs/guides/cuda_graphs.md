@@ -28,10 +28,12 @@ If any of these conditions are not met, then LoRAX will fallback to using eager 
 
 gpt2-medium, 1x A100, time to generate 100 tokens:
 
-no adapter
-- baseline:       1.044 s
-- cuda graph:  0.422 s
+no adapter:
 
-1 adapter (rank 16)
-- baseline:       1.503 s
-- cuda graph:  0.583 s
+- baseline: 1.044 s
+- cuda graph: 0.422 s
+
+1 adapter (rank 16):
+
+- baseline: 1.503 s
+- cuda graph: 0.583 s
