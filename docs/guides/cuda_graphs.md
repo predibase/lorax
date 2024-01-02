@@ -19,6 +19,7 @@ In practice, CUDA graphs are most useful in cases where there are excess GPU flo
 Current limitations:
 
 - Batch size < 256
+- Context length (input + output) < 8192
 - LoRA rank >= 8 and <= 32
 - Only one LoRA rank in the batch
 
