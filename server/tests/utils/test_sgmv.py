@@ -88,7 +88,6 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)
 
     # graph trace
-    v = torch.zeros((x.size(0), r), dtype=x.dtype, device=x.device)
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), r, x.device)
     y_ours_graph = torch.zeros((B, H), dtype=torch.float16, device=device)
 

@@ -34,10 +34,6 @@ class Batch(ABC):
     @abstractmethod
     def concatenate(cls, batches: List["Batch"]) -> "Batch":
         raise NotImplementedError
-    
-    @abstractmethod
-    def copy_(self, batch: "Batch") -> None:
-        raise NotImplementedError
 
     @abstractmethod
     def __len__(self):

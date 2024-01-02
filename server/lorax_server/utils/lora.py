@@ -74,25 +74,6 @@ class AdapterBatchData:
             data[k] = v.get_data(meta)
         return AdapterBatchData(meta=meta, data=data)
     
-    def copy_(self, data: "AdapterBatchData") -> None:
-        self.meta = data.meta
-
-        for layer_name, source_data in data.data.items():
-            dest_data = self.data[layer_name]
-            for r, source_rank_data in source_data.rank_data.items():
-                dest_rank_data = dest_data.rank_data[r]
-                dest_rank_data.copy_(source_rank_data)
-    
-    def key(self) -> str:
-        if len(self.data) == 0:
-            return ""
-        
-        nsegments = self.meta.adapter_segments.shape[0]
-        layers_str = "-".join(sorted(self.data.keys()))
-        layer = next(iter(self.data.values()))
-        rank_str = "-".join(sorted([str(r) for r in layer.rank_data.keys()]))
-        return f"{nsegments}-{layers_str}-{rank_str}"
-    
     def ranks(self) -> Set[int]:
         return set(
             rank_data.rank
