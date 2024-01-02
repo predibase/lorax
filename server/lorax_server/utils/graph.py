@@ -162,7 +162,7 @@ class GraphWrapper:
                         segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:batch_size],
                         segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:batch_size],
                     ),
-                },
+                } if max_rank > 0 else {},
             )
 
         input_state = GraphState(
