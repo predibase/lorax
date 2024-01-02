@@ -1,9 +1,9 @@
 #pragma once
 
 template <int feat_in, int feat_out, typename T>
-void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                 T **__restrict__ W,
-                 const int64_t *__restrict__ indicies, int64_t y_offset,
+void bgmv_kernel(T* __restrict__ Y, const T* __restrict__ X,
+                 T** __restrict__ W,
+                 const int64_t* __restrict__ indicies, int64_t y_offset,
                  int64_t full_y_size, int64_t batch_size,
                  int64_t layer_idx, float scale);
 

@@ -15,9 +15,9 @@ namespace cg = cooperative_groups;
 template <int feat_in, int feat_out, size_t vec_size, size_t X_copy_size,
           size_t W_copy_size, int tx, int ty, int tz, typename T>
 __global__ void
-bgmv_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                   T **__restrict__ W,
-                   const int64_t *__restrict__ indicies, int64_t y_offset,
+bgmv_shrink_kernel(T* __restrict__ Y, const T* __restrict__ X,
+                   T** __restrict__ W,
+                   const int64_t* __restrict__ indicies, int64_t y_offset,
                    int64_t full_y_size, int64_t layer_idx,
                    float scale) {
   size_t batch_idx = blockIdx.y;
@@ -146,9 +146,9 @@ bgmv_shrink_kernel(T *__restrict__ Y, const T *__restrict__ X,
 template <int feat_in, int feat_out, size_t vec_size, int tx, int ty, int tz,
           typename T>
 __global__ void
-bgmv_expand_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                   T **__restrict__ W,
-                   const int64_t *__restrict__ indicies, int64_t y_offset,
+bgmv_expand_kernel(T* __restrict__ Y, const T* __restrict__ X,
+                   T** __restrict__ W,
+                   const int64_t* __restrict__ indicies, int64_t y_offset,
                    int64_t full_y_size, int64_t layer_idx,
                    float scale) {
   size_t batch_idx = blockIdx.y;
@@ -192,9 +192,9 @@ bgmv_expand_kernel(T *__restrict__ Y, const T *__restrict__ X,
 }
 
 template <int feat_in, int feat_out, typename T>
-void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
-                 T **__restrict__ W,
-                 const int64_t *__restrict__ indicies, int64_t y_offset,
+void bgmv_kernel(T* __restrict__ Y, const T* __restrict__ X,
+                 T** __restrict__ W,
+                 const int64_t* __restrict__ indicies, int64_t y_offset,
                  int64_t full_y_size, int64_t batch_size,
                  int64_t layer_idx, float scale) {
   constexpr size_t vec_size = 8;
@@ -286,8 +286,8 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
 
 #define INST_BGMV(feat_in, feat_out, T)                         \
   template void bgmv_kernel<feat_in, feat_out>(                                \
-      T * __restrict__ Y, const T *__restrict__ X,                      \
-      T **__restrict__ W, const int64_t *__restrict__ indicies,         \
+      T*  __restrict__ Y, const T* __restrict__ X,                      \
+      T** __restrict__ W, const int64_t* __restrict__ indicies,         \
       int64_t y_offset, int64_t full_y_size, int64_t batch_size,               \
       int64_t layer_idx, float scale);
 

@@ -251,8 +251,8 @@ void append_kv(torch::Tensor kv_ptrs, torch::Tensor kv_indptr,
 //====== bgmv ======
 
 template <typename T>
-inline bool launch_bgmv_kernel(T *Y, const T *X, T **W,
-                               const int64_t *lora_indices,
+inline bool launch_bgmv_kernel(T* Y, const T* X, T** W,
+                               const int64_t* lora_indices,
                                uint16_t in_features, uint16_t out_features,
                                int64_t y_offset, int64_t full_y_size,
                                int64_t batch_size,
