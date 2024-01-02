@@ -314,6 +314,7 @@ class MixtralAttention(torch.nn.Module):
             dim=self.head_size,
             base=config.rope_theta,
             device=weights.device,
+            dtype=weights.dtype,
         )
 
         self.softmax_scale = self.head_size ** -0.5

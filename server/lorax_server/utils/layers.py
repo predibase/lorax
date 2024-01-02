@@ -675,7 +675,7 @@ try:
         return getattr(config, "rope_scaling", None)
 
     class PositionRotaryEmbedding(nn.Module):
-        def __init__(self, inv_freq, scaling_factor):
+        def __init__(self, inv_freq, scaling_factor, max_position_embeddings, device, dtype):
             super().__init__()
             self.inv_freq = inv_freq
             self._seq_len_cached = 0
@@ -685,9 +685,10 @@ try:
             self._sin_k_cached = None
             self.scaling_factor = scaling_factor
             self.dynamic_args = None
+            self._update_cos_sin_cache(dtype, device, max_position_embeddings)
 
         @classmethod
-        def static(cls, config, dim, base, device):
+        def static(cls, config, dim, base, device, dtype):
             inv_freq = _create_inv_freq(dim, base, device)
             scaling_factor = None
             rope_scaling = _get_rope_config(config)
@@ -717,7 +718,7 @@ try:
                     raise NotImplementedError(
                         f"rope scaling type {rope_type} is not implemented or invalid"
                     )
-            return cls(inv_freq, scaling_factor)
+            return cls(inv_freq, scaling_factor, config.max_position_embeddings, device, dtype)
 
         @classmethod
         def load(cls, config, prefix, weights):
@@ -782,9 +783,6 @@ try:
             """
             Return cos and sin for the asked position ids
             """
-
-            self._update_cos_sin_cache(dtype, position_ids.device, max_s)
-
             cos = torch.index_select(self._cos_cached, 0, position_ids)
             sin = torch.index_select(self._sin_cached, 0, position_ids)
             return cos.unsqueeze(1), sin.unsqueeze(1)
