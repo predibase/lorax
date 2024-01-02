@@ -102,14 +102,9 @@ class AdapterBatchData:
         )
     
     @property
-    def max_r(self) -> int:
-        if len(self.data) == 0:
-            return 0
-        
-        return max(
-            max(rank_data.rank for rank_data in layer.rank_data.values())
-            for layer in self.data.values()
-        )
+    def max_rank(self) -> int:
+        ranks = self.ranks()
+        return max(ranks) if len(ranks) > 0 else 0
 
 
 class MergedLoraWeights:

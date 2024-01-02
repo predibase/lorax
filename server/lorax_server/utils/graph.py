@@ -19,6 +19,14 @@ MAX_ADAPTERS = 128
 
 SLOT_PAD_VALUE = -1
 
+# Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
+# must be kept in sync.
+CACHED_BATCH_SIZES = [1, 2, 4] + [8 * i for i in range(1, 33)]
+
+# Include 0 to ensure we can use cuda graphs without adapters
+CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 128]
+_allowed_ranks = set(CACHED_MAX_RANKS)
+
 
 def get_cached_batch_size(batch_size: int) -> int:
     if batch_size == 1:
@@ -246,6 +254,38 @@ class GraphCache:
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache = {}
 
+    def can_use_graph(
+        self,
+        batch_size: int,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+    ) -> bool:
+        ranks = adapter_data.ranks()
+        nranks = len(ranks)
+        max_rank = max(ranks) if len(ranks) > 0 else 0
+
+        return (
+            torch.cuda.is_available()
+            and batch_size <= MAX_BATCH_SIZE
+            and max_s <= MAX_CONTEXT_LENGTH
+            and max_rank <= MAX_RANK
+            and nranks <= 1
+            and max_rank in _allowed_ranks
+        )
+
+    def warmup(self):
+        for batch_size in reversed(CACHED_BATCH_SIZES):
+            for max_rank in reversed(CACHED_MAX_RANKS):
+                print("TRACE", batch_size, max_rank)
+                key = (batch_size, max_rank)
+                self.cache[key] = GraphWrapper.trace(
+                    self.model,
+                    self.adapter_layers,
+                    batch_size,
+                    max_rank,
+                    self.memory_pool,
+                )
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -260,9 +300,7 @@ class GraphCache:
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
         batch_size = get_cached_batch_size(input_ids.shape[0])
-
-        ranks = adapter_data.ranks()
-        max_rank = max(ranks) if len(ranks) > 0 else 0
+        max_rank = adapter_data.max_rank
 
         key = (batch_size, max_rank)
         if key not in self.cache:
