@@ -5,7 +5,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 import torch
-from loguru import logger
 from torch import nn
 from tqdm import tqdm
 
@@ -24,7 +23,8 @@ SLOT_PAD_VALUE = -1
 
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
-CACHED_BATCH_SIZES = [1, 2, 4] + [8 * i for i in range(1, 33)]
+BATCH_SIZE_INCREMENT = 16
+CACHED_BATCH_SIZES = [1, 2, 4, 8] + [BATCH_SIZE_INCREMENT * i for i in range(1, 17)]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 128]
@@ -40,7 +40,9 @@ def get_cached_batch_size(batch_size: int) -> int:
         return 2
     if batch_size <= 4:
         return 4
-    return (batch_size + 7) // 8 * 8
+    if batch_size <= 8:
+        return 8
+    return (batch_size + BATCH_SIZE_INCREMENT - 1) // BATCH_SIZE_INCREMENT * BATCH_SIZE_INCREMENT
 
 
 @dataclass
@@ -236,11 +238,6 @@ class GraphWrapper:
                 # pad remainder of segments with zeros
                 dest_rank_data.segment_starts[source_rank_data.segment_starts.shape[0]:] = 0
                 dest_rank_data.segment_ends[source_rank_data.segment_ends.shape[0]:] = 0
-
-                # print(layer_name, rank, dest_rank_data.lora_a_ptr)
-                # print(layer_name, rank, dest_rank_data.lora_b_ptr)
-                # print(layer_name, rank, dest_rank_data.segment_starts)
-                # print(layer_name, rank, dest_rank_data.segment_ends)
         
         self.graph.replay()
 
@@ -355,7 +352,6 @@ class GraphCache:
 
         key = (batch_size, max_rank)
         if key not in self.cache:
-            print("cache miss")
             self.cache[key] = GraphWrapper.trace(
                 self.model,
                 self.adapter_layers,
@@ -363,51 +359,19 @@ class GraphCache:
                 max_rank,
                 self.memory_pool,
             )
-            output_states = self.cache[key].forward(
-                input_ids=input_ids,
-                position_ids=position_ids,
-                cu_seqlen_prefill=cu_seqlen_prefill,
-                kv_cache=kv_cache,
-                block_tables=block_tables,
-                slots=slots,
-                input_lengths=input_lengths,
-                max_s=max_s,
-                adapter_data=adapter_data,
-                lm_head_indices=lm_head_indices,
-            )
-            # print("OUTPUT REPLAY", output_states)
-            # print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
-
-            # output_states = self.model.forward(
-            #     input_ids=input_ids,
-            #     position_ids=position_ids,
-            #     cu_seqlen_prefill=None,
-            #     kv_cache=get_cache_manager().kv_cache,
-            #     block_tables=block_tables,
-            #     slots=slots,
-            #     input_lengths=input_lengths,
-            #     max_s=MAX_CONTEXT_LENGTH,
-            #     adapter_data=adapter_data,
-            #     lm_head_indices=None,
-            # )
-            # print("SUCCESS NO TRACE", output_states)
-            # print("NO TRACE v", adapter_data.data["attn.c_attn"].rank_data[16].v)
-        else:
-            print("cache hit")
-            output_states = self.cache[key].forward(
-                input_ids=input_ids,
-                position_ids=position_ids,
-                cu_seqlen_prefill=cu_seqlen_prefill,
-                kv_cache=kv_cache,
-                block_tables=block_tables,
-                slots=slots,
-                input_lengths=input_lengths,
-                max_s=max_s,
-                adapter_data=adapter_data,
-                lm_head_indices=lm_head_indices,
-            )
-            # print(output_states)
-            # print(self.cache[key].input_state.adapter_data.data["attn.c_attn"].rank_data[16].v)
+            
+        output_states = self.cache[key].forward(
+            input_ids=input_ids,
+            position_ids=position_ids,
+            cu_seqlen_prefill=cu_seqlen_prefill,
+            kv_cache=kv_cache,
+            block_tables=block_tables,
+            slots=slots,
+            input_lengths=input_lengths,
+            max_s=max_s,
+            adapter_data=adapter_data,
+            lm_head_indices=lm_head_indices,
+        )
 
         return output_states
     
