@@ -315,6 +315,7 @@ class FlashMixtral(FlashCausalLM):
         adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -393,6 +394,7 @@ class FlashMixtral(FlashCausalLM):
             rank=rank,
             world_size=world_size,
             sliding_window=config.sliding_window,
+            compile=compile,
         )
 
     @property
