@@ -35,7 +35,7 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s_start, int32_t* s_end, void* tmp,
 
   uint32_t chunk_size = 256;
   uint32_t num_chunks = (d_in + chunk_size - 1) / chunk_size;
-  if (true) { //(num_chunks * num_problems > max_grid_size) {
+  if (num_chunks * num_problems > max_grid_size) {
     use_cooperative = false;
     chunk_size = d_in;
     num_chunks = 1;
