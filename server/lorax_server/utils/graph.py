@@ -16,18 +16,18 @@ from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cu
 # TODO(travis): make this configurable by model / user
 MAX_BATCH_SIZE = 256
 MAX_CONTEXT_LENGTH = 8192
-MAX_RANK = 128
-MAX_ADAPTERS = 128
+MAX_RANK = 32
 
 SLOT_PAD_VALUE = -1
 
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
-BATCH_SIZE_INCREMENT = 16
-CACHED_BATCH_SIZES = [1, 2, 4, 8] + [BATCH_SIZE_INCREMENT * i for i in range(1, 17)]
+BATCH_SIZE_INCREMENT = 32
+CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
 
 # Include 0 to ensure we can use cuda graphs without adapters
-CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 128]
+# TODO(travis): use padding to allow for more ranks without increasing memory usage
+CACHED_MAX_RANKS = [0, 8, 16, 32]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 MAX_SAMPLES = 3
@@ -42,6 +42,8 @@ def get_cached_batch_size(batch_size: int) -> int:
         return 4
     if batch_size <= 8:
         return 8
+    if batch_size <= 16:
+        return 16
     return (batch_size + BATCH_SIZE_INCREMENT - 1) // BATCH_SIZE_INCREMENT * BATCH_SIZE_INCREMENT
 
 
