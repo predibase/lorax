@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 from functools import lru_cache
+from statistics import median
 from typing import List, Optional, Tuple
 import numpy as np
 
 import torch
+from loguru import logger
 from torch import nn
+from tqdm import tqdm
 
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, RankSegments
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
@@ -26,6 +29,8 @@ CACHED_BATCH_SIZES = [1, 2, 4] + [8 * i for i in range(1, 33)]
 # Include 0 to ensure we can use cuda graphs without adapters
 CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 128]
 _allowed_ranks = set(CACHED_MAX_RANKS)
+
+MAX_SAMPLES = 3
 
 
 def get_cached_batch_size(batch_size: int) -> int:
@@ -123,7 +128,7 @@ class GraphWrapper:
         batch_size: int,
         max_rank: int,
         memory_pool: Tuple[int, int],
-    ) -> Tuple["GraphWrapper", torch.Tensor]:
+    ) -> "GraphWrapper":
         max_input_state = get_max_graph_state(model, adapter_layers)
 
         adapter_weight_data = {}
@@ -189,7 +194,7 @@ class GraphWrapper:
         torch.cuda.synchronize(model.device)
 
         return GraphWrapper(
-            graph, memory_pool, input_state, output_states, model
+            graph, graph.pool(), input_state, output_states, model
         )
     
     def forward(
@@ -270,19 +275,67 @@ class GraphCache:
             and nranks <= 1
             and max_rank in _allowed_ranks
         )
+    
+    def get_estimated_cache_memory(self) -> int:
+        # Store off graphs into temporary cache to discard after estimation
+        tmp_cache = {}
+        pool = None
+
+        # Use the largest batch size to overestimate memory overhead
+        batch_size = CACHED_BATCH_SIZES[-1]
+
+        samples = []
+        for i, max_rank in enumerate(reversed(CACHED_MAX_RANKS)):
+            torch.cuda.synchronize(self.model.device)
+            free_memory_before, _ = torch.cuda.mem_get_info(self.model.device)
+            
+            key = (batch_size, max_rank)
+            graph = GraphWrapper.trace(
+                self.model,
+                self.adapter_layers,
+                batch_size,
+                max_rank,
+                pool,
+            )
+            tmp_cache[key] = graph
+            pool = graph.memory_pool
+
+            torch.cuda.synchronize(self.model.device)
+            free_memory_after, _ = torch.cuda.mem_get_info(self.model.device)
+
+            # Measure memory difference after tracing the graph,
+            # discard first sample to account for global state initialization
+            delta_memory = free_memory_before - free_memory_after
+            if i > 0:
+                samples.append(delta_memory)
+            
+            # Tracing all graphs can take a while, so limit the number of samples
+            if len(samples) == MAX_SAMPLES:
+                break
+            
+        # Estimate memory usage for all batch sizes and ranks
+        ngraphs = len(CACHED_BATCH_SIZES) * len(CACHED_MAX_RANKS)
+        per_graph_memory = median(samples)
+        return ngraphs * per_graph_memory
 
     def warmup(self):
-        for batch_size in [1]: #reversed(CACHED_BATCH_SIZES):
-            for max_rank in [16]: #reversed(CACHED_MAX_RANKS):
-                print("TRACE", batch_size, max_rank)
-                key = (batch_size, max_rank)
-                self.cache[key] = GraphWrapper.trace(
-                    self.model,
-                    self.adapter_layers,
-                    batch_size,
-                    max_rank,
-                    self.memory_pool,
-                )
+        ngraphs = len(CACHED_BATCH_SIZES) * len(CACHED_MAX_RANKS)
+        pool = None
+        with tqdm(total=ngraphs, desc="Trace CUDA graphs") as pbar:
+            for batch_size in reversed(CACHED_BATCH_SIZES):
+                pbar.set_postfix({'batch_size': batch_size})
+                for max_rank in reversed(CACHED_MAX_RANKS):
+                    key = (batch_size, max_rank)
+                    graph = GraphWrapper.trace(
+                        self.model,
+                        self.adapter_layers,
+                        batch_size,
+                        max_rank,
+                        pool,
+                    )
+                    self.cache[key] = graph
+                    pool = graph.memory_pool
+                    pbar.update(1)
 
     def forward(
         self,

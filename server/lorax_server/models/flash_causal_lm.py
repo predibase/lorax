@@ -1,7 +1,6 @@
 from collections import defaultdict
 import math
 import itertools
-import time
 from loguru import logger
 import torch
 import torch.distributed
@@ -11,7 +10,6 @@ import numpy as np
 from dataclasses import dataclass
 from opentelemetry import trace
 from peft import LoraConfig
-from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 from typing import Optional, Set, Tuple, List, Type, Union, Dict
 
@@ -938,6 +936,14 @@ class FlashCausalLM(Model):
 
         torch.cuda.synchronize(self.device)
 
+        # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
+        # Needs to be estimated here rather than fully initialized as the graph cache relies on the
+        # cache manager being set.
+        self.model_graph_wrapper = GraphCache(self.model, self.adapter_layers)
+        graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
+        logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
+        torch.cuda.synchronize(self.device)
+
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
         dtype_size = torch.tensor([], dtype=self.dtype).element_size()
@@ -945,6 +951,8 @@ class FlashCausalLM(Model):
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
         total_free_memory, _ = torch.cuda.mem_get_info(self.device)
+        total_free_memory -= graph_cache_memory
+
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
 
         free_memory = max(
@@ -972,9 +980,9 @@ class FlashCausalLM(Model):
 
         torch.cuda.synchronize(self.device)
 
-        self.model_graph_wrapper = GraphCache(self.model, self.adapter_layers)
+        # Warmup the graph cache. Needs to be done after setting cache manager as
+        # tracing will use the static kv cache tensors
         self.model_graph_wrapper.warmup()
-
         torch.cuda.synchronize(self.device)
 
         return int(num_blocks * BLOCK_SIZE)
