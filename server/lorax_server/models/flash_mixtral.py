@@ -406,7 +406,11 @@ class FlashMixtral(FlashCausalLM):
     def forward(self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
-        if self.model_graph_wrapper is not None and not prefill:
+        if (
+            self.model_graph_wrapper is not None and
+            not prefill and
+            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
             model = self.model_graph_wrapper
         
         # Model Forward

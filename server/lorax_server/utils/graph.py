@@ -1,7 +1,10 @@
+# CUDA Graph implementation modified from vLLM:
+# https://github.com/vllm-project/vllm/blob/main/vllm/worker/model_runner.py
+
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
 
 import torch
@@ -11,6 +14,9 @@ from tqdm import tqdm
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, RankSegments
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
 from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
+
+if TYPE_CHECKING:
+    from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
 
 
 # TODO(travis): make this configurable by model / user
@@ -59,7 +65,6 @@ class GraphState:
 
 @lru_cache(maxsize=1)
 def get_max_graph_state(device: torch.device, adapter_layers: Tuple[str]) -> GraphState:
-    # TODO(travis): cite vllm
     max_num_blocks = (MAX_CONTEXT_LENGTH + BLOCK_SIZE - 1) // BLOCK_SIZE
     block_tables_arr = np.zeros((MAX_BATCH_SIZE, max_num_blocks), dtype=np.int32)
     block_tables = torch.from_numpy(block_tables_arr).to(device=device)
@@ -258,14 +263,17 @@ class GraphCache:
 
     def can_use_graph(
         self,
-        batch_size: int,
-        max_s: int,
+        batch: "FlashCausalLMBatch",
         adapter_data: AdapterBatchData,
     ) -> bool:
         ranks = adapter_data.ranks()
         nranks = len(ranks)
         max_rank = max(ranks) if len(ranks) > 0 else 0
 
+        batch_size = batch.input_ids.shape[0]
+        max_s = batch.max_seqlen
+
+        # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
             torch.cuda.is_available()
             and batch_size <= MAX_BATCH_SIZE
