@@ -25,6 +25,7 @@ MAX_CONTEXT_LENGTH = 8192
 MAX_RANK = 64
 
 SLOT_PAD_VALUE = -1
+SEGMENT_PAD_VALUE = -1
 
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
@@ -204,6 +205,10 @@ class GraphWrapper:
         return GraphWrapper(
             graph, graph.pool(), input_state, output_states, model
         )
+
+    def _pad_and_fill(self, dest: torch.Tensor, src: torch.Tensor, pad_value: int):
+        dest[:src.shape[0]] = src
+        dest[src.shape[0]:].fill_(pad_value)
     
     def forward(
         self,
@@ -218,32 +223,32 @@ class GraphWrapper:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
-        self.input_state.input_ids[:input_ids.shape[0]] = input_ids
-        self.input_state.position_ids[:position_ids.shape[0]] = position_ids
+        self._pad_and_fill(self.input_state.input_ids, input_ids, 0)
+        self._pad_and_fill(self.input_state.position_ids, position_ids, 0)
+        self._pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
+        self._pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
+
+        self.input_state.block_tables.zero_()
         self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
-        self.input_state.slots[:slots.shape[0]] = slots
-        self.input_state.input_lengths[:input_lengths.shape[0]] = input_lengths
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             if layer_name not in adapter_data.data:
                 # zero out all the segments
                 for rank_data in weight_data.rank_data.values():
-                    rank_data.segment_starts.zero_()
-                    rank_data.segment_ends.zero_()
+                    rank_data.segment_starts.fill_(-1)
+                    rank_data.segment_ends.fill_(-1)
                 continue
             
             source_data = adapter_data.data[layer_name]
             dest_data = weight_data
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
-                dest_rank_data.lora_a_ptr[:source_rank_data.lora_a_ptr.shape[0]] = source_rank_data.lora_a_ptr
-                dest_rank_data.lora_b_ptr[:source_rank_data.lora_b_ptr.shape[0]] = source_rank_data.lora_b_ptr
-                dest_rank_data.segment_starts[:source_rank_data.segment_starts.shape[0]] = source_rank_data.segment_starts
-                dest_rank_data.segment_ends[:source_rank_data.segment_ends.shape[0]] = source_rank_data.segment_ends
 
-                # pad remainder of segments with zeros
-                dest_rank_data.segment_starts[source_rank_data.segment_starts.shape[0]:] = 0
-                dest_rank_data.segment_ends[source_rank_data.segment_ends.shape[0]:] = 0
+                self._pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
+                self._pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
+
+                self._pad_and_fill(dest_rank_data.segment_starts, source_rank_data.segment_starts, SEGMENT_PAD_VALUE)
+                self._pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
         
         self.graph.replay()
 
