@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 # TODO(travis): make this configurable by model / user
 MAX_BATCH_SIZE = 256
 MAX_CONTEXT_LENGTH = 8192
-MAX_RANK = 32
+MAX_RANK = 64
 
 SLOT_PAD_VALUE = -1
 
@@ -33,7 +33,7 @@ CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0, 8, 16, 32]
+CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 MAX_SAMPLES = 3
@@ -247,7 +247,7 @@ class GraphWrapper:
         
         self.graph.replay()
 
-        return self.output_states.clone()[:input_ids.shape[0]]
+        return self.output_states[:input_ids.shape[0]]
     
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
