@@ -54,6 +54,11 @@ def get_cached_batch_size(batch_size: int) -> int:
     return (batch_size + BATCH_SIZE_INCREMENT - 1) // BATCH_SIZE_INCREMENT * BATCH_SIZE_INCREMENT
 
 
+def pad_and_fill(dest: torch.Tensor, src: torch.Tensor, pad_value: int):
+    dest[:src.shape[0]] = src
+    dest[src.shape[0]:].fill_(pad_value)
+
+
 @dataclass
 class GraphState:
     input_ids: torch.Tensor
@@ -205,10 +210,6 @@ class GraphWrapper:
         return GraphWrapper(
             graph, graph.pool(), input_state, output_states, model
         )
-
-    def _pad_and_fill(self, dest: torch.Tensor, src: torch.Tensor, pad_value: int):
-        dest[:src.shape[0]] = src
-        dest[src.shape[0]:].fill_(pad_value)
     
     def forward(
         self,
@@ -223,10 +224,10 @@ class GraphWrapper:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
-        self._pad_and_fill(self.input_state.input_ids, input_ids, 0)
-        self._pad_and_fill(self.input_state.position_ids, position_ids, 0)
-        self._pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
-        self._pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
+        pad_and_fill(self.input_state.input_ids, input_ids, 0)
+        pad_and_fill(self.input_state.position_ids, position_ids, 0)
+        pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
+        pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
 
         self.input_state.block_tables.zero_()
         self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
@@ -235,8 +236,8 @@ class GraphWrapper:
             if layer_name not in adapter_data.data:
                 # zero out all the segments
                 for rank_data in weight_data.rank_data.values():
-                    rank_data.segment_starts.fill_(-1)
-                    rank_data.segment_ends.fill_(-1)
+                    rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
+                    rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                 continue
             
             source_data = adapter_data.data[layer_name]
@@ -244,11 +245,11 @@ class GraphWrapper:
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
 
-                self._pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
-                self._pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
+                pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
+                pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
 
-                self._pad_and_fill(dest_rank_data.segment_starts, source_rank_data.segment_starts, SEGMENT_PAD_VALUE)
-                self._pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
+                pad_and_fill(dest_rank_data.segment_starts, source_rank_data.segment_starts, SEGMENT_PAD_VALUE)
+                pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
         
         self.graph.replay()
 
