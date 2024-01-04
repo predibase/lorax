@@ -17,6 +17,9 @@ class Quantization(str, Enum):
     bitsandbytes_fp4 = "bitsandbytes-fp4"
     gptq = "gptq"
     awq = "awq"
+    hqq_4bit = "hqq-4bit"
+    hqq_3bit = "hqq-3bit"
+    hqq_2bit = "hqq-2bit"
 
 
 class Dtype(str, Enum):
