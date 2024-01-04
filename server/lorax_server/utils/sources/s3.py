@@ -36,7 +36,7 @@ def _get_bucket_and_model_id(model_id: str) -> Tuple[str, str]:
     
     bucket = os.getenv("PREDIBASE_MODEL_BUCKET")
     if not bucket:
-        # assume that the model_id preceding the first slash is the bucket name
+        # assume that the id preceding the first slash is the bucket name
         if "/" not in model_id:
             raise ValueError(
                 f"Invalid model_id {model_id}. "
