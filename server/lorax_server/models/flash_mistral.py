@@ -18,6 +18,8 @@ from lorax_server.models.cache_manager import (
     get_cache_manager,
 )
 from lorax_server.models.custom_modeling.flash_mistral_modeling import (
+    GATE_UP_PROJ,
+    QKV_PROJ,
     FlashMistralForCausalLM,
     MistralConfig,
 )
@@ -39,7 +41,7 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
+ADAPTER_LAYERS = [QKV_PROJ, O_PROJ, GATE_UP_PROJ, DOWN_PROJ, LM_HEAD]
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 
@@ -442,6 +444,12 @@ class FlashMistral(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+    
+    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+        return {
+            QKV_PROJ: [Q_PROJ, K_PROJ, V_PROJ],
+            GATE_UP_PROJ: [GATE_PROJ, UP_PROJ],
+        }
     
     @property
     def adapter_layers(self) -> List[str]:

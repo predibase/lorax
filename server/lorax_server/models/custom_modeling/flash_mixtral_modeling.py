@@ -61,6 +61,7 @@ except ImportError:
     raise ImportError("Mixtral model requires stk to be installed")
 
 
+ATTN_QKV_PROJ = "attn.qkv_proj"
 ATTN_Q_PROJ = "attn.q_proj"
 ATTN_K_PROJ = "attn.k_proj"
 ATTN_V_PROJ = "attn.v_proj"
@@ -136,10 +137,8 @@ def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ], sizes=[
-            head_size * config.num_attention_heads,
-            head_size * config.num_key_value_heads,
-            head_size * config.num_key_value_heads,
+        base_layer, layer_id, [ATTN_QKV_PROJ], sizes=[
+            head_size * config.num_attention_heads + 2 * head_size * config.num_key_value_heads,
         ], process_group=weights.process_group
     )
 

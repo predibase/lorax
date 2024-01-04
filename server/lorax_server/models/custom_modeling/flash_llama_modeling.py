@@ -158,7 +158,7 @@ def load_attention(config, prefix, weights, layer_id):
     head_size = config.hidden_size // config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
         base_layer, layer_id, [QKV_PROJ], sizes=[
-            2 * head_size * config.num_attention_heads + head_size * config.num_key_value_heads,
+            head_size * config.num_attention_heads + 2 * head_size * config.num_key_value_heads,
         ], process_group=weights.process_group
     )
 

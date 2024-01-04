@@ -21,6 +21,7 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     ATTN_K_PROJ,
     ATTN_O_PROJ,
     ATTN_Q_PROJ,
+    ATTN_QKV_PROJ,
     ATTN_V_PROJ,
     MOE_W1,
     MOE_W2,
@@ -46,7 +47,7 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_O_PROJ, LM_HEAD]
+ADAPTER_LAYERS = [ATTN_QKV_PROJ, ATTN_O_PROJ, LM_HEAD]
 ROW_PARALLEL = {ATTN_O_PROJ, LM_HEAD}
 
 
@@ -450,6 +451,11 @@ class FlashMixtral(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+    
+    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+        return {
+            ATTN_QKV_PROJ: [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ],
+        }
     
     @property
     def adapter_layers(self) -> List[str]:
