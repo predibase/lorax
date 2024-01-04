@@ -1,14 +1,13 @@
 import os
 import time
 from datetime import timedelta
-from typing import Optional, List, Any
+from typing import TYPE_CHECKING, Optional, List, Any, Tuple
 
 from loguru import logger
 from pathlib import Path
 import boto3
 from botocore.config import Config
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
-
 
 from huggingface_hub.utils import (
     LocalEntryNotFoundError,
@@ -17,8 +16,41 @@ from huggingface_hub.utils import (
 
 from .source import BaseModelSource, try_to_load_from_cache
 
+if TYPE_CHECKING:
+    from boto3.resources.factory.s3 import Bucket
 
-def _get_bucket_resource():
+
+S3_PREFIX = "s3://"
+
+
+def _get_bucket_and_model_id(model_id: str) -> Tuple[str, str]:
+    if model_id.startswith(S3_PREFIX):
+        model_id_no_protocol = model_id[len(S3_PREFIX) :]
+        if "/" not in model_id_no_protocol:
+            raise ValueError(
+                f"Invalid model_id {model_id}. "
+                f"model_id should be of the form `s3://bucket_name/model_id`"
+            )
+        bucket_name, model_id = model_id_no_protocol.split("/", 1)
+        return bucket_name, model_id
+    
+    bucket = os.getenv("PREDIBASE_MODEL_BUCKET")
+    if not bucket:
+        # assume that the model_id preceding the first slash is the bucket name
+        if "/" not in model_id:
+            raise ValueError(
+                f"Invalid model_id {model_id}. "
+                f"model_id should be of the form `bucket_name/model_id` "
+                f"if PREDIBASE_MODEL_BUCKET environment variable is not set"
+            )
+        
+        bucket_name, model_id = model_id.split("/", 1)
+        return bucket_name, model_id
+    
+    return bucket, model_id
+    
+
+def _get_bucket_resource(bucket_name: str) -> "Bucket":
     """Get the s3 client"""
     config = Config(
         retries=dict(
@@ -27,10 +59,7 @@ def _get_bucket_resource():
         )
     )
     s3 = boto3.resource('s3', config=config)
-    bucket = os.getenv("PREDIBASE_MODEL_BUCKET")
-    if not bucket:
-        raise ValueError("PREDIBASE_MODEL_BUCKET environment variable is not set")
-    return s3.Bucket(bucket)
+    return s3.Bucket(bucket_name)
 
 
 def get_s3_model_local_dir(model_id: str):
@@ -172,10 +201,11 @@ class S3ModelSource(BaseModelSource):
             raise ValueError(f"model_id '{model_id}' is too short for prefix filtering")
 
         # TODO: add support for revisions of the same model
+        bucket, model_id = _get_bucket_and_model_id(model_id)
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
-        self.bucket = _get_bucket_resource()
+        self.bucket = _get_bucket_resource(bucket)
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
