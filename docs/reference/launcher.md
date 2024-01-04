@@ -1,6 +1,7 @@
 # LoRAX Launcher
 
 ```shell
+LoRAX Launcher
 
 Usage: lorax-launcher [OPTIONS]
 
@@ -24,7 +25,7 @@ Options:
           [default: hub]
 
       --adapter-source <ADAPTER_SOURCE>
-          The source of the model to load. Can be `hub` or `s3`. `hub` will load the model from the huggingface hub. `s3` will load the model from the predibase S3 bucket
+          The source of the model to load. Can be `hub` or `s3` or `pbase` `hub` will load the model from the huggingface hub. `s3` will load the model from the predibase S3 bucket. `pbase` will load an s3 model but resolve the metadata from a predibase server
           
           [env: ADAPTER_SOURCE=]
           [default: hub]
@@ -55,7 +56,12 @@ Options:
           Whether you want the model to be quantized. This will use `bitsandbytes` for quantization on the fly, or `gptq`
           
           [env: QUANTIZE=]
-          [possible values: bitsandbytes, bitsandbytes-nf4, bitsandbytes-fp4, gptq]
+          [possible values: bitsandbytes, bitsandbytes-nf4, bitsandbytes-fp4, gptq, awq]
+
+      --compile
+          Whether you want to compile the model into a CUDA graph. This will speed up decoding but increase GPU memory usage
+          
+          [env: COMPILE=]
 
       --dtype <DTYPE>
           The dtype to be forced upon the model. This option cannot be used with `--quantize`
@@ -152,13 +158,13 @@ Options:
       --hostname <HOSTNAME>
           The IP address to listen on
           
-          [env: HOSTNAME=b3687ab43244]
+          [env: HOSTNAME=]
           [default: 0.0.0.0]
 
   -p, --port <PORT>
           The port to listen on
           
-          [env: PORT=80]
+          [env: PORT=]
           [default: 3000]
 
       --shard-uds-path <SHARD_UDS_PATH>
@@ -182,7 +188,7 @@ Options:
       --huggingface-hub-cache <HUGGINGFACE_HUB_CACHE>
           The location of the huggingface hub cache. Used to override the location if you want to provide a mounted disk for instance
           
-          [env: HUGGINGFACE_HUB_CACHE=/data]
+          [env: HUGGINGFACE_HUB_CACHE=]
 
       --weights-cache-override <WEIGHTS_CACHE_OVERRIDE>
           The location of the huggingface hub cache. Used to override the location if you want to provide a mounted disk for instance

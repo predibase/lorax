@@ -43,8 +43,12 @@ class MPTSharded(CausalLM):
         model_id: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         trust_remote_code: bool = False,
     ):
+        if compile:
+            raise ValueError("`--compile` is not supported with MPT")
+        
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")

@@ -20,6 +20,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   constexpr auto fill_mode = cp_async::SharedMemFillMode::kFillZero;
   const uint32_t problem_id = blockIdx.y;
   const uint32_t bx = blockIdx.x;
+
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags = 8;
   constexpr uint32_t num_cells_k = (num_k_frags * 16) / cell_capacity<T>();
