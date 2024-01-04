@@ -1,6 +1,5 @@
 #pragma once
 #include <cooperative_groups.h>
-#include <cooperative_groups/reduce.h>
 
 #include "flashinfer/cp_async.cuh"
 #include "flashinfer/mma.cuh"
@@ -345,7 +344,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
     for (uint32_t i = 0; i < num_problems; ++i) {
       max_segment_size = max(max_segment_size, s_ends[i] - s_starts[i]);
     }
-    
+
     const uint32_t max_steps = (max_segment_size + (num_warps * 16 - 1)) / (num_warps * 16);
     for (uint32_t i = 0; i < max_steps - num_steps; ++i) {
       grid.sync();
