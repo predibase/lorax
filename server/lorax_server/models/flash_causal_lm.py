@@ -913,8 +913,6 @@ class FlashCausalLM(Model):
         )
 
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
-        global CACHE_MANAGER
-
         # Model Forward
         return self.model.forward(
             input_ids=batch.input_ids,
