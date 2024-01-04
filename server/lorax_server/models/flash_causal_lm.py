@@ -711,6 +711,9 @@ class FlashCausalLM(Model):
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         return {}
     
+    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+        return {}
+    
     @property
     def adapter_layers(self) -> List[str]:
         return []
@@ -750,11 +753,20 @@ class FlashCausalLM(Model):
                 self.model_id, adapter_id, adapter_source, weight_names
             )
 
+            layers_to_fuse = self.get_layers_to_fuse()
             unused_weight_names = adapter_weight_names.copy()
             for layer_name in self.adapter_layers:
-                self.load_batched_adapter_weights(
-                    module_map, adapter_config, adapter_index, layer_name, unused_weight_names
-                )
+                layer_parts = layers_to_fuse.get(layer_name, [layer_name])
+                merged_weights = [
+                    self.load_merged_adapter_weights(
+                        module_map, adapter_config, layer_part, unused_weight_names
+                    )
+                    for layer_part in layer_parts
+                ]
+                fused_weights = MergedLoraWeights.fuse(merged_weights)
+                
+                batched_weights = self.batched_lora_weights[layer_name]
+                batched_weights.add_adapter(adapter_index, fused_weights)
             
             if len(unused_weight_names) > 0:
                 logger.warning(f"{adapter_id} unused adapter weights: {unused_weight_names}")
@@ -782,14 +794,13 @@ class FlashCausalLM(Model):
 
         return weights_a, weights_b
 
-    def load_batched_adapter_weights(
-        self, 
-        module_map: Dict[str, Dict], 
-        adapter_config: LoraConfig, 
-        adapter_index: int, 
+    def load_merged_adapter_weights(
+        self,
+        module_map: Dict[str, Dict],
+        adapter_config: LoraConfig,
         layer_type: str,
         unused_weight_names: Set[str],
-    ):
+    ) -> MergedLoraWeights:
         nlayers = self.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
@@ -821,11 +832,9 @@ class FlashCausalLM(Model):
             lora_a_list[layer_id] = lora_a.transpose(0, 1)
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
 
-        q_lora_merged = MergedLoraWeights(
+        return MergedLoraWeights.load(
             *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type), adapter_config,
         )
-        q_lora_weights = self.batched_lora_weights[layer_type]
-        q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):
         """Offloads the adapter weights from GPU to CPU or disk."""

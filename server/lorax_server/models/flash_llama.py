@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
+    GATE_UP_PROJ,
+    QKV_PROJ,
     FlashLlamaForCausalLM,
     LlamaConfig,
 )
@@ -24,7 +26,7 @@ from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PRO
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
+ADAPTER_LAYERS = [QKV_PROJ, O_PROJ, GATE_UP_PROJ, DOWN_PROJ, LM_HEAD]
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 
@@ -127,6 +129,12 @@ class FlashLlama(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
+    
+    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+        return {
+            QKV_PROJ: [Q_PROJ, K_PROJ, V_PROJ],
+            GATE_UP_PROJ: [GATE_PROJ, UP_PROJ],
+        }
     
     @property
     def adapter_layers(self) -> List[str]:

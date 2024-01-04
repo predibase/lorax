@@ -6,7 +6,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank
+from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank, use_cutlass_shrink
 
 
 # Constants
@@ -87,26 +87,56 @@ class AdapterBatchData:
         return max(ranks) if len(ranks) > 0 else 0
 
 
+@dataclass
 class MergedLoraWeights:
     """LoRA weights for a single adapter merged across all layers."""
 
-    def __init__(
-        self,
+    weights_a: List[torch.Tensor]
+    weights_b: List[torch.Tensor]
+    adapter_config: LoraConfig
+
+    @staticmethod
+    def load(
         weights_a: List[torch.Tensor],
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
-    ):
-        # [num_layers, hidden_size, r]
+    ) -> "MergedLoraWeights":
+        # [num_layers, r, hidden_size] -> custom shrink
+        # [num_layers, hidden_size, r] -> cutlass shrink
         weights_a = [
             orient_for_rank(w, adapter_config.r).contiguous()
             for w in weights_a
         ]
-        self.weights_a = torch.stack(weights_a)
+        weights_a = torch.stack(weights_a)
+
+        # [num_layers, r, hidden_size] -> cutlass shrink
+        weights_b = torch.stack(weights_b)
+
+        return MergedLoraWeights(
+            weights_a=weights_a,
+            weights_b=weights_b,
+            adapter_config=adapter_config,
+        )
+
+    @staticmethod
+    def fuse(weights: List["MergedLoraWeights"]) -> "MergedLoraWeights":
+        assert len(weights) > 0
+        if len(weights) == 1:
+            return weights[0]
+        
+        stack_dim_a = 1 if use_cutlass_shrink(weights[0].adapter_config.r) else 2
+        weights_a = [w.weights_a for w in weights]
+        weights_a = torch.stack(weights_a, dim=stack_dim_a)
 
         # [num_layers, r, hidden_size]
-        self.weights_b = torch.stack(weights_b)
+        weights_b = [w.weights_b for w in weights]
+        weights_b = torch.stack(weights_b, dim=2)
 
-        self.adapter_config = adapter_config
+        return MergedLoraWeights(
+            weights_a=weights_a,
+            weights_b=weights_b,
+            adapter_config=weights[0].adapter_config,
+        )
 
 
 class BatchedLoraWeights:

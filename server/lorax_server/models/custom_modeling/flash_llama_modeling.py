@@ -41,7 +41,11 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, LM_HEAD, O_PROJ, AdapterBatchData
+
+
+QKV_PROJ = "self_attn.qkv_proj"
+GATE_UP_PROJ = "mlp.gate_up_proj"
 
 
 class LlamaConfig(PretrainedConfig):
@@ -153,10 +157,8 @@ def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
-            head_size * config.num_attention_heads,
-            head_size * config.num_key_value_heads,
-            head_size * config.num_key_value_heads,
+        base_layer, layer_id, [QKV_PROJ], sizes=[
+            2 * head_size * config.num_attention_heads + head_size * config.num_key_value_heads,
         ], process_group=weights.process_group
     )
 
@@ -354,9 +356,8 @@ class LlamaMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [GATE_PROJ, UP_PROJ], sizes=[
-                config.intermediate_size,
-                config.intermediate_size,
+            gate_up_proj, layer_id, [GATE_UP_PROJ], sizes=[
+                2 * config.intermediate_size,
             ], process_group=weights.process_group
         )
 
