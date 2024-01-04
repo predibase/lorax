@@ -24,6 +24,11 @@ except ImportError:
 HAS_HQQ = True
 try:
     from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+
+    class HQQLinearLayer(HQQLinear):
+        @property
+        def weight(self) -> torch.Tensor:
+            return self.W_q
 except ImportError:
     HAS_HQQ = False
 
@@ -292,7 +297,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             if bias is not None:
                 layer.bias.data = bias
         
-        linear = HQQLinear(layer, quant_config, del_orig=True)
+        linear = HQQLinearLayer(layer, quant_config, del_orig=True)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
