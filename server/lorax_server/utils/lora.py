@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 import torch
 from peft import LoraConfig
@@ -91,15 +91,41 @@ class AdapterBatchData:
 class MergedLoraWeights:
     """LoRA weights for a single adapter merged across all layers."""
 
-    weights_a: List[torch.Tensor]
-    weights_b: List[torch.Tensor]
+    weights_a: Optional[torch.Tensor]
+    weights_b: Optional[torch.Tensor]
     adapter_config: LoraConfig
+    nlayers: int
+    hidden_size: int
+    device: torch.device
+    dtype: torch.dtype
+
+    def is_empty(self) -> bool:
+        return self.weights_a is None or self.weights_b is None
+
+    @staticmethod
+    def empty(
+        adapter_config: LoraConfig, 
+        nlayers: int,
+        hidden_size: int, 
+        device: torch.device, 
+        dtype: torch.dtype,
+    ) -> "MergedLoraWeights":
+        return MergedLoraWeights(
+            weights_a=None,
+            weights_b=None,
+            adapter_config=adapter_config,
+            nlayers=nlayers,
+            hidden_size=hidden_size,
+            device=device,
+            dtype=dtype,
+        )
 
     @staticmethod
     def load(
         weights_a: List[torch.Tensor],
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
+        hidden_size: int,
     ) -> "MergedLoraWeights":
         # [num_layers, r, hidden_size] -> custom shrink
         # [num_layers, hidden_size, r] -> cutlass shrink
@@ -107,15 +133,19 @@ class MergedLoraWeights:
             orient_for_rank(w, adapter_config.r).contiguous()
             for w in weights_a
         ]
-        weights_a = torch.stack(weights_a)
+        weights_a: torch.Tensor = torch.stack(weights_a)
 
-        # [num_layers, r, hidden_size] -> cutlass shrink
-        weights_b = torch.stack(weights_b)
+        # [num_layers, r, hidden_size] -> cutlass expand
+        weights_b: torch.Tensor = torch.stack(weights_b)
 
         return MergedLoraWeights(
             weights_a=weights_a,
             weights_b=weights_b,
             adapter_config=adapter_config,
+            nlayers=weights_a.size(0),
+            hidden_size=hidden_size,
+            device=weights_a.device,
+            dtype=weights_a.dtype,
         )
 
     @staticmethod
@@ -124,18 +154,51 @@ class MergedLoraWeights:
         if len(weights) == 1:
             return weights[0]
         
-        stack_dim_a = 1 if use_cutlass_shrink(weights[0].adapter_config.r) else 2
-        weights_a = [w.weights_a for w in weights]
-        weights_a = torch.stack(weights_a, dim=stack_dim_a)
+        nlayers = weights[0].nlayers
+        hidden_size = sum(w.hidden_size for w in weights)
+        r = weights[0].adapter_config.r
 
-        # [num_layers, r, hidden_size]
-        weights_b = [w.weights_b for w in weights]
-        weights_b = torch.stack(weights_b, dim=2)
+        device = weights[0].device
+        dtype = weights[0].dtype
+
+        stack_dim_a = 1 if use_cutlass_shrink(r) else 2
+
+        if any(w.is_empty() for w in weights):
+            # copy in tensor slices into final tensor shape
+            if use_cutlass_shrink(r):
+                shape_a = (nlayers, hidden_size, r)
+            else:
+                shape_a = (nlayers, r, hidden_size)
+            weights_a = torch.zeros(shape_a, dtype=dtype, device=device)
+
+            shape_b = (nlayers, r, hidden_size)
+            weights_b = torch.zeros(shape_b, dtype=dtype, device=device)
+
+            for i, w in enumerate(weights):
+                if w.is_empty():
+                    continue
+                
+                if use_cutlass_shrink(r):
+                    weights_a[:, :, i*w.hidden_size:(i+1)*w.hidden_size] = w.weights_a
+                else:
+                    weights_a[:, i*w.hidden_size:(i+1)*w.hidden_size, :] = w.weights_a
+                weights_b[:, :, i*w.hidden_size:(i+1)*w.hidden_size] = w.weights_b
+        else:
+            weights_a = [w.weights_a for w in weights]
+            weights_a = torch.stack(weights_a, dim=stack_dim_a)
+
+            # [num_layers, r, hidden_size]
+            weights_b = [w.weights_b for w in weights]
+            weights_b = torch.stack(weights_b, dim=2)
 
         return MergedLoraWeights(
             weights_a=weights_a,
             weights_b=weights_b,
             adapter_config=weights[0].adapter_config,
+            nlayers=nlayers,
+            hidden_size=hidden_size,
+            device=device,
+            dtype=dtype,
         )
 
 

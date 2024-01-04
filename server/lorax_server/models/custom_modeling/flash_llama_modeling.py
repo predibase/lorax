@@ -464,6 +464,7 @@ class FlashLlamaModel(torch.nn.Module):
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
         self.num_key_value_heads = self.layers[0].self_attn.num_key_value_heads
+        self.intermediate_size = self.layers[0].mlp.intermediate_size
 
     def forward(
         self,

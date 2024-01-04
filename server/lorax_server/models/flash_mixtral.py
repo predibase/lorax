@@ -452,9 +452,17 @@ class FlashMixtral(FlashCausalLM):
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
     
-    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+    def get_layers_to_fuse(self) -> Dict[str, List[Tuple[str, int]]]:
+        head_size = self.model.model.head_size
+        num_heads = self.model.model.num_heads
+        num_kv_heads = self.model.model.num_key_value_heads
+
         return {
-            ATTN_QKV_PROJ: [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ],
+            ATTN_QKV_PROJ: [
+                (ATTN_Q_PROJ, head_size * num_heads),
+                (ATTN_K_PROJ, head_size * num_kv_heads),
+                (ATTN_V_PROJ, head_size * num_kv_heads),
+            ],
         }
     
     @property

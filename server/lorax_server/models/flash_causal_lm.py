@@ -711,7 +711,7 @@ class FlashCausalLM(Model):
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         return {}
     
-    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+    def get_layers_to_fuse(self) -> Dict[str, List[Tuple[str, int]]]:
         return {}
     
     @property
@@ -756,17 +756,26 @@ class FlashCausalLM(Model):
             layers_to_fuse = self.get_layers_to_fuse()
             unused_weight_names = adapter_weight_names.copy()
             for layer_name in self.adapter_layers:
-                layer_parts = layers_to_fuse.get(layer_name, [layer_name])
+                layer_parts = layers_to_fuse.get(layer_name, [(layer_name, 0)])
                 merged_weights = [
                     self.load_merged_adapter_weights(
-                        module_map, adapter_config, layer_part, unused_weight_names
+                        module_map,
+                        adapter_config,
+                        layer_part,
+                        hidden_size,
+                        unused_weight_names,
                     )
-                    for layer_part in layer_parts
+                    for layer_part, hidden_size in layer_parts
                 ]
+
+                if all(w.is_empty() for w in merged_weights):
+                    # No weights for this layer type, so skip
+                    continue
+
                 fused_weights = MergedLoraWeights.fuse(merged_weights)
-                
-                batched_weights = self.batched_lora_weights[layer_name]
-                batched_weights.add_adapter(adapter_index, fused_weights)
+                if fused_weights is not None:
+                    batched_weights = self.batched_lora_weights[layer_name]
+                    batched_weights.add_adapter(adapter_index, fused_weights)
             
             if len(unused_weight_names) > 0:
                 logger.warning(f"{adapter_id} unused adapter weights: {unused_weight_names}")
@@ -798,9 +807,10 @@ class FlashCausalLM(Model):
         self,
         module_map: Dict[str, Dict],
         adapter_config: LoraConfig,
+        hidden_size: int,
         layer_type: str,
         unused_weight_names: Set[str],
-    ) -> MergedLoraWeights:
+    ) -> Optional[MergedLoraWeights]:
         nlayers = self.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
@@ -814,7 +824,13 @@ class FlashCausalLM(Model):
 
             if weight_name not in module_map:
                 # There is no LoRA weight for this layer type in the adapter
-                return
+                return MergedLoraWeights.empty(
+                    adapter_config, 
+                    nlayers,
+                    hidden_size, 
+                    base_device, 
+                    self.dtype,
+                )
             
             lora_a, lora_a_name = module_map[weight_name]["lora_A"]
             lora_a = lora_a.to(base_device, self.dtype)
@@ -833,7 +849,9 @@ class FlashCausalLM(Model):
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
 
         return MergedLoraWeights.load(
-            *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type), adapter_config,
+            *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type),
+            adapter_config,
+            hidden_size,
         )
     
     def offload_adapter(self, adapter_id, adapter_source, adapter_index):

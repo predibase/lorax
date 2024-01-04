@@ -445,10 +445,22 @@ class FlashMistral(FlashCausalLM):
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
     
-    def get_layers_to_fuse(self) -> Dict[str, Tuple[List[str]]]:
+    def get_layers_to_fuse(self) -> Dict[str, List[Tuple[str, int]]]:
+        head_size = self.model.model.head_size
+        num_heads = self.model.model.num_heads
+        num_kv_heads = self.model.model.num_key_value_heads
+        intermediate_size = self.model.model.intermediate_size
+
         return {
-            QKV_PROJ: [Q_PROJ, K_PROJ, V_PROJ],
-            GATE_UP_PROJ: [GATE_PROJ, UP_PROJ],
+            QKV_PROJ: [
+                (Q_PROJ, head_size * num_heads),
+                (K_PROJ, head_size * num_kv_heads),
+                (V_PROJ, head_size * num_kv_heads),
+            ],
+            GATE_UP_PROJ: [
+                (GATE_PROJ, intermediate_size),
+                (UP_PROJ, intermediate_size),
+            ],
         }
     
     @property
