@@ -161,42 +161,40 @@ class MergedLoraWeights:
         device = weights[0].device
         dtype = weights[0].dtype
 
-        stack_dim_a = 1 if use_cutlass_shrink(r) else 2
+        n = len(weights)
+        d_in = 4096
+        d_out = hidden_size
 
-        if any(w.is_empty() for w in weights):
-            # copy in tensor slices into final tensor shape
-            if use_cutlass_shrink(r):
-                shape_a = (nlayers, hidden_size, r)
-            else:
-                shape_a = (nlayers, r, hidden_size)
-            weights_a = torch.zeros(shape_a, dtype=dtype, device=device)
-
-            shape_b = (nlayers, r, hidden_size)
-            weights_b = torch.zeros(shape_b, dtype=dtype, device=device)
-
-            start_idx = 0
-            for w in weights:
-                end_idx = start_idx + w.hidden_size
-
-                if w.is_empty():
-                    start_idx = end_idx
-                    continue
-
-                print(w.hidden_size, w.weights_a.shape, w.weights_b.shape, start_idx, end_idx)  
-                if use_cutlass_shrink(r):
-                    weights_a[:, start_idx:end_idx, :] = w.weights_a
-                else:
-                    weights_a[:, :, start_idx:end_idx] = w.weights_a
-                weights_b[:, :, start_idx:end_idx] = w.weights_b
-                
-                start_idx = end_idx
+        # copy in tensor slices into final tensor shape
+        if use_cutlass_shrink(r):
+            shape_a = (nlayers, d_in, r * n)
         else:
-            weights_a = [w.weights_a for w in weights]
-            weights_a = torch.stack(weights_a, dim=stack_dim_a)
+            shape_a = (nlayers, r * n, d_in)
+        weights_a = torch.zeros(shape_a, dtype=dtype, device=device)
 
-            # [num_layers, r, hidden_size]
-            weights_b = [w.weights_b for w in weights]
-            weights_b = torch.stack(weights_b, dim=2)
+        shape_b = (nlayers, r * n, d_out)
+        weights_b = torch.zeros(shape_b, dtype=dtype, device=device)
+
+        start_idx_r = 0
+        start_idx_d_out = 0
+        for w in weights:
+            end_idx_r = start_idx_r + r
+            end_idx_d_out = start_idx_d_out + w.hidden_size
+
+            if w.is_empty():
+                end_idx_r = end_idx_r
+                end_idx_d_out = end_idx_d_out
+                continue
+
+            print(w.hidden_size, w.weights_a.shape, w.weights_b.shape, start_idx_r, end_idx_r, start_idx_d_out, end_idx_d_out)
+            if use_cutlass_shrink(r):
+                weights_a[:, :, start_idx_r:end_idx_r] = w.weights_a
+            else:
+                weights_a[:, start_idx_r:end_idx_r, :] = w.weights_a
+            weights_b[:, start_idx_r:end_idx_r, start_idx_d_out:end_idx_d_out] = w.weights_b
+            
+            end_idx_r = end_idx_r
+            end_idx_d_out = end_idx_d_out
 
         return MergedLoraWeights(
             weights_a=weights_a,
