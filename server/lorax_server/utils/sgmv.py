@@ -15,6 +15,8 @@ except ImportError:
 
 
 MIN_SGMV_RANK = 8
+
+# custom sgmv shrink only supports ranks divisible by 16
 MIN_RANK_CUSTOM = 16
 MAX_RANK_CUSTOM = 128
 
@@ -24,11 +26,11 @@ def has_sgmv() -> bool:
 
 
 def use_cutlass_shrink(lora_rank: int) -> bool:
-    return lora_rank < MIN_RANK_CUSTOM
+    return lora_rank % MIN_RANK_CUSTOM != 0 or lora_rank > MAX_RANK_CUSTOM
 
 
 def orient_for_rank(t: torch.Tensor, rank: int) -> torch.Tensor:
-    if MIN_RANK_CUSTOM <= rank <= MAX_RANK_CUSTOM:
+    if not use_cutlass_shrink(rank) and rank:
         return t.transpose(0, 1)
     return t
 
@@ -124,7 +126,7 @@ def lora_a_sgmv_cutlass(
     lora_rank: int,
 ) -> torch.Tensor:
     v = torch.zeros((x.size(0), lora_rank), dtype=x.dtype, device=x.device)
-    if MIN_RANK_CUSTOM <= lora_rank <= MAX_RANK_CUSTOM:
+    if not use_cutlass_shrink(lora_rank):
         _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
     else:
         _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
