@@ -24,7 +24,7 @@ except ImportError:
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
+from lorax_server.utils.sgmv import lora_a_sgmv, lora_b_sgmv, has_sgmv, orient_for_rank
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -415,7 +415,7 @@ class TensorParallelAdapterLinear(nn.Module):
                 lora_a_ptr = rank_segments.lora_a_ptr
                 lora_b_ptr = rank_segments.lora_b_ptr
                 if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v = lora_a_sgmv_cutlass(
+                    v = lora_a_sgmv(
                         input,
                         rank_segments.tmp_shrink,
                         lora_a_ptr,
@@ -428,7 +428,7 @@ class TensorParallelAdapterLinear(nn.Module):
                     if self.process_group.size() > 1:
                         v = self.collect_lora_a(v)
 
-                    lora_b_sgmv_cutlass(
+                    lora_b_sgmv(
                         proj,
                         v,
                         rank_segments.tmp_expand,

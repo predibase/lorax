@@ -4,8 +4,8 @@ import torch
 
 from lorax_server.utils.sgmv import (
     get_tmp_tensors,
-    lora_a_sgmv_cutlass,
-    lora_b_sgmv_cutlass,
+    lora_a_sgmv,
+    lora_b_sgmv,
     has_sgmv,
     use_cutlass_shrink,
 )
@@ -67,6 +67,7 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     s1, s2 = segments
     s_start = torch.tensor(s1, dtype=torch.int32, device=device)
     s_end = torch.tensor(s2, dtype=torch.int32, device=device)
+    ranks = torch.tensor([r] * len(s1), dtype=torch.int32, device=device)
 
     wa_list = [wa if y - x > 0 else None for x, y in zip(s1, s2)]
     wb_list = [wb if y - x > 0 else None for x, y in zip(s1, s2)]
@@ -82,8 +83,8 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), r, x.device)
     y_ours = torch.zeros((B, H), dtype=torch.float16, device=device)
 
-    v = lora_a_sgmv_cutlass(x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, r)
-    lora_b_sgmv_cutlass(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
+    v = lora_a_sgmv(x, tmp_shrink, wa_ptr, s_start, s_end, ranks, r, layer_idx)
+    lora_b_sgmv(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
 
     assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)
 
@@ -94,8 +95,8 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     torch.cuda.synchronize(device)
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph, pool=None):
-        v = lora_a_sgmv_cutlass(x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, r)
-        lora_b_sgmv_cutlass(y_ours_graph, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
+        v = lora_a_sgmv(x, tmp_shrink, wa_ptr, s_start, s_end, ranks, r, layer_idx)
+        lora_b_sgmv(y_ours_graph, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
 
     torch.cuda.synchronize(device)
     graph.replay()
@@ -155,7 +156,7 @@ def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), max_r, x.device)
     y_ours = torch.zeros((B, H), dtype=torch.float16, device=device)
 
-    v = lora_a_sgmv_cutlass(x, tmp_shrink, wa_ptr, s_start, s_end, ranks, max_r, layer_idx)
-    lora_b_sgmv_cutlass(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
+    v = lora_a_sgmv(x, tmp_shrink, wa_ptr, s_start, s_end, ranks, max_r, layer_idx)
+    lora_b_sgmv(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
 
     assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)

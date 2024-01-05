@@ -114,7 +114,7 @@ def get_tmp_tensors(nsegments: int, lora_rank: int, device: torch.device) -> Tup
         return tmp_shrink, tmp_expand
 
 
-def lora_a_sgmv_cutlass(
+def lora_a_sgmv(
     x: torch.Tensor,
     tmp: torch.Tensor,
     wa_ptr: torch.Tensor,
@@ -132,7 +132,7 @@ def lora_a_sgmv_cutlass(
     return v
 
 
-def lora_b_sgmv_cutlass(
+def lora_b_sgmv(
     y: torch.Tensor,
     v: torch.Tensor,
     tmp: torch.Tensor,
