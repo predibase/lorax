@@ -101,3 +101,60 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     graph.replay()
 
     assert torch.allclose(y_ours, y_ours_graph, rtol=1e-2, atol=1e-3)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not has_sgmv(), reason="SGMV not available")
+@pytest.mark.parametrize("lora_ranks, segments", [
+    ([16, 32], ([0, 2], [1, 3])),
+])
+def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[int]]):
+    torch.manual_seed(42)
+
+    B = 3
+    H = 1024
+    max_r = max(lora_ranks)
+    nlayers = 2
+
+    device = torch.device("cuda:0")
+    
+    y = torch.zeros((B, H), dtype=torch.float16, device=device)
+    x = torch.randn((B, H), dtype=torch.float16, device=device)
+
+    wa_list = []
+    wb_list = []
+    for r in lora_ranks:
+        wa = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
+        if use_cutlass_shrink(r):
+            # cutlass uses (H, r) layout
+            wa = wa.transpose(1, 2).contiguous()
+
+        # TODO(travis): transpose (r, H) -> (H, r) when not using cutlass
+        wb = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
+
+        wa_list.append(wa)
+        wb_list.append(wb)
+
+    s1, s2 = segments
+    s_start = torch.tensor(s1, dtype=torch.int32, device=device)
+    s_end = torch.tensor(s2, dtype=torch.int32, device=device)
+
+    # Filter list to remove empty segments
+    wa_list = [wa if y - x > 0 else None for wa, x, y in zip(wa_list, s1, s2)]
+    wb_list = [wb if y - x > 0 else None for wb, x, y in zip(wb_list, s1, s2)]
+
+    wa_ptr = torch.tensor([wa.data_ptr() if wa is not None else 0 for wa in wa_list], dtype=torch.int64, device=device)
+    wb_ptr = torch.tensor([wb.data_ptr() if wb is not None else 0 for wb in wb_list], dtype=torch.int64, device=device)
+
+    layer_idx = 0
+
+    y_ref = y.clone()
+    lora_ref_impl(y_ref, x, wa_list, wb_list, s_start, s_end, layer_idx, max_r)
+
+    tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), max_r, x.device)
+    y_ours = torch.zeros((B, H), dtype=torch.float16, device=device)
+
+    v = lora_a_sgmv_cutlass(x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, max_r)
+    lora_b_sgmv_cutlass(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
+
+    assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)
