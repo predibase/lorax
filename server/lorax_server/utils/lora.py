@@ -140,11 +140,13 @@ class BatchedLoraWeights:
         """
         first_weights = list(self.lora_weights.values())[0]
         device = first_weights.weights_a.device
-        segment_indices = meta.segment_indices
+
+        # Maps from a segment index to the adapter index
+        segment_adapter_idx = meta.segment_indices
 
         lora_a = {
             idx: self.lora_weights[idx].weights_a
-            for idx in segment_indices
+            for idx in segment_adapter_idx
             if idx in self.lora_weights
         }
         lora_a_ptr = torch.tensor(
@@ -153,14 +155,14 @@ class BatchedLoraWeights:
                     self.lora_weights[idx].weights_a.data_ptr()
                     if idx in self.lora_weights 
                     else EMPTY_TENSOR.data_ptr()
-                ) for idx in segment_indices
+                ) for idx in segment_adapter_idx
             ],
             dtype=torch.int64,
             device=device,
         )
         lora_b = {
             idx: self.lora_weights[idx].weights_b
-            for idx in segment_indices
+            for idx in segment_adapter_idx
             if idx in self.lora_weights
         }
         lora_b_ptr = torch.tensor(
@@ -169,39 +171,52 @@ class BatchedLoraWeights:
                     self.lora_weights[idx].weights_b.data_ptr() 
                     if idx in self.lora_weights 
                     else EMPTY_TENSOR.data_ptr()
-                ) for idx in segment_indices
+                ) for idx in segment_adapter_idx
             ],
             dtype=torch.int64,
             device=device,
         )
 
+        ranks_list = [
+            (
+                self.lora_weights[idx].adapter_config.r
+                if idx in self.lora_weights
+                else 0
+            )
+            for idx in segment_adapter_idx
+        ]
+        ranks = torch.tensor(ranks_list, dtype=torch.int32, device=device)
+        max_rank = max(ranks_list)
+
         adapter_index_configs = {
             idx: self.lora_weights[idx].adapter_config
-            for idx in segment_indices
+            for idx in segment_adapter_idx
             if idx in self.lora_weights
         }
 
-        rank_list = [
-            adapter_config.r
-            for adapter_config in adapter_index_configs.values()
+        # Ordered indices of segments that have adapters,
+        # which aligns wa_ptr, wb_ptr, s_start, s_end, and ranks
+        indices = [
+            segment_idx
+            for segment_idx, adapter_idx in enumerate(segment_adapter_idx)
+            if adapter_idx in self.lora_weights
         ]
-        ranks = torch.tensor(rank_list, dtype=torch.int32, device=device)
-        max_rank = max(rank_list)
 
-        tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr.size(0), max_rank, device)
+        lora_a_ptr_indices = lora_a_ptr[indices]
+        tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), max_rank, device)
         segment_block = SegmentBlock(
             max_rank=max_rank,
             tmp_shrink=tmp_shrink,
             tmp_expand=tmp_expand,
-            lora_a_ptr=lora_a_ptr,
-            lora_b_ptr=lora_b_ptr,
-            segment_starts=meta.adapter_segments[segment_indices],
-            segment_ends=meta.adapter_segments[[i+1 for i in segment_indices]],
-            ranks=ranks,
+            lora_a_ptr=lora_a_ptr_indices,
+            lora_b_ptr=lora_b_ptr[indices],
+            segment_starts=meta.adapter_segments[indices],
+            segment_ends=meta.adapter_segments[[i+1 for i in indices]],
+            ranks=ranks[indices],
         )
 
         return AdapterWeightData(
-            lora_a=lora_a, 
+            lora_a=lora_a,
             lora_b=lora_b,
             adapter_index_configs=adapter_index_configs,
             segment_data=segment_block,
