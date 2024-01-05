@@ -25,14 +25,15 @@ EMPTY_TENSOR = torch.tensor([])
 
 
 @dataclass
-class RankSegments:
-    rank: int
+class SegmentBlock:
+    max_rank: int
     tmp_shrink: torch.Tensor
     tmp_expand: torch.Tensor
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
     segment_starts: torch.Tensor
     segment_ends: torch.Tensor
+    ranks: torch.Tensor
 
 
 @dataclass
@@ -40,15 +41,15 @@ class AdapterWeightData:
     lora_a: Dict[int, torch.Tensor]
     lora_b: Dict[int, torch.Tensor]
     adapter_index_configs: Dict[int, LoraConfig]
-    rank_data: Dict[int, RankSegments]
+    segment_data: SegmentBlock
     
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
     
     def can_vectorize(self, pg: ProcessGroup) -> bool:
-        return all(
-            rank_data.rank // pg.size() >= MIN_SGMV_RANK
-            for rank_data in self.rank_data.values()
+        return self.segment_data.max_rank > 0 and all(
+            adapter_config.r // pg.size() >= MIN_SGMV_RANK
+            for adapter_config in self.adapter_index_configs.values()
         )
     
 
@@ -76,9 +77,9 @@ class AdapterBatchData:
     
     def ranks(self) -> Set[int]:
         return set(
-            rank_data.rank
+            config.r
             for layer in self.data.values()
-            for rank_data in layer.rank_data.values()
+            for config in layer.adapter_index_configs.values()
         )
     
     @property
@@ -139,7 +140,6 @@ class BatchedLoraWeights:
         """
         first_weights = list(self.lora_weights.values())[0]
         device = first_weights.weights_a.device
-        dtype = first_weights.weights_a.dtype
         segment_indices = meta.segment_indices
 
         lora_a = {
@@ -181,30 +181,28 @@ class BatchedLoraWeights:
             if idx in self.lora_weights
         }
 
-        rank_indices = defaultdict(list)
-        for segment_idx, adapter_idx in enumerate(segment_indices):
-            if adapter_idx not in self.lora_weights:
-                continue
-            rank_indices[self.lora_weights[adapter_idx].adapter_config.r].append(segment_idx)
+        rank_list = [
+            adapter_config.r
+            for adapter_config in adapter_index_configs.values()
+        ]
+        ranks = torch.tensor(rank_list, dtype=torch.int32, device=device)
+        max_rank = max(rank_list)
 
-        rank_data = {}
-        for rank, indices in rank_indices.items():
-            lora_a_ptr_indices = lora_a_ptr[indices]
-            tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
-
-            rank_data[rank] = RankSegments(
-                rank=rank,
-                tmp_shrink=tmp_shrink,
-                tmp_expand=tmp_expand,
-                lora_a_ptr=lora_a_ptr_indices,
-                lora_b_ptr=lora_b_ptr[indices],
-                segment_starts=meta.adapter_segments[indices],
-                segment_ends=meta.adapter_segments[[i+1 for i in indices]],
-            )
+        tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr.size(0), max_rank, device)
+        segment_block = SegmentBlock(
+            max_rank=max_rank,
+            tmp_shrink=tmp_shrink,
+            tmp_expand=tmp_expand,
+            lora_a_ptr=lora_a_ptr,
+            lora_b_ptr=lora_b_ptr,
+            segment_starts=meta.adapter_segments[segment_indices],
+            segment_ends=meta.adapter_segments[[i+1 for i in segment_indices]],
+            ranks=ranks,
+        )
 
         return AdapterWeightData(
             lora_a=lora_a, 
             lora_b=lora_b,
             adapter_index_configs=adapter_index_configs,
-            rank_data=rank_data,
+            segment_data=segment_block,
         )

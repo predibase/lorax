@@ -411,33 +411,33 @@ class TensorParallelAdapterLinear(nn.Module):
             else:
                 proj = result
 
-            for r, rank_segments in data.rank_data.items():
-                lora_a_ptr = rank_segments.lora_a_ptr
-                lora_b_ptr = rank_segments.lora_b_ptr
-                if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v = lora_a_sgmv(
-                        input,
-                        rank_segments.tmp_shrink,
-                        lora_a_ptr,
-                        rank_segments.segment_starts,
-                        rank_segments.segment_ends,
-                        rank_segments.ranks,
-                        r // self.process_group.size(),
-                        self.layer_id,
-                    )
+            segment_data = data.segment_data
+            lora_a_ptr = segment_data.lora_a_ptr
+            lora_b_ptr = segment_data.lora_b_ptr
+            if lora_a_ptr is not None and lora_b_ptr is not None:
+                v = lora_a_sgmv(
+                    input,
+                    segment_data.tmp_shrink,
+                    lora_a_ptr,
+                    segment_data.segment_starts,
+                    segment_data.segment_ends,
+                    segment_data.ranks,
+                    segment_data.max_rank // self.process_group.size(),
+                    self.layer_id,
+                )
 
-                    if self.process_group.size() > 1:
-                        v = self.collect_lora_a(v)
+                if self.process_group.size() > 1:
+                    v = self.collect_lora_a(v)
 
-                    lora_b_sgmv(
-                        proj,
-                        v,
-                        rank_segments.tmp_expand,
-                        lora_b_ptr,
-                        rank_segments.segment_starts,
-                        rank_segments.segment_ends,
-                        self.layer_id,
-                    )
+                lora_b_sgmv(
+                    proj,
+                    v,
+                    segment_data.tmp_expand,
+                    lora_b_ptr,
+                    segment_data.segment_starts,
+                    segment_data.segment_ends,
+                    self.layer_id,
+                )
             
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj

@@ -11,7 +11,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, RankSegments
+from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, SegmentBlock
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
 from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
 
@@ -93,17 +93,16 @@ def get_max_graph_state(device: torch.device, adapter_layers: Tuple[str]) -> Gra
             lora_a={},
             lora_b={},
             adapter_index_configs={},
-            rank_data={
-                MAX_RANK: RankSegments(
-                    rank=MAX_RANK,
-                    tmp_shrink=tmp_shrink,
-                    tmp_expand=tmp_expand,
-                    lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
-                    segment_ends=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
-                ),
-            },
+            segment_data=SegmentBlock(
+                max_rank=MAX_RANK,
+                tmp_shrink=tmp_shrink,
+                tmp_expand=tmp_expand,
+                lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
+                segment_ends=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
+                ranks=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
+            )
         )
 
     return GraphState(
@@ -161,7 +160,7 @@ class GraphWrapper:
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
             tmp_expand_size = get_tmp_expand_size(segment_size)
 
-            tmp_shrink = weight_data.rank_data[MAX_RANK].tmp_shrink
+            tmp_shrink = weight_data.segment_data.tmp_shrink
             if use_cutlass_shrink(max_rank):
                 # cutlass shrink uses a custom temp buffer per rank
                 tmp_shrink = tmp_shrink[:tmp_expand_size]
@@ -170,17 +169,16 @@ class GraphWrapper:
                 lora_a={},
                 lora_b={},
                 adapter_index_configs={},
-                rank_data={
-                    max_rank: RankSegments(
-                        rank=max_rank,
-                        tmp_shrink=tmp_shrink,
-                        tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
-                        lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
-                        lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
-                        segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
-                        segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
-                    ),
-                } if max_rank > 0 else {},
+                segment_data=SegmentBlock(
+                    max_rank=max_rank,
+                    tmp_shrink=tmp_shrink,
+                    tmp_expand=weight_data.segment_data.tmp_expand[:tmp_expand_size],
+                    lora_a_ptr=weight_data.segment_data.lora_a_ptr[:segment_size],
+                    lora_b_ptr=weight_data.segment_data.lora_b_ptr[:segment_size],
+                    segment_starts=weight_data.segment_data.segment_starts[:segment_size],
+                    segment_ends=weight_data.segment_data.segment_ends[:segment_size],
+                    ranks=weight_data.segment_data.ranks[:segment_size],
+                ),
             )
 
         input_state = GraphState(
@@ -247,21 +245,21 @@ class GraphWrapper:
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             if layer_name not in adapter_data.data:
                 # zero out all the segments
-                for rank_data in weight_data.rank_data.values():
-                    rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
-                    rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
+                weight_data.segment_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
+                weight_data.segment_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                 continue
             
             source_data = adapter_data.data[layer_name]
             dest_data = weight_data
-            for rank, source_rank_data in source_data.rank_data.items():
-                dest_rank_data = dest_data.rank_data[rank]
 
-                pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
-                pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
+            source_segment_data = source_data.segment_data
+            dest_segment_data = dest_data.segment_data
 
-                pad_and_fill(dest_rank_data.segment_starts, source_rank_data.segment_starts, SEGMENT_PAD_VALUE)
-                pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
+            pad_and_fill(dest_segment_data.lora_a_ptr, source_segment_data.lora_a_ptr, 0)
+            pad_and_fill(dest_segment_data.lora_b_ptr, source_segment_data.lora_b_ptr, 0)
+
+            pad_and_fill(dest_segment_data.segment_starts, source_segment_data.segment_starts, SEGMENT_PAD_VALUE)
+            pad_and_fill(dest_segment_data.segment_ends, source_segment_data.segment_ends, SEGMENT_PAD_VALUE)
         
         self.graph.replay()
 
