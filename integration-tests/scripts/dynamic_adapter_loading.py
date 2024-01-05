@@ -105,8 +105,8 @@ completes the request.
 
 ### Response:
 """
-    # NUM_REQUESTS = 500
-    NUM_REQUESTS = 2
+    NUM_REQUESTS = 500
+    # NUM_REQUESTS = 2
 
     # N = 0
     # adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
