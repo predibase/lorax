@@ -44,7 +44,7 @@ import numpy as np
 
 
 def query_lorax(args):
-    prompt, adapter_id = args
+    prompt, adapter_id, adapter_source = args
     start_t = time.time()
     request_params = {
         "max_new_tokens": 128,
@@ -52,7 +52,7 @@ def query_lorax(args):
         "details": True,
     }
     if adapter_id is not None:
-        request_params["adapter_source"] = "local"
+        request_params["adapter_source"] = adapter_source
         request_params["adapter_id"] = adapter_id
         
     print("request_params", request_params)    
@@ -105,22 +105,29 @@ completes the request.
 
 ### Response:
 """
-    NUM_REQUESTS = 500
+    # NUM_REQUESTS = 500
+    NUM_REQUESTS = 2
+
     # N = 0
     # adapters = [get_local_path("arnavgrg/codealpaca_v3")] + [
     #     get_local_path(f"arnavgrg/codealpaca_v3_{i}")
     #     for i in range(1, N)
     # ]
 
+    adapter_source = "hub"
+
     # Mistral
-    # prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
-    # adapters = [
-    #     "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    # ]
+    prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
+    adapters = [
+        # "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",  # r8
+        "IlyaGusev/saiga_mistral_7b_lora",  # r16
+        "alignment-handbook/zephyr-7b-dpo-lora",  # r64
+    ]
     
     # GPT2
-    prompt = "Brand Name : First Aid Beauty ; Product Name : Ultra Repair Cream Intense Hydration ; Review Title :"
-    adapters = ["/data/adapters/9789adb7-cd03-4862-91d5-b41b6746682e_ludwig/model_weights"]
+    # prompt = "Brand Name : First Aid Beauty ; Product Name : Ultra Repair Cream Intense Hydration ; Review Title :"
+    # adapters = ["/data/adapters/9789adb7-cd03-4862-91d5-b41b6746682e_ludwig/model_weights"]
+    # adapter_source = "local"
 
     adapters += [None]
     # adapters = [None]
@@ -168,7 +175,7 @@ completes the request.
     args_list = []
     for i in range(NUM_REQUESTS):
         adapter_id = adapters[i % len(adapters)]
-        args_list.append((prompt, adapter_id))
+        args_list.append((prompt, adapter_id, adapter_source))
 
     start_t = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:

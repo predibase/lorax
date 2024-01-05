@@ -436,6 +436,7 @@ class TensorParallelAdapterLinear(nn.Module):
                     lora_b_ptr,
                     segment_data.segment_starts,
                     segment_data.segment_ends,
+                    segment_data.ranks,
                     self.layer_id,
                 )
             

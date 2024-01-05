@@ -139,9 +139,10 @@ def lora_b_sgmv(
     wb_ptr: torch.Tensor,
     s_start: torch.IntTensor,
     s_end: torch.IntTensor,
+    ranks: torch.IntTensor,
     layer_idx: int,
 ):
-    _kernels.sgmv_cutlass(y, v, wb_ptr, s_start, s_end, tmp, layer_idx)
+    _kernels.sgmv_cutlass(y, v, wb_ptr, s_start, s_end, ranks, tmp, layer_idx)
 
 
 """
