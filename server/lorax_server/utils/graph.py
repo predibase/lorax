@@ -285,7 +285,6 @@ class GraphCache:
         adapter_data: AdapterBatchData,
     ) -> bool:
         ranks = adapter_data.ranks()
-        nranks = len(ranks)
         max_rank = max(ranks) if len(ranks) > 0 else 0
 
         batch_size = batch.input_ids.shape[0]
@@ -297,7 +296,6 @@ class GraphCache:
             and batch_size <= MAX_BATCH_SIZE
             and max_s <= MAX_CONTEXT_LENGTH
             and max_rank <= MAX_RANK
-            and nranks <= 1
             and max_rank in _allowed_ranks
         )
     
