@@ -162,7 +162,7 @@ class MergedLoraWeights:
         dtype = weights[0].dtype
 
         n = len(weights)
-        d_in = 4096
+        d_in = 4096  # TODO(travis): this should come from the model config
         d_out = hidden_size
 
         # copy in tensor slices into final tensor shape
