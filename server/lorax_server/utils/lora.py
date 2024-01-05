@@ -1,4 +1,5 @@
 from collections import defaultdict
+from copy import copy
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
@@ -196,10 +197,13 @@ class MergedLoraWeights:
             end_idx_r = end_idx_r
             end_idx_d_out = end_idx_d_out
 
+        adapter_config = copy(weights[0].adapter_config)
+        adapter_config.r = r * n
+
         return MergedLoraWeights(
             weights_a=weights_a,
             weights_b=weights_b,
-            adapter_config=weights[0].adapter_config,
+            adapter_config=adapter_config,
             nlayers=nlayers,
             hidden_size=hidden_size,
             device=device,
