@@ -754,6 +754,7 @@ class FlashCausalLM(Model):
             )
 
             layers_to_fuse = self.get_layers_to_fuse()
+            print("layers_to_fust", layers_to_fuse)
             unused_weight_names = adapter_weight_names.copy()
             for layer_name in self.adapter_layers:
                 layer_parts = layers_to_fuse.get(layer_name, [(layer_name, 0)])
@@ -807,8 +808,8 @@ class FlashCausalLM(Model):
         self,
         module_map: Dict[str, Dict],
         adapter_config: LoraConfig,
-        hidden_size: int,
         layer_type: str,
+        hidden_size: int,
         unused_weight_names: Set[str],
     ) -> Optional[MergedLoraWeights]:
         nlayers = self.get_num_layers_for_type(layer_type)

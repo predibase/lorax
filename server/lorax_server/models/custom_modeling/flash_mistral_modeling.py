@@ -245,6 +245,7 @@ class MistralAttention(torch.nn.Module):
         )
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
+        print("query_key_value", self.query_key_value.base_layer.linear.weight.shape)
 
         self.o_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,

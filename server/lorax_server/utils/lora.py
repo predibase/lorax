@@ -176,11 +176,13 @@ class MergedLoraWeights:
 
             start_idx = 0
             for w in weights:
-                if w.is_empty():
-                    continue
-                
                 end_idx = start_idx + w.hidden_size
-                
+
+                if w.is_empty():
+                    start_idx = end_idx
+                    continue
+
+                print(w.hidden_size, w.weights_a.shape, w.weights_b.shape, start_idx, end_idx)  
                 if use_cutlass_shrink(r):
                     weights_a[:, start_idx:end_idx, :] = w.weights_a
                 else:
