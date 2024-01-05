@@ -323,13 +323,14 @@ void dispatch_bgmv(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr,
 //====== sgmv ======
 
 void dispatch_sgmv_cutlass(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr,
-                           torch::Tensor s_start, torch::Tensor s_end,
+                           torch::Tensor s_start, torch::Tensor s_end, torch::Tensor ranks,
                            torch::Tensor tmp, int layer_idx) {
   CHECK_INPUT(y);
   CHECK_INPUT(x);
   CHECK_INPUT(w_ptr);
   CHECK_INPUT(s_start);
   CHECK_INPUT(s_end);
+  CHECK_INPUT(ranks);
   CHECK_INPUT(tmp);
 
   CHECK_DIM(2, y);
@@ -337,6 +338,7 @@ void dispatch_sgmv_cutlass(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr
   CHECK_DIM(1, w_ptr);
   CHECK_DIM(1, s_start);
   CHECK_DIM(1, s_end);
+  CHECK_DIM(1, ranks);
   CHECK_DIM(1, tmp);
 
   int num_problems = s_start.size(0);
@@ -346,7 +348,7 @@ void dispatch_sgmv_cutlass(torch::Tensor y, torch::Tensor x, torch::Tensor w_ptr
   cudaStream_t stream = c10::cuda::getCurrentCUDAStream();
   bool ok = DISPATCH_TORCH_DTYPE(x.scalar_type(), [&] {
     return sgmv<c_type>((c_type*)y.data_ptr(), (c_type*)x.data_ptr(), (c_type**)w_ptr.data_ptr(),
-                        s_start.data_ptr<int32_t>(), s_end.data_ptr<int32_t>(),
+                        s_start.data_ptr<int32_t>(), s_end.data_ptr<int32_t>(), ranks.data_ptr<int32_t>(),
                         tmp.data_ptr<uint8_t>(), num_problems, d_in, d_out,
                         layer_idx, stream);
   });
