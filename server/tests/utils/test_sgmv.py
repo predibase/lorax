@@ -34,6 +34,7 @@ def lora_ref_impl(
 
         yi = y[s_start[i]:s_end[i]]
         tmp = (xi @ wai)
+        print(tmp, tmp.shape)
         y[s_start[i]:s_end[i]] = (yi + tmp @ wbi)
 
 
@@ -138,6 +139,7 @@ def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[
     s1, s2 = segments
     s_start = torch.tensor(s1, dtype=torch.int32, device=device)
     s_end = torch.tensor(s2, dtype=torch.int32, device=device)
+    ranks = torch.tensor(lora_ranks, dtype=torch.int32, device=device)
 
     # Filter list to remove empty segments
     wa_list = [wa if y - x > 0 else None for wa, x, y in zip(wa_list, s1, s2)]
@@ -154,7 +156,9 @@ def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), max_r, x.device)
     y_ours = torch.zeros((B, H), dtype=torch.float16, device=device)
 
-    v = lora_a_sgmv_cutlass(x, tmp_shrink, wa_ptr, s_start, s_end, layer_idx, max_r)
+    v = lora_a_sgmv_cutlass(x, tmp_shrink, wa_ptr, s_start, s_end, ranks, max_r, layer_idx)
+    # v[0, 16:] = 0.0  # zero out unused cols
+    print(v, v.shape)
     lora_b_sgmv_cutlass(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, layer_idx)
 
     assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)

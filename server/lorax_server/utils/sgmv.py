@@ -120,12 +120,13 @@ def lora_a_sgmv_cutlass(
     wa_ptr: torch.Tensor,
     s_start: torch.IntTensor,
     s_end: torch.IntTensor,
+    ranks: torch.IntTensor,
+    max_rank: int,
     layer_idx: int,
-    lora_rank: int,
 ) -> torch.Tensor:
-    v = torch.zeros((x.size(0), lora_rank), dtype=x.dtype, device=x.device)
-    if MIN_RANK_CUSTOM <= lora_rank <= MAX_RANK_CUSTOM:
-        _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
+    v = torch.zeros((x.size(0), max_rank), dtype=x.dtype, device=x.device)
+    if MIN_RANK_CUSTOM <= max_rank <= MAX_RANK_CUSTOM:
+        _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, ranks, tmp, layer_idx)
     else:
         _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
     return v

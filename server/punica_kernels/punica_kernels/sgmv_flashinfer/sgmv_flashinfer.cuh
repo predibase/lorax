@@ -12,19 +12,21 @@ namespace sgmv {
 
 template <bool cooperative, typename T, typename IdType, uint32_t num_warps,
           uint32_t d_out>
-__global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends, float* tmp,
-                            uint32_t num_problems, uint32_t d_in,
+__global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends, IdType* ranks,
+                            float* tmp, uint32_t num_problems, uint32_t d_in,
                             uint32_t layer_idx, uint32_t chunk_size) {
   auto block = cooperative_groups::this_thread_block();
   auto grid = cooperative_groups::this_grid();
   constexpr auto fill_mode = cp_async::SharedMemFillMode::kFillZero;
   const uint32_t problem_id = blockIdx.y;
   const uint32_t bx = blockIdx.x;
+  const uint32_t rank = ranks[problem_id];
 
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags = 8;
   constexpr uint32_t num_cells_k = (num_k_frags * 16) / cell_capacity<T>();
-  constexpr uint32_t num_blocks_n = d_out / 16;
+  const uint32_t max_blocks_n = d_out / 16;
+  const uint32_t num_blocks_n = rank / 16;
   const uint32_t num_chunks = gridDim.x;
   const uint32_t chunk_start = chunk_size * bx;
   const uint32_t num_iterations =
@@ -42,15 +44,15 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   smem_t y_smem(smem);
 
   uint32_t x_frag[num_k_frags][4];
-  uint32_t w_frag[num_k_frags][num_blocks_n][4];
-  float y_frag[num_blocks_n][8];
+  uint32_t w_frag[num_k_frags][max_blocks_n][4];
+  float y_frag[max_blocks_n][8];
 
   const uint32_t s_start = s_starts[problem_id], s_end = s_ends[problem_id];
   const uint32_t num_steps = (s_start < s_end) ? (s_end - s_start + (num_warps * 16 - 1)) / (num_warps * 16) : 0;
   for (uint32_t i = 0; i < num_steps; ++i) {
     // init y_frag
     if (bx == 0) {
-      if constexpr (num_blocks_n == 1) {
+      if (num_blocks_n == 1) {
         uint32_t row_idx = s_start + (i * num_warps + ty) * 16 + tx / 2;
         T* y_ptr = y + row_idx * d_out + (tx % 2) * cell_capacity<T>();
         auto offset =
@@ -127,13 +129,13 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       constexpr uint32_t num_fko_iters_per_warp = num_k_frags / (num_warps * 2);
 #pragma unroll
       for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
-        T* w_ptr = w[problem_id] + layer_idx * d_in * d_out +
+        T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
                    (fn * 16 + tx / 4) * d_in + chunk_start +
                    (2 * num_k_frags * iter + ty * num_fko_iters_per_warp * 4 +
                     tx % 4) *
                        cell_capacity<T>();
         T* w_ptr_max =
-            w[problem_id] + layer_idx * d_in * d_out +
+            w[problem_id] + layer_idx * d_in * rank +
             min((fn * 16 + tx / 4 + 1) * d_in,
                 (fn * 16 + tx / 4) * d_in + chunk_start + chunk_size);
         auto offset = smem_t::get_permuted_offset<num_cells_k>(
@@ -222,13 +224,13 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
             num_k_frags / (num_warps * 2);
 #pragma unroll
         for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
-          T* w_ptr = w[problem_id] + layer_idx * d_in * d_out +
+          T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
                      (fn * 16 + tx / 4) * d_in + chunk_start +
                      (2 * num_k_frags * (iter + num_stages) +
                       ty * num_fko_iters_per_warp * 4 + tx % 4) *
                          cell_capacity<T>();
           T* w_ptr_max =
-              w[problem_id] + layer_idx * d_in * d_out +
+              w[problem_id] + layer_idx * d_in * rank +
               min((fn * 16 + tx / 4 + 1) * d_in,
                   (fn * 16 + tx / 4) * d_in + chunk_start + chunk_size);
           auto offset = smem_t::get_permuted_offset<num_cells_k>(
@@ -306,7 +308,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       }
 
       // store y
-      if constexpr (num_blocks_n == 1) {
+      if (num_blocks_n == 1) {
         uint32_t row_idx = s_start + (i * num_warps + ty) * 16 + tx / 2;
         T* y_ptr = y + row_idx * d_out + (tx % 2) * cell_capacity<T>();
         auto offset =
