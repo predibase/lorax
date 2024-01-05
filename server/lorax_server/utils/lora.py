@@ -174,15 +174,20 @@ class MergedLoraWeights:
             shape_b = (nlayers, r, hidden_size)
             weights_b = torch.zeros(shape_b, dtype=dtype, device=device)
 
-            for i, w in enumerate(weights):
+            start_idx = 0
+            for w in weights:
                 if w.is_empty():
                     continue
                 
+                end_idx = start_idx + w.hidden_size
+                
                 if use_cutlass_shrink(r):
-                    weights_a[:, :, i*w.hidden_size:(i+1)*w.hidden_size] = w.weights_a
+                    weights_a[:, start_idx:end_idx, :] = w.weights_a
                 else:
-                    weights_a[:, i*w.hidden_size:(i+1)*w.hidden_size, :] = w.weights_a
-                weights_b[:, :, i*w.hidden_size:(i+1)*w.hidden_size] = w.weights_b
+                    weights_a[:, :, start_idx:end_idx] = w.weights_a
+                weights_b[:, :, start_idx:end_idx] = w.weights_b
+                
+                start_idx = end_idx
         else:
             weights_a = [w.weights_a for w in weights]
             weights_a = torch.stack(weights_a, dim=stack_dim_a)
