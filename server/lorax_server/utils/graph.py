@@ -34,7 +34,7 @@ CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
+CACHED_MAX_RANKS = [0, 16, 32, 64]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 MAX_SAMPLES = 3
