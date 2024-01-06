@@ -22,7 +22,7 @@ Current limitations:
 
 - Batch size < 256
 - Context length (input + output) < 8192
-- LoRA rank >= 8 and <= 64
+- LoRA rank <= 64
 - 1 GPU (no sharding)
 
 If any of these conditions are not met, then LoRAX will fallback to using eager execution for the batch.

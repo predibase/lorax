@@ -5,7 +5,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank
+from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank, pad_sgmv
 
 
 # Constants
@@ -97,6 +97,7 @@ class MergedLoraWeights:
         adapter_config: LoraConfig,
     ):
         # [num_layers, hidden_size, r]
+        weights_a = [pad_sgmv(w, dim=1) for w in weights_a]
         weights_a = [
             orient_for_rank(w, adapter_config.r).contiguous()
             for w in weights_a
@@ -104,7 +105,12 @@ class MergedLoraWeights:
         self.weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
+        weights_b = [pad_sgmv(w, dim=0) for w in weights_b]
         self.weights_b = torch.stack(weights_b)
+
+        # update rank if it was padded
+        padded_rank = self.weights_b.size(1)
+        adapter_config.r = padded_rank
 
         self.adapter_config = adapter_config
 

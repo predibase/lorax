@@ -119,8 +119,8 @@ completes the request.
     # Mistral
     prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
     adapters = [
-        # "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",  # r8
-        # "IlyaGusev/saiga_mistral_7b_lora",  # r16
+        "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",  # r8
+        "IlyaGusev/saiga_mistral_7b_lora",  # r16
         "alignment-handbook/zephyr-7b-dpo-lora",  # r64
     ]
     
