@@ -25,7 +25,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags = 8;
   constexpr uint32_t num_cells_k = (num_k_frags * 16) / cell_capacity<T>();
-  const uint32_t max_blocks_n = d_out / 16;
+  constexpr uint32_t max_blocks_n = d_out / 16;
   const uint32_t num_blocks_n = rank / 16;
   const uint32_t num_chunks = gridDim.x;
   const uint32_t chunk_start = chunk_size * bx;
@@ -40,7 +40,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   smem_t x_smem[2]{smem, smem + sizeof(T) * num_warps * 16 * 16 * num_k_frags};
   smem_t w_smem[2]{smem + sizeof(T) * 2 * num_warps * 16 * 16 * num_k_frags,
                    smem + sizeof(T) * 16 * 16 * num_k_frags *
-                              (2 * num_warps + num_blocks_n)};
+                              (2 * num_warps + max_blocks_n)};
   smem_t y_smem(smem);
 
   uint32_t x_frag[num_k_frags][4];
@@ -52,7 +52,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   for (uint32_t i = 0; i < num_steps; ++i) {
     // init y_frag
     if (bx == 0) {
-      if (num_blocks_n == 1) {
+      if (max_blocks_n == 1) {
         uint32_t row_idx = s_start + (i * num_warps + ty) * 16 + tx / 2;
         T* y_ptr = y + row_idx * d_out + (tx % 2) * cell_capacity<T>();
         auto offset =
@@ -66,14 +66,14 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
 #pragma unroll
         for (uint32_t j = 0; j < 2; ++j) {
 #pragma unroll
-          for (uint32_t fno = 0; fno < num_blocks_n / 2; ++fno) {
+          for (uint32_t fno = 0; fno < max_blocks_n / 2; ++fno) {
             y_smem.load_128b_async<fill_mode>(offset, y_ptr, row_idx < s_end);
             y_ptr += 4 * cell_capacity<T>();
             offset += 8;
           }
           row_idx += 8;
-          y_ptr += 8 * d_out - 2 * num_blocks_n * cell_capacity<T>();
-          offset += 8 * num_cells_n - 4 * num_blocks_n;
+          y_ptr += 8 * d_out - 2 * max_blocks_n * cell_capacity<T>();
+          offset += 8 * num_cells_n - 4 * max_blocks_n;
         }
       }
       cp_async::commit_group();
@@ -83,7 +83,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       auto offset =
           smem_t::get_permuted_offset<num_cells_n>(ty * 16 + tx % 16, tx / 16);
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
         uint32_t tmp[4];
         y_smem.ldmatrix_m8n8x4(offset, tmp);
         vec_cast<float, T, 8>(y_frag[fn], (T*)tmp);
@@ -91,7 +91,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       }
     } else {
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
 #pragma unroll
         for (uint32_t reg_id = 0; reg_id < 8; ++reg_id) {
           y_frag[fn][reg_id] = 0.f;
@@ -128,7 +128,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       static_assert(num_k_frags % (num_warps * 2) == 0);
       constexpr uint32_t num_fko_iters_per_warp = num_k_frags / (num_warps * 2);
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
         T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
                    (fn * 16 + tx / 4) * d_in + chunk_start +
                    (2 * num_k_frags * iter + ty * num_fko_iters_per_warp * 4 +
@@ -172,7 +172,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       }
 
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
         auto offset = smem_t::get_permuted_offset<num_cells_k>(
             fn * 16 + 8 * (tx / 16) + tx % 8, (tx % 16) / 8);
 #pragma unroll
@@ -187,7 +187,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
 #pragma unroll
       for (uint32_t fk = 0; fk < num_k_frags; ++fk) {
 #pragma unroll
-        for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+        for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
           mma::mma_sync_m16n16k16_row_col_f16f16f32<T>(y_frag[fn], x_frag[fk],
                                                        w_frag[fk][fn]);
         }
@@ -223,7 +223,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
         constexpr uint32_t num_fko_iters_per_warp =
             num_k_frags / (num_warps * 2);
 #pragma unroll
-        for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+        for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
           T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
                      (fn * 16 + tx / 4) * d_in + chunk_start +
                      (2 * num_k_frags * (iter + num_stages) +
@@ -257,7 +257,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
 
     if constexpr (cooperative) {
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
         vec_t<float, 8>::memcpy(
             tmp + (fn * grid.size() +
                    (problem_id * num_chunks + bx) * block.num_threads() +
@@ -268,7 +268,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       grid.sync();
 
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
 #pragma unroll
         for (uint32_t reg_id = 0; reg_id < 8; ++reg_id) {
           y_frag[fn][reg_id] = 0.f;
@@ -293,7 +293,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       auto offset =
           smem_t::get_permuted_offset<num_cells_n>(ty * 16 + tx / 4, 0);
 #pragma unroll
-      for (uint32_t fn = 0; fn < num_blocks_n; ++fn) {
+      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
         vec_cast<T, float, 2>((T*)(y_smem.base + offset) + (tx % 4) * 2,
                               &y_frag[fn][0]);
         vec_cast<T, float, 2>(
