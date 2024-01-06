@@ -1,3 +1,4 @@
+import time
 from typing import List, Tuple
 import pytest
 import torch
@@ -34,6 +35,7 @@ def lora_ref_impl(
 
         yi = y[s_start[i]:s_end[i]]
         tmp = (xi @ wai)
+        print(tmp)
         y[s_start[i]:s_end[i]] = (yi + tmp @ wbi)
 
 
@@ -156,7 +158,10 @@ def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[
     tmp_shrink, tmp_expand = get_tmp_tensors(wa_ptr.size(0), max_r, x.device)
     y_ours = torch.zeros((B, H), dtype=torch.float16, device=device)
 
+    t0 = time.time()
     v = lora_a_sgmv(x, tmp_shrink, wa_ptr, s_start, s_end, ranks, max_r, layer_idx)
     lora_b_sgmv(y_ours, v, tmp_expand, wb_ptr, s_start, s_end, ranks, layer_idx)
+    print(time.time() - t0)
 
+    print(v)
     assert torch.allclose(y_ref, y_ours, rtol=1e-2, atol=1e-3)
