@@ -109,12 +109,12 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_sgmv(), reason="SGMV not available")
 @pytest.mark.parametrize("lora_ranks, segments", [
-    ([16, 32], ([0, 2], [1, 3])),
+    ([16, 32], ([0, 42, 87, 117], [42, 87, 117, 128])),
 ])
 def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[int]]):
     torch.manual_seed(42)
 
-    B = 3
+    B = 128
     H = 1024
     max_r = max(lora_ranks)
     nlayers = 2
@@ -144,8 +144,8 @@ def test_sgmv_multi_rank(lora_ranks: List[int], segments: Tuple[List[int], List[
     ranks = torch.tensor(lora_ranks, dtype=torch.int32, device=device)
 
     # Filter list to remove empty segments
-    wa_list = [wa if y - x > 0 else None for wa, x, y in zip(wa_list, s1, s2)]
-    wb_list = [wb if y - x > 0 else None for wb, x, y in zip(wb_list, s1, s2)]
+    wa_list = [wa_list[i % len(wa_list)] if y - x > 0 else None for i, (x, y) in enumerate(zip(s1, s2))]
+    wb_list = [wb_list[i % len(wb_list)] if y - x > 0 else None for i, (x, y) in enumerate(zip(s1, s2))]
 
     wa_ptr = torch.tensor([wa.data_ptr() if wa is not None else 0 for wa in wa_list], dtype=torch.int64, device=device)
     wb_ptr = torch.tensor([wb.data_ptr() if wb is not None else 0 for wb in wb_list], dtype=torch.int64, device=device)
