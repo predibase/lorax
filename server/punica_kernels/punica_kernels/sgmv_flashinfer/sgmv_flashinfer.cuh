@@ -129,30 +129,31 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
       constexpr uint32_t num_fko_iters_per_warp = num_k_frags / (num_warps * 2);
 #pragma unroll
       for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
-        uint32_t fn_clip = fn & (num_blocks_n - 1);
-        T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
-                  (fn_clip * 16 + tx / 4) * d_in + chunk_start +
-                  (2 * num_k_frags * iter + ty * num_fko_iters_per_warp * 4 +
-                    tx % 4) *
-                      cell_capacity<T>();
-        T* w_ptr_max =
-            w[problem_id] + layer_idx * d_in * rank +
-            min((fn_clip * 16 + tx / 4 + 1) * d_in,
-                (fn_clip * 16 + tx / 4) * d_in + chunk_start + chunk_size);
-        auto offset = smem_t::get_permuted_offset<num_cells_k>(
-            fn_clip * 16 + tx / 4, ty * num_fko_iters_per_warp * 4 + tx % 4);
-#pragma unroll
-        for (uint32_t j = 0; j < 2; ++j) {
-#pragma unroll
-          for (uint32_t fko = 0; fko < num_fko_iters_per_warp; ++fko) {
-            w_smem[iter].load_128b_async<fill_mode>(offset, w_ptr,
-                                                    w_ptr < w_ptr_max);
-            w_ptr += 4 * cell_capacity<T>();
-            offset += 8;
+        if (fn < num_blocks_n) {
+          T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
+                    (fn * 16 + tx / 4) * d_in + chunk_start +
+                    (2 * num_k_frags * iter + ty * num_fko_iters_per_warp * 4 +
+                      tx % 4) *
+                        cell_capacity<T>();
+          T* w_ptr_max =
+              w[problem_id] + layer_idx * d_in * rank +
+              min((fn * 16 + tx / 4 + 1) * d_in,
+                  (fn * 16 + tx / 4) * d_in + chunk_start + chunk_size);
+          auto offset = smem_t::get_permuted_offset<num_cells_k>(
+              fn * 16 + tx / 4, ty * num_fko_iters_per_warp * 4 + tx % 4);
+  #pragma unroll
+          for (uint32_t j = 0; j < 2; ++j) {
+  #pragma unroll
+            for (uint32_t fko = 0; fko < num_fko_iters_per_warp; ++fko) {
+              w_smem[iter].load_128b_async<fill_mode>(offset, w_ptr,
+                                                      w_ptr < w_ptr_max);
+              w_ptr += 4 * cell_capacity<T>();
+              offset += 8;
+            }
+            w_ptr += 8 * d_in - 4 * cell_capacity<T>() * num_fko_iters_per_warp;
+            w_ptr_max += 8 * d_in;
+            offset += 8 * num_cells_k - 8 * num_fko_iters_per_warp;
           }
-          w_ptr += 8 * d_in - 4 * cell_capacity<T>() * num_fko_iters_per_warp;
-          w_ptr_max += 8 * d_in;
-          offset += 8 * num_cells_k - 8 * num_fko_iters_per_warp;
         }
       }
       cp_async::commit_group();
@@ -174,15 +175,16 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
 
 #pragma unroll
       for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
-        uint32_t fn_clip = fn & (num_blocks_n - 1);
-        auto offset = smem_t::get_permuted_offset<num_cells_k>(
-            fn_clip * 16 + 8 * (tx / 16) + tx % 8, (tx % 16) / 8);
-#pragma unroll
-        for (uint32_t fk = 0; fk < num_k_frags; ++fk) {
-          w_smem[stage_idx].ldmatrix_m8n8x4(offset, w_frag[fk][fn_clip]);
-          offset = (offset ^ 0x2) + (fk & 0x1) * 8;
+        if (fn < num_blocks_n) {
+          auto offset = smem_t::get_permuted_offset<num_cells_k>(
+              fn * 16 + 8 * (tx / 16) + tx % 8, (tx % 16) / 8);
+  #pragma unroll
+          for (uint32_t fk = 0; fk < num_k_frags; ++fk) {
+            w_smem[stage_idx].ldmatrix_m8n8x4(offset, w_frag[fk][fn]);
+            offset = (offset ^ 0x2) + (fk & 0x1) * 8;
+          }
+          offset += 16 * num_cells_k - 4 * num_k_frags;
         }
-        offset += 16 * num_cells_k - 4 * num_k_frags;
       }
 
       // compute y_frag
@@ -228,30 +230,31 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
             num_k_frags / (num_warps * 2);
 #pragma unroll
         for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
-          uint32_t fn_clip = fn & (num_blocks_n - 1);
-          T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
-                    (fn_clip * 16 + tx / 4) * d_in + chunk_start +
-                    (2 * num_k_frags * (iter + num_stages) +
-                      ty * num_fko_iters_per_warp * 4 + tx % 4) *
-                        cell_capacity<T>();
-          T* w_ptr_max =
-              w[problem_id] + layer_idx * d_in * rank +
-              min((fn_clip * 16 + tx / 4 + 1) * d_in,
-                  (fn_clip * 16 + tx / 4) * d_in + chunk_start + chunk_size);
-          auto offset = smem_t::get_permuted_offset<num_cells_k>(
-              fn_clip * 16 + tx / 4, ty * num_fko_iters_per_warp * 4 + tx % 4);
-#pragma unroll
-          for (uint32_t j = 0; j < 2; ++j) {
-#pragma unroll
-            for (uint32_t fko = 0; fko < num_fko_iters_per_warp; ++fko) {
-              w_smem[stage_idx].load_128b_async<fill_mode>(offset, w_ptr,
-                                                          w_ptr < w_ptr_max);
-              w_ptr += 4 * cell_capacity<T>();
-              offset += 8;
+          if (fn < num_blocks_n) {
+            T* w_ptr = w[problem_id] + layer_idx * d_in * rank +
+                      (fn * 16 + tx / 4) * d_in + chunk_start +
+                      (2 * num_k_frags * (iter + num_stages) +
+                        ty * num_fko_iters_per_warp * 4 + tx % 4) *
+                          cell_capacity<T>();
+            T* w_ptr_max =
+                w[problem_id] + layer_idx * d_in * rank +
+                min((fn * 16 + tx / 4 + 1) * d_in,
+                    (fn * 16 + tx / 4) * d_in + chunk_start + chunk_size);
+            auto offset = smem_t::get_permuted_offset<num_cells_k>(
+                fn * 16 + tx / 4, ty * num_fko_iters_per_warp * 4 + tx % 4);
+  #pragma unroll
+            for (uint32_t j = 0; j < 2; ++j) {
+  #pragma unroll
+              for (uint32_t fko = 0; fko < num_fko_iters_per_warp; ++fko) {
+                w_smem[stage_idx].load_128b_async<fill_mode>(offset, w_ptr,
+                                                            w_ptr < w_ptr_max);
+                w_ptr += 4 * cell_capacity<T>();
+                offset += 8;
+              }
+              w_ptr += 8 * d_in - 4 * cell_capacity<T>() * num_fko_iters_per_warp;
+              w_ptr_max += 8 * d_in;
+              offset += 8 * num_cells_k - 8 * num_fko_iters_per_warp;
             }
-            w_ptr += 8 * d_in - 4 * cell_capacity<T>() * num_fko_iters_per_warp;
-            w_ptr_max += 8 * d_in;
-            offset += 8 * num_cells_k - 8 * num_fko_iters_per_warp;
           }
         }
       }
