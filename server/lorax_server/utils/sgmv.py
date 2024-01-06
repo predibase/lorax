@@ -128,7 +128,7 @@ def lora_a_sgmv(
     if MIN_RANK_CUSTOM <= max_rank <= MAX_RANK_CUSTOM:
         _kernels.sgmv_shrink(v, x, wa_ptr, s_start, s_end, ranks, tmp, layer_idx)
     else:
-        _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, tmp, layer_idx)
+        _kernels.sgmv_cutlass(v, x, wa_ptr, s_start, s_end, ranks, tmp, layer_idx)
     return v
 
 
