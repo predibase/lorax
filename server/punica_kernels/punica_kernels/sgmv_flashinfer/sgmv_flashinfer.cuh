@@ -189,11 +189,10 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
 
       // compute y_frag
 #pragma unroll
-      for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
-        if (fn < num_blocks_n) {
+      for (uint32_t fk = 0; fk < num_k_frags; ++fk) {
 #pragma unroll
-          for (uint32_t fk = 0; fk < num_k_frags; ++fk) {
-
+        for (uint32_t fn = 0; fn < max_blocks_n; ++fn) {
+          if (fn < num_blocks_n) {
             mma::mma_sync_m16n16k16_row_col_f16f16f32<T>(y_frag[fn], x_frag[fk],
                                                         w_frag[fk][fn]);
           }
