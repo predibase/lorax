@@ -119,9 +119,10 @@ completes the request.
     # Mistral
     prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
     adapters = [
-        "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",  # r8
-        "IlyaGusev/saiga_mistral_7b_lora",  # r16
+        # "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",  # r8
+        # "IlyaGusev/saiga_mistral_7b_lora",  # r16
         "alignment-handbook/zephyr-7b-dpo-lora",  # r64
+        # "FelixChao/Mistral-7b-Chem-TW-Lora",  # 64
     ]
     
     # GPT2
@@ -129,7 +130,7 @@ completes the request.
     # adapters = ["/data/adapters/9789adb7-cd03-4862-91d5-b41b6746682e_ludwig/model_weights"]
     # adapter_source = "local"
 
-    adapters += [None]
+    # adapters += [None]
     # adapters = [None]
 
     # adapters += [
