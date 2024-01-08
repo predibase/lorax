@@ -172,7 +172,7 @@ async fn generate(
     };
 
     let generated_tokens = response.generated_text.generated_tokens;
-    let prompt_tokens = response.prompt_tokens();
+    let prompt_tokens = response.prompt_tokens;
     let total_tokens = prompt_tokens + generated_tokens;
 
     // Token details
@@ -411,7 +411,9 @@ async fn generate_stream(
                             Ok(response) => {
                                 match response {
                                     // Prefill is ignored
-                                    InferStreamResponse::Prefill(_) => {}
+                                    InferStreamResponse::Prefill {
+                                        ..
+                                    } => {}
                                     // Yield event for every new token
                                     InferStreamResponse::Token(token) => {
                                         tracing::debug!(parent: &span, "Token: {:?}", token);
