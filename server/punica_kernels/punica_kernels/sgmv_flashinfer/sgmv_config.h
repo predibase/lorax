@@ -3,7 +3,7 @@
 
 template <typename T, uint32_t d_out>
 bool sgmv_shrink(T* y, T* x, T** w, int32_t* s_start, int32_t* s_end, void* tmp,
-                 uint32_t num_problems, uint32_t d_in, uint32_t layer_idx);
+                 uint32_t num_problems, uint32_t d_in, uint32_t layer_idx, cudaStream_t stream);
 
 // clang-format off
 

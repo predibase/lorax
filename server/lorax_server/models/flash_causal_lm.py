@@ -10,7 +10,6 @@ import numpy as np
 from dataclasses import dataclass
 from opentelemetry import trace
 from peft import LoraConfig
-from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 from typing import Optional, Set, Tuple, List, Type, Union, Dict
 
@@ -33,6 +32,8 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.graph import GraphCache
+from lorax_server.utils.sgmv import get_tmp_tensor
 
 tracer = trace.get_tracer(__name__)
 
@@ -677,6 +678,7 @@ class FlashCausalLM(Model):
         rank: int = 0,
         world_size: int = 1,
         sliding_window: Optional[int] = None,
+        compile: bool = False,
     ):
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
@@ -696,6 +698,9 @@ class FlashCausalLM(Model):
             world_size=world_size,
             sliding_window=sliding_window,
         )
+
+        self.compile = compile
+        self.model_graph_wrapper: GraphCache = None
 
         self.target_to_layer = self.adapter_target_to_layer()
 
@@ -873,6 +878,19 @@ class FlashCausalLM(Model):
 
         torch.cuda.synchronize(self.device)
 
+        graph_cache_memory = 0
+        if self.compile:
+            if self.world_size > 1:
+                raise ValueError("Cannot enable `--compile` when sharding across multiple GPUs")
+            
+            # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
+            # Needs to be estimated here rather than fully initialized as the graph cache relies on the
+            # cache manager being set.
+            self.model_graph_wrapper = GraphCache(self.model, self.device, self.adapter_layers)
+            graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
+            logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
+            torch.cuda.synchronize(self.device)
+
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
         dtype_size = torch.tensor([], dtype=self.dtype).element_size()
@@ -880,6 +898,8 @@ class FlashCausalLM(Model):
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
         total_free_memory, _ = torch.cuda.mem_get_info(self.device)
+        total_free_memory -= graph_cache_memory
+
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
 
         free_memory = max(
@@ -905,6 +925,14 @@ class FlashCausalLM(Model):
             self.device,
         )
 
+        torch.cuda.synchronize(self.device)
+
+        if self.model_graph_wrapper is not None:
+            # Warmup the graph cache. Needs to be done after setting cache manager as
+            # tracing will use the static kv cache tensors
+            self.model_graph_wrapper.warmup()
+            torch.cuda.synchronize(self.device)
+
         return int(num_blocks * BLOCK_SIZE)
 
     def decode(self, generated_ids: Union[torch.Tensor, List[int]]) -> str:
@@ -913,10 +941,17 @@ class FlashCausalLM(Model):
         )
 
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
-        global CACHE_MANAGER
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        if (
+            self.model_graph_wrapper is not None and
+            not prefill and
+            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
+            model = self.model_graph_wrapper
 
         # Model Forward
-        return self.model.forward(
+        return model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,

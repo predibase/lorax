@@ -42,7 +42,8 @@ nav:
       - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md
       - Python Client: reference/python_client.md
-  # - 🔬 Guides:
+  - 🔬 Guides:
+      - CUDA Graph Compilation: guides/cuda_graphs.md
   #     - GPUs: guides/gpus.md
   #     - Fine-Tuning: guides/fine_tuning.md
   #     - Quantization: guides/quantization.md

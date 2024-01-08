@@ -315,6 +315,7 @@ class FlashMixtral(FlashCausalLM):
         adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -393,6 +394,7 @@ class FlashMixtral(FlashCausalLM):
             rank=rank,
             world_size=world_size,
             sliding_window=config.sliding_window,
+            compile=compile,
         )
 
     @property
@@ -404,8 +406,17 @@ class FlashMixtral(FlashCausalLM):
         return FlashMixtralBatch
 
     def forward(self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        if (
+            self.model_graph_wrapper is not None and
+            not prefill and
+            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
+            model = self.model_graph_wrapper
+        
         # Model Forward
-        logits = self.model.forward(
+        logits = model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,

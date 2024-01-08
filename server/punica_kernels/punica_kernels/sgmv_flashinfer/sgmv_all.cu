@@ -9,7 +9,7 @@
 
 template <typename T, uint32_t d_out>
 bool sgmv_shrink(T* y, T* x, T** w, int32_t* s_start, int32_t* s_end, void* tmp,
-                 uint32_t num_problems, uint32_t d_in, uint32_t layer_idx) {
+                 uint32_t num_problems, uint32_t d_in, uint32_t layer_idx, cudaStream_t stream) {
   static_assert(d_out % 16 == 0);
 
   constexpr uint32_t num_warps = 4;
@@ -18,15 +18,15 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s_start, int32_t* s_end, void* tmp,
   constexpr uint32_t num_blocks_n = d_out / 16;
   uint32_t smem = num_stages * sizeof(T) * num_k_frags_per_stage * 16 * 16 *
                   (num_warps + num_blocks_n);
-  cudaStream_t stream = nullptr;
   auto cooperative_kernel =
       flashinfer::sgmv::sgmv_shrink<true, T, int, num_warps, d_out>;
   auto kernel = flashinfer::sgmv::sgmv_shrink<false, T, int, num_warps, d_out>;
 
-  uint32_t dev_id = 0;
+  int dev_id = 0;
   int num_blocks_per_sm = 0;
   int num_sm = 0;
   bool use_cooperative = true;
+  cudaGetDevice(&dev_id);
   cudaDeviceGetAttribute(&num_sm, cudaDevAttrMultiProcessorCount, dev_id);
   cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &num_blocks_per_sm, cooperative_kernel, num_warps * 32, smem);
@@ -67,7 +67,7 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s_start, int32_t* s_end, void* tmp,
 #define INST(T, d_out)                                                   \
   template bool sgmv_shrink<T, d_out>(T * y, T * x, T * *w, int32_t * s_start, int32_t * s_end, \
                                       void* tmp, uint32_t num_problems,  \
-                                      uint32_t d_in, uint32_t layer_idx);
+                                      uint32_t d_in, uint32_t layer_idx, cudaStream_t stream);
 
 FOR_SGMV_NARROW(INST, nv_half);
 FOR_SGMV_NARROW(INST, nv_bfloat16);

@@ -97,6 +97,7 @@ def get_model(
     revision: Optional[str],
     sharded: bool,
     quantize: Optional[str],
+    compile: bool,
     dtype: Optional[str],
     trust_remote_code: bool,
     source: str,
@@ -137,6 +138,7 @@ def get_model(
             model_id,
             revision,
             quantize=quantize,
+            compile=compile,
             dtype=dtype,
             dtypetrust_remote_code=trust_remote_code,
         )
@@ -147,6 +149,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -159,6 +162,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -169,6 +173,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -181,6 +186,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -190,12 +196,13 @@ def get_model(
             model_id,
             revision,
             quantize=quantize,
+            compile=compile,
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
     if model_type == "mpt":
         return MPTSharded(
-            model_id, revision, quantize=quantize, trust_remote_code=trust_remote_code
+            model_id, revision, quantize=quantize, compile=compile, trust_remote_code=trust_remote_code
         )
 
     if model_type == "gpt_neox":
@@ -204,6 +211,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -212,6 +220,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -220,6 +229,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -232,6 +242,7 @@ def get_model(
                 adapter_source,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -242,6 +253,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -254,6 +266,7 @@ def get_model(
                 adapter_source,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -268,6 +281,7 @@ def get_model(
                     model_id,
                     revision,
                     quantize=quantize,
+                    compile=compile,
                     dtype=dtype,
                     trust_remote_code=trust_remote_code,
                 )
@@ -278,6 +292,7 @@ def get_model(
                     model_id,
                     revision,
                     quantize=quantize,
+                    compile=compile,
                     dtype=dtype,
                     trust_remote_code=trust_remote_code,
                 )
@@ -286,6 +301,7 @@ def get_model(
                     model_id,
                     revision,
                     quantize=quantize,
+                    compile=compile,
                     dtype=dtype,
                     trust_remote_code=trust_remote_code,
                 )
@@ -298,6 +314,7 @@ def get_model(
                 adapter_source,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -311,6 +328,7 @@ def get_model(
                 adapter_source,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -324,6 +342,7 @@ def get_model(
                 adapter_source,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -337,6 +356,7 @@ def get_model(
                 adapter_source,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -347,6 +367,7 @@ def get_model(
             model_id,
             revision,
             quantize=quantize,
+            compile=compile,
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
@@ -356,6 +377,7 @@ def get_model(
             model_id,
             revision,
             quantize=quantize,
+            compile=compile,
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
@@ -380,6 +402,7 @@ def get_model(
             model_id,
             revision,
             quantize=quantize,
+            compile=compile,
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
@@ -388,6 +411,7 @@ def get_model(
             model_id,
             revision,
             quantize=quantize,
+            compile=compile,
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
@@ -399,6 +423,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
@@ -407,6 +432,7 @@ def get_model(
                 model_id,
                 revision,
                 quantize=quantize,
+                compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )

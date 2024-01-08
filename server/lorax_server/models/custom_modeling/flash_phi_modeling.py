@@ -82,6 +82,7 @@ class FlashPhiAttention(torch.nn.Module):
             dim=config.rotary_dim,
             base=rope_theta,
             device=weights.device,
+            dtype=weights.dtype,
         )
 
         self.softmax_scale = self.head_size**-0.5

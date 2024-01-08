@@ -6,8 +6,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from lorax_server.utils.sgmv import MIN_SGMV_RANK, orient_for_rank
-from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank
 
 
 # Constants
@@ -28,6 +27,8 @@ EMPTY_TENSOR = torch.tensor([])
 @dataclass
 class RankSegments:
     rank: int
+    tmp_shrink: torch.Tensor
+    tmp_expand: torch.Tensor
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
     segment_starts: torch.Tensor
@@ -72,6 +73,18 @@ class AdapterBatchData:
                 continue
             data[k] = v.get_data(meta)
         return AdapterBatchData(meta=meta, data=data)
+    
+    def ranks(self) -> Set[int]:
+        return set(
+            rank_data.rank
+            for layer in self.data.values()
+            for rank_data in layer.rank_data.values()
+        )
+    
+    @property
+    def max_rank(self) -> int:
+        ranks = self.ranks()
+        return max(ranks) if len(ranks) > 0 else 0
 
 
 class MergedLoraWeights:
@@ -124,7 +137,9 @@ class BatchedLoraWeights:
             AdapterWeightData: The adapter weight data.
 
         """
-        device = list(self.lora_weights.values())[0].weights_a.device
+        first_weights = list(self.lora_weights.values())[0]
+        device = first_weights.weights_a.device
+        dtype = first_weights.weights_a.dtype
         segment_indices = meta.segment_indices
 
         lora_a = {
@@ -174,9 +189,14 @@ class BatchedLoraWeights:
 
         rank_data = {}
         for rank, indices in rank_indices.items():
+            lora_a_ptr_indices = lora_a_ptr[indices]
+            tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+
             rank_data[rank] = RankSegments(
                 rank=rank,
-                lora_a_ptr=lora_a_ptr[indices],
+                tmp_shrink=tmp_shrink,
+                tmp_expand=tmp_expand,
+                lora_a_ptr=lora_a_ptr_indices,
                 lora_b_ptr=lora_b_ptr[indices],
                 segment_starts=meta.adapter_segments[indices],
                 segment_ends=meta.adapter_segments[[i+1 for i in indices]],

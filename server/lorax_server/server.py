@@ -199,6 +199,7 @@ def serve(
     revision: Optional[str],
     sharded: bool,
     quantize: Optional[str],
+    compile: bool,
     dtype: Optional[str],
     trust_remote_code: bool,
     uds_path: Path,
@@ -211,6 +212,7 @@ def serve(
         revision: Optional[str],
         sharded: bool = False,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[str] = None,
         trust_remote_code: bool = False,
     ):
@@ -227,7 +229,7 @@ def serve(
 
         try:
             model = get_model(
-                model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code, source, adapter_source
+                model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, source, adapter_source
             )
         except Exception:
             logger.exception("Error when initializing model")
@@ -275,7 +277,7 @@ def serve(
             await server.stop(0)
 
     asyncio.run(
-        serve_inner(model_id, adapter_id, revision, sharded, quantize, dtype, trust_remote_code)
+        serve_inner(model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code)
     )
 
 
