@@ -262,6 +262,8 @@ pub(crate) struct Details {
     #[schema(example = "length")]
     pub finish_reason: FinishReason,
     #[schema(example = 1)]
+    pub prompt_tokens: u32,
+    #[schema(example = 1)]
     pub generated_tokens: u32,
     #[schema(nullable = true, example = 42)]
     pub seed: Option<u64>,

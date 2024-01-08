@@ -171,6 +171,10 @@ async fn generate(
         _ => (infer.generate(req.0).await?, None),
     };
 
+    let generated_tokens = response.generated_text.generated_tokens;
+    let prompt_tokens = response.prompt_tokens();
+    let total_tokens = prompt_tokens + generated_tokens;
+
     // Token details
     let details = match details {
         true => {
@@ -201,7 +205,8 @@ async fn generate(
 
             Some(Details {
                 finish_reason: FinishReason::from(response.generated_text.finish_reason),
-                generated_tokens: response.generated_text.generated_tokens,
+                prompt_tokens: prompt_tokens,
+                generated_tokens: generated_tokens,
                 prefill: response.prefill,
                 tokens: response.tokens,
                 seed: response.generated_text.seed,
@@ -242,10 +247,22 @@ async fn generate(
         total_time.as_millis().to_string().parse().unwrap(),
     );
     headers.insert(
+        "x-prompt-tokens",
+        prompt_tokens
+            .to_string()
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
+        "x-generated-tokens",
+        generated_tokens
+            .to_string()
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
         "x-total-tokens",
-        response
-            .generated_text
-            .generated_tokens
+        total_tokens
             .to_string()
             .parse()
             .unwrap(),

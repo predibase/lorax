@@ -650,6 +650,12 @@ pub(crate) struct InferResponse {
     pub(crate) start: Instant,
 }
 
+impl InferResponse {
+    pub(crate) fn prompt_tokens(&self) -> u32 {
+        self.prefill.len() as u32
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InferError {
     #[error("Request failed during generation: {0}")]
