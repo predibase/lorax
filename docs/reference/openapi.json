@@ -413,6 +413,7 @@
         "type": "object",
         "required": [
           "finish_reason",
+          "prompt_tokens",
           "generated_tokens",
           "prefill",
           "tokens"
@@ -427,6 +428,12 @@
           },
           "finish_reason": {
             "$ref": "#/components/schemas/FinishReason"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "example": 1,
+            "minimum": 0.0
           },
           "generated_tokens": {
             "type": "integer",
