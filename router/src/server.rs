@@ -171,6 +171,10 @@ async fn generate(
         _ => (infer.generate(req.0).await?, None),
     };
 
+    let generated_tokens = response.generated_text.generated_tokens;
+    let prompt_tokens = response.prompt_tokens;
+    let total_tokens = prompt_tokens + generated_tokens;
+
     // Token details
     let details = match details {
         true => {
@@ -201,7 +205,8 @@ async fn generate(
 
             Some(Details {
                 finish_reason: FinishReason::from(response.generated_text.finish_reason),
-                generated_tokens: response.generated_text.generated_tokens,
+                prompt_tokens: prompt_tokens,
+                generated_tokens: generated_tokens,
                 prefill: response.prefill,
                 tokens: response.tokens,
                 seed: response.generated_text.seed,
@@ -242,14 +247,14 @@ async fn generate(
         total_time.as_millis().to_string().parse().unwrap(),
     );
     headers.insert(
-        "x-total-tokens",
-        response
-            .generated_text
-            .generated_tokens
-            .to_string()
-            .parse()
-            .unwrap(),
+        "x-prompt-tokens",
+        prompt_tokens.to_string().parse().unwrap(),
     );
+    headers.insert(
+        "x-generated-tokens",
+        generated_tokens.to_string().parse().unwrap(),
+    );
+    headers.insert("x-total-tokens", total_tokens.to_string().parse().unwrap());
     headers.insert(
         "x-validation-time",
         validation_time.as_millis().to_string().parse().unwrap(),
@@ -367,6 +372,8 @@ async fn generate_stream(
         let mut end_reached = false;
         let mut error = false;
 
+        let mut prefill_tokens_length = 0;
+
         let mut add_prompt = None;
         if req.0.parameters.return_full_text.unwrap_or(false) {
             add_prompt = Some(req.0.inputs.clone());
@@ -394,7 +401,12 @@ async fn generate_stream(
                             Ok(response) => {
                                 match response {
                                     // Prefill is ignored
-                                    InferStreamResponse::Prefill(_) => {}
+                                    InferStreamResponse::Prefill {
+                                        tokens_length,
+                                        ..
+                                    } => {
+                                        prefill_tokens_length = tokens_length;
+                                    }
                                     // Yield event for every new token
                                     InferStreamResponse::Token(token) => {
                                         tracing::debug!(parent: &span, "Token: {:?}", token);
@@ -419,6 +431,7 @@ async fn generate_stream(
                                         let details = match details {
                                             true => Some(StreamDetails {
                                                 finish_reason: FinishReason::from(generated_text.finish_reason),
+                                                prompt_tokens: prefill_tokens_length,
                                                 generated_tokens: generated_text.generated_tokens,
                                                 seed: generated_text.seed,
                                             }),

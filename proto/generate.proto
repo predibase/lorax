@@ -167,6 +167,8 @@ message Generation {
     bool token_is_special = 6;
     /// Complete generated text
     optional GeneratedText generated_text = 7;
+    /// Prefill tokens length
+    uint32 prefill_tokens_length = 8;
 }
 
 message FilterBatchRequest {
