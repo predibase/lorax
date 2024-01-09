@@ -5,7 +5,7 @@ use crate::validation::ValidationError;
 use crate::{
     BestOfSequence, CompatGenerateRequest, Details, ErrorResponse, FinishReason,
     GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation, CompletionRequest,
+    StreamDetails, StreamResponse, Token, Validation, CompletionRequest, CompletionResponse,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -114,14 +114,15 @@ async fn completions_v1(
     }
 
     // switch on stream
-    if gen_req.stream {
-        Ok(generate_stream(infer, Json(gen_req.into()))
-            .await
-            .into_response())
-    } else {
+    // if gen_req.stream {
+    //     // let (headers, generation_stream) = generate_stream(infer, Json(gen_req.into())).await;
+    //     // let sse = Sse::new(generation_stream).keep_alive(KeepAlive::default());
+    //     // Ok((headers, sse).into_response())
+    // } else 
+    {
         let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
-        Ok((headers, Json(vec![generation.0])).into_response())
+        Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
     }
 }
 

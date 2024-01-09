@@ -317,15 +317,16 @@ struct UsageInfo {
     completion_tokens: Option<u32>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
-    messages: Vec<String>, // Assuming Vec for Union
+    messages: Vec<String>,
     temperature: Option<f32>,
     top_p: Option<f32>,
     n: Option<i32>,
     max_tokens: Option<i32>,
-    stop: Vec<String>, // Assuming Vec for Union
+    #[serde(default)]
+    stop: Vec<String>,
     stream: Option<bool>,
     presence_penalty: Option<f32>,
     frequency_penalty: Option<f32>,
@@ -335,10 +336,10 @@ struct ChatCompletionRequest {
     // TODO(travis): add other LoRAX params here
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct CompletionRequest {
     model: String,
-    prompt: Vec<String>, // Assuming Vec for Union
+    prompt: String,
     suffix: Option<String>,
     max_tokens: Option<i32>,
     temperature: Option<f32>,
@@ -347,7 +348,8 @@ struct CompletionRequest {
     stream: Option<bool>,
     logprobs: Option<i32>,
     echo: Option<bool>,
-    stop: Vec<String>, // Assuming Vec for Union
+    #[serde(default)]
+    stop: Vec<String>,
     presence_penalty: Option<f32>,
     frequency_penalty: Option<f32>,
     best_of: Option<i32>,
@@ -427,8 +429,7 @@ struct ChatCompletionResponse {
 impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
         CompatGenerateRequest {
-            // TODO(travis): support multiple inputs per request
-            inputs: req.prompt.join(" "),
+            inputs: req.prompt,
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
                 adapter_source: None,
@@ -445,7 +446,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 stop: req.stop,
                 truncate: None,
                 watermark: false,
-                details: req.logprobs.is_some(),
+                details: true,
                 decoder_input_details: req.logprobs.is_some(),
                 seed: None,
             },
