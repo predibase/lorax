@@ -1,0 +1,2 @@
+class NanWeightsError(RuntimeError):
+    pass
