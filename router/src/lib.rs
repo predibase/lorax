@@ -441,7 +441,10 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 top_p: req.top_p,
                 typical_p: None,
                 do_sample: !req.n.is_none(),
-                max_new_tokens: req.max_tokens.map(|x| x as u32).unwrap_or(default_max_new_tokens()),
+                max_new_tokens: req
+                    .max_tokens
+                    .map(|x| x as u32)
+                    .unwrap_or(default_max_new_tokens()),
                 return_full_text: req.echo,
                 stop: req.stop,
                 truncate: None,
@@ -458,7 +461,11 @@ impl From<CompletionRequest> for CompatGenerateRequest {
 impl From<GenerateResponse> for CompletionResponse {
     fn from(resp: GenerateResponse) -> Self {
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
-        let completion_tokens = resp.details.as_ref().map(|x| x.generated_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
 
         CompletionResponse {
@@ -484,7 +491,11 @@ impl From<GenerateResponse> for CompletionResponse {
 impl From<StreamResponse> for CompletionStreamResponse {
     fn from(resp: StreamResponse) -> Self {
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
-        let completion_tokens = resp.details.as_ref().map(|x| x.generated_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
 
         CompletionStreamResponse {

@@ -3,9 +3,10 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, CompatGenerateRequest, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation, CompletionRequest, CompletionResponse, CompletionStreamResponse,
+    BestOfSequence, CompatGenerateRequest, CompletionRequest, CompletionResponse,
+    CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, StreamDetails,
+    StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -127,7 +128,8 @@ async fn completions_v1(
                 )
         };
 
-        let (headers, stream) = generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+        let (headers, stream) =
+            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
         let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
@@ -410,9 +412,7 @@ async fn generate_stream(
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
-    let callback = |resp: StreamResponse| {
-        Event::default().json_data(resp).unwrap()
-    };
+    let callback = |resp: StreamResponse| Event::default().json_data(resp).unwrap();
     let (headers, stream) = generate_stream_with_callback(infer, req, callback).await;
     (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
 }
@@ -421,10 +421,7 @@ async fn generate_stream_with_callback(
     infer: Extension<Infer>,
     req: Json<GenerateRequest>,
     callback: impl Fn(StreamResponse) -> Event,
-) -> (
-    HeaderMap,
-    impl Stream<Item = Result<Event, Infallible>>,
-) {
+) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
