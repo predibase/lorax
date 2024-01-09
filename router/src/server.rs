@@ -5,7 +5,7 @@ use crate::validation::ValidationError;
 use crate::{
     BestOfSequence, CompatGenerateRequest, Details, ErrorResponse, FinishReason,
     GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation, CompletionRequest, CompletionResponse,
+    StreamDetails, StreamResponse, Token, Validation, CompletionRequest, CompletionResponse, CompletionStreamResponse,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -114,12 +114,22 @@ async fn completions_v1(
     }
 
     // switch on stream
-    // if gen_req.stream {
-    //     // let (headers, generation_stream) = generate_stream(infer, Json(gen_req.into())).await;
-    //     // let sse = Sse::new(generation_stream).keep_alive(KeepAlive::default());
-    //     // Ok((headers, sse).into_response())
-    // } else 
-    {
+    if gen_req.stream {
+        let callback = move |resp: StreamResponse| {
+            Event::default()
+                .json_data(CompletionStreamResponse::from(resp))
+                .map_or_else(
+                    |err| {
+                        println!("Failed to serialize CompletionStreamResponse: {:?}", err);
+                        Event::default()
+                    },
+                    |data| data,
+                )
+        };
+
+        let (headers, stream) = generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+        Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
+    } else {
         let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
@@ -400,6 +410,21 @@ async fn generate_stream(
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
+    let callback = |resp: StreamResponse| {
+        Event::default().json_data(resp).unwrap()
+    };
+    let (headers, stream) = generate_stream_with_callback(infer, req, callback).await;
+    (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+async fn generate_stream_with_callback(
+    infer: Extension<Infer>,
+    req: Json<GenerateRequest>,
+    callback: impl Fn(StreamResponse) -> Event,
+) -> (
+    HeaderMap,
+    impl Stream<Item = Result<Event, Infallible>>,
+) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
@@ -528,7 +553,7 @@ async fn generate_stream(
                                             details
                                         };
 
-                                        yield Ok(Event::default().json_data(stream_token).unwrap());
+                                        yield Ok(callback(stream_token));
                                         break;
                                     }
                                 }
@@ -559,7 +584,7 @@ async fn generate_stream(
         }
     };
 
-    (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
+    (headers, stream)
 }
 
 /// Prometheus metrics scrape endpoint
