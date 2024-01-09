@@ -5,7 +5,7 @@ use crate::validation::ValidationError;
 use crate::{
     BestOfSequence, CompatGenerateRequest, Details, ErrorResponse, FinishReason,
     GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation,
+    StreamDetails, StreamResponse, Token, Validation, CompletionRequest,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -82,12 +82,12 @@ async fn compat_generate(
 post,
 tag = "LoRAX",
 path = "/v1/completions",
-request_body = CompatGenerateRequest,
+request_body = CompletionRequest,
 responses(
 (status = 200, description = "Generated Text",
 content(
-("application/json" = GenerateResponse),
-("text/event-stream" = StreamResponse),
+("application/json" = CompletionResponse),
+("text/event-stream" = CompletionStreamResponse),
 )),
 (status = 424, description = "Generation Error", body = ErrorResponse,
 example = json ! ({"error": "Request failed during generation"})),
@@ -103,22 +103,23 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
-    req: Json<CompatGenerateRequest>,
+    req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let mut req = req.0;
+    let req = req.0;
+    let mut gen_req = CompatGenerateRequest::from(req);
 
     // default return_full_text given the pipeline_tag
-    if req.parameters.return_full_text.is_none() {
-        req.parameters.return_full_text = Some(default_return_full_text.0)
+    if gen_req.parameters.return_full_text.is_none() {
+        gen_req.parameters.return_full_text = Some(default_return_full_text.0)
     }
 
     // switch on stream
-    if req.stream {
-        Ok(generate_stream(infer, Json(req.into()))
+    if gen_req.stream {
+        Ok(generate_stream(infer, Json(gen_req.into()))
             .await
             .into_response())
     } else {
-        let (headers, generation) = generate(infer, Json(req.into())).await?;
+        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
     }

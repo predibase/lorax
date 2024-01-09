@@ -424,6 +424,62 @@ struct ChatCompletionResponse {
     usage: UsageInfo,
 }
 
+impl From<CompletionRequest> for CompatGenerateRequest {
+    fn from(req: CompletionRequest) -> Self {
+        CompatGenerateRequest {
+            // TODO(travis): support multiple inputs per request
+            inputs: req.prompt.join(" "),
+            parameters: GenerateParameters {
+                adapter_id: req.model.parse().ok(),
+                adapter_source: None,
+                api_token: None,
+                best_of: req.best_of.map(|x| x as usize),
+                temperature: req.temperature,
+                repetition_penalty: None,
+                top_k: None,
+                top_p: req.top_p,
+                typical_p: None,
+                do_sample: req.n.is_none(),
+                max_new_tokens: req.max_tokens.map(|x| x as u32).unwrap_or(default_max_new_tokens()),
+                return_full_text: req.echo,
+                stop: req.stop,
+                truncate: None,
+                watermark: false,
+                details: req.logprobs.is_some(),
+                decoder_input_details: req.logprobs.is_some(),
+                seed: None,
+            },
+            stream: req.stream.unwrap_or(false),
+        }
+    }
+}
+
+impl From<GenerateResponse> for CompletionResponse {
+    fn from(resp: GenerateResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp.details.as_ref().map(|x| x.generated_tokens).unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        CompletionResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![CompletionResponseChoice {
+                index: 0,
+                text: resp.generated_text,
+                logprobs: None,
+                finish_reason: None,
+            }],
+            usage: UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
