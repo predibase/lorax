@@ -308,6 +308,122 @@ pub(crate) struct ErrorResponse {
     pub error_type: String,
 }
 
+// OpenAI compatible structs
+
+#[derive(Serialize, ToSchema)]
+struct UsageInfo {
+    prompt_tokens: u32,
+    total_tokens: u32,
+    completion_tokens: Option<u32>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionRequest {
+    model: String,
+    messages: Vec<String>, // Assuming Vec for Union
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    n: Option<i32>,
+    max_tokens: Option<i32>,
+    stop: Vec<String>, // Assuming Vec for Union
+    stream: Option<bool>,
+    presence_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    logit_bias: Option<std::collections::HashMap<String, f32>>,
+    user: Option<String>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionRequest {
+    model: String,
+    prompt: Vec<String>, // Assuming Vec for Union
+    suffix: Option<String>,
+    max_tokens: Option<i32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    n: Option<i32>,
+    stream: Option<bool>,
+    logprobs: Option<i32>,
+    echo: Option<bool>,
+    stop: Vec<String>, // Assuming Vec for Union
+    presence_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    best_of: Option<i32>,
+    logit_bias: Option<std::collections::HashMap<String, f32>>,
+    user: Option<String>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+}
+
+#[derive(Serialize, ToSchema)]
+struct LogProbs {
+    text_offset: Vec<i32>,
+    token_logprobs: Vec<Option<f32>>,
+    tokens: Vec<String>,
+    top_logprobs: Option<Vec<Option<std::collections::HashMap<i32, f32>>>>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponseChoice {
+    index: i32,
+    text: String,
+    logprobs: Option<LogProbs>,
+    finish_reason: Option<String>, // Literal replaced with String
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<CompletionResponseChoice>,
+    usage: UsageInfo,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponseStreamChoice {
+    index: i32,
+    text: String,
+    logprobs: Option<LogProbs>,
+    finish_reason: Option<String>, // Literal replaced with String
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionStreamResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<CompletionResponseStreamChoice>,
+    usage: Option<UsageInfo>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionResponseChoice {
+    index: i32,
+    message: ChatMessage,
+    finish_reason: Option<String>, // Literal replaced with String
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<ChatCompletionResponseChoice>,
+    usage: UsageInfo,
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
