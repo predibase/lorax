@@ -308,6 +308,216 @@ pub(crate) struct ErrorResponse {
     pub error_type: String,
 }
 
+// OpenAI compatible structs
+
+#[derive(Serialize, ToSchema)]
+struct UsageInfo {
+    prompt_tokens: u32,
+    total_tokens: u32,
+    completion_tokens: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ChatCompletionRequest {
+    model: String,
+    messages: Vec<String>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    n: Option<i32>,
+    max_tokens: Option<i32>,
+    #[serde(default)]
+    stop: Vec<String>,
+    stream: Option<bool>,
+    presence_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    logit_bias: Option<std::collections::HashMap<String, f32>>,
+    user: Option<String>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct CompletionRequest {
+    model: String,
+    prompt: String,
+    suffix: Option<String>,
+    max_tokens: Option<i32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    n: Option<i32>,
+    stream: Option<bool>,
+    logprobs: Option<i32>,
+    echo: Option<bool>,
+    #[serde(default)]
+    stop: Vec<String>,
+    presence_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    best_of: Option<i32>,
+    logit_bias: Option<std::collections::HashMap<String, f32>>,
+    user: Option<String>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+}
+
+#[derive(Serialize, ToSchema)]
+struct LogProbs {
+    text_offset: Vec<i32>,
+    token_logprobs: Vec<Option<f32>>,
+    tokens: Vec<String>,
+    top_logprobs: Option<Vec<Option<std::collections::HashMap<i32, f32>>>>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponseChoice {
+    index: i32,
+    text: String,
+    logprobs: Option<LogProbs>,
+    finish_reason: Option<String>, // Literal replaced with String
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<CompletionResponseChoice>,
+    usage: UsageInfo,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponseStreamChoice {
+    index: i32,
+    text: String,
+    logprobs: Option<LogProbs>,
+    finish_reason: Option<String>, // Literal replaced with String
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionStreamResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<CompletionResponseStreamChoice>,
+    usage: Option<UsageInfo>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionResponseChoice {
+    index: i32,
+    message: ChatMessage,
+    finish_reason: Option<String>, // Literal replaced with String
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<ChatCompletionResponseChoice>,
+    usage: UsageInfo,
+}
+
+impl From<CompletionRequest> for CompatGenerateRequest {
+    fn from(req: CompletionRequest) -> Self {
+        CompatGenerateRequest {
+            inputs: req.prompt,
+            parameters: GenerateParameters {
+                adapter_id: req.model.parse().ok(),
+                adapter_source: None,
+                api_token: None,
+                best_of: req.best_of.map(|x| x as usize),
+                temperature: req.temperature,
+                repetition_penalty: None,
+                top_k: None,
+                top_p: req.top_p,
+                typical_p: None,
+                do_sample: !req.n.is_none(),
+                max_new_tokens: req
+                    .max_tokens
+                    .map(|x| x as u32)
+                    .unwrap_or(default_max_new_tokens()),
+                return_full_text: req.echo,
+                stop: req.stop,
+                truncate: None,
+                watermark: false,
+                details: true,
+                decoder_input_details: req.logprobs.is_some(),
+                seed: None,
+            },
+            stream: req.stream.unwrap_or(false),
+        }
+    }
+}
+
+impl From<GenerateResponse> for CompletionResponse {
+    fn from(resp: GenerateResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        CompletionResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![CompletionResponseChoice {
+                index: 0,
+                text: resp.generated_text,
+                logprobs: None,
+                finish_reason: None,
+            }],
+            usage: UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            },
+        }
+    }
+}
+
+impl From<StreamResponse> for CompletionStreamResponse {
+    fn from(resp: StreamResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        CompletionStreamResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![CompletionResponseStreamChoice {
+                index: 0,
+                text: resp.generated_text.unwrap_or_default(),
+                logprobs: None,
+                finish_reason: None,
+            }],
+            usage: Some(UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;

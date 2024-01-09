@@ -118,7 +118,7 @@ impl Infer {
             })?;
 
         let mut adapter_id = request.parameters.adapter_id.clone();
-        if adapter_id.is_none() {
+        if adapter_id.is_none() || adapter_id.as_ref().unwrap().is_empty() {
             adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
         }
         let mut adapter_source = request.parameters.adapter_source.clone();

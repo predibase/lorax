@@ -3,9 +3,10 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, CompatGenerateRequest, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation,
+    BestOfSequence, CompatGenerateRequest, CompletionRequest, CompletionResponse,
+    CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, StreamDetails,
+    StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -74,6 +75,66 @@ async fn compat_generate(
         let (headers, generation) = generate(infer, Json(req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
+    }
+}
+
+/// Generate tokens if `stream == false` or a stream of token if `stream == true`
+#[utoipa::path(
+post,
+tag = "LoRAX",
+path = "/v1/completions",
+request_body = CompletionRequest,
+responses(
+(status = 200, description = "Generated Text",
+content(
+("application/json" = CompletionResponse),
+("text/event-stream" = CompletionStreamResponse),
+)),
+(status = 424, description = "Generation Error", body = ErrorResponse,
+example = json ! ({"error": "Request failed during generation"})),
+(status = 429, description = "Model is overloaded", body = ErrorResponse,
+example = json ! ({"error": "Model is overloaded"})),
+(status = 422, description = "Input validation error", body = ErrorResponse,
+example = json ! ({"error": "Input validation error"})),
+(status = 500, description = "Incomplete generation", body = ErrorResponse,
+example = json ! ({"error": "Incomplete generation"})),
+)
+)]
+#[instrument(skip(infer, req))]
+async fn completions_v1(
+    default_return_full_text: Extension<bool>,
+    infer: Extension<Infer>,
+    req: Json<CompletionRequest>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let req = req.0;
+    let mut gen_req = CompatGenerateRequest::from(req);
+
+    // default return_full_text given the pipeline_tag
+    if gen_req.parameters.return_full_text.is_none() {
+        gen_req.parameters.return_full_text = Some(default_return_full_text.0)
+    }
+
+    // switch on stream
+    if gen_req.stream {
+        let callback = move |resp: StreamResponse| {
+            Event::default()
+                .json_data(CompletionStreamResponse::from(resp))
+                .map_or_else(
+                    |err| {
+                        tracing::error!("Failed to serialize CompletionStreamResponse: {err}");
+                        Event::default()
+                    },
+                    |data| data,
+                )
+        };
+
+        let (headers, stream) =
+            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+        Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
+    } else {
+        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
+        // wrap generation inside a Vec to match api-inference
+        Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
     }
 }
 
@@ -351,6 +412,16 @@ async fn generate_stream(
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
+    let callback = |resp: StreamResponse| Event::default().json_data(resp).unwrap();
+    let (headers, stream) = generate_stream_with_callback(infer, req, callback).await;
+    (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+async fn generate_stream_with_callback(
+    infer: Extension<Infer>,
+    req: Json<GenerateRequest>,
+    callback: impl Fn(StreamResponse) -> Event,
+) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
@@ -479,7 +550,7 @@ async fn generate_stream(
                                             details
                                         };
 
-                                        yield Ok(Event::default().json_data(stream_token).unwrap());
+                                        yield Ok(callback(stream_token));
                                         break;
                                     }
                                 }
@@ -510,7 +581,7 @@ async fn generate_stream(
         }
     };
 
-    (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
+    (headers, stream)
 }
 
 /// Prometheus metrics scrape endpoint
@@ -699,6 +770,7 @@ pub async fn run(
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
         .route("/generate_stream", post(generate_stream))
+        .route("/v1/completions", post(completions_v1))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate))
         // Base Health route
