@@ -75,6 +75,7 @@ class PrefillTokens:
 class Generation:
     request_id: int
     prefill_tokens: Optional[PrefillTokens]
+    prefill_tokens_length: int
     token_id: int
     token_logprob: float
     token_text: str
@@ -87,6 +88,7 @@ class Generation:
             prefill_tokens=self.prefill_tokens.to_pb()
             if self.prefill_tokens is not None
             else None,
+            prefill_tokens_length=self.prefill_tokens_length,
             token_id=self.token_id,
             token_logprob=self.token_logprob,
             token_text=self.token_text,

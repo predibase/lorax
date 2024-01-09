@@ -1198,6 +1198,7 @@ class FlashCausalLM(Model):
                 generation = Generation(
                     request.id,
                     prefill_tokens,
+                    len(all_input_ids[:-1]) if prefill else 0,
                     next_token_id,
                     next_token_logprob,
                     next_token_text,
