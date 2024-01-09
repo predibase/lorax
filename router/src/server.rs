@@ -248,25 +248,13 @@ async fn generate(
     );
     headers.insert(
         "x-prompt-tokens",
-        prompt_tokens
-            .to_string()
-            .parse()
-            .unwrap(),
+        prompt_tokens.to_string().parse().unwrap(),
     );
     headers.insert(
         "x-generated-tokens",
-        generated_tokens
-            .to_string()
-            .parse()
-            .unwrap(),
+        generated_tokens.to_string().parse().unwrap(),
     );
-    headers.insert(
-        "x-total-tokens",
-        total_tokens
-            .to_string()
-            .parse()
-            .unwrap(),
-    );
+    headers.insert("x-total-tokens", total_tokens.to_string().parse().unwrap());
     headers.insert(
         "x-validation-time",
         validation_time.as_millis().to_string().parse().unwrap(),
