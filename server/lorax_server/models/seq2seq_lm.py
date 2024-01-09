@@ -699,12 +699,15 @@ class Seq2SeqLM(Model):
                         [float("nan")],
                         [self.tokenizer.bos_token],
                     )
+                    prefill_tokens_length = len(prefill_tokens.token_ids)
                 else:
                     prefill_tokens = None
+                    prefill_tokens_length = 0
 
                 generation = Generation(
                     request.id,
                     prefill_tokens,
+                    prefill_tokens_length,
                     next_token_id_squeezed,
                     next_token_logprob,
                     next_token_text,

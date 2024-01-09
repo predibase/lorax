@@ -655,12 +655,15 @@ class CausalLM(Model):
                     prefill_tokens = PrefillTokens(
                         prefill_token_ids, prefill_logprobs, prefill_texts
                     )
+                    prefill_tokens_length = len(prefill_tokens.token_ids)
                 else:
                     prefill_tokens = None
+                    prefill_tokens_length = 0
 
                 generation = Generation(
                     request.id,
                     prefill_tokens,
+                    prefill_tokens_length,
                     next_token_id_squeezed,
                     next_token_logprob,
                     next_token_text,
