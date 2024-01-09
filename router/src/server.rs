@@ -121,7 +121,7 @@ async fn completions_v1(
                 .json_data(CompletionStreamResponse::from(resp))
                 .map_or_else(
                     |err| {
-                        println!("Failed to serialize CompletionStreamResponse: {:?}", err);
+                        tracing::error!("Failed to serialize CompletionStreamResponse: {err}");
                         Event::default()
                     },
                     |data| data,
