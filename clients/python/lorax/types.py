@@ -224,6 +224,8 @@ class Response(BaseModel):
 class StreamDetails(BaseModel):
     # Generation finish reason
     finish_reason: FinishReason
+    # Number of prompt tokens
+    prompt_tokens: int
     # Number of generated tokens
     generated_tokens: int
     # Sampling seed if sampling was activated

@@ -372,6 +372,8 @@ async fn generate_stream(
         let mut end_reached = false;
         let mut error = false;
 
+        let mut prefill_tokens_length = 0;
+
         let mut add_prompt = None;
         if req.0.parameters.return_full_text.unwrap_or(false) {
             add_prompt = Some(req.0.inputs.clone());
@@ -400,8 +402,11 @@ async fn generate_stream(
                                 match response {
                                     // Prefill is ignored
                                     InferStreamResponse::Prefill {
+                                        tokens_length,
                                         ..
-                                    } => {}
+                                    } => {
+                                        prefill_tokens_length = tokens_length;
+                                    }
                                     // Yield event for every new token
                                     InferStreamResponse::Token(token) => {
                                         tracing::debug!(parent: &span, "Token: {:?}", token);
@@ -426,6 +431,7 @@ async fn generate_stream(
                                         let details = match details {
                                             true => Some(StreamDetails {
                                                 finish_reason: FinishReason::from(generated_text.finish_reason),
+                                                prompt_tokens: prefill_tokens_length,
                                                 generated_tokens: generated_text.generated_tokens,
                                                 seed: generated_text.seed,
                                             }),
