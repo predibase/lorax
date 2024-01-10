@@ -3,10 +3,10 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, CompatGenerateRequest, CompletionRequest, CompletionResponse,
-    CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, StreamDetails,
-    StreamResponse, Token, Validation, ChatCompletionRequest,
+    BestOfSequence, ChatCompletionRequest, CompatGenerateRequest, CompletionRequest,
+    CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
+    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
+    StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
