@@ -3,10 +3,10 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, CompatGenerateRequest, CompletionRequest, CompletionResponse,
-    CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, StreamDetails,
-    StreamResponse, Token, Validation,
+    BestOfSequence, ChatCompletionRequest, CompatGenerateRequest, CompletionRequest,
+    CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
+    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
+    StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -78,7 +78,7 @@ async fn compat_generate(
     }
 }
 
-/// Generate tokens if `stream == false` or a stream of token if `stream == true`
+/// OpenAI compatible completions endpoint
 #[utoipa::path(
 post,
 tag = "LoRAX",
@@ -105,6 +105,66 @@ async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     req: Json<CompletionRequest>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let req = req.0;
+    let mut gen_req = CompatGenerateRequest::from(req);
+
+    // default return_full_text given the pipeline_tag
+    if gen_req.parameters.return_full_text.is_none() {
+        gen_req.parameters.return_full_text = Some(default_return_full_text.0)
+    }
+
+    // switch on stream
+    if gen_req.stream {
+        let callback = move |resp: StreamResponse| {
+            Event::default()
+                .json_data(CompletionStreamResponse::from(resp))
+                .map_or_else(
+                    |err| {
+                        tracing::error!("Failed to serialize CompletionStreamResponse: {err}");
+                        Event::default()
+                    },
+                    |data| data,
+                )
+        };
+
+        let (headers, stream) =
+            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+        Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
+    } else {
+        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
+        // wrap generation inside a Vec to match api-inference
+        Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
+    }
+}
+
+/// OpenAI compatible chat completions endpoint
+#[utoipa::path(
+post,
+tag = "LoRAX",
+path = "/v1/chat/completions",
+request_body = ChatCompletionRequest,
+responses(
+(status = 200, description = "Generated Text",
+content(
+("application/json" = ChatCompletionResponse),
+("text/event-stream" = ChatCompletionStreamResponse),
+)),
+(status = 424, description = "Generation Error", body = ErrorResponse,
+example = json ! ({"error": "Request failed during generation"})),
+(status = 429, description = "Model is overloaded", body = ErrorResponse,
+example = json ! ({"error": "Model is overloaded"})),
+(status = 422, description = "Input validation error", body = ErrorResponse,
+example = json ! ({"error": "Input validation error"})),
+(status = 500, description = "Incomplete generation", body = ErrorResponse,
+example = json ! ({"error": "Incomplete generation"})),
+)
+)]
+#[instrument(skip(infer, req))]
+async fn chat_completions_v1(
+    default_return_full_text: Extension<bool>,
+    infer: Extension<Infer>,
+    req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
@@ -771,6 +831,7 @@ pub async fn run(
         .route("/generate", post(generate))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
+        .route("/v1/chat/completions", post(chat_completions_v1))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate))
         // Base Health route

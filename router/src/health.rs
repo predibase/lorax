@@ -52,6 +52,7 @@ impl Health {
                     ignore_eos_token: false,
                 }),
                 adapter_index: 0,
+                apply_chat_template: false,
             };
             let batch = Batch {
                 id: BATCH_ID,

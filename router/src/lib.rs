@@ -145,6 +145,9 @@ pub(crate) struct GenerateParameters {
     #[schema(default = "true")]
     pub decoder_input_details: bool,
     #[serde(default)]
+    #[schema(default = "false")]
+    pub apply_chat_template: bool,
+    #[serde(default)]
     #[schema(
         exclusive_minimum = 0,
         nullable = true,
@@ -177,6 +180,7 @@ fn default_parameters() -> GenerateParameters {
         watermark: false,
         details: false,
         decoder_input_details: false,
+        apply_chat_template: false,
         seed: None,
     }
 }
@@ -320,7 +324,7 @@ struct UsageInfo {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
-    messages: Vec<String>,
+    messages: Vec<std::collections::HashMap<String, String>>,
     temperature: Option<f32>,
     top_p: Option<f32>,
     n: Option<i32>,
@@ -451,6 +455,40 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 watermark: false,
                 details: true,
                 decoder_input_details: req.logprobs.is_some(),
+                apply_chat_template: false,
+                seed: None,
+            },
+            stream: req.stream.unwrap_or(false),
+        }
+    }
+}
+
+impl From<ChatCompletionRequest> for CompatGenerateRequest {
+    fn from(req: ChatCompletionRequest) -> Self {
+        CompatGenerateRequest {
+            inputs: serde_json::to_string(&req.messages).unwrap(),
+            parameters: GenerateParameters {
+                adapter_id: req.model.parse().ok(),
+                adapter_source: None,
+                api_token: None,
+                best_of: req.n.map(|x| x as usize),
+                temperature: req.temperature,
+                repetition_penalty: None,
+                top_k: None,
+                top_p: req.top_p,
+                typical_p: None,
+                do_sample: !req.n.is_none(),
+                max_new_tokens: req
+                    .max_tokens
+                    .map(|x| x as u32)
+                    .unwrap_or(default_max_new_tokens()),
+                return_full_text: None,
+                stop: req.stop,
+                truncate: None,
+                watermark: false,
+                details: true,
+                decoder_input_details: false,
+                apply_chat_template: true,
                 seed: None,
             },
             stream: req.stream.unwrap_or(false),

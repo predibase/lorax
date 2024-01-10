@@ -785,6 +785,11 @@
           "api_token": {
             "type": "string",
             "nullable": true
+          },
+          "apply_chat_template": {
+            "type": "boolean",
+            "default": "false",
+            "example": true
           }
         }
       },

@@ -8,6 +8,7 @@ from transformers import PreTrainedTokenizerBase
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import InfoResponse
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.tokenizer import TokenizerManager
 
 B = TypeVar("B", bound=Batch)
 
@@ -26,6 +27,7 @@ class Model(ABC):
     ):
         self.model = model.eval()
         self.tokenizer = tokenizer
+        self.tokenizers = TokenizerManager()
         self.all_special_ids = set(tokenizer.all_special_ids)
         self.requires_padding = requires_padding
         self.dtype = dtype
