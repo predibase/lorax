@@ -1,3 +1,4 @@
+import json
 import torch
 
 from dataclasses import dataclass
@@ -91,6 +92,7 @@ class Seq2SeqLMBatch(Batch):
         for i, r in enumerate(pb.requests):
             req_inputs = r.inputs
             if r.apply_chat_template:
+                req_inputs = json.loads(req_inputs)
                 req_inputs = tokenizer.apply_chat_template(req_inputs, tokenize=False)
             inputs.append(req_inputs)
             requests_idx_mapping[r.id] = i
