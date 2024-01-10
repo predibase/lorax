@@ -270,6 +270,184 @@
         }
       }
     },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "LoRAX"
+        ],
+        "summary": "OpenAI Chat Completions v1 compatible endpoint",
+        "description": "OpenAI Chat Completions v1 compatible endpoint",
+        "operationId": "chat_completions_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Generated Text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionStreamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Input validation error"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Generation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Request failed during generation"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Model is overloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Model is overloaded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Incomplete generation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Incomplete generation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/completions": {
+      "post": {
+        "tags": [
+          "LoRAX"
+        ],
+        "summary": "OpenAI Completions v1 compatible endpoint",
+        "description": "OpenAI Completions v1 compatible endpoint",
+        "operationId": "completions_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Generated Text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionStreamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Input validation error"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Generation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Request failed during generation"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Model is overloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Model is overloaded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Incomplete generation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Incomplete generation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -642,6 +820,136 @@
           "generated_text": {
             "type": "string",
             "example": "test"
+          }
+        }
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "example": "alignment-handbook/zephyr-7b-dpo-lora"
+          },
+          
+          "best_of": {
+            "type": "integer",
+            "default": "null",
+            "example": 1,
+            "nullable": true,
+            "minimum": 0.0,
+            "exclusiveMinimum": 0.0
+          },
+          "decoder_input_details": {
+            "type": "boolean",
+            "default": "true"
+          },
+          "details": {
+            "type": "boolean",
+            "default": "true"
+          },
+          "do_sample": {
+            "type": "boolean",
+            "default": "false",
+            "example": true
+          },
+          "max_new_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "default": "20",
+            "minimum": 0.0,
+            "exclusiveMaximum": 512.0,
+            "exclusiveMinimum": 0.0
+          },
+          "repetition_penalty": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 1.03,
+            "nullable": true,
+            "exclusiveMinimum": 0.0
+          },
+          "return_full_text": {
+            "type": "boolean",
+            "default": "null",
+            "example": false,
+            "nullable": true
+          },
+          "seed": {
+            "type": "integer",
+            "format": "int64",
+            "default": "null",
+            "example": "null",
+            "nullable": true,
+            "minimum": 0.0,
+            "exclusiveMinimum": 0.0
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "photographer"
+            ],
+            "maxItems": 4
+          },
+          "temperature": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.5,
+            "nullable": true,
+            "exclusiveMinimum": 0.0
+          },
+          "top_k": {
+            "type": "integer",
+            "format": "int32",
+            "default": "null",
+            "example": 10,
+            "nullable": true,
+            "exclusiveMinimum": 0.0
+          },
+          "top_p": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.95,
+            "nullable": true,
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0
+          },
+          "truncate": {
+            "type": "integer",
+            "default": "null",
+            "example": "null",
+            "nullable": true,
+            "minimum": 0.0
+          },
+          "typical_p": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.95,
+            "nullable": true,
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0
+          },
+          "watermark": {
+            "type": "boolean",
+            "default": "false",
+            "example": true
+          },
+          "adapter_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapter_source": {
+            "type": "string",
+            "nullable": true
+          },
+          "api_token": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
