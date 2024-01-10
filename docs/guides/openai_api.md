@@ -82,9 +82,13 @@ If the adapter selected with the `model` parameter has its own tokenizer and cha
 to the request during inference. If, however, the adapter does not have its own chat template, LoRAX will fallback to using the base model
 chat template. If this does not exist, an error will be raised, as chat templates are required for multi-turn conversations.
 
-## (Legacy) Completions v1
+## Completions v1
 
-The legacy completions v1 API can be used as well:
+The legacy completions v1 API can be used as well. This is useful in cases where the model does not have a chat template or you do not wish to
+interact with the model in a multi-turn conversation.
+
+Note, howevr, that you will need to provide any template boilerplate as part of the `prompt` as unlike the `v1/chat/completions` API, it will not
+be inserted automatically.
 
 ```python
 from openai import OpenAI
