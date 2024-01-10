@@ -89,7 +89,10 @@ class Seq2SeqLMBatch(Batch):
         padding_right_offset = 0
         max_decode_tokens = 0
         for i, r in enumerate(pb.requests):
-            inputs.append(r.inputs)
+            req_inputs = r.inputs
+            if r.apply_chat_template:
+                req_inputs = tokenizer.apply_chat_template(req_inputs, tokenize=False)
+            inputs.append(req_inputs)
             requests_idx_mapping[r.id] = i
             decoder_input_lengths.append(1)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))

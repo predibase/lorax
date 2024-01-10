@@ -1,3 +1,4 @@
+import json
 import math
 import torch
 import torch.distributed
@@ -71,7 +72,11 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            batch_inputs.append(r.inputs)
+            inputs = r.inputs
+            if r.apply_chat_template:
+                inputs = json.loads(inputs)
+                inputs = tokenizer.apply_chat_template(inputs, tokenize=False)
+            batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
         batch_tokenized_inputs = tokenizer(

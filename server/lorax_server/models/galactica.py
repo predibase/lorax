@@ -1,3 +1,4 @@
+import json
 import re
 import torch
 import torch.distributed
@@ -90,7 +91,11 @@ class GalacticaCausalLMBatch(CausalLMBatch):
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             # Add escape_custom_split_sequence to the CausalLMBatch logic
-            inputs.append(escape_custom_split_sequence(r.inputs))
+            req_inputs = r.inputs
+            if r.apply_chat_template:
+                req_inputs = json.loads(req_inputs)
+                req_inputs = tokenizer.apply_chat_template(req_inputs, tokenize=False)
+            inputs.append(escape_custom_split_sequence(req_inputs))
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
