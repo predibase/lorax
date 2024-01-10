@@ -16,6 +16,7 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.utils.tokenizer import get_inputs
 
 tracer = trace.get_tracer(__name__)
 
@@ -87,10 +88,7 @@ class CausalLMBatch(Batch):
         adapter_indices_list = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
-            req_inputs = r.inputs
-            if r.apply_chat_template:
-                req_inputs = json.loads(req_inputs)
-                req_inputs = tokenizer.apply_chat_template(req_inputs, add_generation_prompt=True, tokenize=False)
+            req_inputs = get_inputs(r, tokenizer)
             inputs.append(req_inputs)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(

@@ -30,11 +30,11 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
-from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.weights import shard_on_dim
 from lorax_server.utils.graph import GraphCache
-from lorax_server.utils.sgmv import get_tmp_tensor
+from lorax_server.utils.tokenizer import get_inputs
 
 tracer = trace.get_tracer(__name__)
 
@@ -121,10 +121,7 @@ class FlashCausalLMBatch(Batch):
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            inputs = r.inputs
-            if r.apply_chat_template:
-                inputs = json.loads(inputs)
-                inputs = tokenizer.apply_chat_template(inputs, add_generation_prompt=True, tokenize=False)
+            inputs = get_inputs(r, tokenizer)
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
