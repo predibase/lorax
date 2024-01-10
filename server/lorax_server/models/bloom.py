@@ -20,6 +20,7 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
+from lorax_server.utils.tokenizer import TokenizerManager
 
 
 class BloomCausalLMBatch(CausalLMBatch):
@@ -28,10 +29,11 @@ class BloomCausalLMBatch(CausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
-        batch = super().from_pb(pb=pb, tokenizer=tokenizer, dtype=dtype, device=device)
+        batch = super().from_pb(pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device)
         batch.keys_head_dim_last = False
         return batch
 
