@@ -10,7 +10,7 @@
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
-    "version": "0.3.0"
+    "version": "0.5.0"
   },
   "paths": {
     "/": {
@@ -294,7 +294,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CompletionResponse"
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
                 }
               },
               "text/event-stream": {
@@ -959,6 +959,44 @@
           "stream": {
             "type": "boolean",
             "default": "false"
+          }
+        }
+      },
+      "ChatCompletionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCompletionResponseChoice"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageInfo"
+          }
+        }
+      },
+      "ChatCompletionResponseChoice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "format": "int32" },
+          "message": { "type": "string" },
+          "finish_reason": { 
+            "type": "string",
+            "nullable": true
           }
         }
       },
