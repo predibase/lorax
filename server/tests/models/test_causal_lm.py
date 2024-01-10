@@ -6,6 +6,7 @@ from transformers import AutoTokenizer
 
 from lorax_server.pb import generate_pb2
 from lorax_server.models.causal_lm import CausalLM, CausalLMBatch
+from lorax_server.utils.tokenizer import TokenizerManager
 
 
 @pytest.fixture(scope="session")
@@ -40,7 +41,7 @@ def default_pb_batch(default_pb_request):
 @pytest.fixture
 def default_causal_lm_batch(default_pb_batch, gpt2_tokenizer):
     return CausalLMBatch.from_pb(
-        default_pb_batch, gpt2_tokenizer, torch.float32, torch.device("cpu")
+        default_pb_batch, gpt2_tokenizer, TokenizerManager(), torch.float32, torch.device("cpu")
     )
 
 
@@ -54,7 +55,7 @@ def default_multi_requests_causal_lm_batch(default_pb_request, gpt2_tokenizer):
 
     batch_pb = generate_pb2.Batch(id=1, requests=[req_0, req_1], size=2)
     return CausalLMBatch.from_pb(
-        batch_pb, gpt2_tokenizer, torch.float32, torch.device("cpu")
+        batch_pb, gpt2_tokenizer, TokenizerManager(), torch.float32, torch.device("cpu")
     )
 
 

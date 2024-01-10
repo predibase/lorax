@@ -1,3 +1,4 @@
+import json
 import torch
 import inspect
 
@@ -15,6 +16,7 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -69,6 +71,7 @@ class CausalLMBatch(Batch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
@@ -86,7 +89,8 @@ class CausalLMBatch(Batch):
         adapter_indices_list = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
-            inputs.append(r.inputs)
+            req_inputs = tokenizers.get_inputs(r, tokenizer)
+            inputs.append(req_inputs)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
