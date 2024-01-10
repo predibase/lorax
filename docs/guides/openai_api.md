@@ -1,5 +1,5 @@
 LoRAX supports [OpenAI Chat Completions v1](https://platform.openai.com/docs/api-reference/completions/create) compatible endpoints that serve as a drop-in replacement for the OpenAI SDK. It supports multi-turn
-chat conversations while retraining support for dynamic adapter loading.
+chat conversations while retaining support for dynamic adapter loading.
 
 ## Chat Completions v1
 
