@@ -40,7 +40,7 @@ from lorax_server.utils import (
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import find_segments
-from lorax_server.utils.tokenizer import get_inputs
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -64,6 +64,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
@@ -73,7 +74,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            inputs = get_inputs(r, tokenizer)
+            inputs = tokenizers.get_inputs(r, tokenizer)
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 

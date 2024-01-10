@@ -21,7 +21,7 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
-from lorax_server.utils.tokenizer import get_inputs
+from lorax_server.utils.tokenizer import TokenizerManager
 
 # CREDIT: Papers with code => https://github.com/paperswithcode/galai/blob/main/galai/utils.py
 
@@ -75,6 +75,7 @@ class GalacticaCausalLMBatch(CausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "GalacticaCausalLMBatch":
@@ -92,7 +93,7 @@ class GalacticaCausalLMBatch(CausalLMBatch):
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             # Add escape_custom_split_sequence to the CausalLMBatch logic
-            req_inputs = get_inputs(r, tokenizer)
+            req_inputs = tokenizers.get_inputs(r, tokenizer)
             inputs.append(escape_custom_split_sequence(req_inputs))
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(

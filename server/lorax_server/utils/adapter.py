@@ -11,7 +11,7 @@ from loguru import logger
 from peft import LoraConfig
 from peft.utils import transpose
 from safetensors.torch import load_file, save_file
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoTokenizer
 from tqdm import tqdm
 from filelock import FileLock
 
@@ -42,6 +42,9 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
                              f"Architectures differ: {model_config.architectures} != {expected_config.architectures}. "
                              f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
 
+    # TODO(travis): handle case where tokenizer does not exist
+    adapter_tokenizer = AutoTokenizer.from_pretrained(config_path)
+    
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_filenames = source.weight_files()
     adapter_weights = {}
@@ -63,7 +66,7 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
         }
         adapter_weight_names.add(lora_a_name)
         adapter_weight_names.add(lora_b_name)
-    return module_map, adapter_config, adapter_weight_names
+    return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
 
 
 def compute_delta_weight(

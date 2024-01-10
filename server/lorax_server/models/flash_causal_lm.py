@@ -34,7 +34,7 @@ from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, Batc
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.weights import shard_on_dim
 from lorax_server.utils.graph import GraphCache
-from lorax_server.utils.tokenizer import get_inputs
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -115,13 +115,14 @@ class FlashCausalLMBatch(Batch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            inputs = get_inputs(r, tokenizer)
+            inputs = tokenizers.get_inputs(r, tokenizer)
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
@@ -748,7 +749,7 @@ class FlashCausalLM(Model):
         elif adapter_id != BASE_MODEL_ADAPTER_ID:
             logger.info(f"Loading adapter weights into model: {adapter_id}")
             weight_names = tuple([v[0] for v in self.target_to_layer.values()])
-            module_map, adapter_config, adapter_weight_names = load_module_map(
+            module_map, adapter_config, adapter_weight_names, adapter_tokenizer = load_module_map(
                 self.model_id, adapter_id, adapter_source, weight_names
             )
 
@@ -760,6 +761,9 @@ class FlashCausalLM(Model):
             
             if len(unused_weight_names) > 0:
                 logger.warning(f"{adapter_id} unused adapter weights: {unused_weight_names}")
+            
+            if adapter_tokenizer is not None:
+                self.tokenizers.add_tokenizer(adapter_index, adapter_tokenizer)
 
             self.adapter_id = adapter_id
 

@@ -15,7 +15,7 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
-from lorax_server.utils.tokenizer import get_inputs
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -73,6 +73,7 @@ class Seq2SeqLMBatch(Batch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "Seq2SeqLMBatch":
@@ -91,7 +92,7 @@ class Seq2SeqLMBatch(Batch):
         padding_right_offset = 0
         max_decode_tokens = 0
         for i, r in enumerate(pb.requests):
-            req_inputs = get_inputs(r, tokenizer)
+            req_inputs = tokenizers.get_inputs(r, tokenizer)
             inputs.append(req_inputs)
             requests_idx_mapping[r.id] = i
             decoder_input_lengths.append(1)
