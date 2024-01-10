@@ -148,7 +148,7 @@ responses(
 (status = 200, description = "Generated Text",
 content(
 ("application/json" = ChatCompletionResponse),
-("text/event-stream" = ChatCompletionStreamResponse),
+("text/event-stream" = CompletionStreamResponse),
 )),
 (status = 424, description = "Generation Error", body = ErrorResponse,
 example = json ! ({"error": "Request failed during generation"})),

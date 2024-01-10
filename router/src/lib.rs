@@ -376,7 +376,7 @@ struct CompletionResponseChoice {
     index: i32,
     text: String,
     logprobs: Option<LogProbs>,
-    finish_reason: Option<String>, // Literal replaced with String
+    finish_reason: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -394,7 +394,7 @@ struct CompletionResponseStreamChoice {
     index: i32,
     text: String,
     logprobs: Option<LogProbs>,
-    finish_reason: Option<String>, // Literal replaced with String
+    finish_reason: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -417,7 +417,7 @@ struct ChatMessage {
 struct ChatCompletionResponseChoice {
     index: i32,
     message: ChatMessage,
-    finish_reason: Option<String>, // Literal replaced with String
+    finish_reason: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]

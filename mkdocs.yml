@@ -44,6 +44,7 @@ nav:
       - Python Client: reference/python_client.md
   - 🔬 Guides:
       - CUDA Graph Compilation: guides/cuda_graphs.md
+      - OpenAI Compatible API: guides/openai_api.md
   #     - GPUs: guides/gpus.md
   #     - Fine-Tuning: guides/fine_tuning.md
   #     - Quantization: guides/quantization.md
