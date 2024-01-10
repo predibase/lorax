@@ -90,7 +90,7 @@ class CausalLMBatch(Batch):
             req_inputs = r.inputs
             if r.apply_chat_template:
                 req_inputs = json.loads(req_inputs)
-                req_inputs = tokenizer.apply_chat_template(req_inputs, tokenize=False)
+                req_inputs = tokenizer.apply_chat_template(req_inputs, add_generation_prompt=True, tokenize=False)
             inputs.append(req_inputs)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(

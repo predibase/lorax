@@ -93,7 +93,7 @@ class Seq2SeqLMBatch(Batch):
             req_inputs = r.inputs
             if r.apply_chat_template:
                 req_inputs = json.loads(req_inputs)
-                req_inputs = tokenizer.apply_chat_template(req_inputs, tokenize=False)
+                req_inputs = tokenizer.apply_chat_template(req_inputs, add_generation_prompt=True, tokenize=False)
             inputs.append(req_inputs)
             requests_idx_mapping[r.id] = i
             decoder_input_lengths.append(1)

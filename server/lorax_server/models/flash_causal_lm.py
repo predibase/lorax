@@ -124,7 +124,7 @@ class FlashCausalLMBatch(Batch):
             inputs = r.inputs
             if r.apply_chat_template:
                 inputs = json.loads(inputs)
-                inputs = tokenizer.apply_chat_template(inputs, tokenize=False)
+                inputs = tokenizer.apply_chat_template(inputs, add_generation_prompt=True, tokenize=False)
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
