@@ -63,6 +63,7 @@ class Client:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         best_of: Optional[int] = None,
@@ -88,6 +89,8 @@ class Client:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            api_token (`Optional[str]`):
+                API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -127,6 +130,7 @@ class Client:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            api_token=api_token,
             best_of=best_of,
             details=True,
             do_sample=do_sample,
@@ -162,6 +166,7 @@ class Client:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         repetition_penalty: Optional[float] = None,
@@ -185,6 +190,8 @@ class Client:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            api_token (`Optional[str]`):
+                API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -220,6 +227,7 @@ class Client:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            api_token=api_token,
             best_of=None,
             details=True,
             decoder_input_details=False,
@@ -321,6 +329,7 @@ class AsyncClient:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         best_of: Optional[int] = None,
@@ -346,6 +355,8 @@ class AsyncClient:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            api_token (`Optional[str]`):
+                API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -385,6 +396,7 @@ class AsyncClient:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            api_token=api_token,
             best_of=best_of,
             details=True,
             decoder_input_details=decoder_input_details,
@@ -418,6 +430,7 @@ class AsyncClient:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
         repetition_penalty: Optional[float] = None,
@@ -441,6 +454,8 @@ class AsyncClient:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            api_token (`Optional[str]`):
+                API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
             max_new_tokens (`int`):
@@ -476,6 +491,7 @@ class AsyncClient:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            api_token=api_token,
             best_of=None,
             details=True,
             decoder_input_details=False,
