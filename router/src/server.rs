@@ -3,10 +3,10 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, CompatGenerateRequest, CompletionRequest,
-    CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation, ChatCompletionResponse, ChatCompletionStreamResponse,
+    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
+    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
+    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -194,7 +194,11 @@ async fn chat_completions_v1(
     } else {
         let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
-        Ok((headers, Json(vec![ChatCompletionResponse::from(generation.0)])).into_response())
+        Ok((
+            headers,
+            Json(vec![ChatCompletionResponse::from(generation.0)]),
+        )
+            .into_response())
     }
 }
 
