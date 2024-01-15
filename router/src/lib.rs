@@ -430,6 +430,16 @@ struct ChatCompletionResponse {
     usage: UsageInfo,
 }
 
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionStreamResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<ChatCompletionResponseChoice>,
+    usage: Option<UsageInfo>,
+}
+
 impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
         CompatGenerateRequest {
@@ -545,6 +555,70 @@ impl From<StreamResponse> for CompletionStreamResponse {
                 index: 0,
                 text: resp.generated_text.unwrap_or_default(),
                 logprobs: None,
+                finish_reason: None,
+            }],
+            usage: Some(UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            }),
+        }
+    }
+}
+
+impl From<GenerateResponse> for ChatCompletionResponse {
+    fn from(resp: GenerateResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        ChatCompletionResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![ChatCompletionResponseChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: resp.generated_text,
+                },
+                finish_reason: None,
+            }],
+            usage: UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            },
+        }
+    }
+}
+
+impl From<StreamResponse> for ChatCompletionStreamResponse {
+    fn from(resp: StreamResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        ChatCompletionStreamResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![ChatCompletionResponseChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: resp.generated_text.unwrap_or_default(),
+                },
                 finish_reason: None,
             }],
             usage: Some(UsageInfo {
