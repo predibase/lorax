@@ -367,7 +367,7 @@ fn shard_manager(
     watermark_delta: Option<f32>,
     cuda_memory_fraction: f32,
     otlp_endpoint: Option<String>,
-    self_extend_attention: bool
+    self_extend_attention: bool,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
     _shutdown_sender: mpsc::Sender<()>,
