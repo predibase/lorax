@@ -6,6 +6,7 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from tqdm import tqdm
 from typing import Dict, List, Optional, Tuple
+from functools import partial
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
@@ -20,6 +21,9 @@ from lorax_server.utils import (
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+
+# Self extend stuff
+from lorax_server.models.custom_modelling.attentions.self_extend import LlamaSE, modify_method_of_instance
 
 tracer = trace.get_tracer(__name__)
 
@@ -39,6 +43,7 @@ class FlashLlama(FlashCausalLM):
         compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
+        self_extend_attention: bool = False,
     ):
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
@@ -92,6 +97,11 @@ class FlashLlama(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashLlamaForCausalLM(config, weights)
+
+        if self_extend_attention:
+            self_extend_forward = partial(LlamaSE.self_extend_forward, group_size_1=4, group_size_2=1024)
+            modify_method_of_instance(model, "FlashLlamaAttention", "forward", self_extend_forward)
+
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashLlama, self).__init__(

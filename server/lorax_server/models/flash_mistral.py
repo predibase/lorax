@@ -11,6 +11,7 @@ from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
 from transformers.models.llama import LlamaTokenizerFast
 from typing import Dict, List, Optional, Tuple, Type
+from functools import partial
 
 from lorax_server.pb import generate_pb2
 from lorax_server.models import FlashCausalLM
@@ -34,6 +35,9 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
+
+# Self extend stuff
+from lorax_server.models.custom_modelling.attentions.self_extend import MistralSE, modify_method_of_instance
 
 tracer = trace.get_tracer(__name__)
 
@@ -315,6 +319,7 @@ class FlashMistral(FlashCausalLM):
         compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
+        self_extend_attention: bool = False,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -378,6 +383,10 @@ class FlashMistral(FlashCausalLM):
 
         self.model_id = model_id
         model = FlashMistralForCausalLM(config, weights)
+
+        if self_extend_attention:
+            self_extend_forward = partial(MistralSE.self_extend_forward, group_size_1=4, group_size_2=1024)
+            modify_method_of_instance(model, "MistralAttention", "forward", self_extend_forward)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashMistral, self).__init__(

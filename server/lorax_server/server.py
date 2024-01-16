@@ -213,6 +213,7 @@ def serve(
     uds_path: Path,
     source: str,
     adapter_source: str,
+    self_extend_attention: bool = False,
 ):
     async def serve_inner(
         model_id: str,
@@ -223,6 +224,7 @@ def serve(
         compile: bool = False,
         dtype: Optional[str] = None,
         trust_remote_code: bool = False,
+        self_extend_attention: bool = False,
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
@@ -237,7 +239,7 @@ def serve(
 
         try:
             model = get_model(
-                model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, source, adapter_source
+                model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, source, adapter_source, self_extend_attention
             )
         except Exception:
             logger.exception("Error when initializing model")

@@ -102,6 +102,7 @@ def get_model(
     trust_remote_code: bool,
     source: str,
     adapter_source: str,
+    self_extend_attention: bool = False,
 ) -> Model:
     config_dict = None
     if source == "s3":
@@ -245,6 +246,7 @@ def get_model(
                 compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
+                self_extend_attention=self_extend_attention,
             )
         elif sharded:
             raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format("Sharded Llama"))
@@ -317,6 +319,7 @@ def get_model(
                 compile=compile,
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
+                self_extend_attention=self_extend_attention,
             )
         raise NotImplementedError("Mistral model requires flash attention v2")
     
