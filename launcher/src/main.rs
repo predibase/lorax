@@ -331,6 +331,11 @@ struct Args {
     /// Download model weights only
     #[clap(long, env)]
     download_only: bool,
+
+    /// Whether you want to use self extend attention.
+    // This will enhance the maximum context window
+    #[clap(long, env, value_enum)]
+    self_extend_attention: bool,
 }
 
 #[derive(Debug)]
@@ -362,6 +367,7 @@ fn shard_manager(
     watermark_delta: Option<f32>,
     cuda_memory_fraction: f32,
     otlp_endpoint: Option<String>,
+    self_extend_attention: bool
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
     _shutdown_sender: mpsc::Sender<()>,
@@ -433,6 +439,11 @@ fn shard_manager(
     if let Some(otlp_endpoint) = otlp_endpoint {
         shard_args.push("--otlp-endpoint".to_string());
         shard_args.push(otlp_endpoint);
+    }
+
+    // self extend attention
+    if self_extend_attention {
+        shard_args.push("--self_extend_attention".to_string());
     }
 
     // Copy current process env
@@ -872,6 +883,7 @@ fn spawn_shards(
         let watermark_gamma = args.watermark_gamma;
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
+        let self_extend_attention = args.self_extend_attention;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -895,6 +907,7 @@ fn spawn_shards(
                 watermark_delta,
                 cuda_memory_fraction,
                 otlp_endpoint,
+                self_extend_attention,
                 status_sender,
                 shutdown,
                 shutdown_sender,
