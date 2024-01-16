@@ -3,10 +3,10 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, CompatGenerateRequest, CompletionRequest,
-    CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation,
+    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
+    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
+    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -148,7 +148,7 @@ responses(
 (status = 200, description = "Generated Text",
 content(
 ("application/json" = ChatCompletionResponse),
-("text/event-stream" = CompletionStreamResponse),
+("text/event-stream" = ChatCompletionStreamResponse),
 )),
 (status = 424, description = "Generation Error", body = ErrorResponse,
 example = json ! ({"error": "Request failed during generation"})),
@@ -178,10 +178,10 @@ async fn chat_completions_v1(
     if gen_req.stream {
         let callback = move |resp: StreamResponse| {
             Event::default()
-                .json_data(CompletionStreamResponse::from(resp))
+                .json_data(ChatCompletionStreamResponse::from(resp))
                 .map_or_else(
                     |err| {
-                        tracing::error!("Failed to serialize CompletionStreamResponse: {err}");
+                        tracing::error!("Failed to serialize ChatCompletionStreamResponse: {err}");
                         Event::default()
                     },
                     |data| data,
@@ -194,7 +194,11 @@ async fn chat_completions_v1(
     } else {
         let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
-        Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
+        Ok((
+            headers,
+            Json(vec![ChatCompletionResponse::from(generation.0)]),
+        )
+            .into_response())
     }
 }
 

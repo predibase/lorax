@@ -299,7 +299,7 @@
               },
               "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/CompletionStreamResponse"
+                  "$ref": "#/components/schemas/ChatCompletionStreamResponse"
                 }
               }
             }
@@ -989,15 +989,51 @@
           }
         }
       },
+      "ChatCompletionStreamResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCompletionResponseChoice"
+            }
+          },
+          "usage": { 
+            "type": "object",
+            "nullable": true,
+            "$ref": "#/components/schemas/UsageInfo"
+          }
+        }
+      },
       "ChatCompletionResponseChoice": {
         "type": "object",
         "properties": {
           "index": { "type": "integer", "format": "int32" },
-          "message": { "type": "string" },
+          "message": { "type": "object", "$ref": "#/components/schemas/ChatCompletionResponseMessage" },
           "finish_reason": { 
             "type": "string",
             "nullable": true
           }
+        }
+      },
+      "ChatCompletionResponseMessage": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string" },
+          "content": { "type": "string" }
         }
       },
       "CompletionResponse": {
