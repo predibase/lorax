@@ -1,4 +1,5 @@
 # transfromers version 4.36.2
+# https://github.com/datamllab/LongLM/tree/master
 import torch
 import torch.nn as nn
 import math

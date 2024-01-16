@@ -1,4 +1,5 @@
 # transfromers version 4.32.0
+# https://github.com/datamllab/LongLM/tree/master
 import torch
 from transformers.models.llama.modeling_llama import *
 import numpy as np

@@ -1,4 +1,5 @@
 # transfromers version 4.36.2
+# https://github.com/datamllab/LongLM/tree/master
 # Should work for 'susnato/phi-2', a hf version of microsfot/phi-2, check the detail in Huggingface Hub. 
 # Haven't tested it! ! !
 import math
