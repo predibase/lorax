@@ -37,7 +37,8 @@ from lorax_server.utils.segments import find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
 
 # Self extend stuff
-from lorax_server.models.custom_modelling.attentions.self_extend import MistralSE, modify_method_of_instance
+from lorax_server.models.custom_modeling.attentions.self_extend import MistralSE, modify_method_of_instance
+
 
 tracer = trace.get_tracer(__name__)
 

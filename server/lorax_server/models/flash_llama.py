@@ -23,7 +23,7 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 # Self extend stuff
-from lorax_server.models.custom_modelling.attentions.self_extend import LlamaSE, modify_method_of_instance
+from lorax_server.models.custom_modeling.attentions.self_extend import LlamaSE, modify_method_of_instance
 
 tracer = trace.get_tracer(__name__)
 
