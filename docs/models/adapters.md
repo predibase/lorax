@@ -92,6 +92,7 @@ Usage:
     "adapter_id": "model_repo/model_version",
     "adapter_source": "pbase"
 }
+```
 
 ### Local
 
