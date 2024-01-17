@@ -68,16 +68,16 @@ class FlashLlama(FlashCausalLM):
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
-        self.dynamic_adapter_loading_enabled = True
-        self.adapter_id = BASE_MODEL_ADAPTER_ID
+        dynamic_adapter_loading_enabled = True
+        adapter_id = BASE_MODEL_ADAPTER_ID
         if len(adapter_id) > 0:
             logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
             # Need to pass the adapter source here
             merged_weight_filenames = create_merged_weight_files(
                 adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
             )
-            self.dynamic_adapter_loading_enabled = False
-            self.adapter_id = adapter_id
+            dynamic_adapter_loading_enabled = False
+            adapter_id = adapter_id
 
         weights = Weights(
             filenames, 
@@ -105,6 +105,8 @@ class FlashLlama(FlashCausalLM):
             rank=rank,
             world_size=world_size,
             compile=compile,
+            adapter_id=adapter_id,
+            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
     
     @property

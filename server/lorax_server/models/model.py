@@ -29,6 +29,8 @@ class Model(ABC):
         rank: int = 0,
         world_size: int = 1,
         sliding_window: Optional[int] = None,
+        adapter_id: str = BASE_MODEL_ADAPTER_ID,
+        dynamic_adapter_loading_enabled: bool = True,
     ):
         self.model = model.eval()
         self.tokenizer = tokenizer
@@ -42,7 +44,8 @@ class Model(ABC):
         self.sliding_window = sliding_window
 
         # This may be set to False in the subclass constructor
-        self.dynamic_adapter_loading_enabled = True
+        self.adapter_id = adapter_id
+        self.dynamic_adapter_loading_enabled = dynamic_adapter_loading_enabled
         self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
 
         self.has_position_ids = (

@@ -682,6 +682,8 @@ class FlashCausalLM(Model):
         world_size: int = 1,
         sliding_window: Optional[int] = None,
         compile: bool = False,
+        adapter_id: str = BASE_MODEL_ADAPTER_ID,
+        dynamic_adapter_loading_enabled: bool = True,
     ):
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
@@ -696,6 +698,8 @@ class FlashCausalLM(Model):
             rank=rank,
             world_size=world_size,
             sliding_window=sliding_window,
+            adapter_id=adapter_id,
+            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
 
         self.compile = compile
