@@ -78,7 +78,11 @@ pub(crate) struct GenerateParameters {
     #[schema(nullable = true, default = "null", example = "hub")]
     pub adapter_source: Option<String>,
     #[serde(default)]
-    #[schema(nullable = true, default = "null", example = "<token for private adapters>")]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "<token for private adapters>"
+    )]
     pub api_token: Option<String>,
     #[serde(default)]
     #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 1)]
