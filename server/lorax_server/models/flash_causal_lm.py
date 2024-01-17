@@ -671,6 +671,7 @@ class FlashCausalLMBatch(Batch):
 class FlashCausalLM(Model):
     def __init__(
         self,
+        model_id: str,
         model: torch.nn.Module,
         tokenizer: PreTrainedTokenizerBase,
         num_layers: int,
@@ -690,6 +691,7 @@ class FlashCausalLM(Model):
         self.head_size = head_size
 
         super(FlashCausalLM, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             requires_padding=False,
