@@ -97,11 +97,11 @@ class FlashGPT2(FlashCausalLM):
         if config.quantize == "gptq":
             weights._set_gptq_params(model_id)
 
-        self.model_id = model_id
         model = FlashGPT2ForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashGPT2, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             num_layers=len(model.transformer.h),

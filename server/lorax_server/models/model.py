@@ -21,6 +21,7 @@ B = TypeVar("B", bound=Batch)
 class Model(ABC):
     def __init__(
         self,
+        model_id: str,
         model: torch.nn.Module,
         tokenizer: PreTrainedTokenizerBase,
         requires_padding: bool,
@@ -32,6 +33,7 @@ class Model(ABC):
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         dynamic_adapter_loading_enabled: bool = True,
     ):
+        self.model_id = model_id
         self.model = model.eval()
         self.tokenizer = tokenizer
         self.tokenizers = TokenizerManager()
@@ -47,6 +49,7 @@ class Model(ABC):
         self.adapter_id = adapter_id
         self.dynamic_adapter_loading_enabled = dynamic_adapter_loading_enabled
         self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
+        self.target_to_layer = self.adapter_target_to_layer()
 
         self.has_position_ids = (
             inspect.signature(model.forward).parameters.get("position_ids", None)

@@ -65,6 +65,7 @@ class SantaCoder(CausalLM):
             )
 
         super(CausalLM, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             requires_padding=True,

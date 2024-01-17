@@ -705,8 +705,6 @@ class FlashCausalLM(Model):
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
 
-        self.target_to_layer = self.adapter_target_to_layer()
-
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
         return FlashCausalLMBatch
