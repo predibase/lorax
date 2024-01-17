@@ -73,7 +73,7 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "hub",
+    "adapter_source": "hub"
 }
 ```
 
@@ -90,7 +90,7 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "model_repo/model_version",
-    "adapter_source": "pbase",
+    "adapter_source": "pbase"
 }
 
 ### Local
@@ -113,7 +113,7 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "/data/adapters/vineetsharma--qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "local",
+    "adapter_source": "local"
 }
 ```
 
@@ -126,6 +126,27 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "s3://adapters_bucket/vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "s3",
+    "adapter_source": "s3"
 }
 ```
+
+## Private Adapter Repositories
+
+For hosted adapter repositories like HuggingFace Hub and [Predibase](https://predibase.com/), you can perform inference using private adapters per request.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "my-repo/private-adapter",
+    "api_token": "<auth_token>"
+}
+```
+
+The authorization check is performed per-request in the background (prior to batching to prevent slowing down inference) every time, so even if the
+adapter is cachd locally or the authorization token has been invalidated, the check will be performed and handled appropriately.
+
+For details on generating API tokens, see:
+
+- [HuggingFace docs](https://huggingface.co/docs/hub/security-tokens)
+- [Predibase docs](https://docs.predibase.com/)
