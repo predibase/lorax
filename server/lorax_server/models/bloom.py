@@ -21,6 +21,7 @@ from lorax_server.utils import (
     Weights,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
+from server.lorax_server.utils.lora import AdapterBatchData
 
 
 class BloomCausalLMBatch(CausalLMBatch):
@@ -101,9 +102,18 @@ class BLOOMSharded(CausalLM):
     @property
     def batch_type(self) -> Type[CausalLMBatch]:
         return BloomCausalLMBatch
+    
+    @property
+    def has_adapter_data(self) -> bool:
+        return True
 
     def forward(
-        self, input_ids, attention_mask, position_ids, past_key_values: Optional = None
+        self, 
+        input_ids, 
+        attention_mask, 
+        position_ids, 
+        past_key_values: Optional = None, 
+        adapter_data: Optional[AdapterBatchData] = None
     ):
         outputs = self.model.forward(
             input_ids=input_ids,
@@ -111,6 +121,7 @@ class BLOOMSharded(CausalLM):
             position_ids=position_ids,
             past_key_values=past_key_values,
             use_cache=True,
+            adapter_data=adapter_data,
         )
 
         logits = outputs.logits

@@ -490,8 +490,11 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
         for i, layer_name in enumerate(self.layer_names):
             start_idx = offset // self.process_group.size()
 
-            offset += self.sizes[i]
-            end_idx = offset // self.process_group.size()
+            if self.sizes is not None:
+                offset += self.sizes[i]
+                end_idx = offset // self.process_group.size()
+            else:
+                end_idx = result.shape[1]
             
             result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
 
