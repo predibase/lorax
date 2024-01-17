@@ -443,7 +443,7 @@ fn shard_manager(
 
     // self extend attention
     if self_extend_attention {
-        shard_args.push("--self_extend_attention".to_string());
+        shard_args.push("--self-extend-attention".to_string());
     }
 
     // Copy current process env
