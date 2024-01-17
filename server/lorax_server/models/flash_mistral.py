@@ -355,7 +355,6 @@ class FlashMistral(FlashCausalLM):
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
         dynamic_adapter_loading_enabled = True
-        adapter_id = BASE_MODEL_ADAPTER_ID
         if len(adapter_id) > 0:
             logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
             # Need to pass the adapter source here
@@ -364,6 +363,8 @@ class FlashMistral(FlashCausalLM):
             )
             dynamic_adapter_loading_enabled = False
             adapter_id = adapter_id
+        else:
+            adapter_id = BASE_MODEL_ADAPTER_ID
 
         weights = Weights(
             filenames, 
