@@ -26,10 +26,10 @@ def get_hub_model_local_dir(model_id: str) -> Path:
 
 
 def weight_hub_files(
-    model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"
+    model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None
 ) -> List[str]:
     """Get the weights filenames on the hub"""
-    api = HfApi()
+    api = HfApi(token=api_token)
     info = api.model_info(model_id, revision=revision)
     filenames = [
         s.rfilename
@@ -52,7 +52,7 @@ def weight_hub_files(
 
 
 def weight_files(
-    model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"
+    model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None
 ) -> List[Path]:
     """Get the local files"""
     # Local model
@@ -65,12 +65,12 @@ def weight_files(
         return local_files
 
     try:
-        filenames = weight_hub_files(model_id, revision, extension)
+        filenames = weight_hub_files(model_id, revision, extension, api_token)
     except EntryNotFoundError as e:
         if extension != ".safetensors":
             raise e
         # Try to see if there are pytorch weights
-        pt_filenames = weight_hub_files(model_id, revision, extension=".bin")
+        pt_filenames = weight_hub_files(model_id, revision, extension=".bin", api_token=api_token)
         # Change pytorch extension to safetensors extension
         # It is possible that we have safetensors weights locally even though they are not on the
         # hub if we converted weights locally without pushing them
@@ -107,7 +107,7 @@ def weight_files(
 
 
 def download_weights(
-    filenames: List[str], model_id: str, revision: Optional[str] = None
+    filenames: List[str], model_id: str, revision: Optional[str] = None, api_token: Optional[str] = None
 ) -> List[Path]:
     """Download the safetensors files from the hub"""
 
@@ -127,6 +127,7 @@ def download_weights(
                     repo_id=model_id,
                     revision=revision,
                     local_files_only=False,
+                    token=api_token,
                 )
                 logger.info(
                     f"Downloaded {local_file} in {timedelta(seconds=int(time.time() - start_time))}."
@@ -157,21 +158,22 @@ def download_weights(
 
 
 class HubModelSource(BaseModelSource):
-    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
+        self.api_token = api_token
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
-        return weight_hub_files(self.model_id, self.revision, extension)
+        return weight_hub_files(self.model_id, self.revision, extension, self.api_token)
 
     def weight_files(self, extension=None):
         extension = extension or self.extension
-        return weight_files(self.model_id, self.revision, extension)
+        return weight_files(self.model_id, self.revision, extension, self.api_token)
 
     def download_weights(self, filenames):
-        return download_weights(filenames, self.model_id, self.revision)
+        return download_weights(filenames, self.model_id, self.revision, self.api_token)
 
     def download_model_assets(self):
         filenames = self.remote_weight_files()

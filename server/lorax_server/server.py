@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import torch
+from huggingface_hub import HfApi
 from peft import PeftConfig
 
 from grpc import aio
@@ -134,19 +135,23 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 adapter_source=request.adapter_source,
             )
 
+        api_token = request.api_token
         adapter_source = _adapter_source_enum_to_string(request.adapter_source)
         if adapter_source == PBASE:
-            adapter_id = map_pbase_model_id_to_s3(adapter_id, request.api_token)
+            adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
             adapter_source = S3
         try:
-            # fail fast if ID is not an adapter (i.e. it is a full model)
-            # TODO(geoffrey): do this for S3– can't do it this way because the
-            # files are not yet downloaded locally at this point.
             if adapter_source == HUB:
+                # Quick auth check on the repo against the token
+                HfApi(token=api_token).model_info(adapter_id, revision=None)
+                
+                # fail fast if ID is not an adapter (i.e. it is a full model)
+                # TODO(geoffrey): do this for S3– can't do it this way because the
+                # files are not yet downloaded locally at this point.
                 config_path = get_config_path(adapter_id, adapter_source)
-                PeftConfig.from_pretrained(config_path)
+                PeftConfig.from_pretrained(config_path, token=api_token)
 
-            download_weights(adapter_id, source=adapter_source)
+            download_weights(adapter_id, source=adapter_source, api_token=api_token)
             return generate_pb2.DownloadAdapterResponse(
                 adapter_id=adapter_id,
                 adapter_source=request.adapter_source,
@@ -162,7 +167,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                     shutil.rmtree(local_path)
                 except Exception as e:
                     logger.warning(f"Error cleaning up safetensors files after "
-                                f"download error: {e}\nIgnoring.")
+                                   f"download error: {e}\nIgnoring.")
             raise
 
     async def LoadAdapter(self, request, context):
@@ -170,10 +175,11 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_id = request.adapter_id
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
+            api_token = request.api_token
             if adapter_source == PBASE:
-                adapter_id = map_pbase_model_id_to_s3(adapter_id, request.api_token)
+                adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                 adapter_source = S3
-            self.model.load_adapter(adapter_id, adapter_source, adapter_index)
+            self.model.load_adapter(adapter_id, adapter_source, adapter_index, api_token)
             
             return generate_pb2.LoadAdapterResponse(
                 adapter_id=adapter_id,

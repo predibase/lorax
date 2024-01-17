@@ -92,11 +92,12 @@ def _download_weights(
     extension: str = ".safetensors",
     auto_convert: bool = True,
     source: str = "hub",
+    api_token: Optional[str] = None,
 ):
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
     from lorax_server.utils import sources
-    model_source = sources.get_model_source(source, model_id, revision, extension)
+    model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
 
     # Test if files were already download
     try:
@@ -186,6 +187,7 @@ def download_weights(
     source: str = "hub",
     adapter_id: str = "",
     adapter_source: str = "hub",
+    api_token: Optional[str] = None,
 ):
     # Remove default handler
     logger.remove()
@@ -198,9 +200,9 @@ def download_weights(
         backtrace=True,
         diagnose=False,
     )
-    _download_weights(model_id, revision, extension, auto_convert, source)
+    _download_weights(model_id, revision, extension, auto_convert, source, api_token)
     if adapter_id:
-        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source)
+        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
 
 
 @app.command()

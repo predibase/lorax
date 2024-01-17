@@ -22,12 +22,12 @@ BASE_MODEL_ADAPTER_ID = "__base_model__"
 
 
 @lru_cache(maxsize=128)
-def load_module_map(model_id, adapter_id, adapter_source, weight_names):
+def load_module_map(model_id, adapter_id, adapter_source, weight_names, api_token):
     # TODO(geoffrey): refactor this and merge parts of this function with
     # lorax_server/utils/adapter.py::create_merged_weight_files       
-    source = get_model_source(adapter_source, adapter_id, extension=".safetensors")
+    source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
     config_path = get_config_path(adapter_id, adapter_source)
-    adapter_config = LoraConfig.from_pretrained(config_path)
+    adapter_config = LoraConfig.from_pretrained(config_path, token=api_token)
     if adapter_config.base_model_name_or_path != model_id:
         expected_config = AutoConfig.from_pretrained(model_id)
         model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
@@ -43,7 +43,7 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
                              f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
 
     try:
-        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path)
+        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token)
     except Exception:
         # Adapter does not have a tokenizer, so fallback to base model tokenizer
         adapter_tokenizer = None

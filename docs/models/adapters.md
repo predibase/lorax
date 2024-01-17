@@ -73,9 +73,25 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "hub",
+    "adapter_source": "hub"
 }
 ```
+
+### Predibase
+
+Any adapter hosted in [Predibase](https://predibase.com/) can be used in LoRAX by setting `adapter_source="pbase"`.
+
+When using Predibase hosted adapters, the `adapter_id` format is `<model_repo>/<model_version>`. If the `model_version` is
+omitted, the latest version in the [Model Repoistory](https://docs.predibase.com/ui-guide/Supervised-ML/models/model-repos)
+will be used.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "model_repo/model_version",
+    "adapter_source": "pbase"
+}
 
 ### Local
 
@@ -97,7 +113,7 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "/data/adapters/vineetsharma--qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "local",
+    "adapter_source": "local"
 }
 ```
 
@@ -110,6 +126,27 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "s3://adapters_bucket/vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "s3",
+    "adapter_source": "s3"
 }
 ```
+
+## Private Adapter Repositories
+
+For hosted adapter repositories like HuggingFace Hub and [Predibase](https://predibase.com/), you can perform inference using private adapters per request.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "my-repo/private-adapter",
+    "api_token": "<auth_token>"
+}
+```
+
+The authorization check is performed per-request in the background (prior to batching to prevent slowing down inference) every time, so even if the
+adapter is cachd locally or the authorization token has been invalidated, the check will be performed and handled appropriately.
+
+For details on generating API tokens, see:
+
+- [HuggingFace docs](https://huggingface.co/docs/hub/security-tokens)
+- [Predibase docs](https://docs.predibase.com/)

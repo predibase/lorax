@@ -5,7 +5,7 @@ from typing import Optional, List
 from lorax.errors import ValidationError
 
 
-ADAPTER_SOURCES = ["hub", "local", "s3"]
+ADAPTER_SOURCES = ["hub", "local", "s3", "pbase"]
 
 
 class Parameters(BaseModel):
@@ -13,6 +13,8 @@ class Parameters(BaseModel):
     adapter_id: Optional[str]
     # The source of the adapter to use
     adapter_source: Optional[str]
+    # API token for accessing private adapters
+    api_token: Optional[str]
     # Activate logits sampling
     do_sample: bool = False
     # Maximum number of generated tokens

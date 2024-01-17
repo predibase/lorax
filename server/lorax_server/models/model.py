@@ -137,7 +137,7 @@ class Model(ABC):
     def is_row_parallel(self, layer_type: str) -> bool:
         return False
 
-    def load_adapter(self, adapter_id, adapter_source, adapter_index):
+    def load_adapter(self, adapter_id, adapter_source, adapter_index, api_token):
         """Physically loads the adapter weights into the model.
 
         adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded 
@@ -163,7 +163,7 @@ class Model(ABC):
             logger.info(f"Loading adapter weights into model: {adapter_id}")
             weight_names = tuple([v[0] for v in self.target_to_layer.values()])
             module_map, adapter_config, adapter_weight_names, adapter_tokenizer = load_module_map(
-                self.model_id, adapter_id, adapter_source, weight_names
+                self.model_id, adapter_id, adapter_source, weight_names, api_token
             )
 
             unused_weight_names = adapter_weight_names.copy()
