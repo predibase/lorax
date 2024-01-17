@@ -40,9 +40,9 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
 
 
 # TODO(travis): refactor into registry pattern
-def get_model_source(source: str, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors"):
+def get_model_source(source: str, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None):
     if source == HUB:
-        return HubModelSource(model_id, revision, extension)
+        return HubModelSource(model_id, revision, extension, api_token)
     elif source == S3:
         return S3ModelSource(model_id, revision, extension)
     elif source == LOCAL:
