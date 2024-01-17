@@ -1,4 +1,4 @@
-from lorax_server.models.custom_modelling.attentions.self_extend import llama_self_extend_patch as LlamaSE
-from lorax_server.models.custom_modelling.attentions.self_extend import mistral_self_extend_patch as MistralSE
-from lorax_server.models.custom_modelling.attentions.self_extend import phi_self_extend_patch as PhiSE
-from lorax_server.models.custom_modelling.attentions.self_extend.modify_utils import modify_method_of_instance
+from lorax_server.models.custom_modeling.attentions.self_extend import llama_self_extend_patch as LlamaSE
+from lorax_server.models.custom_modeling.attentions.self_extend import mistral_self_extend_patch as MistralSE
+from lorax_server.models.custom_modeling.attentions.self_extend import phi_self_extend_patch as PhiSE
+from lorax_server.models.custom_modeling.attentions.self_extend.modify_utils import modify_method_of_instance
