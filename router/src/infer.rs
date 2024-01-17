@@ -118,7 +118,7 @@ impl Infer {
             })?;
 
         let mut adapter_id = request.parameters.adapter_id.clone();
-        if adapter_id.is_none() {
+        if adapter_id.is_none() || adapter_id.as_ref().unwrap().is_empty() {
             adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
         }
         let mut adapter_source = request.parameters.adapter_source.clone();
@@ -189,6 +189,7 @@ impl Infer {
         // Return values
         let mut result_prefill = Vec::new();
         let mut result_tokens = Vec::new();
+        let mut result_prefill_length = 0;
         let mut result_generated_text = None;
         let mut result_start = None;
         let mut result_queued = None;
@@ -197,16 +198,22 @@ impl Infer {
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
-                InferStreamResponse::Prefill(tokens) => {
+                InferStreamResponse::Prefill {
+                    tokens,
+                    tokens_length,
+                } => {
                     // Create Token objects
                     // We do that here instead of in the Python code as Rust for loops are faster
-                    result_prefill = tokens
-                        .ids
-                        .into_iter()
-                        .zip(tokens.logprobs.into_iter())
-                        .zip(tokens.texts.into_iter())
-                        .map(|((id, logprob), text)| PrefillToken { id, text, logprob })
-                        .collect();
+                    if let Some(tokens_val) = tokens {
+                        result_prefill = tokens_val
+                            .ids
+                            .into_iter()
+                            .zip(tokens_val.logprobs.into_iter())
+                            .zip(tokens_val.texts.into_iter())
+                            .map(|((id, logprob), text)| PrefillToken { id, text, logprob })
+                            .collect();
+                    }
+                    result_prefill_length = tokens_length;
                 }
                 // Push last token
                 InferStreamResponse::Token(token) => result_tokens.push(token),
@@ -233,6 +240,7 @@ impl Infer {
             Ok(InferResponse {
                 prefill: result_prefill,
                 tokens: result_tokens,
+                prompt_tokens: result_prefill_length,
                 generated_text,
                 queued,
                 start,
@@ -569,10 +577,13 @@ fn send_responses(
 
     let mut stopped = false;
 
-    if let Some(prefill_tokens) = generation.prefill_tokens {
+    if generation.prefill_tokens_length > 0 {
         // Send message
         entry.response_tx.send_timeout(
-            Ok(InferStreamResponse::Prefill(prefill_tokens)),
+            Ok(InferStreamResponse::Prefill {
+                tokens: generation.prefill_tokens,
+                tokens_length: generation.prefill_tokens_length,
+            }),
             Duration::from_millis(10),
         )?;
     }
@@ -629,7 +640,10 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
 #[derive(Debug)]
 pub(crate) enum InferStreamResponse {
     // Optional first message
-    Prefill(PrefillTokens),
+    Prefill {
+        tokens: Option<PrefillTokens>,
+        tokens_length: u32,
+    },
     // Intermediate messages
     Token(Token),
     // Last message
@@ -645,6 +659,7 @@ pub(crate) enum InferStreamResponse {
 pub(crate) struct InferResponse {
     pub(crate) prefill: Vec<PrefillToken>,
     pub(crate) tokens: Vec<Token>,
+    pub(crate) prompt_tokens: u32,
     pub(crate) generated_text: GeneratedText,
     pub(crate) queued: Instant,
     pub(crate) start: Instant,

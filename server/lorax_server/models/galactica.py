@@ -1,3 +1,4 @@
+import json
 import re
 import torch
 import torch.distributed
@@ -20,6 +21,7 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
+from lorax_server.utils.tokenizer import TokenizerManager
 
 # CREDIT: Papers with code => https://github.com/paperswithcode/galai/blob/main/galai/utils.py
 
@@ -73,6 +75,7 @@ class GalacticaCausalLMBatch(CausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "GalacticaCausalLMBatch":
@@ -90,7 +93,8 @@ class GalacticaCausalLMBatch(CausalLMBatch):
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             # Add escape_custom_split_sequence to the CausalLMBatch logic
-            inputs.append(escape_custom_split_sequence(r.inputs))
+            req_inputs = tokenizers.get_inputs(r, tokenizer)
+            inputs.append(escape_custom_split_sequence(req_inputs))
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
@@ -158,9 +162,13 @@ class GalacticaSharded(CausalLM):
         model_id: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
+        if compile:
+            raise ValueError("`--compile` is not supported with GalacticaSharded")
+        
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")

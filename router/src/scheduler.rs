@@ -334,6 +334,7 @@ impl AdapterSchedulerState {
                 parameters: Some(entry.request.parameters.clone()),
                 stopping_parameters: Some(entry.request.stopping_parameters.clone()),
                 adapter_index: adapter.index(),
+                apply_chat_template: entry.request.apply_chat_template,
             });
             // Set batch_time
             entry.batch_time = Some(Instant::now());

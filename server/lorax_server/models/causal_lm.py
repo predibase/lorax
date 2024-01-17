@@ -1,3 +1,4 @@
+import json
 import torch
 import inspect
 
@@ -15,6 +16,7 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -69,6 +71,7 @@ class CausalLMBatch(Batch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
@@ -86,7 +89,8 @@ class CausalLMBatch(Batch):
         adapter_indices_list = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
-            inputs.append(r.inputs)
+            req_inputs = tokenizers.get_inputs(r, tokenizer)
+            inputs.append(req_inputs)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
@@ -471,9 +475,13 @@ class CausalLM(Model):
         model_id: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
+        if compile:
+            raise ValueError("`--compile` is not supported with CausalLM")
+        
         if torch.cuda.is_available():
             device = torch.device("cuda")
             dtype = torch.float16 if dtype is None else dtype
@@ -651,12 +659,15 @@ class CausalLM(Model):
                     prefill_tokens = PrefillTokens(
                         prefill_token_ids, prefill_logprobs, prefill_texts
                     )
+                    prefill_tokens_length = len(prefill_tokens.token_ids)
                 else:
                     prefill_tokens = None
+                    prefill_tokens_length = 0
 
                 generation = Generation(
                     request.id,
                     prefill_tokens,
+                    prefill_tokens_length,
                     next_token_id_squeezed,
                     next_token_logprob,
                     next_token_text,

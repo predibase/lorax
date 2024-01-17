@@ -1,3 +1,4 @@
+import json
 import math
 import torch
 import torch.distributed
@@ -32,6 +33,7 @@ from lorax_server.utils import (
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import find_segments
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -55,6 +57,7 @@ class FlashMistralBatch(FlashCausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
@@ -64,7 +67,8 @@ class FlashMistralBatch(FlashCausalLMBatch):
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            batch_inputs.append(r.inputs)
+            inputs = tokenizers.get_inputs(r, tokenizer)
+            batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
         batch_tokenized_inputs = tokenizer(
@@ -308,6 +312,7 @@ class FlashMistral(FlashCausalLM):
         adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -386,6 +391,7 @@ class FlashMistral(FlashCausalLM):
             rank=rank,
             world_size=world_size,
             sliding_window=config.sliding_window,
+            compile=compile,
         )
 
     @property
@@ -397,8 +403,17 @@ class FlashMistral(FlashCausalLM):
         return FlashMistralBatch
 
     def forward(self, batch: FlashMistralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        if (
+            self.model_graph_wrapper is not None and
+            not prefill and
+            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
+            model = self.model_graph_wrapper
+        
         # Model Forward
-        logits = self.model.forward(
+        logits = model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,

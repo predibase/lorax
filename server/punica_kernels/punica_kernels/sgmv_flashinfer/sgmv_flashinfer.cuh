@@ -20,7 +20,7 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   constexpr auto fill_mode = cp_async::SharedMemFillMode::kFillZero;
   const uint32_t problem_id = blockIdx.y;
   const uint32_t bx = blockIdx.x;
-  const uint32_t s_start = s_starts[problem_id], s_end = s_ends[problem_id];
+
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags = 8;
   constexpr uint32_t num_cells_k = (num_k_frags * 16) / cell_capacity<T>();
@@ -45,8 +45,9 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
   uint32_t w_frag[num_k_frags][num_blocks_n][4];
   float y_frag[num_blocks_n][8];
 
-  for (uint32_t i = 0;
-       i < (s_end - s_start + (num_warps * 16 - 1)) / (num_warps * 16); ++i) {
+  const uint32_t s_start = s_starts[problem_id], s_end = s_ends[problem_id];
+  const uint32_t num_steps = (s_start < s_end) ? (s_end - s_start + (num_warps * 16 - 1)) / (num_warps * 16) : 0;
+  for (uint32_t i = 0; i < num_steps; ++i) {
     // init y_frag
     if (bx == 0) {
       if constexpr (num_blocks_n == 1) {
@@ -333,6 +334,20 @@ __global__ void sgmv_shrink(T* y, T* x, T** w, IdType* s_starts, IdType* s_ends,
           offset += 8 * num_cells_n - 4 * num_blocks_n;
         }
       }
+    }
+  }
+
+  // handle the case where one of the segments needs more steps than this one
+  // to avoid deadlock
+  if constexpr (cooperative) {
+    uint32_t max_segment_size = 0;
+    for (uint32_t i = 0; i < num_problems; ++i) {
+      max_segment_size = max(max_segment_size, s_ends[i] - s_starts[i]);
+    }
+
+    const uint32_t max_steps = (max_segment_size + (num_warps * 16 - 1)) / (num_warps * 16);
+    for (uint32_t i = 0; i < max_steps - num_steps; ++i) {
+      grid.sync();
     }
   }
 }

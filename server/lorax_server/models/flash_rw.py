@@ -25,6 +25,7 @@ class FlashRWSharded(FlashCausalLM):
         model_id: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -74,4 +75,5 @@ class FlashRWSharded(FlashCausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            compile=compile,
         )

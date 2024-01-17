@@ -145,6 +145,7 @@ impl Validation {
             watermark,
             adapter_id,
             decoder_input_details,
+            apply_chat_template,
             ..
         } = request.parameters;
 
@@ -270,6 +271,7 @@ impl Validation {
             parameters,
             stopping_parameters,
             adapter,
+            apply_chat_template,
         })
     }
 
@@ -344,6 +346,7 @@ pub(crate) struct ValidGenerateRequest {
     pub parameters: NextTokenChooserParameters,
     pub stopping_parameters: StoppingCriteriaParameters,
     pub adapter: Adapter,
+    pub apply_chat_template: bool,
 }
 
 #[derive(Error, Debug)]

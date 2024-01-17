@@ -25,6 +25,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
   - [Launch LoRAX Server](#launch-lorax-server)
   - [Prompt via REST API](#prompt-via-rest-api)
   - [Prompt via Python Client](#prompt-via-python-client)
+  - [Chat via OpenAI API](#chat-via-openai-api)
   - [Next steps](#next-steps)
 - [🙇 Acknowledgements](#-acknowledgements)
 - [🗺️ Roadmap](#️-roadmap)
@@ -35,7 +36,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 - 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
 - 🧁 **Adapter Exchange Scheduling:** asynchronously prefetches and offloads adapters between GPU and CPU memory, schedules request batching to optimize the aggregate throughput of the system.
 - 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, pre-compiled CUDA kernels ([flash-attention](https://arxiv.org/abs/2307.08691), [paged attention](https://arxiv.org/abs/2309.06180), [SGMV](https://arxiv.org/abs/2310.18547)), quantization, token streaming.
-- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry.
+- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry. OpenAI compatible API supporting multi-turn chat conversations.
 - 🤯 **Free for Commercial Use:** Apache 2.0 License. Enough said 😎.
 
 
@@ -133,6 +134,34 @@ print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generate
 See [Reference - Python Client](https://predibase.github.io/lorax/reference/python_client) for full details.
 
 For other ways to run LoRAX, see [Getting Started - Kubernetes](https://predibase.github.io/lorax/getting_started/kubernetes), [Getting Started - SkyPilot](https://predibase.github.io/lorax/getting_started/skypilot), and [Getting Started - Local](https://predibase.github.io/lorax/getting_started/local).
+
+### Chat via OpenAI API
+
+LoRAX supports multi-turn chat conversations combined with dynamic adapter loading through an OpenAI compatible API. Just specify any adapter as the `model` parameter.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="EMPTY",
+    base_url="http://127.0.0.1:8080/v1",
+)
+
+resp = client.chat.completions.create(
+    model="alignment-handbook/zephyr-7b-dpo-lora",
+    messages=[
+        {
+            "role": "system",
+            "content": "You are a friendly chatbot who always responds in the style of a pirate",
+        },
+        {"role": "user", "content": "How many helicopters can a human eat in one sitting?"},
+    ],
+    max_tokens=100,
+)
+print("Response:", resp[0].choices[0].message.content)
+```
+
+See [OpenAI Compatible API](https://predibase.github.io/lorax/guides/openai_api) for details.
 
 ### Next steps
 

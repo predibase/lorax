@@ -314,6 +314,7 @@ class MixtralAttention(torch.nn.Module):
             dim=self.head_size,
             base=config.rope_theta,
             device=weights.device,
+            dtype=weights.dtype,
         )
 
         self.softmax_scale = self.head_size ** -0.5
@@ -963,7 +964,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
             input_lengths: torch.Tensor,
             max_s: int,
             adapter_data: AdapterBatchData,
-            prefill_cache_indices: Optional[torch.Tensor],
+            prefill_cache_indices: Optional[torch.Tensor] = None,
             lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if prefill_cache_indices is not None:

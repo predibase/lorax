@@ -147,6 +147,11 @@ struct Args {
     #[clap(long, env, value_enum)]
     quantize: Option<Quantization>,
 
+    /// Whether you want to compile the model into a CUDA graph.
+    /// This will speed up decoding but increase GPU memory usage.
+    #[clap(long, env, value_enum)]
+    compile: bool,
+
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
     dtype: Option<Dtype>,
@@ -354,6 +359,7 @@ fn shard_manager(
     source: String,
     adapter_source: String,
     quantize: Option<Quantization>,
+    compile: bool,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -417,6 +423,11 @@ fn shard_manager(
     if let Some(quantize) = quantize {
         shard_args.push("--quantize".to_string());
         shard_args.push(quantize.to_string())
+    }
+
+    // CUDA graph compilation
+    if compile {
+        shard_args.push("--compile".to_string());
     }
 
     if let Some(dtype) = dtype {
@@ -865,6 +876,7 @@ fn spawn_shards(
         let shutdown_sender = shutdown_sender.clone();
         let otlp_endpoint = args.otlp_endpoint.clone();
         let quantize = args.quantize;
+        let compile = args.compile;
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -880,6 +892,7 @@ fn spawn_shards(
                 source,
                 adapter_source,
                 quantize,
+                compile,
                 dtype,
                 trust_remote_code,
                 uds_path,

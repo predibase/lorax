@@ -375,7 +375,7 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
-        adapter_data: AdapterBatchData,  # TODO: plumb this through
+        adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = self.transformer(
