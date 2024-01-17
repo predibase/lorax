@@ -485,6 +485,16 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
     
     def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
+        
+        # handle models like Bloom that have inputs of shape
+        # (batch_size, sequence_length, hidden_size)
+        # we need to reshape them to (batch_size * sequence_length, hidden_size)
+        # for the LoRA computation, then reshape back
+        prev_shape = result.shape
+        is_3d = len(input.shape) >= 3
+        if is_3d:
+            input = input.reshape(-1, input.shape[-1])
+            result = result.reshape(-1, result.shape[-1])
 
         offset = 0
         for i, layer_name in enumerate(self.layer_names):
@@ -497,6 +507,9 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
                 end_idx = result.shape[1]
             
             result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
+        
+        if is_3d:
+            result = result.reshape(prev_shape)
 
         return result
 

@@ -152,9 +152,9 @@ class Model(ABC):
                 return
             else:
                 raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
+                                 f"and therefore does not support dynamic adapter loading. "
+                                 f"Please initialize a new model instance from the base model in "
+                                 f"order to use the dynamic adapter loading feature.")
 
         # If we are doing dynamic adapter loading, then we need to reset the weights
         if adapter_id == self.adapter_id:
