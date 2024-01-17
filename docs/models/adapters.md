@@ -77,6 +77,22 @@ Usage:
 }
 ```
 
+### Predibase
+
+Any adapter hosted in [Predibase](https://predibase.com/) can be used in LoRAX by setting `adapter_source="pbase"`.
+
+When using Predibase hosted adapters, the `adapter_id` format is `<model_repo>/<model_version>`. If the `model_version` is
+omitted, the latest version in the [Model Repoistory](https://docs.predibase.com/ui-guide/Supervised-ML/models/model-repos)
+will be used.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "model_repo/model_version",
+    "adapter_source": "pbase",
+}
+
 ### Local
 
 When specifying an adapter in a local path, the `adapter_id` should correspond to the root directory of the adapter containing the following files:

@@ -95,6 +95,8 @@ class Parameters:
     adapter_id: Optional[str]
     # The source of the adapter to use
     adapter_source: Optional[str]
+    # API token for accessing private adapters
+    api_token: Optional[str]
     # Activate logits sampling
     do_sample: bool
     # Maximum number of generated tokens
