@@ -839,12 +839,12 @@ files = [
 
 [[package]]
 name = "hqq"
-version = "0.1.1.post1"
+version = "0.1.2"
 description = "Half-Quadratic Quantization (HQQ)"
 optional = true
 python-versions = "*"
 files = [
-    {file = "hqq-0.1.1.post1.tar.gz", hash = "sha256:302ef6f8c8e3cc26ef0585340c20711d66f6317d905c73743fa221d3a8704396"},
+    {file = "hqq-0.1.2.tar.gz", hash = "sha256:87c062ba0f6338d3bc5413a200e5c642ff3d85356ab7c1584b31756796c0b0be"},
 ]
 
 [package.dependencies]
@@ -3120,4 +3120,4 @@ torch = ["torch"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "1f96ce0474945371a5794dff060dde25f6350b4ad85923aa641be3a826d89566"
+content-hash = "81f4b527bf341cf174a60a57e81e0f1f3d41e547afb74939f0d92cc1b6ae3e9e"
