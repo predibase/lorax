@@ -523,10 +523,6 @@ class CausalLM(Model):
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
-        # This may be set to False in the subclass constructor
-        self.dynamic_adapter_loading_enabled = True
-        self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
-        
         if compile:
             raise ValueError("`--compile` is not supported with CausalLM")
         
@@ -577,6 +573,8 @@ class CausalLM(Model):
             dtype=dtype,
             device=device,
         )
+
+        self.dynamic_adapter_loading_enabled = False
 
     @property
     def batch_type(self) -> Type[CausalLMBatch]:
