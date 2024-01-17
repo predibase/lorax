@@ -287,7 +287,17 @@ def serve(
             await server.stop(0)
 
     asyncio.run(
-        serve_inner(model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code)
+        serve_inner(
+            model_id,
+            adapter_id,
+            revision,
+            sharded,
+            quantize,
+            compile,
+            dtype,
+            trust_remote_code,
+            self_extend_attention,
+        )
     )
 
 
