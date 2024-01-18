@@ -22,6 +22,7 @@ except ImportError:
     HAS_AWQ = False
 
 from accelerate import init_empty_weights
+import marlin
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
@@ -271,6 +272,20 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 f"The passed weight is not compatible with `awq`"
             )
         linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
+    elif quantize == "marlin-awq":
+        try:
+            qweight, qzeros, scales, _, bits, groupsize, _ = weight
+        except Exception:
+            raise NotImplementedError(
+                f"The passed weight is not compatible with `awq`"
+            )
+        # init nn.linear from weight and bias
+        layer = nn.Linear(qweight.shape[1], qweight.shape[0], bias=bias is not None)
+        with torch.no_grad():
+            layer.weight.data = qweight
+            if bias is not None:
+                layer.bias.data = bias
+        linear = marlin.Layer.pack(linear, scales)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
