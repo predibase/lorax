@@ -21,6 +21,9 @@ from lorax_server.utils.sources import get_model_source, get_config_path, weight
 BASE_MODEL_ADAPTER_ID = "__base_model__"
 
 
+ModuleMap = Dict[str, Dict[str, Tuple[torch.Tensor, str]]]
+
+
 @lru_cache(maxsize=128)
 def load_module_map(model_id, adapter_id, adapter_source, weight_names, api_token):
     # TODO(geoffrey): refactor this and merge parts of this function with
