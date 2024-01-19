@@ -138,6 +138,10 @@ class Layer(nn.Module):
         self.B[:, :] = q.to(self.B.device)
         self.s[:, :] = s.to(self.s.device)
 
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.B
+
 
 def replace_linear(module, name_filter=lambda n: True, groupsize=-1, name=''):
     """Recursively replace all `torch.nn.Linear` layers by empty Marlin layers.
