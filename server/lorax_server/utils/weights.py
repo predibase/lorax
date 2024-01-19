@@ -176,7 +176,7 @@ class Weights:
         return [self.get_sharded_prefix(module_name, p, dim=dim) for p in prefixes]
 
     def get_multi_weights_col(self, prefixes: List[Union[str, Tuple]], quantize: str, dim: int):
-        if quantize in ["gptq", "awq"]:
+        if quantize in ["gptq", "awq", "marlin-awq"]:
             try:
                 qweight = torch.cat(
                     self.get_sharded_list("qweight", prefixes, dim=1), dim=1
@@ -275,7 +275,7 @@ class Weights:
                 g_idx = self.get_sharded(f"{prefix}.g_idx", dim=0)
 
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
-        elif quantize == "awq":
+        elif quantize in ["awq", "marlin-awq"]:
             bits, groupsize = self._get_gptq_params()
 
             try:

@@ -285,12 +285,16 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 f"The passed weight is not compatible with `awq`"
             )
         # init nn.linear from weight and bias
-        layer = nn.Linear(qweight.shape[1], qweight.shape[0], bias=bias is not None)
+        in_features = qweight.shape[0]
+        out_features = qweight.shape[1] * 32 // bits
+        layer = nn.Linear(in_features, out_features, bias=bias is not None).half()
+        linear = marlin.Layer(in_features, out_features, groupsize=groupsize)
         with torch.no_grad():
-            layer.weight.data = qweight
+            layer.weight.data = qweight.data.half()
+            layer = layer.half()
             if bias is not None:
                 layer.bias.data = bias
-        linear = marlin.Layer.pack(linear, scales)
+        linear = linear.pack(linear=layer, scales=scales)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
@@ -326,7 +330,7 @@ class TensorParallelHead(SuperLayer):
             weight = weights.get_tensor(f"{prefix}.weight")
             should_gather = False
 
-        if config.quantize in ["gptq", "awq", "eetq"]:
+        if config.quantize in ["gptq", "awq", "eetq", "marlin-awq"]:
             quantize = None
         else:
             quantize = config.quantize
