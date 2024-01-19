@@ -26,6 +26,7 @@ enum Quantization {
     BitsandbytesFP4,
     Gptq,
     Awq,
+    MarlinAWQ,
 }
 
 impl std::fmt::Display for Quantization {
