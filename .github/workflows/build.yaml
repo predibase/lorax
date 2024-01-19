@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - "main"
-      - "marlin"
     tags:
       - "v*"
 
@@ -63,7 +62,10 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=raw,value=marlin
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=latest
 
       - name: Create a hash from tags
         env:
