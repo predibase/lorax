@@ -22,7 +22,7 @@ except ImportError:
     HAS_AWQ = False
 
 from accelerate import init_empty_weights
-import lorax_server.utils.marlin as marlin
+import marlin
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
