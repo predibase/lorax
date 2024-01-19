@@ -7,7 +7,7 @@ eetq:
 
 build-eetq: eetq
 	cd eetq && git fetch && git checkout $(eetq_commit) && git submodule update --init --recursive
-	cd eetq && python setup.py build
+	cd eetq && MAX_JOBS=4 python setup.py build
 
 install-eetq: build-eetq
 	cd eetq && python setup.py install
