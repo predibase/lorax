@@ -146,6 +146,11 @@ COPY server/punica_kernels/ .
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
 
+FROM kernel-builder as marlin-kernels-builder
+WORKDIR /usr/src
+COPY server/marlin_kernels/ .
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+
 # LoRAX base image
 FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
 
@@ -190,6 +195,8 @@ COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/c
 
 # Copy builds artifacts from punica builder
 COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+
+COPY --from=marlin-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
 # Copy build artifacts from megablocks builder
 COPY --from=megablocks-kernels-builder /usr/src/megablocks/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages

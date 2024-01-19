@@ -1,17 +1,6 @@
-FROM kernel-builder as marlin-kernels-builder
-WORKDIR /usr/src
-COPY server/marlin_kernels/ .
-# Build specific version of transformers
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
-
-
-
 FROM ghcr.io/predibase/lorax:latest
 
 WORKDIR /usr/src
-
-COPY --from=marlin-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-
 
 COPY server server
 

@@ -1,6 +1,6 @@
 {
     "build": {
-        "dockerfile": "../Dockerfile.dev"
+        "dockerfile": "../Dockerfile"
     },
     "runArgs": [
         "--gpus",
