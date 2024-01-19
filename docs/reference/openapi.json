@@ -1008,13 +1008,19 @@
           "choices": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ChatCompletionResponseChoice"
+              "$ref": "#/components/schemas/ChatCompletionStreamResponseChoice"
             }
-          },
-          "usage": { 
-            "type": "object",
-            "nullable": true,
-            "$ref": "#/components/schemas/UsageInfo"
+          }
+        }
+      },
+      "ChatCompletionStreamResponseChoice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "format": "int32" },
+          "delta": { "type": "object", "$ref": "#/components/schemas/ChatCompletionResponseMessage" },
+          "finish_reason": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

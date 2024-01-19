@@ -380,7 +380,7 @@ struct CompletionResponseChoice {
     index: i32,
     text: String,
     logprobs: Option<LogProbs>,
-    finish_reason: Option<String>,
+    finish_reason: Option<CompletionFinishReason>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -398,7 +398,7 @@ struct CompletionResponseStreamChoice {
     index: i32,
     text: String,
     logprobs: Option<LogProbs>,
-    finish_reason: Option<String>,
+    finish_reason: Option<CompletionFinishReason>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -421,7 +421,7 @@ struct ChatMessage {
 struct ChatCompletionResponseChoice {
     index: i32,
     message: ChatMessage,
-    finish_reason: Option<String>,
+    finish_reason: Option<CompletionFinishReason>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -435,13 +435,32 @@ struct ChatCompletionResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+struct ChatCompletionStreamResponseChoice {
+    index: i32,
+    delta: ChatMessage,
+    finish_reason: Option<CompletionFinishReason>,
+}
+
+#[derive(Serialize, ToSchema)]
 struct ChatCompletionStreamResponse {
     id: String,
     object: String,
     created: i64,
     model: String,
-    choices: Vec<ChatCompletionResponseChoice>,
-    usage: Option<UsageInfo>,
+    choices: Vec<ChatCompletionStreamResponseChoice>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all(serialize = "snake_case"))]
+pub(crate) enum CompletionFinishReason {
+    #[schema(rename = "stop")]
+    Stop,
+    #[schema(rename = "length")]
+    Length,
+    #[schema(rename = "content_filter")]
+    ContentFilter,
+    #[schema(rename = "tool_calls")]
+    ToolCalls,
 }
 
 impl From<CompletionRequest> for CompatGenerateRequest {
@@ -529,7 +548,9 @@ impl From<GenerateResponse> for CompletionResponse {
                 index: 0,
                 text: resp.generated_text,
                 logprobs: None,
-                finish_reason: None,
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -557,9 +578,11 @@ impl From<StreamResponse> for CompletionStreamResponse {
             model: "null".to_string(),
             choices: vec![CompletionResponseStreamChoice {
                 index: 0,
-                text: resp.generated_text.unwrap_or_default(),
+                text: resp.token.text,
                 logprobs: None,
-                finish_reason: None,
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
             usage: Some(UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -591,7 +614,9 @@ impl From<GenerateResponse> for ChatCompletionResponse {
                     role: "assistant".to_string(),
                     content: resp.generated_text,
                 },
-                finish_reason: None,
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -604,32 +629,31 @@ impl From<GenerateResponse> for ChatCompletionResponse {
 
 impl From<StreamResponse> for ChatCompletionStreamResponse {
     fn from(resp: StreamResponse) -> Self {
-        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
-        let completion_tokens = resp
-            .details
-            .as_ref()
-            .map(|x| x.generated_tokens)
-            .unwrap_or(0);
-        let total_tokens = prompt_tokens + completion_tokens;
-
         ChatCompletionStreamResponse {
             id: "null".to_string(),
-            object: "text_completion".to_string(),
+            object: "chat.completion.chunk".to_string(),
             created: 0,
             model: "null".to_string(),
-            choices: vec![ChatCompletionResponseChoice {
+            choices: vec![ChatCompletionStreamResponseChoice {
                 index: 0,
-                message: ChatMessage {
+                delta: ChatMessage {
                     role: "assistant".to_string(),
-                    content: resp.generated_text.unwrap_or_default(),
+                    content: resp.token.text,
                 },
-                finish_reason: None,
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
-            usage: Some(UsageInfo {
-                prompt_tokens: prompt_tokens,
-                total_tokens: total_tokens,
-                completion_tokens: Some(completion_tokens),
-            }),
+        }
+    }
+}
+
+impl From<FinishReason> for CompletionFinishReason {
+    fn from(reason: FinishReason) -> Self {
+        match reason {
+            FinishReason::Length => CompletionFinishReason::Length,
+            FinishReason::EndOfSequenceToken => CompletionFinishReason::Stop,
+            FinishReason::StopSequence => CompletionFinishReason::ContentFilter,
         }
     }
 }
