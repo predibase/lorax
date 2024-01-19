@@ -48,7 +48,7 @@ impl std::fmt::Display for Quantization {
                 write!(f, "awq")
             }
             Quantization::MarlinAWQ => {
-                write!(f, "marlin-awq")
+                write!(f, "marlin")
             }
         }
     }

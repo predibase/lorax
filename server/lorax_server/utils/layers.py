@@ -23,7 +23,7 @@ except ImportError:
 
 HAS_MARLIN = True
 try:
-    import marlin
+    from lorax_server.utils.marlin.converter import convert_to_marlin
 except ImportError:
     HAS_MARLIN = False
 
@@ -277,24 +277,16 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 f"The passed weight is not compatible with `awq`"
             )
         linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
-    elif quantize == "marlin-awq":
+    elif quantize == "marlin":
         try:
-            qweight, qzeros, scales, _, bits, groupsize, _ = weight
+            qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
         except Exception:
             raise NotImplementedError(
-                f"The passed weight is not compatible with `awq`"
+                f"The passed weight is not `gptq` compatible, loader needs to be updated."
             )
-        # init nn.linear from weight and bias
-        in_features = qweight.shape[0]
-        out_features = qweight.shape[1] * 32 // bits
-        layer = nn.Linear(in_features, out_features, bias=bias is not None).half()
-        linear = marlin.Layer(in_features, out_features, groupsize=groupsize)
-        with torch.no_grad():
-            layer.weight.data = qweight.data.half()
-            layer = layer.half()
-            if bias is not None:
-                layer.bias.data = bias
-        linear = linear.pack(linear=layer, scales=scales)
+        
+        linear = convert_to_marlin(qweight, qzeros, scales, groupsize)
+        
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
@@ -330,7 +322,7 @@ class TensorParallelHead(SuperLayer):
             weight = weights.get_tensor(f"{prefix}.weight")
             should_gather = False
 
-        if config.quantize in ["gptq", "awq", "eetq", "marlin-awq"]:
+        if config.quantize in ["gptq", "awq", "eetq", "marlin"]:
             quantize = None
         else:
             quantize = config.quantize

@@ -17,7 +17,7 @@ class Quantization(str, Enum):
     bitsandbytes_fp4 = "bitsandbytes-fp4"
     gptq = "gptq"
     awq = "awq"
-    marlin_awq = "marlin-awq"
+    marlin_awq = "marlin"
 
 
 class Dtype(str, Enum):
