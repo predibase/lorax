@@ -2,7 +2,6 @@ include Makefile-flash-att
 include Makefile-flash-att-v2
 include Makefile-vllm
 include Makefile-megablocks
-include Makefile-eetq
 
 unit-tests:
 	pytest -s -vv -m "not private" tests

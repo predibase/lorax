@@ -21,14 +21,6 @@ try:
 except ImportError:
     HAS_AWQ = False
 
-HAS_EETQ = False
-try:
-    from EETQ import quant_weights, w8_a16_gemm
-
-    HAS_EETQ = True
-except ImportError:
-    pass
-
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -124,78 +116,6 @@ class FastConv1D(nn.Module):
         x = torch.addmm(self.bias, input.view(-1, input.size(-1)), self.weight)
         x = x.view(size_out)
         return x
-    
-
-class EETQLinear(nn.Module):
-    """
-    EETQLinear module applies quantized linear transformation to the input tensor.
-
-    Args:
-        weight (torch.Tensor): The weight tensor for the linear transformation.
-        bias (torch.Tensor): The bias tensor for the linear transformation.
-
-    Attributes:
-        weight (torch.Tensor): The weight tensor for the linear transformation.
-        scale (torch.Tensor): The scale tensor used for quantization.
-        bias (torch.Tensor): The bias tensor for the linear transformation.
-
-    """
-
-    def __init__(
-        self,
-        weight,
-        bias,
-    ) -> None:
-        super().__init__()
-        # Get the device where the weight tensor is currently stored.
-        device = weight.device
-
-        # Transpose the weight tensor and make a contiguous copy of it on the CPU.
-        # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
-        # which can improve performance in some cases.
-        weight_transposed = torch.t(weight)
-        weight_contiguous = weight_transposed.contiguous()
-        weight_cpu = weight_contiguous.cpu()
-
-        # Quantize the weights. The quant_weights function is assumed to perform the quantization.
-        # The weights are quantized to int8 format, and the quantization is not performed in place (False).
-        weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
-
-        # Move the quantized weights and the scale back to the original device (GPU if available).
-        # The cuda() function is used to move the tensors to the GPU.
-        self.weight = weight_quantized.cuda(device)
-        self.scale = scale.cuda(device)
-
-        # If a bias is present, move it to the GPU as well. If not, set the bias to None.
-        if bias is not None:
-            self.bias = bias.cuda(device)
-        else:
-            self.bias = None
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-            """
-            Performs the forward pass of the layer.
-
-            Args:
-                input (torch.Tensor): The input tensor.
-
-            Returns:
-                torch.Tensor: The output tensor.
-            """
-            # The function w8_a16_gemm performs a matrix multiplication operation between the input and the weight of the layer.
-            # The result is then scaled by a factor (self.scale).
-            gemm_output = w8_a16_gemm(input, self.weight, self.scale)
-
-            # If a bias is present (i.e., self.bias is not None), it is added to the output of the matrix multiplication.
-            # If a bias is not present (i.e., self.bias is None), the output of the matrix multiplication is returned as is.
-            if self.bias is not None:
-                final_output = gemm_output + self.bias
-            else:
-                final_output = gemm_output
-
-            # The final output is returned.
-            return final_output
-
 
 
 class Linear8bitLt(nn.Module):
@@ -323,13 +243,6 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             bias,
             quant_type="fp4",
         )
-    elif quantize == "eetq":
-        if HAS_EETQ:
-            linear = EETQLinear(weight, bias)
-        else:
-            raise ImportError(
-                "Please install EETQ from https://github.com/NetEase-FuXi/EETQ"
-            )
     elif quantize == "gptq":
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
