@@ -150,7 +150,7 @@ RUN python setup.py build
 FROM kernel-builder as marlin-builder
 WORKDIR /usr/src
 COPY server/Makefile-marlin Makefile
-# Build specific version of vllm
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN make build-marlin
 
 # LoRAX base image

@@ -1,0 +1,8 @@
+FROM ghcr.io/predibase/lorax:latest
+
+WORKDIR /usr/src
+
+COPY server server
+
+ENTRYPOINT ["lorax-launcher"]
+CMD ["--json-output"]
