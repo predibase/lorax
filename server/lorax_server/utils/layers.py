@@ -21,8 +21,13 @@ try:
 except ImportError:
     HAS_AWQ = False
 
+HAS_MARLIN = True
+try:
+    import marlin
+except ImportError:
+    HAS_MARLIN = False
+
 from accelerate import init_empty_weights
-import marlin
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
