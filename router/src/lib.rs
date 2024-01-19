@@ -548,7 +548,9 @@ impl From<GenerateResponse> for CompletionResponse {
                 index: 0,
                 text: resp.generated_text,
                 logprobs: None,
-                finish_reason: resp.details.map(|x| CompletionFinishReason::from(x.finish_reason)),
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -578,7 +580,9 @@ impl From<StreamResponse> for CompletionStreamResponse {
                 index: 0,
                 text: resp.token.text,
                 logprobs: None,
-                finish_reason: resp.details.map(|x| CompletionFinishReason::from(x.finish_reason)),
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
             usage: Some(UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -610,7 +614,9 @@ impl From<GenerateResponse> for ChatCompletionResponse {
                     role: "assistant".to_string(),
                     content: resp.generated_text,
                 },
-                finish_reason: resp.details.map(|x| CompletionFinishReason::from(x.finish_reason)),
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -634,7 +640,9 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                     role: "assistant".to_string(),
                     content: resp.token.text,
                 },
-                finish_reason: resp.details.map(|x| CompletionFinishReason::from(x.finish_reason)),
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
             }],
         }
     }
