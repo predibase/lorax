@@ -1,4 +1,4 @@
-eetq_commit := cc2fdb4637e03652ac264eaef44dd8492472de01
+eetq_commit := 323827dd471458a84e9c840f614e4592b157a4b1
 
 eetq:
     # Clone eetq
@@ -7,7 +7,7 @@ eetq:
 
 build-eetq: eetq
 	cd eetq && git fetch && git checkout $(eetq_commit) && git submodule update --init --recursive
-	cd eetq && MAX_JOBS=1 python setup.py build
+	cd eetq && python setup.py build
 
 install-eetq: build-eetq
 	cd eetq && python setup.py install
