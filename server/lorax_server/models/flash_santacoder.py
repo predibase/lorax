@@ -63,8 +63,9 @@ class FlashSantacoderSharded(FlashCausalLM):
             process_group=self.process_group,
             aliases={"transformer.wte.weight": ["lm_head.weight"]},
         )
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "marlin"]:
             weights._set_gptq_params(model_id)
+
 
         model = FlashSantacoderForCausalLM(config, weights)
 
