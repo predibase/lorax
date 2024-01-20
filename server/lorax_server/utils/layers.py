@@ -21,6 +21,12 @@ try:
 except ImportError:
     HAS_AWQ = False
 
+HAS_MARLIN = True
+try:
+    from lorax_server.utils.marlin.converter import convert_to_marlin
+except ImportError:
+    HAS_MARLIN = False
+
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -271,6 +277,16 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 f"The passed weight is not compatible with `awq`"
             )
         linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
+    elif quantize == "marlin":
+        try:
+            qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
+        except Exception:
+            raise NotImplementedError(
+                f"The passed weight is not `gptq` compatible, loader needs to be updated."
+            )
+        
+        linear = convert_to_marlin(qweight, qzeros, scales, groupsize)
+        
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
@@ -306,7 +322,7 @@ class TensorParallelHead(SuperLayer):
             weight = weights.get_tensor(f"{prefix}.weight")
             should_gather = False
 
-        if config.quantize in ["gptq", "awq", "eetq"]:
+        if config.quantize in ["gptq", "awq", "eetq", "marlin"]:
             quantize = None
         else:
             quantize = config.quantize
