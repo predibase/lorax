@@ -26,7 +26,7 @@ def mul(A, B, C, s, workspace, thread_k=-1, thread_n=-1, sms=-1):
     @B: `torch.int` weight matrix of original shape `(k, n)` in Marlin format; see `Layer.pack()`
     @C: `torch.half` out matrix of shape `(m, n)` in standard row-major layout
     @s: `torch.half` scales of shape `(m / groupsize, n)`
-    @workspace: `torch.int` tensor with at least as many entries as there a GPU SMs (256 is usually safe)
+    @workspace: `torch.int` tensor with at least `n / 128` entries that are all zero
     @thread_k: `k` size of a thread_tile in `B` (can usually be left as auto -1)
     @thread_n: `n` size of a thread_tile in `B` (can usually be left as auto -1)
     @sms: number of SMs to use for the kernel (can usually be left as auto -1)
@@ -90,8 +90,8 @@ class Layer(nn.Module):
         self.groupsize = groupsize
         self.register_buffer('B', torch.empty((self.k // 16, self.n * 16 // 8), dtype=torch.int))
         self.register_buffer('s', torch.empty((self.k // groupsize, self.n), dtype=torch.half))
-        # Essentially all reasonable GPUs have less than 256 SMs so this should be safe for now
-        self.register_buffer('workspace', torch.empty(256, dtype=torch.int), persistent=False)
+        # 128 is currently the minimum `tile_n`, hence it gives the maximum workspace size
+        self.register_buffer('workspace', torch.zeros(self.n // 128, dtype=torch.int), persistent=False)
 
     def forward(self, A):
         C = torch.empty(A.shape[:-1] + (self.s.shape[1],), dtype=A.dtype, device=A.device)
@@ -137,7 +137,7 @@ class Layer(nn.Module):
         q = torch.from_numpy(q.astype(np.int32)).to(w.device)
         self.B[:, :] = q.to(self.B.device)
         self.s[:, :] = s.to(self.s.device)
-
+    
     @property
     def weight(self) -> torch.Tensor:
         return self.B
