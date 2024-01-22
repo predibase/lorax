@@ -81,7 +81,7 @@ class NextTokenChooser:
         sampling = do_sample or has_warpers
 
         # do not sample if temperature is 0, even if do_sample flag is set True
-        # warn user about determinstic sampling
+        # warn user about deterministic sampling
         if sampling and temperature == 0:
             sampling = False
             warnings.warn("Temperature is set to 0, token sampling will be disabled")
@@ -290,7 +290,7 @@ class HeterogeneousNextTokenChooser:
         # sample tokens from distribution if any sample flags are set True
         if any(do_sample):
             self.choice = HeterogeneousSampling(do_sample, seeds, device)
-        # all tokens are set false, do Greedy / determinsitc sampling
+        # all tokens are set false, do Greedy / deterministic sampling
         else:
             self.choice = Greedy()
 
