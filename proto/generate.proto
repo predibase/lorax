@@ -17,6 +17,8 @@ service LoraxService {
     rpc Prefill (PrefillRequest) returns (PrefillResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
+    /// Embed a list of batches
+    rpc Embed (EmbedRequest) returns (EmbedResponse);
     /// Health check
     rpc Health (HealthRequest) returns (HealthResponse);
     /// Download adapter
@@ -208,6 +210,19 @@ message DecodeResponse {
     repeated Generation generations = 1;
     /// Next batch (cached)
     optional CachedBatch batch = 2;
+}
+
+message EmbedRequest {
+    /// Cached batches
+    repeated CachedBatch batches = 1;
+}
+
+message Embedding {
+    repeated float embedding = 1;
+}
+
+message EmbedResponse {
+    repeated Embedding embeddings = 1;
 }
 
 message WarmupRequest {

@@ -364,6 +364,17 @@ struct CompletionRequest {
 }
 
 #[derive(Serialize, ToSchema)]
+pub(crate) struct EmbedRequest {
+    model: String,
+    inputs: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct EmbedResponse {
+    embeddings: Vec<f32>,
+}
+
+#[derive(Serialize, ToSchema)]
 struct LogProbs {
     text_offset: Vec<i32>,
     token_logprobs: Vec<Option<f32>>,

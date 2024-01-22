@@ -1231,3 +1231,32 @@ class FlashCausalLM(Model):
         batch.max_seqlen = batch.max_seqlen + 1
 
         return generations, batch
+
+    @tracer.start_as_current_span("generate_token")
+    def embed(self, batch: FlashCausalLMBatch) -> torch.Tensor:
+        prefill = batch.cu_seqlen_prefill is not None
+
+        if batch.needed_blocks_slots:
+            # Allocate blocks to this batch
+            block_tables, block_tables_tensor, slots = get_cache_manager().allocate(
+                batch.needed_blocks_slots,
+                batch.blocks,
+                batch.max_blocks,
+                batch.input_ids.device,
+            )
+            batch.needed_blocks_slots = None
+            batch.block_tables = block_tables
+            batch.block_tables_tensor = block_tables_tensor
+            batch.slots = slots
+        
+        # Assign pointers to LoRA weights
+        # TODO (travis): don't update this if indices haven't changed
+        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
+
+        try:
+            out = self.forward(batch, adapter_data)
+        except Exception as e:
+            del batch
+            raise e
+        
+        return out

@@ -179,6 +179,16 @@ impl Client {
         Ok((response.generations, response.batch))
     }
 
+    /// Embed each request in the given cached batches
+    ///
+    /// Returns Embedding for each request in batches
+    // #[instrument(skip_all, fields(size = batches.iter().map(|batch|{batch.size}).sum::<u32>()))]
+    // pub async fn embed(&mut self, batches: Vec<CachedBatch>) -> Result<Vec<f32>> {
+    //     let request = tonic::Request::new(EmbedRequest { batches }).inject_context();
+    //     let response = self.stub.embed(request).await?.into_inner();
+    //     Ok(response.embeddings)
+    // }
+
     /// Downloads the weights for an adapter.
     pub async fn download_adapter(
         &mut self,

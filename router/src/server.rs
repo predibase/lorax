@@ -4,9 +4,9 @@ use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
     BestOfSequence, ChatCompletionRequest, CompatGenerateRequest, CompletionRequest,
-    CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation,
+    CompletionResponse, CompletionStreamResponse, Details, EmbedRequest, EmbedResponse,
+    ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -40,7 +40,7 @@ request_body = CompatGenerateRequest,
 responses(
 (status = 200, description = "Generated Text",
 content(
-("application/json" = GenerateResponse),
+("application/json" = EmbedResponse), // XXX
 ("text/event-stream" = StreamResponse),
 )),
 (status = 424, description = "Generation Error", body = ErrorResponse,
@@ -644,6 +644,201 @@ async fn generate_stream_with_callback(
     (headers, stream)
 }
 
+// /// Embed batches
+// #[utoipa::path(
+// post,
+// tag = "LoRAX",
+// path = "/embed",
+// request_body = EmbedRequest,
+// responses(
+// (status = 200, description = "Generated Text", body = EmbedResponse),
+// (status = 424, description = "Generation Error", body = ErrorResponse,
+// example = json ! ({"error": "Request failed during generation"})),
+// (status = 429, description = "Model is overloaded", body = ErrorResponse,
+// example = json ! ({"error": "Model is overloaded"})),
+// (status = 422, description = "Input validation error", body = ErrorResponse,
+// example = json ! ({"error": "Input validation error"})),
+// (status = 500, description = "Incomplete generation", body = ErrorResponse,
+// example = json ! ({"error": "Incomplete generation"})),
+// )
+// )]
+// #[instrument(
+// skip_all,
+// fields(
+// parameters = ? req.0.parameters,
+// total_time,
+// validation_time,
+// queue_time,
+// inference_time,
+// time_per_token,
+// seed,
+// )
+// )]
+// async fn embed(
+//     infer: Extension<Infer>,
+//     req: Json<EmbedRequest>,
+// ) -> Result<(HeaderMap, Json<EmbedResponse>), (StatusCode, Json<ErrorResponse>)> {
+//     let span = tracing::Span::current();
+//     let start_time = Instant::now();
+//     metrics::increment_counter!("lorax_request_count");
+
+//     tracing::debug!("Input: {}", req.0.inputs);
+
+//     let compute_characters = req.0.inputs.chars().count();
+//     let mut add_prompt = None;
+//     if req.0.parameters.return_full_text.unwrap_or(false) {
+//         add_prompt = Some(req.0.inputs.clone());
+//     }
+
+//     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
+
+//     // Inference
+//     let (response, best_of_responses) = match req.0.parameters.best_of {
+//         Some(best_of) if best_of > 1 => {
+//             let (response, best_of_responses) = infer.generate_best_of(req.0, best_of).await?;
+//             (response, Some(best_of_responses))
+//         }
+//         _ => (infer.generate(req.0).await?, None),
+//     };
+
+//     let generated_tokens = response.generated_text.generated_tokens;
+//     let prompt_tokens = response.prompt_tokens;
+//     let total_tokens = prompt_tokens + generated_tokens;
+
+//     // Token details
+//     let details = match details {
+//         true => {
+//             // convert best_of_responses
+//             let best_of_sequences = best_of_responses.map(|responses: Vec<InferResponse>| {
+//                 responses
+//                     .into_iter()
+//                     .map(|response: InferResponse| {
+//                         // Add prompt if return_full_text
+//                         let mut output_text = response.generated_text.text;
+//                         if let Some(prompt) = &add_prompt {
+//                             output_text = prompt.clone() + &output_text;
+//                         }
+
+//                         BestOfSequence {
+//                             generated_text: output_text,
+//                             finish_reason: FinishReason::from(
+//                                 response.generated_text.finish_reason,
+//                             ),
+//                             generated_tokens: response.generated_text.generated_tokens,
+//                             prefill: response.prefill,
+//                             tokens: response.tokens,
+//                             seed: response.generated_text.seed,
+//                         }
+//                     })
+//                     .collect()
+//             });
+
+//             Some(Details {
+//                 finish_reason: FinishReason::from(response.generated_text.finish_reason),
+//                 prompt_tokens: prompt_tokens,
+//                 generated_tokens: generated_tokens,
+//                 prefill: response.prefill,
+//                 tokens: response.tokens,
+//                 seed: response.generated_text.seed,
+//                 best_of_sequences,
+//             })
+//         }
+//         false => None,
+//     };
+
+//     // Timings
+//     let total_time = start_time.elapsed();
+//     let validation_time = response.queued - start_time;
+//     let queue_time = response.start - response.queued;
+//     let inference_time = Instant::now() - response.start;
+//     let time_per_token = inference_time / response.generated_text.generated_tokens;
+
+//     // Tracing metadata
+//     span.record("total_time", format!("{total_time:?}"));
+//     span.record("validation_time", format!("{validation_time:?}"));
+//     span.record("queue_time", format!("{queue_time:?}"));
+//     span.record("inference_time", format!("{inference_time:?}"));
+//     span.record("time_per_token", format!("{time_per_token:?}"));
+//     span.record("seed", format!("{:?}", response.generated_text.seed));
+
+//     // Headers
+//     let mut headers = HeaderMap::new();
+//     headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+//     headers.insert(
+//         "x-compute-time",
+//         total_time.as_millis().to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-compute-characters",
+//         compute_characters.to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-total-time",
+//         total_time.as_millis().to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-prompt-tokens",
+//         prompt_tokens.to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-generated-tokens",
+//         generated_tokens.to_string().parse().unwrap(),
+//     );
+//     headers.insert("x-total-tokens", total_tokens.to_string().parse().unwrap());
+//     headers.insert(
+//         "x-validation-time",
+//         validation_time.as_millis().to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-queue-time",
+//         queue_time.as_millis().to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-inference-time",
+//         inference_time.as_millis().to_string().parse().unwrap(),
+//     );
+//     headers.insert(
+//         "x-time-per-token",
+//         time_per_token.as_millis().to_string().parse().unwrap(),
+//     );
+
+//     // Metrics
+//     metrics::increment_counter!("lorax_request_success");
+//     metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+//     metrics::histogram!(
+//         "lorax_request_validation_duration",
+//         validation_time.as_secs_f64()
+//     );
+//     metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+//     metrics::histogram!(
+//         "lorax_request_inference_duration",
+//         inference_time.as_secs_f64()
+//     );
+//     metrics::histogram!(
+//         "lorax_request_mean_time_per_token_duration",
+//         time_per_token.as_secs_f64()
+//     );
+//     metrics::histogram!(
+//         "lorax_request_generated_tokens",
+//         response.generated_text.generated_tokens as f64
+//     );
+
+//     // Send response
+//     let mut output_text = response.generated_text.text;
+//     if let Some(prompt) = add_prompt {
+//         output_text = prompt + &output_text;
+//     }
+
+//     tracing::debug!("Output: {}", output_text);
+//     tracing::info!("Success");
+
+//     let response = GenerateResponse {
+//         generated_text: output_text,
+//         details,
+//     };
+//     Ok((headers, Json(response)))
+// }
+
 /// Prometheus metrics scrape endpoint
 #[utoipa::path(
 get,
@@ -829,6 +1024,7 @@ pub async fn run(
         .route("/", post(compat_generate))
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
+        // .route("/embed", post(embed))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))

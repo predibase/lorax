@@ -64,6 +64,10 @@ class Model(ABC):
     def generate_token(self, batch: B) -> Tuple[List[GeneratedText], Optional[B]]:
         raise NotImplementedError
 
+    @abstractmethod
+    def embed(self, batch: B) -> torch.Tensor:
+        raise NotImplementedError
+
     def warmup(self, batch: B) -> Optional[int]:
         self.generate_token(batch)
         return None
