@@ -1,5 +1,6 @@
 import re
 import torch
+import warnings
 
 from transformers import (
     RepetitionPenaltyLogitsProcessor,
@@ -62,8 +63,10 @@ class NextTokenChooser:
             else None
         )
 
+        # Temperature = 1 does not change logits; do not use warper
+        # Temperature = 0 invokes determinstic token choosing; do not warp
         has_warpers = (
-            (temperature is not None and temperature != 1.0)
+            (temperature is not None and temperature != 1.0 and temperature != 0)
             or (top_k is not None and top_k != 0)
             or (top_p is not None and top_p < 1.0)
             or (typical_p is not None and typical_p < 1.0)
@@ -75,8 +78,14 @@ class NextTokenChooser:
         else:
             self.static_warper = None
 
-        # sample based on flags and if temperature isn't 0
-        sampling = (do_sample or has_warpers) and temperature != 0
+        sampling = do_sample or has_warpers
+
+        # do not sample if temperature is 0, even if do_sample flag is set True
+        # warn user about determinstic sampling
+        if sampling and temperature == 0:
+            sampling = False
+            warnings.warn("Temperature is set to 0, token sampling will be disabled")
+
         self.choice = Sampling(seed, device) if sampling else Greedy()
 
     def __call__(self, input_ids, scores):
@@ -255,9 +264,9 @@ class HeterogeneousNextTokenChooser:
 
         if any([x != 1.0 for x in temperature]):
             # set sample flags for each index
-            # do not sample this index if temperature is 0
+            # do not sample this index if temperature is 0 or 1
             do_sample = [
-                (sample or x != 1.0) and x != 0
+                sample or (x != 1.0 and x != 0)
                 for x, sample in zip(temperature, do_sample)
             ]
             warpers.append(
