@@ -58,8 +58,17 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
             mode="standard",
         )
     )
-    s3 = boto3.resource('s3', config=config)
-    return s3.Bucket(bucket_name)
+
+    R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", None)
+    if R2_ACCOUNT_ID:
+        s3 = boto3.resource('s3', 
+            endpoint_url = f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
+            config=config
+           )
+        return s3.Bucket(bucket_name)
+    else:
+        s3 = boto3.resource('s3', config=config)
+        return s3.Bucket(bucket_name)
 
 
 def get_s3_model_local_dir(model_id: str):
