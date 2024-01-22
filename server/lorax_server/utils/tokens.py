@@ -75,7 +75,8 @@ class NextTokenChooser:
         else:
             self.static_warper = None
 
-        sampling = do_sample or has_warpers
+        # sample based on flags and if temperature isn't 0
+        sampling = (do_sample or has_warpers) and temperature != 0
         self.choice = Sampling(seed, device) if sampling else Greedy()
 
     def __call__(self, input_ids, scores):
@@ -253,8 +254,11 @@ class HeterogeneousNextTokenChooser:
         )
 
         if any([x != 1.0 for x in temperature]):
+            # set sample flags for each index
+            # do not sample this index if temperature is 0
             do_sample = [
-                sample or x != 1.0 for x, sample in zip(temperature, do_sample)
+                (sample or x != 1.0) and x != 0
+                for x, sample in zip(temperature, do_sample)
             ]
             warpers.append(
                 HeterogeneousTemperatureLogitsWarper(temperature, dtype, device)
@@ -274,8 +278,10 @@ class HeterogeneousNextTokenChooser:
 
         self.warpers = warpers
 
+        # sample tokens from distribution if any sample flags are set True
         if any(do_sample):
             self.choice = HeterogeneousSampling(do_sample, seeds, device)
+        # all tokens are set false, do Greedy / determinsitc sampling
         else:
             self.choice = Greedy()
 
