@@ -53,6 +53,7 @@ impl std::fmt::Display for Quantization {
             }
             Quantization::Eetq => {
                 write!(f, "eetq")
+            }
             Quantization::Hqq_4bit => {
                 write!(f, "hqq-4bit")
             }
