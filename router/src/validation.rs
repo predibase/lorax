@@ -162,7 +162,7 @@ impl Validation {
         }
 
         let temperature = temperature.unwrap_or(1.0);
-        if temperature <= 0.0 {
+        if temperature < 0.0 {
             return Err(ValidationError::Temperature);
         }
 
