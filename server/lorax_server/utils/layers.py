@@ -747,6 +747,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=base,
                         device=inv_freq.device,
+                        dtype=dtype,
                         scaling_factor=scaling_factor,
                     )
                 elif rope_type == "yarn":
@@ -755,6 +756,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=base,
                         device=inv_freq.device,
+                        dtype=dtype,
                         **rope_scaling,
                     )
                 else:
@@ -785,6 +787,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=10000.0,
                         device=inv_freq.device,
+                        dtype=dtype,
                         scaling_factor=scaling_factor,
                     )
                 elif rope_type == "yarn":
@@ -793,6 +796,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=10000.0,
                         device=inv_freq.device,
+                        dtype=dtype,
                         **rope_scaling,
                     )
                 else:
@@ -839,12 +843,12 @@ try:
             return x
 
     class DynamicPositionRotaryEmbedding(PositionRotaryEmbedding):
-        def __init__(self, dim, max_position_embeddings, base, device, scaling_factor):
+        def __init__(self, dim, max_position_embeddings, base, device, dtype, scaling_factor):
             inv_freq = _create_inv_freq(dim, base, device)
-            super().__init__(inv_freq, scaling_factor)
             self.dim = dim
             self.max_position_embeddings = max_position_embeddings
             self.base = base
+            super().__init__(inv_freq, scaling_factor, max_position_embeddings, device, dtype)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
@@ -887,8 +891,8 @@ try:
             beta_slow=1,
             finetuned=True,
             device=None,
+            dtype=None,
         ):
-            super().__init__(_create_inv_freq(dim, base, device), factor)
             self.dim = dim
             self.max_position_embeddings = max_position_embeddings
             self.base = base
@@ -899,7 +903,8 @@ try:
             self.beta_slow = beta_slow
             self.finetuned = finetuned
 
-            self.yarn(device)
+            self.yarn(device, factor)
+            super().__init__(_create_inv_freq(dim, base, device), factor, max_position_embeddings, device, dtype)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             if (
@@ -915,17 +920,17 @@ try:
                 self._cos_cached = (torch.cos(freqs) * self.mscale).to(dtype)
                 self._sin_cached = (torch.sin(freqs) * self.mscale).to(dtype)
         
-        def yarn(self, device):
+        def yarn(self, device, scaling_factor):
             pos_freqs = self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
             inv_freq_extrapolation = 1.0 / pos_freqs
-            inv_freq_interpolation = 1.0 / (self.scaling_factor * pos_freqs)
+            inv_freq_interpolation = 1.0 / (scaling_factor * pos_freqs)
 
             low, high = find_correction_range(self.beta_fast, self.beta_slow, self.dim, self.base, self.original_max_position_embeddings)
             inv_freq_mask = (1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)) * self.extrapolation_factor # Get n-d rotational scaling corrected for extrapolation
             inv_freq = inv_freq_interpolation * (1 - inv_freq_mask) + inv_freq_extrapolation * inv_freq_mask
 
             self.inv_freq = inv_freq
-            self.mscale = float(get_mscale(self.scaling_factor) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
+            self.mscale = float(get_mscale(scaling_factor) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
 
     # Inverse dim formula to find dim based on number of rotations
     def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):
