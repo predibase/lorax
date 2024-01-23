@@ -25,15 +25,6 @@ is_launcher_running() {
     kill -0 "$launcher_pid" >/dev/null 2>&1
 }
 
-# Check if the cache file exists and is not empty and that we can get the file lock
-if [ -f "${HUGGINGFACE_HUB_CACHE}/.lock" ] && [ -s "${HUGGINGFACE_HUB_CACHE}/.lock" ] && ! { set -C; 2>/dev/null >"${HUGGINGFACE_HUB_CACHE}/.lock"; }; then
-    echo "Another process is downloading the weights. Waiting for it to finish."
-    while [ -f "${LOCAL_MODEL_DIR}/.lock" ] && [ -s "${LOCAL_MODEL_DIR}/.lock" ]; do
-        sleep 1
-    done
-    echo "The other process has finished downloading the weights. Continuing."
-fi
-
 clean_up_cache() {
     local temp_file=$(mktemp)
     local removed_lines=""
@@ -58,7 +49,7 @@ clean_up_cache() {
         echo "Deleting $removed_lines from cache"
     fi
 
-    # Ensure only the last 5 items are retained
+    # Ensure only the last CACHE_SIZE items are retained
     tail -n $CACHE_SIZE "$temp_file" > "$file"
 
     # Clean up the temporary file
@@ -71,15 +62,14 @@ clean_up_cache() {
     done
 }
 
+sudo mkdir -p $LOCAL_MODEL_DIR
+
 (
-    # Wait for lock on $lockfile (fd 200)
+    # Wait for lock on $LOCKFILE (fd 200)
     flock -x 200
 
-    # The following code is executed only after acquiring the lock.
     echo "Lock acquired."
-    mkdir -p "$LOCAL_MODEL_DIR"
 
-    # Read the file (optional, based on your requirement)
     if [ -f "$CACHE_FILE" ]; then
         echo "Cache file exists."
         while read -r line; do
@@ -93,8 +83,6 @@ clean_up_cache() {
     fi
     clean_up_cache "$S3_BASE_DIRECTORY" "$CACHE_FILE"
 ) 200>$LOCKFILE
-
-sudo mkdir -p $LOCAL_MODEL_DIR
 
 if [ -n "$(ls -A $LOCAL_MODEL_DIR)" ]; then
     echo "Files have already been downloaded to ${LOCAL_MODEL_DIR}"
