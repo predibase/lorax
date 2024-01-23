@@ -97,7 +97,8 @@ class Parameters:
     adapter_source: Optional[str]
     # API token for accessing private adapters
     api_token: Optional[str]
-    # Activate logits sampling
+    # Activate logits sampling.
+    # Ignored if temperature parameter = 0 (determinstic token choosing)
     do_sample: bool
     # Maximum number of generated tokens
     max_new_tokens: int
@@ -111,6 +112,7 @@ class Parameters:
     # Random sampling seed
     seed: Optional[int]
     # The value used to module the logits distribution.
+    # Setting value to 0 invokes deterministic token choosing
     temperature: Optional[float]
     # The number of highest probability vocabulary tokens to keep for top-k-filtering.
     top_k: Optional[int]
