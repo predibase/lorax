@@ -14,7 +14,9 @@ S3_PATH="s3://${HF_CACHE_BUCKET}/${S3_BASE_DIRECTORY}/"
 LOCAL_MODEL_DIR="${HUGGINGFACE_HUB_CACHE}/${S3_BASE_DIRECTORY}"
 LOCKFILE="${HUGGINGFACE_HUB_CACHE}/cache.lock"
 CACHE_FILE="${HUGGINGFACE_HUB_CACHE}/cache.txt"
-CACHE_SIZE=3
+# Read cache size from environment variable, default to 4
+DEFAULT_CACHE_SIZE=4
+CACHE_SIZE=${CACHE_SIZE:-$DEFAULT_CACHE_SIZE}
 
 # Function to check if lorax-launcher is running
 is_launcher_running() {
