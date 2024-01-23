@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'weight-cache-cleanup' # XXX
     tags:
       - 'v*'
 
