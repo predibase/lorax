@@ -18,6 +18,8 @@ CACHE_FILE="${HUGGINGFACE_HUB_CACHE}/cache.txt"
 DEFAULT_CACHE_SIZE=4
 CACHE_SIZE=${CACHE_SIZE:-$DEFAULT_CACHE_SIZE}
 
+sudo mkdir -p $LOCAL_MODEL_DIR
+
 # Function to check if lorax-launcher is running
 is_launcher_running() {
     local launcher_pid="$1"
@@ -62,8 +64,6 @@ clean_up_cache() {
     done
 }
 
-sudo mkdir -p $LOCAL_MODEL_DIR
-
 (
     # Wait for lock on $LOCKFILE (fd 200)
     flock -x 200
@@ -83,6 +83,7 @@ sudo mkdir -p $LOCAL_MODEL_DIR
     fi
     clean_up_cache "$S3_BASE_DIRECTORY" "$CACHE_FILE"
 ) 200>$LOCKFILE
+
 
 if [ -n "$(ls -A $LOCAL_MODEL_DIR)" ]; then
     echo "Files have already been downloaded to ${LOCAL_MODEL_DIR}"
