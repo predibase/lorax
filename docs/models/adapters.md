@@ -46,8 +46,10 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 
 ### Phi
 
-- `Wqkv`
-- `out_proj`
+- `q_proj`
+- `k_proj`
+- `v_proj`
+- `dense`
 - `fc1`
 - `fc2`
 - `lm_head`
@@ -57,6 +59,14 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `c_attn`
 - `c_proj`
 - `c_fc`
+
+### Bloom
+
+- `query_key_value`
+- `dense`
+- `dense_h_to_4h`
+- `dense_4h_to_h`
+- `lm_head`
 
 ## Source
 
