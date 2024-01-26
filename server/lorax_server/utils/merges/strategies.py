@@ -1,6 +1,7 @@
 from abc import ABC
 from collections import defaultdict
-from typing import Dict, List, Tuple
+import copy
+from typing import Dict, List, Tuple, Type
 
 import torch
 from peft import LoraConfig
@@ -77,7 +78,7 @@ class DareTiesMerge(MergeStrategy):
         return mixed_task_tensors
 
 
-strategy_registry = {
+strategy_registry: Dict[str, Type[MergeStrategy]] = {
     "linear": LinearMerge,
     "ties": TiesMerge,
     "dare_linear": DareLinearMerge,
@@ -91,17 +92,59 @@ def merge_adapters(
 ) -> Tuple[ModuleMap, LoraConfig]:
     merge_config = merge_config.copy()
     strategy_name = merge_config.pop("strategy")
+
+    weights = merge_config.pop("weights", None)
+    if weights is None:
+        weights = torch.ones(len(adapters))
+    else:
+        weights = torch.tensor(weights)
+
     merge_strategy = strategy_registry[strategy_name](**merge_config)
 
-    module_maps = defaultdict(dict)
+    module_maps: Dict[str, Dict[str, Dict[str, List[torch.Tensor]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
     lora_configs = []
 
+    # input is list of (module_map, lora_config) tuples
+    # convert into dict[k][param_name] -> list of tensors
     for module_map, lora_config in adapters:
-        
-        for weight_name, weights in module_map.items():
-            for k, (param, param_name) in weights.items():
-                module_maps[weight_name][k] = (param, param_name)
-        
+        for weight_name, data in module_map.items():
+            for k, (param_data, param_name) in data.items():
+                module_maps[weight_name][k][param_name].append(param_data)
         lora_configs.append(lora_config)
 
+    # validate lora configs are compatible
+    _validate_lora_configs(lora_configs)
 
+    # merge tensors for each module such that we have a single ModuleMap:
+    # dict[k] -> merged tensor
+    merged_module_map: ModuleMap = defaultdict(dict)
+    for weight_name, data in module_maps.items():
+        for k, param_data in data.items():
+            for param_name, tensors in param_data.items():
+                merged_tensor = merge_strategy.merge(tensors, weights=weights)
+                merged_module_map[weight_name][k] = (merged_tensor, param_name)
+
+    # merge lora configs
+    merged_lora_config = _merge_lora_configs(lora_configs)
+
+    return merged_module_map, merged_lora_config
+
+
+def _validate_lora_configs(lora_configs: List[LoraConfig]):
+    # check that all configs have the same rank
+    ranks = set(lora_config.rank for lora_config in lora_configs)
+    if len(ranks) > 1:
+        raise ValueError(f"unable to merge adapters, lora configs have different ranks: {ranks}")
+
+    # check that all configs have the same target modules
+    target_modules = set(" | ".join(lora_config.target_modules for lora_config in lora_configs))
+    if len(target_modules) > 1:
+        raise ValueError(f"unable to merge adapters, lora configs have different target modules: {target_modules}")
+
+
+def _merge_lora_configs(lora_configs: List[LoraConfig]) -> LoraConfig:
+    # for now, due to rank and target constraints, we can just return one config
+    # may revisit this in the future if we loosen these constraints
+    return lora_configs[0]
