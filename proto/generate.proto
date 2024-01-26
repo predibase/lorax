@@ -232,6 +232,45 @@ enum AdapterSource {
     PBASE = 3;
 }
 
+enum MergeStrategy {
+    /// Linear combination of adapters
+    LINEAR = 0;
+
+    /// TIES method for combining adapters
+    TIES = 1;
+
+    /// DARE method for combining adapters
+    DARE_LINEAR = 2;
+
+    /// DARE + TIES method for combining adapters
+    DARE_TIES = 3;
+}
+
+enum MajoritySignMethod {
+    /// Total method
+    TOTAL = 0;
+
+    /// Frequency method
+    FREQUENCY = 1;
+}
+
+message AdapterParameters {
+    /// Adapter IDs
+    repeated string adapter_ids = 1;
+    
+    /// Adapter weights for merging
+    repeated float weights = 2;
+
+    /// Merge strategy (default: linear)
+    MergeStrategy merge_strategy = 3;
+
+    /// [0, 1], 0: full pruning, 1: no pruning
+    float density = 4;
+
+    /// Majority sign method (default: total)
+    MajoritySignMethod majority_sign_method = 5;
+}
+
 message DownloadAdapterRequest {
     /// Adapter ID
     string adapter_id = 1;

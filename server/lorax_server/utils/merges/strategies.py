@@ -1,6 +1,5 @@
 from abc import ABC
 from collections import defaultdict
-import copy
 from typing import Dict, List, Tuple, Type
 
 import torch
@@ -22,25 +21,29 @@ def _apply_weights(tensors: List[torch.Tensor], w: torch.Tensor) -> torch.Tensor
 
 
 class MergeStrategy(ABC):
-    def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
+    def merge(self, task_tensors: List[torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError()
 
 
 class LinearMerge(MergeStrategy):
-    def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
-        weighted_task_tensors = _apply_weights(task_tensors, weights)
+    def __init__(self, weights: torch.Tensor, **kwargs):
+        self.weights = weights
+
+    def merge(self, task_tensors: List[torch.Tensor]) -> torch.Tensor:
+        weighted_task_tensors = _apply_weights(task_tensors, self.weights)
         return weighted_task_tensors.sum(dim=0)
 
 
 class TiesMerge(MergeStrategy):
-    def __init__(self, density: float, majority_sign_method: str = "total"):
+    def __init__(self, weights: torch.Tensor, density: float, majority_sign_method: str = "total", **kwargs):
+        self.weights = weights
         self.density = density
         self.majority_sign_method = majority_sign_method
     
-    def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
+    def merge(self, task_tensors: List[torch.Tensor]) -> torch.Tensor:
         # sparsify
         task_tensors = [prune(tensor, self.density, method="magnitude") for tensor in task_tensors]
-        weighted_task_tensors = _apply_weights(task_tensors, weights)
+        weighted_task_tensors = _apply_weights(task_tensors, self.weights)
         
         # elect sign
         majority_sign_mask = calculate_majority_sign_mask(weighted_task_tensors, method=self.majority_sign_method)
@@ -50,25 +53,27 @@ class TiesMerge(MergeStrategy):
 
 
 class DareLinearMerge(MergeStrategy):
-    def __init__(self, density: float):
+    def __init__(self, weights: torch.Tensor, density: float, **kwargs):
+        self.weights = weights
         self.density = density
     
-    def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
+    def merge(self, task_tensors: List[torch.Tensor]) -> torch.Tensor:
         # sparsify
         task_tensors = [prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors]
-        weighted_task_tensors = _apply_weights(task_tensors, weights)
+        weighted_task_tensors = _apply_weights(task_tensors, self.weights)
         return weighted_task_tensors.sum(dim=0)
 
 
 class DareTiesMerge(MergeStrategy):
-    def __init__(self, density: float, majority_sign_method: str = "total"):
+    def __init__(self, weights: torch.Tensor, density: float, majority_sign_method: str = "total", **kwargs):
+        self.weights = weights
         self.density = density
         self.majority_sign_method = majority_sign_method
 
-    def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
+    def merge(self, task_tensors: List[torch.Tensor]) -> torch.Tensor:
         # sparsify
         task_tensors = [prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors]
-        weighted_task_tensors = _apply_weights(task_tensors, weights)
+        weighted_task_tensors = _apply_weights(task_tensors, self.weights)
         
         # elect sign
         majority_sign_mask = calculate_majority_sign_mask(weighted_task_tensors, method=self.majority_sign_method)
@@ -99,7 +104,7 @@ def merge_adapters(
     else:
         weights = torch.tensor(weights)
 
-    merge_strategy = strategy_registry[strategy_name](**merge_config)
+    merge_strategy = strategy_registry[strategy_name](weights=weights, **merge_config)
 
     module_maps: Dict[str, Dict[str, Dict[str, List[torch.Tensor]]]] = defaultdict(
         lambda: defaultdict(lambda: defaultdict(list))
@@ -123,7 +128,7 @@ def merge_adapters(
     for weight_name, data in module_maps.items():
         for k, param_data in data.items():
             for param_name, tensors in param_data.items():
-                merged_tensor = merge_strategy.merge(tensors, weights=weights)
+                merged_tensor = merge_strategy.merge(tensors)
                 merged_module_map[weight_name][k] = (merged_tensor, param_name)
 
     # merge lora configs
