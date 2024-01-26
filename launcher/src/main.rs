@@ -26,6 +26,10 @@ enum Quantization {
     BitsandbytesFP4,
     Gptq,
     Awq,
+    Eetq,
+    Hqq_4bit,
+    Hqq_3bit,
+    Hqq_2bit,
 }
 
 impl std::fmt::Display for Quantization {
@@ -46,6 +50,18 @@ impl std::fmt::Display for Quantization {
             }
             Quantization::Awq => {
                 write!(f, "awq")
+            }
+            Quantization::Eetq => {
+                write!(f, "eetq")
+            }
+            Quantization::Hqq_4bit => {
+                write!(f, "hqq-4bit")
+            }
+            Quantization::Hqq_3bit => {
+                write!(f, "hqq-3bit")
+            }
+            Quantization::Hqq_2bit => {
+                write!(f, "hqq-2bit")
             }
         }
     }

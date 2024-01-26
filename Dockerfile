@@ -37,7 +37,7 @@ RUN cargo build --release
 # Adapted from: https://github.com/pytorch/pytorch/blob/master/Dockerfile
 FROM debian:bullseye-slim as pytorch-install
 
-ARG PYTORCH_VERSION=2.1.1
+ARG PYTORCH_VERSION=2.1.2
 ARG PYTHON_VERSION=3.10
 ARG CUDA_VERSION=11.8
 ARG MAMBA_VERSION=23.1.0-1
@@ -146,6 +146,13 @@ COPY server/punica_kernels/ .
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
 
+# Build eetq kernels
+FROM kernel-builder as eetq-kernels-builder
+WORKDIR /usr/src
+COPY server/Makefile-eetq Makefile
+# Build specific version of transformers
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
+
 # LoRAX base image
 FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
 
@@ -193,6 +200,9 @@ COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/cond
 
 # Copy build artifacts from megablocks builder
 COPY --from=megablocks-kernels-builder /usr/src/megablocks/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+
+# Copy build artifacts from eetq builder
+COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir

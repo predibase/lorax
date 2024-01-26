@@ -553,7 +553,7 @@ async fn generate_stream_with_callback(
                                             details: None,
                                         };
 
-                                        yield Ok(Event::default().json_data(stream_token).unwrap())
+                                        yield Ok(callback(stream_token))
                                     }
                                     // Yield event for last token and compute timings
                                     InferStreamResponse::End {

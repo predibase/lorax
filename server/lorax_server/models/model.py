@@ -144,17 +144,17 @@ class Model(ABC):
         into model. Otherwise, the adapter weights are merged into the model 
         weights on the fly.
         """
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            return
+        
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
         
         if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                 f"and therefore does not support dynamic adapter loading. "
-                                 f"Please initialize a new model instance from the base model in "
-                                 f"order to use the dynamic adapter loading feature.")
+            raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
+                                f"and therefore does not support dynamic adapter loading. "
+                                f"Please initialize a new model instance from the base model in "
+                                f"order to use the dynamic adapter loading feature.")
 
         # If we are doing dynamic adapter loading, then we need to reset the weights
         if adapter_id == self.adapter_id:
