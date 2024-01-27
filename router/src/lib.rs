@@ -69,7 +69,7 @@ pub struct Info {
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
 pub(crate) struct AdapterParameters {
-    #[serde(default)]
+    #[serde(rename(deserialize = "ids"))]
     #[schema(inline, example = json ! (["arnavgrg/codealpaca-qlora"]))]
     pub adapter_ids: Vec<String>,
     #[serde(default)]
@@ -114,7 +114,7 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "hub")]
     pub adapter_source: Option<String>,
-    #[serde(default)]
+    #[serde(rename(deserialize = "adapters"))]
     #[schema(nullable = true, default = "null")]
     pub adapter_parameters: Option<AdapterParameters>,
     #[serde(default)]

@@ -144,10 +144,29 @@ impl Validation {
             seed,
             watermark,
             adapter_id,
+            adapter_parameters,
             decoder_input_details,
             apply_chat_template,
             ..
         } = request.parameters;
+
+        // adapter validation
+        // cannot specify both adapter_id and adapter_parameters
+        if adapter_parameters.is_some() && adapter_id.is_some() {
+            return Err(ValidationError::AdapterIdConflict);
+        }
+
+        if adapter_parameters.is_some() {
+            let nadapters = adapter_parameters.as_ref().unwrap().adapter_ids.len();
+            let nweights = adapter_parameters.as_ref().unwrap().weights.len();
+            if nadapters < 1 {
+                return Err(ValidationError::AdapterIdMissing);
+            }
+
+            if nadapters != nweights {
+                return Err(ValidationError::AdapterWeightMismatch);
+            }
+        }
 
         // sampling must be true when best_of > 1
         let best_of = best_of.unwrap_or(1);
@@ -389,6 +408,12 @@ pub enum ValidationError {
     StopSequence(usize, usize),
     #[error("tokenizer error {0}")]
     Tokenizer(String),
+    #[error("at most one of `adapter_id` or `adapters` may be provided")]
+    AdapterIdConflict,
+    #[error("at least one adapter ID must be provided when setting `adapters`")]
+    AdapterIdMissing,
+    #[error("number of adapter IDs must match number of adapter weights")]
+    AdapterWeightMismatch,
 }
 
 #[cfg(test)]
