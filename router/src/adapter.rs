@@ -1,4 +1,6 @@
-/// Adapter utils
+use std::hash;
+
+use crate::AdapterParameters;
 
 /// "adapter ID" for the base model. The base model does not have an adapter ID,
 /// but we reason about it in the same way. This must match the base model ID
@@ -9,10 +11,10 @@ pub const BASE_MODEL_ADAPTER_ID: &str = "__base_model__";
 /// from within the proto definition, or lib.rs
 pub const DEFAULT_ADAPTER_SOURCE: &str = "hub";
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub(crate) struct Adapter {
-    /// name of adapter
-    id: String,
+    /// adapter parameters
+    params: AdapterParameters,
     /// source (enforced at proto level)
     source: String,
     /// index of the adapter
@@ -22,17 +24,17 @@ pub(crate) struct Adapter {
 }
 
 impl Adapter {
-    pub(crate) fn new(id: String, source: String, index: u32, api_token: Option<String>) -> Self {
+    pub(crate) fn new(params: AdapterParameters, source: String, index: u32, api_token: Option<String>) -> Self {
         Self {
-            id,
+            params,
             source,
             index,
             api_token,
         }
     }
 
-    pub(crate) fn id(&self) -> &str {
-        &self.id
+    pub(crate) fn params(&self) -> &AdapterParameters {
+        &self.params
     }
 
     pub(crate) fn source(&self) -> &str {
@@ -49,6 +51,20 @@ impl Adapter {
 
     pub(crate) fn as_string(&self) -> String {
         // format "<source>:<id>"
-        format!("{}:{}", self.source, self.id)
+        format!("{}:{}", self.source, self.params.adapter_ids.join(","))
+    }
+}
+
+impl hash::Hash for Adapter {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
+    }
+}
+
+impl Eq for Adapter {}
+
+impl PartialEq for Adapter {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
     }
 }

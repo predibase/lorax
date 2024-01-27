@@ -134,7 +134,7 @@ impl QueueState {
         self.event.batching_task.notify_one();
         tracing::info!(
             "set adapter {} status to {}",
-            self.adapter.id(),
+            self.adapter.as_string(),
             self.status
         );
     }
@@ -259,7 +259,7 @@ impl AdapterQueuesState {
         let q = self.queue_map.get_mut(adapter);
         if q.is_none() {
             // TODO(travis): remove this
-            tracing::error!("adapter {} not found in queue_map", adapter.id());
+            tracing::error!("adapter {} not found in queue_map", adapter.as_string());
             println!("{:?}", Backtrace::force_capture());
         }
         let queue = q.unwrap();

@@ -65,6 +65,25 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
 }
 
+#[derive(Clone, Debug, Deserialize, ToSchema, Default)]
+pub(crate) struct AdapterParameters {
+    #[serde(default)]
+    #[schema(inline, example = json ! (["arnavgrg/codealpaca-qlora"]))]
+    pub adapter_ids: Vec<String>,
+    #[serde(default)]
+    #[schema(inline, example = json ! ([0.25, 0.75]))]
+    pub weights: Vec<f32>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "linear")]
+    pub merge_strategy: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = false, default = 0.0, example = 0.5)]
+    pub density: f32,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "total")]
+    pub majority_sign_method: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct GenerateParameters {
     #[serde(default)]
@@ -77,6 +96,9 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "hub")]
     pub adapter_source: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null")]
+    pub adapter_parameters: Option<AdapterParameters>,
     #[serde(default)]
     #[schema(
         nullable = true,
@@ -169,6 +191,7 @@ fn default_parameters() -> GenerateParameters {
     GenerateParameters {
         adapter_id: None,
         adapter_source: None,
+        adapter_parameters: None,
         api_token: None,
         best_of: None,
         temperature: None,
@@ -470,6 +493,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
                 adapter_source: None,
+                adapter_parameters: None,
                 api_token: None,
                 best_of: req.best_of.map(|x| x as usize),
                 temperature: req.temperature,
@@ -503,6 +527,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
                 adapter_source: None,
+                adapter_parameters: None,
                 api_token: None,
                 best_of: req.n.map(|x| x as usize),
                 temperature: req.temperature,

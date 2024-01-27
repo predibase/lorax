@@ -140,7 +140,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
 
                 match client
                     .download_adapter(
-                        adapter.id().to_string(),
+                        adapter.params().clone(),
                         adapter.source().to_string(),
                         adapter.api_token().clone(),
                     )

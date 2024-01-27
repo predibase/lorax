@@ -394,7 +394,7 @@ pub enum ValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::default_parameters;
+    use crate::{default_parameters, AdapterParameters};
     use crate::tests::get_tokenizer;
 
     #[tokio::test]
@@ -477,7 +477,15 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0, None),
+                Adapter::new(
+                    AdapterParameters{
+                        adapter_ids: vec!["".to_string()],
+                        ..Default::default()
+                    },
+                    "hf".to_string(),
+                    0,
+                    None,
+                ),
             )
             .await
         {
@@ -511,7 +519,15 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0, None),
+                Adapter::new(
+                    AdapterParameters{
+                        adapter_ids: vec!["".to_string()],
+                        ..Default::default()
+                    },
+                    "hf".to_string(),
+                    0,
+                    None,
+                ),
             )
             .await
         {
@@ -529,7 +545,15 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0, None),
+                Adapter::new(
+                    AdapterParameters{
+                        adapter_ids: vec!["".to_string()],
+                        ..Default::default()
+                    },
+                    "hf".to_string(),
+                    0,
+                    None,
+                ),
             )
             .await
         {
@@ -547,7 +571,15 @@ mod tests {
                         ..default_parameters()
                     },
                 },
-                Adapter::new("".to_string(), "hf".to_string(), 0, None),
+                Adapter::new(
+                    AdapterParameters{
+                        adapter_ids: vec!["".to_string()],
+                        ..Default::default()
+                    },
+                    "hf".to_string(),
+                    0,
+                    None,
+                ),
             )
             .await
             .unwrap();
