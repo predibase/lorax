@@ -7,6 +7,8 @@ mod queue;
 mod scheduler;
 pub mod server;
 mod validation;
+use lorax_client::AdapterParameters as AdapterParametersMessage;
+use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use infer::Infer;
 use loader::AdapterLoader;
@@ -82,6 +84,22 @@ pub(crate) struct AdapterParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "total")]
     pub majority_sign_method: Option<String>,
+}
+
+impl Into<AdapterParametersMessage> for AdapterParameters {
+    fn into(self) -> AdapterParametersMessage {
+        AdapterParametersMessage {
+            adapter_ids: self.adapter_ids,
+            weights: self.weights,
+            merge_strategy: MergeStrategy::from_str_name(
+                self.merge_strategy.unwrap_or("linear".to_string()).as_str(),
+            ).unwrap().into(),
+            density: self.density,
+            majority_sign_method: MajoritySignMethod::from_str_name(
+                self.majority_sign_method.unwrap_or("total".to_string()).as_str(),
+            ).unwrap().into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]

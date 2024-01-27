@@ -1,6 +1,5 @@
-use crate::pb::generate::v1::AdapterParameters;
 /// Multi shard Client
-use crate::{Batch, CachedBatch, Client, Generation, HealthResponse, ShardInfo};
+use crate::{Batch, CachedBatch, Client, Generation, HealthResponse, ShardInfo, AdapterParameters};
 use crate::{ClientError, Result};
 use futures::future::join_all;
 use tonic::transport::Uri;

@@ -140,14 +140,14 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
 
                 match client
                     .download_adapter(
-                        adapter.params().clone(),
+                        adapter.params().clone().into(),
                         adapter.source().to_string(),
                         adapter.api_token().clone(),
                     )
                     .await
                 {
                     Ok(_) => {
-                        tracing::info!("adapter {} downloaded", adapter.id());
+                        tracing::info!("adapter {} downloaded", adapter.as_string());
                         let mut locked_state = queues_state.lock().unwrap();
                         if locked_state.has_adapter(&adapter) {
                             // Above check guards against the case where the adapter was terminated between the initial
@@ -157,7 +157,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                     }
                     // if we have a download error, we send an error to the entry response
                     Err(error) => {
-                        tracing::info!("FAILED downloading adapter {}", adapter.id());
+                        tracing::info!("FAILED downloading adapter {}", adapter.as_string());
                         metrics::increment_counter!("lorax_request_failure", "err" => "download_adapter");
                         let mut locked_state = queues_state.lock().unwrap();
                         if locked_state.has_adapter(&adapter) {
@@ -186,7 +186,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                 }
                 match client
                     .load_adapter(
-                        adapter.id().to_string(),
+                        adapter.params().clone().into(),
                         adapter.source().to_string(),
                         adapter.index(),
                         adapter.api_token().clone(),
@@ -194,7 +194,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                     .await
                 {
                     Ok(_) => {
-                        tracing::info!("adapter {} loaded", adapter.id());
+                        tracing::info!("adapter {} loaded", adapter.as_string());
                         queues_state
                             .lock()
                             .unwrap()
@@ -203,7 +203,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
-                        tracing::info!("FAILED loading adapter {}", adapter.id());
+                        tracing::info!("FAILED loading adapter {}", adapter.as_string());
                         metrics::increment_counter!("lorax_request_failure", "err" => "load_adapter");
                         queues_state
                             .lock()
@@ -231,14 +231,14 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                 }
                 match client
                     .offload_adapter(
-                        adapter.id().to_string(),
+                        adapter.params().clone().into(),
                         adapter.source().to_string(),
                         adapter.index(),
                     )
                     .await
                 {
                     Ok(_) => {
-                        tracing::info!("adapter {} offloaded", adapter.id());
+                        tracing::info!("adapter {} offloaded", adapter.as_string());
                         queues_state
                             .lock()
                             .unwrap()
@@ -247,7 +247,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                     }
                     // If we have a load error, we send an error to the entry response
                     Err(error) => {
-                        tracing::info!("FAILED offloading adapter {}", adapter.id());
+                        tracing::info!("FAILED offloading adapter {}", adapter.as_string());
                         metrics::increment_counter!("lorax_request_failure", "err" => "offload_adapter");
                         queues_state
                             .lock()
@@ -273,7 +273,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                 response_sender,
                 span,
             } => {
-                tracing::info!("terminating adapter {} loader", adapter.id());
+                tracing::info!("terminating adapter {} loader", adapter.as_string());
 
                 let mut locked_state = queues_state.lock().unwrap();
                 if !locked_state.has_adapter(&adapter) {
