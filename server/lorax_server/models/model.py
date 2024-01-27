@@ -9,8 +9,8 @@ from typing import Dict, List, Set, Tuple, Optional, TypeVar, Type
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.models.types import Batch, GeneratedText
-from lorax_server.pb.generate_pb2 import InfoResponse
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
+from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_and_merge_adapters
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.lora import BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.weights import shard_on_dim
@@ -46,10 +46,11 @@ class Model(ABC):
         self.sliding_window = sliding_window
 
         # This may be set to False in the subclass constructor
-        self.adapter_id = adapter_id
         self.dynamic_adapter_loading_enabled = dynamic_adapter_loading_enabled
         self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
         self.target_to_layer = self.adapter_target_to_layer()
+        self.loaded_adapters = set()
+        self.static_adapter_id = adapter_id
 
         self.has_position_ids = (
             inspect.signature(model.forward).parameters.get("position_ids", None)
@@ -137,48 +138,51 @@ class Model(ABC):
     def is_row_parallel(self, layer_type: str) -> bool:
         return False
 
-    def load_adapter(self, adapter_id, adapter_source, adapter_index, api_token):
+    def load_adapter(
+        self,
+        adapter_parameters: AdapterParameters,
+        adapter_source: AdapterSource,
+        adapter_index: int,
+        api_token: str,
+    ):
         """Physically loads the adapter weights into the model.
 
         adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded 
         into model. Otherwise, the adapter weights are merged into the model 
         weights on the fly.
         """
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
+        if adapter_index in self.loaded_adapters:
+            # Adapter already loaded
             return
         
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
         
         if not self.dynamic_adapter_loading_enabled:
-            raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
+            raise ValueError(f"This model was initialized with the adapter {self.static_adapter_id} "
+                             f"and therefore does not support dynamic adapter loading. "
+                             f"Please initialize a new model instance from the base model in "
+                             f"order to use the dynamic adapter loading feature.")
 
-        # If we are doing dynamic adapter loading, then we need to reset the weights
-        if adapter_id == self.adapter_id:
-            return
-        elif adapter_id != BASE_MODEL_ADAPTER_ID:
-            logger.info(f"Loading adapter weights into model: {adapter_id}")
-            weight_names = tuple([v[0] for v in self.target_to_layer.values()])
-            module_map, adapter_config, adapter_weight_names, adapter_tokenizer = load_module_map(
-                self.model_id, adapter_id, adapter_source, weight_names, api_token
+        logger.info(f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}")
+        weight_names = tuple([v[0] for v in self.target_to_layer.values()])
+        module_map, adapter_config, adapter_weight_names, adapter_tokenizer = load_and_merge_adapters(
+            self.model_id, adapter_parameters, adapter_source, adapter_index, weight_names, api_token
+        )
+
+        unused_weight_names = adapter_weight_names.copy()
+        for layer_name in self.adapter_layers:
+            self.load_batched_adapter_weights(
+                module_map, adapter_config, adapter_index, layer_name, unused_weight_names
             )
+        
+        if len(unused_weight_names) > 0:
+            logger.warning(f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}")
+        
+        if adapter_tokenizer is not None:
+            self.tokenizers.add_tokenizer(adapter_index, adapter_tokenizer)
 
-            unused_weight_names = adapter_weight_names.copy()
-            for layer_name in self.adapter_layers:
-                self.load_batched_adapter_weights(
-                    module_map, adapter_config, adapter_index, layer_name, unused_weight_names
-                )
-            
-            if len(unused_weight_names) > 0:
-                logger.warning(f"{adapter_id} unused adapter weights: {unused_weight_names}")
-            
-            if adapter_tokenizer is not None:
-                self.tokenizers.add_tokenizer(adapter_index, adapter_tokenizer)
-
-            self.adapter_id = adapter_id
+        self.loaded_adapters.add(adapter_index)
 
     def shard_lora_weights(
         self,
@@ -246,25 +250,28 @@ class Model(ABC):
         q_lora_weights = self.batched_lora_weights[layer_type]
         q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     
-    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
+    def offload_adapter(
+        self,
+        adapter_parameters: AdapterParameters,
+        adapter_source: AdapterSource,
+        adapter_index: int,
+    ):
         """Offloads the adapter weights from GPU to CPU or disk."""
+        if adapter_index not in self.loaded_adapters:
+            # Adapter already offloaded
+            return
+        
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
         
         if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(f"This model was initialized with the adapter {self.adapter_id} "
-                                f"and therefore does not support dynamic adapter loading. "
-                                f"Please initialize a new model instance from the base model in "
-                                f"order to use the dynamic adapter loading feature.")
+            raise ValueError(f"This model was initialized with the adapter {self.static_adapter_id} "
+                             f"and therefore does not support dynamic adapter loading. "
+                             f"Please initialize a new model instance from the base model in "
+                             f"order to use the dynamic adapter loading feature.")
 
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
-            return
-        else:
-            for layer_name in self.adapter_layers:
-                if layer_name in self.batched_lora_weights:
-                    self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
+        for layer_name in self.adapter_layers:
+            if layer_name in self.batched_lora_weights:
+                self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
 
-            self.adapter_id = BASE_MODEL_ADAPTER_ID
+        self.loaded_adapters.remove(adapter_index)

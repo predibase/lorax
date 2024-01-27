@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Type
 import torch
 from peft import LoraConfig
 
+from lorax_server.pb.generate_pb2 import AdapterParameters
 from lorax_server.utils.merges.utils import calculate_majority_sign_mask, disjoint_merge, prune
 from lorax_server.utils.adapter import ModuleMap
 
@@ -93,17 +94,20 @@ strategy_registry: Dict[str, Type[MergeStrategy]] = {
 
 def merge_adapters(
     adapters: List[Tuple[ModuleMap, LoraConfig]],
-    merge_config: Dict,
+    merge_params: AdapterParameters,
 ) -> Tuple[ModuleMap, LoraConfig]:
-    merge_config = merge_config.copy()
-    strategy_name = merge_config.pop("strategy")
+    strategy_name = merge_params.merge_strategy
 
-    weights = merge_config.pop("weights", None)
-    if weights is None:
+    weights = merge_params.weights
+    if not weights:
         weights = torch.ones(len(adapters))
     else:
         weights = torch.tensor(weights)
 
+    merge_config = {
+        "density": merge_params.density,
+        "majority_sign_method": merge_params.majority_sign_method,
+    }
     merge_strategy = strategy_registry[strategy_name](weights=weights, **merge_config)
 
     module_maps: Dict[str, Dict[str, Dict[str, List[torch.Tensor]]]] = defaultdict(

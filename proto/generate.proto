@@ -272,8 +272,8 @@ message AdapterParameters {
 }
 
 message DownloadAdapterRequest {
-    /// Adapter ID
-    string adapter_id = 1;
+    /// Adapter Parameters
+    AdapterParameters adapter_parameters = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
     /// Token for external API (predibase / HuggingFace)
@@ -281,15 +281,13 @@ message DownloadAdapterRequest {
 }
 
 message DownloadAdapterResponse {
-    /// Adapter ID
-    string adapter_id = 1;
-    /// Adapter source
-    AdapterSource adapter_source = 2;
+    /// True if download occurred, false if skipped
+    bool downloaded = 1;
 }
 
 message LoadAdapterRequest {
-    /// Adapter ID
-    string adapter_id = 1;
+    /// Adapter Parameters
+    AdapterParameters adapter_parameters = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
     /// Adapter index
@@ -299,17 +297,13 @@ message LoadAdapterRequest {
 }
 
 message LoadAdapterResponse {
-    /// Adapter ID
-    string adapter_id = 1;
-    /// Adapter source
-    AdapterSource adapter_source = 2;
-    /// Adapter index
-    uint32 adapter_index = 3;
+    /// True if load occurred, false if skipped
+    bool loaded = 1;
 }
 
 message OffloadAdapterRequest {
-    /// Adapter ID
-    string adapter_id = 1;
+    /// Adapter Parameters
+    AdapterParameters adapter_parameters = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
     /// Adapter index
@@ -317,10 +311,6 @@ message OffloadAdapterRequest {
 }
 
 message OffloadAdapterResponse {
-    /// Adapter ID
-    string adapter_id = 1;
-    /// Adapter source
-    AdapterSource adapter_source = 2;
-    /// Adapter index
-    uint32 adapter_index = 3;
+    /// True if offload occurred, false if skipped
+    bool offloaded = 1;
 }
