@@ -1295,12 +1295,12 @@ void fast_copy_cpu(torch::Tensor a, torch::Tensor b)
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
-m.def("pack_rows_4", &pack_rows_4, "pack_rows_4");
+    m.def("pack_rows_4", &pack_rows_4, "pack_rows_4");
     m.def("pack_columns", &pack_columns, "pack_columns");
     m.def("quantize_err", &quantize_err, "quantize_err");
     m.def("quantize", &quantize, "quantize");
     m.def("make_q_matrix", &make_q_matrix, "make_q_matrix");
-m.def("free_q_matrix", &free_q_matrix, "free_q_matrix");
+    m.def("free_q_matrix", &free_q_matrix, "free_q_matrix");
     m.def("reconstruct", &reconstruct, "reconstruct");
     m.def("make_q_mlp", &make_q_mlp, "make_q_mlp");
     m.def("free_q_mlp", &free_q_mlp, "free_q_mlp");
