@@ -22,10 +22,6 @@
 #include "cuda/cache.cuh"
 #include "cuda/h_gemm.cuh"
 
-#include "cpp/quantize_func.h"
-#include "cpp/sampling.h"
-#include "cpp/safetensors.h"
-
 #include "cpp/util.h"
 
 // Some decluttering macros
@@ -1299,12 +1295,12 @@ void fast_copy_cpu(torch::Tensor a, torch::Tensor b)
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
-    m.def("pack_rows_4", &pack_rows_4, "pack_rows_4");
+m.def("pack_rows_4", &pack_rows_4, "pack_rows_4");
     m.def("pack_columns", &pack_columns, "pack_columns");
     m.def("quantize_err", &quantize_err, "quantize_err");
     m.def("quantize", &quantize, "quantize");
     m.def("make_q_matrix", &make_q_matrix, "make_q_matrix");
-    m.def("free_q_matrix", &free_q_matrix, "free_q_matrix");
+m.def("free_q_matrix", &free_q_matrix, "free_q_matrix");
     m.def("reconstruct", &reconstruct, "reconstruct");
     m.def("make_q_mlp", &make_q_mlp, "make_q_mlp");
     m.def("free_q_mlp", &free_q_mlp, "free_q_mlp");
@@ -1321,27 +1317,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("q_attn_set_loras", &q_attn_set_loras, "q_attn_set_loras");
     m.def("quantize_range", &quantize_range, "quantize_range");
     m.def("gemm_half_q_half", &gemm_half_q_half, "gemm_half_q_half");
-    m.def("rms_norm", &rms_norm, "rms_norm");
-    m.def("rms_norm_", &rms_norm_, "rms_norm_");
-    m.def("layer_norm", &layer_norm, "layer_norm");
-    m.def("layer_norm_", &layer_norm_, "layer_norm_");
-    m.def("rope_", &rope_, "rope_");
-    m.def("apply_rep_penalty", &apply_rep_penalty, "apply_rep_penalty");
-//    m.def("apply_freq_penalty", &apply_freq_penalty, "apply_freq_penalty");
-//    m.def("apply_presence_penalty", &apply_presence_penalty, "apply_presence_penalty");
-    m.def("sample_basic", &sample_basic, "sample_basic");
-    m.def("logit_filter_exclusive", &logit_filter_exclusive, "logit_filter_exclusive");
-    m.def("fp16_to_fp8", &fp16_to_fp8, "fp16_to_fp8");
-    m.def("fp8_to_fp16", &fp8_to_fp16, "fp8_to_fp16");
-    m.def("gemm_half_half_half", &gemm_half_half_half, "gemm_half_half_half");
-    m.def("fast_fill_cpu_ones_bool", &fast_fill_cpu_ones_bool, "fast_fill_cpu_ones_bool");
-    m.def("fast_fadd_cpu", &fast_fadd_cpu, "fast_fadd_cpu");
-    m.def("fast_copy_cpu", &fast_copy_cpu, "fast_copy_cpu");
-//    m.def("array_fp16_to_fp8_ref", &array_fp16_to_fp8_ref, "array_fp16_to_fp8_ref");
-//    m.def("array_fp8_to_fp16_ref", &array_fp8_to_fp16_ref, "array_fp8_to_fp16_ref");
-    m.def("safetensors_open", &safetensors_open, "safetensors_open");
-    m.def("safetensors_close", &safetensors_close, "safetensors_close");
-    m.def("safetensors_load", &safetensors_load, "safetensors_load");
-    m.def("safetensors_pinned_buffer", &safetensors_pinned_buffer, "safetensors_pinned_buffer");
-    m.def("safetensors_free_pinned_buffer", &safetensors_free_pinned_buffer, "safetensors_free_pinned_buffer");
 }
