@@ -5,22 +5,11 @@
 #include <cuda_fp16.h>
 #include <cstdint>
 #include <cstdio>
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
 
 #include "config.h"
 
-#include "cuda/pack_tensor.cuh"
-#include "cuda/quantize.cuh"
 #include "cuda/q_matrix.cuh"
-#include "cuda/q_attn.cuh"
-#include "cuda/q_mlp.cuh"
 #include "cuda/q_gemm.cuh"
-#include "cuda/rms_norm.cuh"
-#include "cuda/layer_norm.cuh"
-#include "cuda/rope.cuh"
-#include "cuda/cache.cuh"
-#include "cuda/h_gemm.cuh"
 
 #include "cpp/util.h"
 
