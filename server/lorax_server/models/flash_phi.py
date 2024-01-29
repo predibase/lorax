@@ -94,7 +94,7 @@ class FlashPhi(FlashCausalLM):
             merged_weight_filenames=merged_weight_filenames
         )
 
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
         model = FlashPhiForCausalLM(config, weights)

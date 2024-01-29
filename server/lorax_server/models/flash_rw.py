@@ -59,7 +59,7 @@ class FlashRWSharded(FlashCausalLM):
         )
 
         config.quantize = quantize
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
         model = FlashRWForCausalLM(config, weights)
