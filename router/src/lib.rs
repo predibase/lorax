@@ -160,7 +160,7 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "hub")]
     pub adapter_source: Option<String>,
-    #[serde(rename(deserialize = "adapters"))]
+    #[serde(rename(deserialize = "merged_adapters"))]
     #[schema(nullable = true, default = "null")]
     pub adapter_parameters: Option<AdapterParameters>,
     #[serde(default)]
