@@ -20,7 +20,7 @@ from lorax_server.utils.layers import (
 def load_multi_mqa(
     config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size
 ):
-    if config.quantize == "gptq":
+    if config.quantize in ["gptq", "awq", "eetq"]:
         return _load_multi_mqa_gptq(
             config, prefix, weights, bias, head_size, num_heads, hidden_size
         )
