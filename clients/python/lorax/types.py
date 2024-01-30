@@ -6,6 +6,49 @@ from lorax.errors import ValidationError
 
 
 ADAPTER_SOURCES = ["hub", "local", "s3", "pbase"]
+MERGE_STRATEGIES = ["linear", "ties", "dare_linear", "dare_ties"]
+MAJORITY_SIGN_METHODS = ["total", "frequency"]
+
+
+class MergedAdapters(BaseModel):
+    # IDs of the adapters to merge
+    ids: List[str]
+    # Weights of the adapters to merge
+    weights: List[float]
+    # Merge strategy
+    merge_strategy: Optional[str]
+    # Density
+    density: float
+    # Majority sign method
+    majority_sign_method: Optional[str]
+
+    @validator("ids", "weights")
+    def validate_ids_weights(cls, ids, weights):
+        if not ids:
+            raise ValidationError("`ids` cannot be empty")
+        if not weights:
+            raise ValidationError("`weights` cannot be empty")
+        if len(ids) != len(weights):
+            raise ValidationError("`ids` and `weights` must have the same length")
+        return ids, weights
+    
+    @validator("merge_strategy")
+    def validate_merge_strategy(cls, v):
+        if v is not None and v not in MERGE_STRATEGIES:
+            raise ValidationError(f"`merge_strategy` must be one of {MERGE_STRATEGIES}")
+        return v
+    
+    @validator("density")
+    def validate_density(cls, v):
+        if v < 0 or v > 1.0:
+            raise ValidationError("`density` must be >= 0.0 and <= 1.0")
+        return v
+    
+    @validator("majority_sign_method")
+    def validate_majority_sign_method(cls, v):
+        if v is not None and v not in MAJORITY_SIGN_METHODS:
+            raise ValidationError(f"`majority_sign_method` must be one of {MAJORITY_SIGN_METHODS}")
+        return v
 
 
 class Parameters(BaseModel):
@@ -13,6 +56,8 @@ class Parameters(BaseModel):
     adapter_id: Optional[str]
     # The source of the adapter to use
     adapter_source: Optional[str]
+    # Adapter merge parameters
+    merged_adapters: Optional[MergedAdapters]
     # API token for accessing private adapters
     api_token: Optional[str]
     # Activate logits sampling
@@ -48,6 +93,12 @@ class Parameters(BaseModel):
     details: bool = False
     # Get decoder input token logprobs and ids
     decoder_input_details: bool = False
+
+    @validator("adapter_id", "merged_adapters")
+    def valid_adapter_id_merged_adapters(cls, adapter_id, merged_adapters):
+        if adapter_id is not None and merged_adapters is not None:
+            raise ValidationError("you must specify at most one of `adapter_id` or `merged_adapters`")
+        return adapter_id, merged_adapters
 
     @validator("adapter_source")
     def valid_adapter_source(cls, v):

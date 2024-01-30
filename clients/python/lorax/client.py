@@ -10,6 +10,7 @@ from lorax.types import (
     Response,
     Request,
     Parameters,
+    MergedAdapters,
 )
 from lorax.errors import parse_error
 
@@ -63,6 +64,7 @@ class Client:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
@@ -89,6 +91,8 @@ class Client:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            merged_adapters (`Optional[MergedAdapters]`):
+                Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
                 API token for accessing private adapters
             do_sample (`bool`):
@@ -130,6 +134,7 @@ class Client:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=best_of,
             details=True,
@@ -166,6 +171,7 @@ class Client:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
@@ -190,6 +196,8 @@ class Client:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            merged_adapters (`Optional[MergedAdapters]`):
+                Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
                 API token for accessing private adapters
             do_sample (`bool`):
@@ -227,6 +235,7 @@ class Client:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=None,
             details=True,
@@ -329,6 +338,7 @@ class AsyncClient:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
@@ -355,6 +365,8 @@ class AsyncClient:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            merged_adapters (`Optional[MergedAdapters]`):
+                Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
                 API token for accessing private adapters
             do_sample (`bool`):
@@ -396,6 +408,7 @@ class AsyncClient:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=best_of,
             details=True,
@@ -430,6 +443,7 @@ class AsyncClient:
         prompt: str,
         adapter_id: Optional[str] = None,
         adapter_source: Optional[str] = None,
+        merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
@@ -454,6 +468,8 @@ class AsyncClient:
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
                 Source of the adapter (hub, local, s3)
+            merged_adapters (`Optional[MergedAdapters]`):
+                Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
                 API token for accessing private adapters
             do_sample (`bool`):
@@ -491,6 +507,7 @@ class AsyncClient:
         parameters = Parameters(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=None,
             details=True,
