@@ -70,7 +70,7 @@ def _load_and_merge(
     params = adapter_params.adapter_parameters
     
     adapters_to_merge = []
-    weight_names = set()
+    merged_weight_names = set()
     tokenizer = None
     for adapter_id in params.adapter_ids:
         if adapter_id == BASE_MODEL_ADAPTER_ID:
@@ -81,7 +81,7 @@ def _load_and_merge(
         )
         
         adapters_to_merge.append((module_map, adapter_config))
-        weight_names = weight_names.union(adapter_weight_names)
+        merged_weight_names = merged_weight_names.union(adapter_weight_names)
         if tokenizer is None:
             tokenizer = adapter_tokenizer
 
@@ -89,7 +89,7 @@ def _load_and_merge(
         raise ValueError("No adapters to merge.")
     
     module_map, adapter_config = merge_adapters(adapters_to_merge, params)
-    return module_map, adapter_config, weight_names, tokenizer
+    return module_map, adapter_config, merged_weight_names, tokenizer
 
 
 @lru_cache(maxsize=128)

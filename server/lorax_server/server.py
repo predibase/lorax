@@ -177,14 +177,18 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             return generate_pb2.LoadAdapterResponse(loaded=False)
         
         try:
-            adapter_id = request.adapter_id
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
             api_token = request.api_token
+
             if adapter_source == PBASE:
-                adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
+                for i in range(len(adapter_parameters.adapter_ids)):
+                    adapter_id = adapter_parameters.adapter_ids[i]
+                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
+                    adapter_parameters.adapter_ids[i] = adapter_id
                 adapter_source = S3
-            self.model.load_adapter(adapter_id, adapter_source, adapter_index, api_token)
+            
+            self.model.load_adapter(adapter_parameters, adapter_source, adapter_index, api_token)
             
             return generate_pb2.LoadAdapterResponse(loaded=True)
         except Exception:
