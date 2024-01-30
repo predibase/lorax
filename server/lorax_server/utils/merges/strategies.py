@@ -5,7 +5,11 @@ from typing import TYPE_CHECKING, Dict, List, Tuple, Type
 import torch
 from peft import LoraConfig
 
-from lorax_server.pb.generate_pb2 import AdapterParameters
+from lorax_server.pb.generate_pb2 import (
+    AdapterParameters, 
+    MajoritySignMethod as MajoritySignMethodEnum,
+    MergeStrategy as MergeStrategyEnum,
+)
 from lorax_server.utils.merges.utils import calculate_majority_sign_mask, disjoint_merge, prune
 
 if TYPE_CHECKING:
@@ -98,7 +102,7 @@ def merge_adapters(
     adapters: List[Tuple["ModuleMap", LoraConfig]],
     merge_params: AdapterParameters,
 ) -> Tuple["ModuleMap", LoraConfig]:
-    strategy_name = merge_params.merge_strategy
+    strategy_name = MergeStrategyEnum.Name(merge_params.merge_strategy).lower()
 
     weights = merge_params.weights
     if not weights:
@@ -108,7 +112,7 @@ def merge_adapters(
 
     merge_config = {
         "density": merge_params.density,
-        "majority_sign_method": merge_params.majority_sign_method,
+        "majority_sign_method": MajoritySignMethodEnum.Name(merge_params.majority_sign_method).lower(),
     }
     merge_strategy = strategy_registry[strategy_name](weights=weights, **merge_config)
 
@@ -145,12 +149,12 @@ def merge_adapters(
 
 def _validate_lora_configs(lora_configs: List[LoraConfig]):
     # check that all configs have the same rank
-    ranks = set(lora_config.rank for lora_config in lora_configs)
+    ranks = set(lora_config.r for lora_config in lora_configs)
     if len(ranks) > 1:
         raise ValueError(f"unable to merge adapters, lora configs have different ranks: {ranks}")
 
     # check that all configs have the same target modules
-    target_modules = set(" | ".join(lora_config.target_modules for lora_config in lora_configs))
+    target_modules = set([" | ".join(sorted(lora_config.target_modules)) for lora_config in lora_configs])
     if len(target_modules) > 1:
         raise ValueError(f"unable to merge adapters, lora configs have different target modules: {target_modules}")
 
