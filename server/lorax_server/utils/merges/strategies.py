@@ -1,13 +1,15 @@
 from abc import ABC
 from collections import defaultdict
-from typing import Dict, List, Tuple, Type
+from typing import TYPE_CHECKING, Dict, List, Tuple, Type
 
 import torch
 from peft import LoraConfig
 
 from lorax_server.pb.generate_pb2 import AdapterParameters
 from lorax_server.utils.merges.utils import calculate_majority_sign_mask, disjoint_merge, prune
-from lorax_server.utils.adapter import ModuleMap
+
+if TYPE_CHECKING:
+    from lorax_server.utils.adapter import ModuleMap
 
 
 def _apply_weights(tensors: List[torch.Tensor], w: torch.Tensor) -> torch.Tensor:
@@ -93,9 +95,9 @@ strategy_registry: Dict[str, Type[MergeStrategy]] = {
 
 
 def merge_adapters(
-    adapters: List[Tuple[ModuleMap, LoraConfig]],
+    adapters: List[Tuple["ModuleMap", LoraConfig]],
     merge_params: AdapterParameters,
-) -> Tuple[ModuleMap, LoraConfig]:
+) -> Tuple["ModuleMap", LoraConfig]:
     strategy_name = merge_params.merge_strategy
 
     weights = merge_params.weights
@@ -128,7 +130,7 @@ def merge_adapters(
 
     # merge tensors for each module such that we have a single ModuleMap:
     # dict[k] -> merged tensor
-    merged_module_map: ModuleMap = defaultdict(dict)
+    merged_module_map: "ModuleMap" = defaultdict(dict)
     for weight_name, data in module_maps.items():
         for k, param_data in data.items():
             for param_name, tensors in param_data.items():
