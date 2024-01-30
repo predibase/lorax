@@ -92,7 +92,10 @@ impl Into<AdapterParametersMessage> for AdapterParameters {
             adapter_ids: self.adapter_ids,
             weights: self.weights,
             merge_strategy: MergeStrategy::from_str_name(
-                self.merge_strategy.unwrap_or("linear".to_string()).as_str(),
+                self.merge_strategy
+                    .unwrap_or("linear".to_string())
+                    .to_uppercase()
+                    .as_str(),
             )
             .unwrap()
             .into(),
@@ -100,6 +103,7 @@ impl Into<AdapterParametersMessage> for AdapterParameters {
             majority_sign_method: MajoritySignMethod::from_str_name(
                 self.majority_sign_method
                     .unwrap_or("total".to_string())
+                    .to_uppercase()
                     .as_str(),
             )
             .unwrap()
