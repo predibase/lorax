@@ -419,8 +419,8 @@ pub enum ValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{default_parameters, AdapterParameters};
     use crate::tests::get_tokenizer;
+    use crate::{default_parameters, AdapterParameters};
 
     #[tokio::test]
     async fn test_validation_max_new_tokens() {
@@ -503,7 +503,7 @@ mod tests {
                     },
                 },
                 Adapter::new(
-                    AdapterParameters{
+                    AdapterParameters {
                         adapter_ids: vec!["".to_string()],
                         ..Default::default()
                     },
@@ -545,7 +545,7 @@ mod tests {
                     },
                 },
                 Adapter::new(
-                    AdapterParameters{
+                    AdapterParameters {
                         adapter_ids: vec!["".to_string()],
                         ..Default::default()
                     },
@@ -571,7 +571,7 @@ mod tests {
                     },
                 },
                 Adapter::new(
-                    AdapterParameters{
+                    AdapterParameters {
                         adapter_ids: vec!["".to_string()],
                         ..Default::default()
                     },
@@ -597,7 +597,7 @@ mod tests {
                     },
                 },
                 Adapter::new(
-                    AdapterParameters{
+                    AdapterParameters {
                         adapter_ids: vec!["".to_string()],
                         ..Default::default()
                     },

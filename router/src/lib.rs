@@ -93,11 +93,17 @@ impl Into<AdapterParametersMessage> for AdapterParameters {
             weights: self.weights,
             merge_strategy: MergeStrategy::from_str_name(
                 self.merge_strategy.unwrap_or("linear".to_string()).as_str(),
-            ).unwrap().into(),
+            )
+            .unwrap()
+            .into(),
             density: self.density,
             majority_sign_method: MajoritySignMethod::from_str_name(
-                self.majority_sign_method.unwrap_or("total".to_string()).as_str(),
-            ).unwrap().into(),
+                self.majority_sign_method
+                    .unwrap_or("total".to_string())
+                    .as_str(),
+            )
+            .unwrap()
+            .into(),
         }
     }
 }
@@ -106,7 +112,7 @@ impl std::hash::Hash for AdapterParameters {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         if self.adapter_ids.len() == 1 {
             self.adapter_ids[0].hash(state);
-            return
+            return;
         }
 
         self.adapter_ids.hash(state);
@@ -128,9 +134,9 @@ impl std::hash::Hash for AdapterParameters {
 impl PartialEq for AdapterParameters {
     fn eq(&self, other: &Self) -> bool {
         if self.adapter_ids.len() == 1 {
-            return self.adapter_ids[0] == other.adapter_ids[0]
+            return self.adapter_ids[0] == other.adapter_ids[0];
         }
-        
+
         // In this implementation, we assume that adapter order matters
         self.adapter_ids == other.adapter_ids
             && self.weights == other.weights

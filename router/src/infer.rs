@@ -3,7 +3,7 @@ use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
-use crate::{Entry, Token, AdapterParameters};
+use crate::{AdapterParameters, Entry, Token};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -69,10 +69,13 @@ impl Infer {
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(AdapterParameters {
-            adapter_ids: vec!["".to_string()],
-            ..Default::default()
-        }, 0)])));
+        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
+            AdapterParameters {
+                adapter_ids: vec!["".to_string()],
+                ..Default::default()
+            },
+            0,
+        )])));
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -129,10 +132,15 @@ impl Infer {
             adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
         }
 
-        let adapter_parameters = request.parameters.adapter_parameters.clone().unwrap_or(AdapterParameters {
-            adapter_ids: vec![adapter_id.clone().unwrap()],
-            ..Default::default()
-        });
+        let adapter_parameters =
+            request
+                .parameters
+                .adapter_parameters
+                .clone()
+                .unwrap_or(AdapterParameters {
+                    adapter_ids: vec![adapter_id.clone().unwrap()],
+                    ..Default::default()
+                });
 
         let adapter_idx;
         {
