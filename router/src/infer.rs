@@ -3,7 +3,7 @@ use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
-use crate::{Entry, Token};
+use crate::{Entry, Token, AdapterParameters};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -32,7 +32,7 @@ pub struct Infer {
     /// Manages the queues of the various adapters
     adapter_scheduler: AdapterScheduler,
     /// Maps adapter ID to a unique index
-    adapter_to_index: Arc<Mutex<HashMap<String, u32>>>,
+    adapter_to_index: Arc<Mutex<HashMap<AdapterParameters, u32>>>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
 }
@@ -69,7 +69,10 @@ impl Infer {
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));
+        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(AdapterParameters {
+            adapter_ids: vec!["".to_string()],
+            ..Default::default()
+        }, 0)])));
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -126,21 +129,27 @@ impl Infer {
             adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
         }
 
+        let adapter_parameters = request.parameters.adapter_parameters.clone().unwrap_or(AdapterParameters {
+            adapter_ids: vec![adapter_id.clone().unwrap()],
+            ..Default::default()
+        });
+
         let adapter_idx;
         {
             // TODO(travis): can optimize concurrency here using RWLock
             let mut adapter_to_index = self.adapter_to_index.lock().await;
-            if adapter_to_index.contains_key(&adapter_id.clone().unwrap()) {
-                adapter_idx = *adapter_to_index.get(&adapter_id.clone().unwrap()).unwrap();
+            let adapter_key = adapter_parameters.clone();
+            if adapter_to_index.contains_key(&adapter_key) {
+                adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
             } else {
                 adapter_idx = adapter_to_index.len() as u32;
-                adapter_to_index.insert(adapter_id.clone().unwrap(), adapter_idx);
+                adapter_to_index.insert(adapter_key, adapter_idx);
             }
         }
 
         let api_token = request.parameters.api_token.clone();
         let adapter = Adapter::new(
-            adapter_id.unwrap(),
+            adapter_parameters,
             adapter_source.unwrap(),
             adapter_idx,
             api_token,

@@ -102,6 +102,46 @@ impl Into<AdapterParametersMessage> for AdapterParameters {
     }
 }
 
+impl std::hash::Hash for AdapterParameters {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.adapter_ids.len() == 1 {
+            self.adapter_ids[0].hash(state);
+            return
+        }
+
+        self.adapter_ids.hash(state);
+
+        // Convert weights vec into vec of u32 bits
+        let weights: Vec<u32> = self.weights.iter().map(|x| x.to_bits()).collect();
+        weights.hash(state);
+
+        self.merge_strategy.hash(state);
+
+        // Hash the raw bits of the float, acknowledging that this
+        // can cause issues with different representations of the same value.
+        self.density.to_bits().hash(state);
+
+        self.majority_sign_method.hash(state);
+    }
+}
+
+impl PartialEq for AdapterParameters {
+    fn eq(&self, other: &Self) -> bool {
+        if self.adapter_ids.len() == 1 {
+            return self.adapter_ids[0] == other.adapter_ids[0]
+        }
+        
+        // In this implementation, we assume that adapter order matters
+        self.adapter_ids == other.adapter_ids
+            && self.weights == other.weights
+            && self.merge_strategy == other.merge_strategy
+            && self.density == other.density // direct comparison of f32
+            && self.majority_sign_method == other.majority_sign_method
+    }
+}
+
+impl Eq for AdapterParameters {}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct GenerateParameters {
     #[serde(default)]
