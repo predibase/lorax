@@ -141,6 +141,15 @@ Usage:
 }
 ```
 
+## Mixture of Adapters
+
+Multiple adapters can be mixed / merged together per request to create powerful ensembles of different specialized adapters.
+
+This is particularly useful when you want your LLM to be capable of handling multiple types of tasks based on the user's prompt without
+requiring them to specify the type of task they wish to perform.
+
+See [Mixing Adapters](../guides/mixing_adapters.md) for details.
+
 ## Private Adapter Repositories
 
 For hosted adapter repositories like HuggingFace Hub and [Predibase](https://predibase.com/), you can perform inference using private adapters per request.

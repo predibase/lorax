@@ -24,7 +24,8 @@ from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PRO
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
+# TODO(travis): re-enable LM_HEAD after resolving issues with outputs
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]  # LM_HEAD
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 

@@ -357,6 +357,9 @@ impl AdapterQueuesState {
                 adapters_to_remove.insert(adapter.clone());
 
                 // Start async offload process
+                // TODO(travis): we're being too aggressive about offloading here, we should only
+                // add adapters to this set if the number of active adapters is full and there are new adapters
+                // waiting to be loaded
                 offload_adapters.push(adapter.clone());
             }
         }
