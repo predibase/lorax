@@ -1,5 +1,6 @@
 from abc import ABC
 from collections import defaultdict
+import copy
 from typing import TYPE_CHECKING, Dict, List, Tuple, Type
 
 import torch
@@ -153,14 +154,18 @@ def _validate_lora_configs(lora_configs: List[LoraConfig]):
     ranks = set(lora_config.r for lora_config in lora_configs)
     if len(ranks) > 1:
         raise ValueError(f"unable to merge adapters, lora configs have different ranks: {ranks}")
-
-    # check that all configs have the same target modules
-    target_modules = set([" | ".join(sorted(lora_config.target_modules)) for lora_config in lora_configs])
-    if len(target_modules) > 1:
-        raise ValueError(f"unable to merge adapters, lora configs have different target modules: {target_modules}")
+    
+    if all(len(lora_config.target_modules) == 0 for lora_config in lora_configs):
+        raise ValueError("unable to merge adapters, lora configs have no target modules")
 
 
 def _merge_lora_configs(lora_configs: List[LoraConfig]) -> LoraConfig:
-    # for now, due to rank and target constraints, we can just return one config
-    # may revisit this in the future if we loosen these constraints
-    return lora_configs[0]
+    merged_lora_config = copy.copy(lora_configs[0])
+
+    # merge target modules as a union operation
+    merged_target_modules = sorted(set(
+        module for lora_config in lora_configs for module in lora_config.target_modules
+    ))
+    merged_lora_config.target_modules = merged_target_modules
+
+    return merged_lora_config
