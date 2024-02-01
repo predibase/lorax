@@ -83,7 +83,7 @@ First deploy LoRAX using the base model `TinyLlama/TinyLlama-1.1B-intermediate-s
 the [LoRAX Python Client](../reference/python_client.md):
 
 ```python
-from lorax import Client
+from lorax import Client, MergedAdapters
 
 client = Client(endpoint_url)
 
