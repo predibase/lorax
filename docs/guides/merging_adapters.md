@@ -1,7 +1,7 @@
-# Mixing Adapters
+# Merging Adapters
 
-In LoRAX, multiple LoRA adapters can be mixed together per request to create powerful multi-task ensembles by merging the individual
-adapter weights together using a given [merge strategy](#merge-strategies).
+In LoRAX, multiple LoRA adapters can be merged together per request to create powerful multi-task ensembles
+using one of several different [merge strategies](#merge-strategies).
 
 This is particularly useful when you want your LLM to be capable of handling multiple types of tasks based on the user's prompt without
 requiring them to specify the type of task they wish to perform.
