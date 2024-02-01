@@ -75,8 +75,53 @@ Parameters:
 - `density` (required): fraction of weights in adapters to retain.
 - `majority_sign_method` (default: `total`): one of `{total, frequency}` used to obtain the magnitude of the sign for consensus.
 
-## Usage
+## Example
 
-### Python Client
+This example is derived from the [PEFT example](https://github.com/huggingface/peft/blob/smangrul/add-new-merging-methods/examples/multi_adapter_examples/Lora_Merging.ipynb) for model merging.
 
-### REST
+First deploy LoRAX using the base model `TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T`, then run the following using
+the [LoRAX Python Client](../reference/python_client.md):
+
+```python
+from lorax import Client
+
+client = Client(endpoint_url)
+
+# tinyllama merge
+merged_adapters = MergedAdapters(
+    ids=[
+        "smangrul/tinyllama_lora_norobots",
+        "smangrul/tinyllama_lora_sql",
+        "smangrul/tinyllama_lora_adcopy",
+    ],
+    weights=[2.0, 0.3, 0.7],
+    merge_strategy="ties",
+    density=0.2,
+    majority_sign_method="total",
+)
+
+# norobots
+prompt = """<s><|im_start|>user
+Write an essay about Generative AI.<|im_end|>
+<|im_start|>assistant \n"""
+response = client.generate(prompt, merged_adapters=merged_adapters)
+print(response.generated_text)
+
+# adcopy
+prompt = """<s><|im_start|>system 
+Create a text ad given the following product and description.<|im_end|> 
+<|im_start|>user 
+Product: Sony PS5 PlayStation Console
+Description: The PS5™ console unleashes new gaming possibilities that you never anticipated.<|im_end|> 
+<|im_start|>assistant \n"""
+response = client.generate(prompt, merged_adapters=merged_adapters)
+print(response.generated_text)
+
+# sql
+prompt = """<s> Table: 2-11365528-2
+Columns: ['Team', 'Head Coach', 'President', 'Home Ground', 'Location']
+Natural Query: Who is the Head Coach of the team whose President is Mario Volarevic?
+SQL Query:"""
+response = client.generate(prompt, merged_adapters=merged_adapters)
+print(response.generated_text)
+```
