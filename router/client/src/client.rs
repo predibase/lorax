@@ -200,7 +200,8 @@ impl Client {
         } else {
             let err_string = format!(
                 "Invalid source '{}' when downloading adapter '{}'",
-                adapter_source, adapter_parameters.adapter_ids.join(" , ")
+                adapter_source,
+                adapter_parameters.adapter_ids.join(",")
             );
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())
@@ -230,7 +231,8 @@ impl Client {
         } else {
             let err_string = format!(
                 "Invalid source '{}' when loading adapter '{}'",
-                adapter_source, adapter_parameters.adapter_ids.join(" , ")
+                adapter_source,
+                adapter_parameters.adapter_ids.join(",")
             );
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())
@@ -258,7 +260,8 @@ impl Client {
         } else {
             let err_string = format!(
                 "Invalid source '{}' when loading adapter '{}'",
-                adapter_source, adapter_parameters.adapter_ids.join(" , ")
+                adapter_source,
+                adapter_parameters.adapter_ids.join(",")
             );
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())
