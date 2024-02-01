@@ -182,25 +182,26 @@ impl Client {
     /// Downloads the weights for an adapter.
     pub async fn download_adapter(
         &mut self,
-        adapter_id: String,
+        adapter_parameters: AdapterParameters,
         adapter_source: String,
         api_token: Option<String>,
-    ) -> Result<String> {
+    ) -> Result<bool> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
         {
             let request = tonic::Request::new(DownloadAdapterRequest {
-                adapter_id,
+                adapter_parameters: Some(adapter_parameters),
                 adapter_source: adapter_source_enum.into(),
                 api_token: api_token,
             })
             .inject_context();
             let response = self.stub.download_adapter(request).await?.into_inner();
-            Ok(response.adapter_id)
+            Ok(response.downloaded)
         } else {
             let err_string = format!(
                 "Invalid source '{}' when downloading adapter '{}'",
-                adapter_source, adapter_id
+                adapter_source,
+                adapter_parameters.adapter_ids.join(",")
             );
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())
@@ -210,27 +211,28 @@ impl Client {
     /// Physically loads the weights into the model for an adapter
     pub async fn load_adapter(
         &mut self,
-        adapter_id: String,
+        adapter_parameters: AdapterParameters,
         adapter_source: String,
         adapter_index: u32,
         api_token: Option<String>,
-    ) -> Result<String> {
+    ) -> Result<bool> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
         {
             let request = tonic::Request::new(LoadAdapterRequest {
-                adapter_id,
+                adapter_parameters: Some(adapter_parameters),
                 adapter_source: adapter_source_enum.into(),
                 adapter_index,
                 api_token: api_token,
             })
             .inject_context();
             let response = self.stub.load_adapter(request).await?.into_inner();
-            Ok(response.adapter_id)
+            Ok(response.loaded)
         } else {
             let err_string = format!(
                 "Invalid source '{}' when loading adapter '{}'",
-                adapter_source, adapter_id
+                adapter_source,
+                adapter_parameters.adapter_ids.join(",")
             );
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())
@@ -240,25 +242,26 @@ impl Client {
     /// Offloads adapter the weights from GPU to CPU or disk
     pub async fn offload_adapter(
         &mut self,
-        adapter_id: String,
+        adapter_parameters: AdapterParameters,
         adapter_source: String,
         adapter_index: u32,
-    ) -> Result<String> {
+    ) -> Result<bool> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
         {
             let request = tonic::Request::new(OffloadAdapterRequest {
-                adapter_id,
+                adapter_parameters: Some(adapter_parameters),
                 adapter_source: adapter_source_enum.into(),
                 adapter_index,
             })
             .inject_context();
             let response = self.stub.offload_adapter(request).await?.into_inner();
-            Ok(response.adapter_id)
+            Ok(response.offloaded)
         } else {
             let err_string = format!(
                 "Invalid source '{}' when loading adapter '{}'",
-                adapter_source, adapter_id
+                adapter_source,
+                adapter_parameters.adapter_ids.join(",")
             );
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())

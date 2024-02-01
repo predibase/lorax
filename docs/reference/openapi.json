@@ -663,6 +663,61 @@
           "stop_sequence"
         ]
       },
+      "AdapterParameters": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "adapter1",
+              "adapter2"
+            ]
+          },
+          "weights": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "example": [
+              0.5,
+              0.5
+            ]
+          },
+          "merge_strategy": {
+            "type": "string",
+            "enum": [
+              "linear",
+              "ties",
+              "dare_linear",
+              "dare_ties"
+            ],
+            "default": "linear",
+            "example": "ties"
+          },
+          "density": {
+            "type": "number",
+            "format": "float",
+            "default": 0.0,
+            "example": 0.5,
+            "nullable": false,
+            "minimum": 0.0,
+            "maximim": 1.0
+          },
+          "majority_sign_method": {
+            "type": "string",
+            "enum": [
+              "total",
+              "frequency"
+            ],
+            "default": "total",
+            "example": "total"
+          }
+        }
+      },
       "GenerateParameters": {
         "type": "object",
         "properties": {
@@ -781,6 +836,9 @@
           "adapter_source": {
             "type": "string",
             "nullable": true
+          },
+          "merged_adapters": {
+            "$ref": "#/components/schemas/AdapterParameters"
           },
           "api_token": {
             "type": "string",

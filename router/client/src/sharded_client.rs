@@ -1,5 +1,5 @@
 /// Multi shard Client
-use crate::{Batch, CachedBatch, Client, Generation, HealthResponse, ShardInfo};
+use crate::{AdapterParameters, Batch, CachedBatch, Client, Generation, HealthResponse, ShardInfo};
 use crate::{ClientError, Result};
 use futures::future::join_all;
 use tonic::transport::Uri;
@@ -149,30 +149,30 @@ impl ShardedClient {
 
     pub async fn download_adapter(
         &mut self,
-        adapter_id: String,
+        adapter_parameters: AdapterParameters,
         adapter_source: String,
         api_token: Option<String>,
-    ) -> Result<String> {
+    ) -> Result<bool> {
         // Only download the adapter with one client, since they share a single disk
         self.clients[0]
-            .download_adapter(adapter_id, adapter_source, api_token)
+            .download_adapter(adapter_parameters, adapter_source, api_token)
             .await
     }
 
     pub async fn load_adapter(
         &mut self,
-        adapter_id: String,
+        adapter_parameters: AdapterParameters,
         adapter_source: String,
         adapter_index: u32,
         api_token: Option<String>,
-    ) -> Result<String> {
+    ) -> Result<bool> {
         // Load the adapter in all clients since there is sharding done between them
         let futures: Vec<_> = self
             .clients
             .iter_mut()
             .map(|client| {
                 Box::pin(client.load_adapter(
-                    adapter_id.clone(),
+                    adapter_parameters.clone(),
                     adapter_source.clone(),
                     adapter_index,
                     api_token.clone(),
@@ -183,7 +183,7 @@ impl ShardedClient {
         match join_all(futures)
             .await
             .into_iter()
-            .collect::<Result<Vec<String>>>()
+            .collect::<Result<Vec<bool>>>()
         {
             Ok(mut results) => {
                 // Return the first adapter id
@@ -195,17 +195,17 @@ impl ShardedClient {
 
     pub async fn offload_adapter(
         &mut self,
-        adapter_id: String,
+        adapter_parameters: AdapterParameters,
         adapter_source: String,
         adapter_index: u32,
-    ) -> Result<String> {
+    ) -> Result<bool> {
         // Load the adapter in all clients since there is sharding done between them
         let futures: Vec<_> = self
             .clients
             .iter_mut()
             .map(|client| {
                 Box::pin(client.offload_adapter(
-                    adapter_id.clone(),
+                    adapter_parameters.clone(),
                     adapter_source.clone(),
                     adapter_index,
                 ))
@@ -215,7 +215,7 @@ impl ShardedClient {
         match join_all(futures)
             .await
             .into_iter()
-            .collect::<Result<Vec<String>>>()
+            .collect::<Result<Vec<bool>>>()
         {
             Ok(mut results) => {
                 // Return the first adapter id

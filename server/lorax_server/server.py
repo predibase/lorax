@@ -19,7 +19,7 @@ from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
 from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
@@ -126,82 +126,88 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             batch=next_batch.to_pb() if next_batch else None,
         )
         
-    async def DownloadAdapter(self, request, context):
-        adapter_id = request.adapter_id
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
+    async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
+        adapter_parameters = request.adapter_parameters
+        if is_base_model(adapter_parameters):
             logger.info("No adapter to download for base model. Skipping.")
-            return generate_pb2.DownloadAdapterResponse(
-                adapter_id=adapter_id,
-                adapter_source=request.adapter_source,
-            )
+            return generate_pb2.DownloadAdapterResponse(downloaded=False)
 
         api_token = request.api_token
         adapter_source = _adapter_source_enum_to_string(request.adapter_source)
-        if adapter_source == PBASE:
-            adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
-            adapter_source = S3
-        try:
-            if adapter_source == HUB:
-                # Quick auth check on the repo against the token
-                HfApi(token=api_token).model_info(adapter_id, revision=None)
-                
-                # fail fast if ID is not an adapter (i.e. it is a full model)
-                # TODO(geoffrey): do this for S3– can't do it this way because the
-                # files are not yet downloaded locally at this point.
-                config_path = get_config_path(adapter_id, adapter_source)
-                PeftConfig.from_pretrained(config_path, token=api_token)
-
-            download_weights(adapter_id, source=adapter_source, api_token=api_token)
-            return generate_pb2.DownloadAdapterResponse(
-                adapter_id=adapter_id,
-                adapter_source=request.adapter_source,
-            )
-        except Exception:
-            logger.exception("Error when downloading adapter")
-
-            if adapter_source != LOCAL:
-                # delete safetensors files if there is an issue downloading or converting 
-                # the weights to prevent cache hits by subsequent calls
-                try:
-                    local_path = get_local_dir(adapter_id, adapter_source)
-                    shutil.rmtree(local_path)
-                except Exception as e:
-                    logger.warning(f"Error cleaning up safetensors files after "
-                                   f"download error: {e}\nIgnoring.")
-            raise
-
-    async def LoadAdapter(self, request, context):
-        try:
-            adapter_id = request.adapter_id
-            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
-            adapter_index = request.adapter_index
-            api_token = request.api_token
+        for adapter_id in adapter_parameters.adapter_ids:
+            if adapter_id == BASE_MODEL_ADAPTER_ID:
+                logger.info("No adapter to download for base model. Skipping.")
+                continue
+            
             if adapter_source == PBASE:
                 adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                 adapter_source = S3
-            self.model.load_adapter(adapter_id, adapter_source, adapter_index, api_token)
+            try:
+                if adapter_source == HUB:
+                    # Quick auth check on the repo against the token
+                    HfApi(token=api_token).model_info(adapter_id, revision=None)
+                    
+                    # fail fast if ID is not an adapter (i.e. it is a full model)
+                    # TODO(geoffrey): do this for S3– can't do it this way because the
+                    # files are not yet downloaded locally at this point.
+                    config_path = get_config_path(adapter_id, adapter_source)
+                    PeftConfig.from_pretrained(config_path, token=api_token)
+
+                download_weights(adapter_id, source=adapter_source, api_token=api_token)
+            except Exception:
+                logger.exception("Error when downloading adapter")
+
+                if adapter_source != LOCAL:
+                    # delete safetensors files if there is an issue downloading or converting 
+                    # the weights to prevent cache hits by subsequent calls
+                    try:
+                        local_path = get_local_dir(adapter_id, adapter_source)
+                        shutil.rmtree(local_path)
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up safetensors files after "
+                                       f"download error: {e}\nIgnoring.")
+                raise
+        
+        return generate_pb2.DownloadAdapterResponse(downloaded=True)
+
+    async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
+        adapter_parameters = request.adapter_parameters
+        if is_base_model(adapter_parameters):
+            logger.info("No adapter to load for base model. Skipping.")
+            return generate_pb2.LoadAdapterResponse(loaded=False)
+        
+        try:
+            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+            adapter_index = request.adapter_index
+            api_token = request.api_token
+
+            if adapter_source == PBASE:
+                for i in range(len(adapter_parameters.adapter_ids)):
+                    adapter_id = adapter_parameters.adapter_ids[i]
+                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
+                    adapter_parameters.adapter_ids[i] = adapter_id
+                adapter_source = S3
             
-            return generate_pb2.LoadAdapterResponse(
-                adapter_id=adapter_id,
-                adapter_source=request.adapter_source,
-                adapter_index=adapter_index,
-            )
+            self.model.load_adapter(adapter_parameters, adapter_source, adapter_index, api_token)
+            
+            return generate_pb2.LoadAdapterResponse(loaded=True)
         except Exception:
             logger.exception("Error when loading adapter")
             raise
 
-    async def OffloadAdapter(self, request, context):
+    async def OffloadAdapter(self, request: generate_pb2.OffloadAdapterRequest, context):
+        adapter_parameters = request.adapter_parameters
+        if is_base_model(adapter_parameters):
+            logger.info("No adapter to offload for base model. Skipping.")
+            return generate_pb2.OffloadAdapterResponse(offloaded=False)
+        
         try:
-            adapter_id = request.adapter_id
+            adapter_idx = request.adapter_index
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
-            self.model.offload_adapter(adapter_id, adapter_source, adapter_index)
+            self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
             
-            return generate_pb2.OffloadAdapterResponse(
-                adapter_id=adapter_id,
-                adapter_source=request.adapter_source,
-                adapter_index=adapter_index,
-            )
+            return generate_pb2.OffloadAdapterResponse(offloaded=True)
         except Exception:
             logger.exception("Error when offloading adapter")
             raise

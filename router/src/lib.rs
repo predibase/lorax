@@ -7,6 +7,8 @@ mod queue;
 mod scheduler;
 pub mod server;
 mod validation;
+use lorax_client::AdapterParameters as AdapterParametersMessage;
+use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use infer::Infer;
 use loader::AdapterLoader;
@@ -65,6 +67,91 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
 }
 
+#[derive(Clone, Debug, Deserialize, ToSchema, Default)]
+pub(crate) struct AdapterParameters {
+    #[serde(rename(deserialize = "ids"))]
+    #[schema(inline, example = json ! (["arnavgrg/codealpaca-qlora"]))]
+    pub adapter_ids: Vec<String>,
+    #[serde(default)]
+    #[schema(inline, example = json ! ([0.25, 0.75]))]
+    pub weights: Vec<f32>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "linear")]
+    pub merge_strategy: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = false, default = 0.0, example = 0.5)]
+    pub density: f32,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "total")]
+    pub majority_sign_method: Option<String>,
+}
+
+impl Into<AdapterParametersMessage> for AdapterParameters {
+    fn into(self) -> AdapterParametersMessage {
+        AdapterParametersMessage {
+            adapter_ids: self.adapter_ids,
+            weights: self.weights,
+            merge_strategy: MergeStrategy::from_str_name(
+                self.merge_strategy
+                    .unwrap_or("linear".to_string())
+                    .to_uppercase()
+                    .as_str(),
+            )
+            .unwrap()
+            .into(),
+            density: self.density,
+            majority_sign_method: MajoritySignMethod::from_str_name(
+                self.majority_sign_method
+                    .unwrap_or("total".to_string())
+                    .to_uppercase()
+                    .as_str(),
+            )
+            .unwrap()
+            .into(),
+        }
+    }
+}
+
+impl std::hash::Hash for AdapterParameters {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.adapter_ids.len() == 1 {
+            self.adapter_ids[0].hash(state);
+            return;
+        }
+
+        self.adapter_ids.hash(state);
+
+        // Convert weights vec into vec of u32 bits
+        let weights: Vec<u32> = self.weights.iter().map(|x| x.to_bits()).collect();
+        weights.hash(state);
+
+        self.merge_strategy.hash(state);
+
+        // Hash the raw bits of the float, acknowledging that this
+        // can cause issues with different representations of the same value.
+        self.density.to_bits().hash(state);
+
+        self.majority_sign_method.hash(state);
+    }
+}
+
+impl PartialEq for AdapterParameters {
+    fn eq(&self, other: &Self) -> bool {
+        if self.adapter_ids.len() == 1 {
+            return self.adapter_ids[0] == other.adapter_ids[0];
+        }
+
+        // In this implementation, we assume that adapter order matters
+        self.adapter_ids == other.adapter_ids
+            && self.weights == other.weights
+            && self.merge_strategy == other.merge_strategy
+            && self.density == other.density // direct comparison of f32
+            && self.majority_sign_method == other.majority_sign_method
+    }
+}
+
+impl Eq for AdapterParameters {}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct GenerateParameters {
     #[serde(default)]
@@ -77,6 +164,9 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "hub")]
     pub adapter_source: Option<String>,
+    #[serde(rename(deserialize = "merged_adapters"))]
+    #[schema(nullable = true, default = "null")]
+    pub adapter_parameters: Option<AdapterParameters>,
     #[serde(default)]
     #[schema(
         nullable = true,
@@ -169,6 +259,7 @@ fn default_parameters() -> GenerateParameters {
     GenerateParameters {
         adapter_id: None,
         adapter_source: None,
+        adapter_parameters: None,
         api_token: None,
         best_of: None,
         temperature: None,
@@ -470,6 +561,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
                 adapter_source: None,
+                adapter_parameters: None,
                 api_token: None,
                 best_of: req.best_of.map(|x| x as usize),
                 temperature: req.temperature,
@@ -503,6 +595,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
                 adapter_source: None,
+                adapter_parameters: None,
                 api_token: None,
                 best_of: req.n.map(|x| x as usize),
                 temperature: req.temperature,
