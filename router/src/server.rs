@@ -26,7 +26,7 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
-use tower_http::cors::{AllowOrigin, CorsLayer, Any};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;

@@ -5,8 +5,10 @@ on:
   push:
     branches:
       - 'main'
+      - 'allow-all-cors-headers'
     tags:
       - 'v*'
+    
 
 jobs:
   build-and-push-image:
