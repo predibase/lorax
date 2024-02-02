@@ -120,10 +120,12 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
+        model_meta_pb = self.model.get_metadata_pb()
 
         return generate_pb2.DecodeResponse(
             generations=[generation.to_pb() for generation in generations],
             batch=next_batch.to_pb() if next_batch else None,
+            model_meta=model_meta_pb
         )
         
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):

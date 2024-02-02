@@ -1,5 +1,8 @@
 /// Multi shard Client
-use crate::{AdapterParameters, Batch, CachedBatch, Client, Generation, HealthResponse, ShardInfo};
+use crate::{
+    AdapterParameters, Batch, CachedBatch, Client, Generation, HealthResponse, ModelMetadata,
+    ShardInfo,
+};
 use crate::{ClientError, Result};
 use futures::future::join_all;
 use tonic::transport::Uri;
@@ -136,15 +139,15 @@ impl ShardedClient {
     pub async fn decode(
         &mut self,
         batches: Vec<CachedBatch>,
-    ) -> Result<(Vec<Generation>, Option<CachedBatch>)> {
+    ) -> Result<(Vec<Generation>, Option<CachedBatch>, Option<ModelMetadata>)> {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
             .map(|client| Box::pin(client.decode(batches.clone())))
             .collect();
-        let results: Result<Vec<(Vec<Generation>, Option<CachedBatch>)>> =
+        let results: Result<Vec<(Vec<Generation>, Option<CachedBatch>, Option<ModelMetadata>)>> =
             join_all(futures).await.into_iter().collect();
-        merge_generations(results?)
+        merge_generations_with_metadata(results?)
     }
 
     pub async fn download_adapter(
@@ -224,6 +227,19 @@ impl ShardedClient {
             Err(err) => Err(err),
         }
     }
+}
+
+/// Merge generations from the different model shards
+fn merge_generations_with_metadata(
+    mut results: Vec<(Vec<Generation>, Option<CachedBatch>, Option<ModelMetadata>)>,
+) -> Result<(Vec<Generation>, Option<CachedBatch>, Option<ModelMetadata>)> {
+    let (mut generations, next_batch, model_metadata) =
+        results.pop().ok_or(ClientError::EmptyResults)?;
+
+    for (mut shard_generations, _, _) in results.into_iter() {
+        generations.append(&mut shard_generations);
+    }
+    Ok((generations, next_batch, model_metadata))
 }
 
 /// Merge generations from the different model shards

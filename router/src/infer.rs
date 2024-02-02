@@ -10,7 +10,8 @@ use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use lorax_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
+    Batch, CachedBatch, ClientError, GeneratedText, Generation, ModelMetadata, PrefillTokens,
+    ShardedClient,
 };
 use nohash_hasher::IntMap;
 use std::collections::{HashMap, HashSet};
@@ -486,13 +487,13 @@ async fn decode(
     batches: Vec<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
     generation_health: &Arc<AtomicBool>,
-) -> Option<CachedBatch> {
+) -> (Option<CachedBatch>, Option<ModelMetadata>) {
     let start_time = Instant::now();
     let batch_ids: Vec<u64> = batches.iter().map(|b| b.id).collect();
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "decode");
 
     match client.decode(batches).await {
-        Ok((generations, next_batch)) => {
+        Ok((generations, next_batch, model_meta)) => {
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
@@ -503,7 +504,7 @@ async fn decode(
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "decode");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "decode");
-            next_batch
+            (next_batch, model_meta)
         }
         // If we have an error, we discard the whole batch
         Err(err) => {
@@ -513,7 +514,7 @@ async fn decode(
             }
             send_errors(err, entries);
             metrics::increment_counter!("lorax_batch_inference_failure", "method" => "decode");
-            None
+            (None, None)
         }
     }
 }
