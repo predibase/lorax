@@ -844,8 +844,10 @@ pub async fn run(
         docker_label: option_env!("DOCKER_LABEL"),
     };
 
-    let mut model_id_global = MODEL_ID.lock().unwrap();
-    *model_id_global = model_id;
+    {
+        let mut model_id_global = MODEL_ID.lock().unwrap();
+        *model_id_global = model_id;
+    }
 
     // Create router
     let app = Router::new()
