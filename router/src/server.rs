@@ -26,7 +26,7 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer, Any};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -802,7 +802,7 @@ pub async fn run(
     let allow_origin = allow_origin.unwrap_or(AllowOrigin::any());
     let cors_layer = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
-        .allow_headers([http::header::CONTENT_TYPE])
+        .allow_headers(Any)
         .allow_origin(allow_origin);
 
     // Endpoint info
