@@ -404,10 +404,7 @@ async fn generate(
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
 
-    headers.insert(
-        "x-predibase-model-id",
-        MODEL_ID.lock().unwrap().parse().unwrap(),
-    );
+    headers.insert("x-model-id", MODEL_ID.lock().unwrap().parse().unwrap());
 
     if let Some(adapter_id) = adapter_id {
         headers.insert("x-adapter-id", adapter_id.parse().unwrap());
