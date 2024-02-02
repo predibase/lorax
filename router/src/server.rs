@@ -286,7 +286,6 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
-    let adapter_id = req.0.parameters.adapter_id.clone();
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -397,13 +396,6 @@ async fn generate(
         "x-time-per-token",
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
-
-    if let Some(adapter_id) = adapter_id {
-        headers.insert("x-predibase-adapter-id", adapter_id.parse().unwrap());
-    }
-
-    // Add predibase entity headers here if applicable
-    // TODO (magdy)
 
     // Metrics
     metrics::increment_counter!("lorax_request_success");

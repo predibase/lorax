@@ -173,10 +173,10 @@ impl Client {
     pub async fn decode(
         &mut self,
         batches: Vec<CachedBatch>,
-    ) -> Result<(Vec<Generation>, Option<CachedBatch>, Option<ModelMetadata>)> {
+    ) -> Result<(Vec<Generation>, Option<CachedBatch>)> {
         let request = tonic::Request::new(DecodeRequest { batches }).inject_context();
         let response = self.stub.decode(request).await?.into_inner();
-        Ok((response.generations, response.batch, response.model_meta))
+        Ok((response.generations, response.batch))
     }
 
     /// Downloads the weights for an adapter.

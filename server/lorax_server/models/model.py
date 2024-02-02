@@ -15,8 +15,6 @@ from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.lora import BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.weights import shard_on_dim
 
-from lorax_server.pb import generate_pb2
-
 B = TypeVar("B", bound=Batch)
 
 
@@ -277,9 +275,3 @@ class Model(ABC):
                 self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
 
         self.loaded_adapters.remove(adapter_index)
-    
-    def get_metadata_pb(self):
-        return generate_pb2.ModelMetada(
-            model_id=self.model_id
-        )
-

@@ -10,8 +10,7 @@ use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use lorax_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, ModelMetadata, PrefillTokens,
-    ShardedClient,
+    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
 use nohash_hasher::IntMap;
 use std::collections::{HashMap, HashSet};
@@ -487,17 +486,17 @@ async fn decode(
     batches: Vec<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
     generation_health: &Arc<AtomicBool>,
-) -> (Option<CachedBatch>) {
+) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_ids: Vec<u64> = batches.iter().map(|b| b.id).collect();
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "decode");
 
     match client.decode(batches).await {
-        Ok((generations, next_batch, model_meta)) => {
+        Ok((generations, next_batch)) => {
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries, model_meta);
+            filter_send_generations(generations, entries);
 
             // Filter next batch and remove requests that were stopped
             let next_batch = filter_batch(client, next_batch, entries).await;
@@ -555,11 +554,7 @@ async fn filter_batch(
 /// Send one or multiple `InferStreamResponse` to Infer for all `entries`
 /// and filter entries
 #[instrument(skip_all)]
-fn filter_send_generations(
-    generations: Vec<Generation>,
-    entries: &mut IntMap<u64, Entry>,
-    model_meta: ModelMetadata,
-) {
+fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) {
     generations.into_iter().for_each(|generation| {
         let id = generation.request_id;
         // Get entry
