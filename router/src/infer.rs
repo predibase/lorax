@@ -487,7 +487,7 @@ async fn decode(
     batches: Vec<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
     generation_health: &Arc<AtomicBool>,
-) -> (Option<CachedBatch>, Option<ModelMetadata>) {
+) -> (Option<CachedBatch>) {
     let start_time = Instant::now();
     let batch_ids: Vec<u64> = batches.iter().map(|b| b.id).collect();
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "decode");
@@ -497,14 +497,14 @@ async fn decode(
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries);
+            filter_send_generations(generations, entries, model_meta);
 
             // Filter next batch and remove requests that were stopped
             let next_batch = filter_batch(client, next_batch, entries).await;
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "decode");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "decode");
-            (next_batch, model_meta)
+            next_batch
         }
         // If we have an error, we discard the whole batch
         Err(err) => {
@@ -514,7 +514,7 @@ async fn decode(
             }
             send_errors(err, entries);
             metrics::increment_counter!("lorax_batch_inference_failure", "method" => "decode");
-            (None, None)
+            None
         }
     }
 }
@@ -555,7 +555,11 @@ async fn filter_batch(
 /// Send one or multiple `InferStreamResponse` to Infer for all `entries`
 /// and filter entries
 #[instrument(skip_all)]
-fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) {
+fn filter_send_generations(
+    generations: Vec<Generation>,
+    entries: &mut IntMap<u64, Entry>,
+    model_meta: ModelMetadata,
+) {
     generations.into_iter().for_each(|generation| {
         let id = generation.request_id;
         // Get entry
