@@ -17,12 +17,14 @@ use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 use futures::stream::StreamExt;
 use futures::Stream;
+use lazy_static::lazy_static;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
@@ -30,6 +32,10 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+lazy_static! {
+    static ref MODEL_ID: Mutex<String> = Mutex::new("".to_string());
+}
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
 #[utoipa::path(
@@ -286,6 +292,7 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
+    let adapter_id = req.0.parameters.adapter_id.clone();
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -396,6 +403,15 @@ async fn generate(
         "x-time-per-token",
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
+
+    headers.insert(
+        "x-predibase-model-id",
+        MODEL_ID.lock().unwrap().parse().unwrap(),
+    );
+
+    if let Some(adapter_id) = adapter_id {
+        headers.insert("x-adapter-id", adapter_id.parse().unwrap());
+    }
 
     // Metrics
     metrics::increment_counter!("lorax_request_success");
@@ -752,6 +768,8 @@ pub async fn run(
         generation_health,
     );
 
+    let model_id = model_info.model_id.clone();
+
     // Duration buckets
     let duration_matcher = Matcher::Suffix(String::from("duration"));
     let n_duration_buckets = 35;
@@ -825,6 +843,9 @@ pub async fn run(
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
     };
+
+    let mut model_id_global = MODEL_ID.lock().unwrap();
+    *model_id_global = model_id;
 
     // Create router
     let app = Router::new()

@@ -1355,6 +1355,7 @@ dependencies = [
  "clap",
  "flume",
  "futures",
+ "lazy_static",
  "lorax-client",
  "metrics",
  "metrics-exporter-prometheus",

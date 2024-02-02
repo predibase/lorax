@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 /// LoRAX webserver entrypoint
 use axum::http::HeaderValue;
 use clap::Parser;
