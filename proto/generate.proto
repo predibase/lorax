@@ -208,6 +208,14 @@ message DecodeResponse {
     repeated Generation generations = 1;
     /// Next batch (cached)
     optional CachedBatch batch = 2;
+    /// Model Metadata
+    optional ModelMetadata model_meta = 3;
+}
+
+message ModelMetadata {
+    string base_model_name = 1;
+    int32 base_model_params = 2;
+    optional string adapter_id = 3;
 }
 
 message WarmupRequest {

@@ -397,6 +397,9 @@ async fn generate(
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
 
+    // Add predibase entity headers here if applicable
+    // TODO (magdy)
+
     // Metrics
     metrics::increment_counter!("lorax_request_success");
     metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
