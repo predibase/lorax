@@ -1,12 +1,14 @@
+use crate::adapter::extract_adapter_params;
 /// HTTP Server logic
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
-    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
-    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
+    AdapterParameters, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
+    ChatCompletionStreamResponse, CompatGenerateRequest, CompletionRequest, CompletionResponse,
+    CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, StreamDetails,
+    StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -17,14 +19,14 @@ use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 use futures::stream::StreamExt;
 use futures::Stream;
-use lazy_static::lazy_static;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use once_cell::sync::OnceCell;
+use rand::rngs::adapter;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
@@ -33,9 +35,7 @@ use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-lazy_static! {
-    static ref MODEL_ID: Mutex<String> = Mutex::new("".to_string());
-}
+static MODEL_ID: OnceCell<String> = OnceCell::new();
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
 #[utoipa::path(
@@ -292,7 +292,12 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
-    let adapter_id = req.0.parameters.adapter_id.clone();
+    let adapter_source = req.0.parameters.adapter_source.clone();
+    let adapter_parameters = extract_adapter_params(
+        req.0.parameters.adapter_id.clone(),
+        req.0.parameters.adapter_source.clone(),
+        req.0.parameters.adapter_parameters.clone(),
+    );
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -404,10 +409,21 @@ async fn generate(
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
 
-    headers.insert("x-model-id", MODEL_ID.lock().unwrap().parse().unwrap());
+    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
 
-    if let Some(adapter_id) = adapter_id {
-        headers.insert("x-adapter-id", adapter_id.parse().unwrap());
+    if let Some(adapter_source) = adapter_source {
+        headers.insert("x-adapter-source", adapter_source.parse().unwrap());
+    }
+
+    let adapter_id_string = adapter_parameters
+        .adapter_ids
+        .iter()
+        .map(|id| id.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    if adapter_id_string.len() > 0 {
+        headers.insert("x-adapter-ids", adapter_id_string.parse().unwrap());
     }
 
     // Metrics
@@ -841,10 +857,9 @@ pub async fn run(
         docker_label: option_env!("DOCKER_LABEL"),
     };
 
-    {
-        let mut model_id_global = MODEL_ID.lock().unwrap();
-        *model_id_global = model_id;
-    }
+    MODEL_ID.set(model_id.clone()).unwrap_or_else(|_| {
+        panic!("MODEL_ID was already set!");
+    });
 
     // Create router
     let app = Router::new()
