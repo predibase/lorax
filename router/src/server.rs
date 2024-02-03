@@ -1,14 +1,13 @@
-use crate::adapter::extract_adapter_params;
 /// HTTP Server logic
+use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    AdapterParameters, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
-    ChatCompletionStreamResponse, CompatGenerateRequest, CompletionRequest, CompletionResponse,
-    CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, StreamDetails,
-    StreamResponse, Token, Validation,
+    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
+    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
+    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -22,7 +21,6 @@ use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
-use rand::rngs::adapter;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -292,7 +290,8 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
-    let (_, adapter_source, adapter_parameters) = extract_adapter_params(
+    let adapter_source = req.0.parameters.adapter_source.clone();
+    let (_, _, adapter_parameters) = extract_adapter_params(
         req.0.parameters.adapter_id.clone(),
         req.0.parameters.adapter_source.clone(),
         req.0.parameters.adapter_parameters.clone(),
@@ -418,6 +417,8 @@ async fn generate(
         .adapter_ids
         .iter()
         .map(|id| id.as_str())
+        // filter out base model adapter id
+        .filter(|id| *id != BASE_MODEL_ADAPTER_ID)
         .collect::<Vec<_>>()
         .join(",");
 

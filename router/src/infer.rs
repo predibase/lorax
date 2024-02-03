@@ -1,7 +1,5 @@
 /// Batching and inference logic
-use crate::adapter::{
-    extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE,
-};
+use crate::adapter::{extract_adapter_params, Adapter};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
