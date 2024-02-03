@@ -290,8 +290,7 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
-    let adapter_source = req.0.parameters.adapter_source.clone();
-    let (_, _, adapter_parameters) = extract_adapter_params(
+    let (_, adapter_source, adapter_parameters) = extract_adapter_params(
         req.0.parameters.adapter_id.clone(),
         req.0.parameters.adapter_source.clone(),
         req.0.parameters.adapter_parameters.clone(),
@@ -409,10 +408,6 @@ async fn generate(
 
     headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
 
-    if let Some(adapter_source) = adapter_source {
-        headers.insert("x-adapter-source", adapter_source.parse().unwrap());
-    }
-
     let adapter_id_string = adapter_parameters
         .adapter_ids
         .iter()
@@ -424,6 +419,7 @@ async fn generate(
 
     if adapter_id_string.len() > 0 {
         headers.insert("x-adapter-ids", adapter_id_string.parse().unwrap());
+        headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
     }
 
     // Metrics
