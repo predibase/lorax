@@ -78,7 +78,7 @@ pub(crate) fn extract_adapter_params(
     adapter_id: Option<String>,
     adapter_source: Option<String>,
     adapter_parameters: Option<AdapterParameters>,
-) -> AdapterParameters {
+) -> (Option<String>, Option<String>, AdapterParameters) {
     let mut adapter_id = adapter_id.clone();
     if adapter_id.is_none() || adapter_id.as_ref().unwrap().is_empty() {
         adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
@@ -92,5 +92,5 @@ pub(crate) fn extract_adapter_params(
         adapter_ids: vec![adapter_id.clone().unwrap()],
         ..Default::default()
     });
-    return adapter_parameters;
+    return (adapter_id, adapter_source, adapter_parameters);
 }

@@ -292,8 +292,7 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
-    let adapter_source = req.0.parameters.adapter_source.clone();
-    let adapter_parameters = extract_adapter_params(
+    let (_, adapter_source, adapter_parameters) = extract_adapter_params(
         req.0.parameters.adapter_id.clone(),
         req.0.parameters.adapter_source.clone(),
         req.0.parameters.adapter_parameters.clone(),

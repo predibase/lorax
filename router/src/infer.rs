@@ -125,10 +125,7 @@ impl Infer {
                 err
             })?;
 
-        let adapter_id = request.parameters.adapter_id.clone();
-        let adapter_source = request.parameters.adapter_source.clone();
-
-        let adapter_parameters = extract_adapter_params(
+        let (adapter_id, adapter_source, adapter_parameters) = extract_adapter_params(
             request.parameters.adapter_id.clone(),
             request.parameters.adapter_source.clone(),
             request.parameters.adapter_parameters.clone(),
