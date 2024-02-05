@@ -2,14 +2,12 @@ use std::hash;
 
 use crate::AdapterParameters;
 
+use crate::server::DEFAULT_ADAPTER_SOURCE;
+
 /// "adapter ID" for the base model. The base model does not have an adapter ID,
 /// but we reason about it in the same way. This must match the base model ID
 /// used in the Python server.
 pub const BASE_MODEL_ADAPTER_ID: &str = "__base_model__";
-
-/// default adapter source. One TODO is to figure out how to do this
-/// from within the proto definition, or lib.rs
-pub const DEFAULT_ADAPTER_SOURCE: &str = "hub";
 
 #[derive(Debug, Clone)]
 pub(crate) struct Adapter {
@@ -85,7 +83,7 @@ pub(crate) fn extract_adapter_params(
     }
     let mut adapter_source = adapter_source.clone();
     if adapter_source.is_none() {
-        adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
+        adapter_source = Some(DEFAULT_ADAPTER_SOURCE.get().unwrap().to_string());
     }
 
     let adapter_parameters = adapter_parameters.clone().unwrap_or(AdapterParameters {

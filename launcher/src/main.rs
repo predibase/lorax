@@ -105,8 +105,8 @@ struct Args {
     /// or it can be a local directory containing the necessary files
     /// as saved by `save_pretrained(...)` methods of transformers.
     /// Should be compatible with the model specified in `model_id`.
-    #[clap(default_value = "", long, env)]
-    adapter_id: String,
+    #[clap(long, env)]
+    adapter_id: Option<String>,
 
     /// The source of the model to load.
     /// Can be `hub` or `s3`.
@@ -115,7 +115,7 @@ struct Args {
     #[clap(default_value = "hub", long, env)]
     source: String,
 
-    /// The source of the model to load.
+    /// The source of the static adapter to load.
     /// Can be `hub` or `s3` or `pbase`
     /// `hub` will load the model from the huggingface hub.
     /// `s3` will load the model from the predibase S3 bucket.
@@ -764,9 +764,10 @@ fn download_convert_model(
         download_args.push(revision.to_string())
     }
 
-    if !args.adapter_id.is_empty() {
+    // check if option has a value
+    if let Some(adapter_id) = &args.adapter_id {
         download_args.push("--adapter-id".to_string());
-        download_args.push(args.adapter_id.clone());
+        download_args.push(adapter_id.to_string());
     }
 
     // Copy current process env
@@ -877,7 +878,7 @@ fn spawn_shards(
     // Start shard processes
     for rank in 0..num_shard {
         let model_id = args.model_id.clone();
-        let adapter_id = args.adapter_id.clone();
+        let adapter_id = args.adapter_id.clone().unwrap_or_default();
         let revision = args.revision.clone();
         let source: String = args.source.clone();
         let adapter_source: String = args.adapter_source.clone();
@@ -996,6 +997,8 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
+        "--adapter-source".to_string(),
+        args.adapter_source,
     ];
 
     // Model optional max batch total tokens
