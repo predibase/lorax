@@ -812,6 +812,11 @@ pub async fn run(
 
     let cors_allow_credentials = cors_allow_credentials.unwrap_or(AllowCredentials::default());
 
+    // log cors stuff
+    tracing::info!(
+        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, credentials: {cors_allow_credentials:?}",
+    );
+
     let cors_layer = CorsLayer::new()
         .allow_methods(cors_allow_methods)
         .allow_headers(cors_allow_headers)
