@@ -249,6 +249,13 @@ pub(crate) struct GenerateParameters {
         example = "null"
     )]
     pub seed: Option<u64>,
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "{\"type\": \"string\", \"title\": \"response\"}"
+    )]
+    pub schema: Option<String>,
 }
 
 fn default_max_new_tokens() -> u32 {
@@ -277,6 +284,7 @@ fn default_parameters() -> GenerateParameters {
         decoder_input_details: false,
         apply_chat_template: false,
         seed: None,
+        schema: None,
     }
 }
 
@@ -582,6 +590,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: req.logprobs.is_some(),
                 apply_chat_template: false,
                 seed: None,
+                schema: None,
             },
             stream: req.stream.unwrap_or(false),
         }
@@ -616,6 +625,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: false,
                 apply_chat_template: true,
                 seed: None,
+                schema: None,
             },
             stream: req.stream.unwrap_or(false),
         }

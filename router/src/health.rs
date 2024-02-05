@@ -45,6 +45,7 @@ impl Health {
                     repetition_penalty: 1.0,
                     watermark: false,
                     adapter_id: "".to_string(),
+                    schema: None,
                 }),
                 stopping_parameters: Some(StoppingCriteriaParameters {
                     max_new_tokens: 1,
