@@ -1,5 +1,5 @@
 /// Batching and inference logic
-use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
+use crate::adapter::{extract_adapter_params, Adapter};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
@@ -123,24 +123,11 @@ impl Infer {
                 err
             })?;
 
-        let mut adapter_id = request.parameters.adapter_id.clone();
-        if adapter_id.is_none() || adapter_id.as_ref().unwrap().is_empty() {
-            adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
-        }
-        let mut adapter_source = request.parameters.adapter_source.clone();
-        if adapter_source.is_none() {
-            adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
-        }
-
-        let adapter_parameters =
-            request
-                .parameters
-                .adapter_parameters
-                .clone()
-                .unwrap_or(AdapterParameters {
-                    adapter_ids: vec![adapter_id.clone().unwrap()],
-                    ..Default::default()
-                });
+        let (adapter_source, adapter_parameters) = extract_adapter_params(
+            request.parameters.adapter_id.clone(),
+            request.parameters.adapter_source.clone(),
+            request.parameters.adapter_parameters.clone(),
+        );
 
         let adapter_idx;
         {

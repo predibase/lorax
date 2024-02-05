@@ -73,3 +73,24 @@ impl PartialEq for Adapter {
         self.index == other.index
     }
 }
+
+pub(crate) fn extract_adapter_params(
+    adapter_id: Option<String>,
+    adapter_source: Option<String>,
+    adapter_parameters: Option<AdapterParameters>,
+) -> (Option<String>, AdapterParameters) {
+    let mut adapter_id = adapter_id.clone();
+    if adapter_id.is_none() || adapter_id.as_ref().unwrap().is_empty() {
+        adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
+    }
+    let mut adapter_source = adapter_source.clone();
+    if adapter_source.is_none() {
+        adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
+    }
+
+    let adapter_parameters = adapter_parameters.clone().unwrap_or(AdapterParameters {
+        adapter_ids: vec![adapter_id.clone().unwrap()],
+        ..Default::default()
+    });
+    return (adapter_source, adapter_parameters);
+}

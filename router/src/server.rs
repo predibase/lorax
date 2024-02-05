@@ -1,4 +1,5 @@
 /// HTTP Server logic
+use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
@@ -19,6 +20,7 @@ use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use once_cell::sync::OnceCell;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -30,6 +32,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+static MODEL_ID: OnceCell<String> = OnceCell::new();
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
 #[utoipa::path(
@@ -286,6 +290,11 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
+    let (adapter_source, adapter_parameters) = extract_adapter_params(
+        req.0.parameters.adapter_id.clone(),
+        req.0.parameters.adapter_source.clone(),
+        req.0.parameters.adapter_parameters.clone(),
+    );
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -396,6 +405,22 @@ async fn generate(
         "x-time-per-token",
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
+
+    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+
+    let adapter_id_string = adapter_parameters
+        .adapter_ids
+        .iter()
+        .map(|id| id.as_str())
+        // filter out base model adapter id
+        .filter(|id| *id != BASE_MODEL_ADAPTER_ID)
+        .collect::<Vec<_>>()
+        .join(",");
+
+    if adapter_id_string.len() > 0 {
+        headers.insert("x-adapter-ids", adapter_id_string.parse().unwrap());
+        headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
+    }
 
     // Metrics
     metrics::increment_counter!("lorax_request_success");
@@ -752,6 +777,8 @@ pub async fn run(
         generation_health,
     );
 
+    let model_id = model_info.model_id.clone();
+
     // Duration buckets
     let duration_matcher = Matcher::Suffix(String::from("duration"));
     let n_duration_buckets = 35;
@@ -825,6 +852,10 @@ pub async fn run(
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
     };
+
+    MODEL_ID.set(model_id.clone()).unwrap_or_else(|_| {
+        panic!("MODEL_ID was already set!");
+    });
 
     // Create router
     let app = Router::new()
