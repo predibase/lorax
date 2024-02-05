@@ -9,10 +9,6 @@ use crate::server::DEFAULT_ADAPTER_SOURCE;
 /// used in the Python server.
 pub const BASE_MODEL_ADAPTER_ID: &str = "__base_model__";
 
-/// default adapter source. One TODO is to figure out how to do this
-/// from within the proto definition, or lib.rs
-// pub const DEFAULT_ADAPTER_SOURCE: &str = "hub";
-
 #[derive(Debug, Clone)]
 pub(crate) struct Adapter {
     /// adapter parameters
