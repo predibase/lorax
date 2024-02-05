@@ -1,5 +1,5 @@
 /// LoRAX webserver entrypoint
-use axum::http::HeaderValue;
+use axum::http::{HeaderName, HeaderValue};
 use clap::Parser;
 use lorax_client::{ClientError, ShardedClient};
 use lorax_router::{server, HubModelInfo};
@@ -14,7 +14,7 @@ use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
 use tokenizers::{FromPretrainedParameters, Tokenizer};
-use tower_http::cors::AllowOrigin;
+use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -64,6 +64,12 @@ struct Args {
     #[clap(long, env)]
     cors_allow_origin: Option<Vec<String>>,
     #[clap(long, env)]
+    cors_allow_methods: Option<Vec<String>>,
+    #[clap(long, env)]
+    cors_allow_credentials: Option<bool>,
+    #[clap(long, env)]
+    cors_allow_headers: Option<Vec<String>>,
+    #[clap(long, env)]
     ngrok: bool,
     #[clap(long, env)]
     ngrok_authtoken: Option<String>,
@@ -96,6 +102,9 @@ fn main() -> Result<(), RouterError> {
         json_output,
         otlp_endpoint,
         cors_allow_origin,
+        cors_allow_methods,
+        cors_allow_credentials,
+        cors_allow_headers,
         ngrok,
         ngrok_authtoken,
         ngrok_edge,
@@ -134,6 +143,33 @@ fn main() -> Result<(), RouterError> {
             cors_allow_origin
                 .iter()
                 .map(|origin| origin.parse::<HeaderValue>().unwrap()),
+        )
+    });
+
+    // CORS allowed methods
+    // map to go inside the option and then map to parse from String to HeaderValue
+    // Finally, convert to AllowMethods.
+    let cors_allow_methods: Option<AllowMethods> = cors_allow_methods.map(|cors_allow_methods| {
+        AllowMethods::list(
+            cors_allow_methods
+                .iter()
+                .map(|method| method.parse::<axum::http::Method>().unwrap()),
+        )
+    });
+
+    // CORS allow credentials
+    // Parse bool into AllowCredentials
+    let cors_allow_credentials: Option<AllowCredentials> = cors_allow_credentials
+        .map(|cors_allow_credentials| AllowCredentials::from(cors_allow_credentials));
+
+    // CORS allowed headers
+    // map to go inside the option and then map to parse from String to HeaderValue
+    // Finally, convert to AllowHeaders.
+    let cors_allow_headers: Option<AllowHeaders> = cors_allow_headers.map(|cors_allow_headers| {
+        AllowHeaders::list(
+            cors_allow_headers
+                .iter()
+                .map(|header| header.parse::<HeaderName>().unwrap()),
         )
     });
 
@@ -281,6 +317,9 @@ fn main() -> Result<(), RouterError> {
                 validation_workers,
                 addr,
                 cors_allow_origin,
+                cors_allow_methods,
+                cors_allow_credentials,
+                cors_allow_headers,
                 ngrok,
                 ngrok_authtoken,
                 ngrok_edge,

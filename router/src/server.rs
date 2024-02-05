@@ -28,7 +28,7 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -705,7 +705,10 @@ pub async fn run(
     tokenizer: Option<Tokenizer>,
     validation_workers: usize,
     addr: SocketAddr,
-    allow_origin: Option<AllowOrigin>,
+    cors_allow_origin: Option<AllowOrigin>,
+    cors_allow_methods: Option<AllowMethods>,
+    cors_allow_credentials: Option<AllowCredentials>,
+    cors_allow_headers: Option<AllowHeaders>,
     ngrok: bool,
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
@@ -826,11 +829,26 @@ pub async fn run(
         .expect("failed to install metrics recorder");
 
     // CORS layer
-    let allow_origin = allow_origin.unwrap_or(AllowOrigin::any());
+    let cors_allow_origin = cors_allow_origin.unwrap_or(AllowOrigin::any());
+    // unwrap allow methods with default get and post
+    let cors_allow_methods =
+        cors_allow_methods.unwrap_or(AllowMethods::list(vec![Method::GET, Method::POST]));
+
+    let cors_allow_headers =
+        cors_allow_headers.unwrap_or(AllowHeaders::list(vec![http::header::CONTENT_TYPE]));
+
+    let cors_allow_credentials = cors_allow_credentials.unwrap_or(AllowCredentials::default());
+
+    // log cors stuff
+    tracing::info!(
+        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, credentials: {cors_allow_credentials:?}",
+    );
+
     let cors_layer = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([http::header::CONTENT_TYPE])
-        .allow_origin(allow_origin);
+        .allow_methods(cors_allow_methods)
+        .allow_headers(cors_allow_headers)
+        .allow_credentials(cors_allow_credentials)
+        .allow_origin(cors_allow_origin);
 
     // Endpoint info
     let info = Info {

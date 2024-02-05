@@ -323,6 +323,16 @@ struct Args {
 
     #[clap(long, env)]
     cors_allow_origin: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_headers: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_methods: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_credentials: Option<bool>,
+
     #[clap(long, env)]
     watermark_gamma: Option<f32>,
     #[clap(long, env)]
@@ -1014,6 +1024,24 @@ fn spawn_webserver(
     for origin in args.cors_allow_origin.into_iter() {
         router_args.push("--cors-allow-origin".to_string());
         router_args.push(origin);
+    }
+
+    // CORS methods
+    for origin in args.cors_allow_methods.into_iter() {
+        router_args.push("--cors-allow-methods".to_string());
+        router_args.push(origin);
+    }
+
+    // CORS headers
+    for origin in args.cors_allow_headers.into_iter() {
+        router_args.push("--cors-allow-headers".to_string());
+        router_args.push(origin);
+    }
+
+    // CORS credentials
+    for origin in args.cors_allow_credentials.into_iter() {
+        router_args.push("--cors-allow-credentials".to_string());
+        router_args.push(origin.to_string());
     }
 
     // Ngrok
