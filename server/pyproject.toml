@@ -38,6 +38,7 @@ boto3 = "^1.28.34"
 urllib3 = "<=1.26.18"
 hqq = { version = "^0.1.2", optional = true }
 stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
+outlines = { version = "^0.0.26", optional = true }
 
 [tool.poetry.extras]
 torch = ["torch"]
@@ -45,6 +46,7 @@ accelerate = ["accelerate"]
 bnb = ["bitsandbytes"]
 peft = ["peft"]
 quantize = ["texttable", "datasets", "accelerate", "hqq"]
+outlines = ["outlines"]
 
 [tool.poetry.group.dev.dependencies]
 grpcio-tools = "^1.51.1"
