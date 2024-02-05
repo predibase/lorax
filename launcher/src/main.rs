@@ -754,9 +754,10 @@ fn download_convert_model(
         download_args.push(revision.to_string())
     }
 
-    if !args.adapter_id.is_empty() {
+    // check if option has a value
+    if let Some(adapter_id) = &args.adapter_id {
         download_args.push("--adapter-id".to_string());
-        download_args.push(args.adapter_id.clone());
+        download_args.push(adapter_id.to_string());
     }
 
     // Copy current process env
@@ -867,7 +868,7 @@ fn spawn_shards(
     // Start shard processes
     for rank in 0..num_shard {
         let model_id = args.model_id.clone();
-        let adapter_id = args.adapter_id.clone();
+        let adapter_id = args.adapter_id.clone().unwrap_or_default();
         let revision = args.revision.clone();
         let source: String = args.source.clone();
         let adapter_source: String = args.adapter_source.clone();

@@ -297,6 +297,11 @@ async fn generate(
         req.0.parameters.adapter_parameters.clone(),
     );
 
+    tracing::debug!(
+        ">>>>>>>> Adapter source: {}",
+        adapter_source.clone().unwrap_or_default()
+    );
+
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
         Some(best_of) if best_of > 1 => {
