@@ -75,6 +75,8 @@ message NextTokenChooserParameters {
     bool watermark = 8;
     /// adapter to use with lora exchange
     string adapter_id = 9;
+    /// JSON schema used for constrained decoding (Outlines)
+    string schema = 10;
 }
 
 message StoppingCriteriaParameters {

@@ -18,6 +18,7 @@ from lorax_server.utils.logits_process import (
     HeterogeneousTopPLogitsWarper,
     HeterogeneousTypicalLogitsWarper,
     HeterogeneousProcessorWrapper,
+    HeterogeneousSchemaLogitsProcessor,
 )
 
 
@@ -200,15 +201,18 @@ class HeterogeneousNextTokenChooser:
         watermark (List[bool]): A list of booleans indicating whether watermark processing should be applied for each token.
         temperature (List[float]): A list of temperature values for temperature-based logits warping.
         repetition_penalty (List[float]): A list of repetition penalty values for repetition penalty-based logits warping.
+        schema (List[str]): A list of JSON schema strings for Outlines logits warping.
         top_k (List[int]): A list of top-k values for top-k-based logits warping.
         top_p (List[float]): A list of top-p values for top-p-based logits warping.
         typical_p (List[float]): A list of typical-p values for typical-p-based logits warping.
         do_sample (List[bool]): A list of booleans indicating whether sampling should be applied for each token.
         seeds (List[int]): A list of seed values for random number generation.
+        tokenizers (List[PreTrainedTokenizerBase]): A list of tokenizers to use for processing the tokens.
 
     Attributes:
         watermark_processor (HeterogeneousProcessorWrapper): The watermark logits processor.
         repetition_processor (HeterogeneousRepetitionPenaltyLogitsProcessor): The repetition penalty logits processor.
+        schema_processor (HeterogeneousSchemaLogitsProcessor): The JSON schema logits processor.
         warpers (List[HeterogeneousLogitsWarper]): The list of logits warpers.
         choice (HeterogeneousSampling or Greedy): The token choice strategy.
         seeds (List[int]): The list of seed values.
@@ -224,11 +228,13 @@ class HeterogeneousNextTokenChooser:
         watermark: List[bool],
         temperature: List[float],
         repetition_penalty: List[float],
+        schemas: List[str],
         top_k: List[int],
         top_p: List[float],
         typical_p: List[float],
         do_sample: List[bool],
         seeds: List[int],
+        tokenizers: List[PreTrainedTokenizerBase],
     ):
         warpers = []
 
@@ -249,6 +255,12 @@ class HeterogeneousNextTokenChooser:
                 repetition_penalty, dtype, device
             )
             if any([x != 1.0 for x in repetition_penalty])
+            else None
+        )
+
+        self.schema_processor = (
+            HeterogeneousSchemaLogitsProcessor(schemas, tokenizers)
+            if any(schemas)
             else None
         )
 
@@ -300,6 +312,8 @@ class HeterogeneousNextTokenChooser:
             scores = self.watermark_processor(input_ids, scores)
         if self.repetition_processor is not None:
             scores = self.repetition_processor(input_ids, scores)
+        if self.schema_processor is not None:
+            scores = self.schema_processor(input_ids, scores)
 
         for warper in self.warpers:
             scores = warper(input_ids, scores)
@@ -326,6 +340,9 @@ class HeterogeneousNextTokenChooser:
 
         if self.repetition_processor is not None:
             self.repetition_processor = self.repetition_processor.filter(indices)
+        
+        if self.schema_processor is not None:
+            self.schema_processor = self.schema_processor.filter(indices)
 
         filtered_warpers = []
         for warper in self.warpers:
@@ -348,6 +365,7 @@ class HeterogeneousNextTokenChooser:
     def from_pb(
         cls,
         pb: List[generate_pb2.NextTokenChooserParameters],
+        tokenizers: List[PreTrainedTokenizerBase],
         dtype: torch.dtype,
         device: torch.device,
     ) -> "HeterogeneousNextTokenChooser":
@@ -356,6 +374,7 @@ class HeterogeneousNextTokenChooser:
 
         Args:
             pb (List[generate_pb2.NextTokenChooserParameters]): The protocol buffer containing the parameters.
+            tokenizers (List[PreTrainedTokenizerBase]): The tokenizers to use for processing the tokens.
             dtype (torch.dtype): The data type of the tokens.
             device (torch.device): The device on which the tokens are processed.
 
@@ -366,11 +385,13 @@ class HeterogeneousNextTokenChooser:
             watermark=[pb_.watermark for pb_ in pb],
             temperature=[pb_.temperature for pb_ in pb],
             repetition_penalty=[pb_.repetition_penalty for pb_ in pb],
+            schemas=[pb_.schema for pb_ in pb],
             top_k=[pb_.top_k for pb_ in pb],
             top_p=[pb_.top_p for pb_ in pb],
             typical_p=[pb_.typical_p for pb_ in pb],
             do_sample=[pb_.do_sample for pb_ in pb],
             seeds=[pb_.seed for pb_ in pb],
+            tokenizer=tokenizers,
             device=device,
             dtype=dtype,
         )
