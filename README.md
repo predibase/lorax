@@ -26,33 +26,32 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
   - [Prompt via REST API](#prompt-via-rest-api)
   - [Prompt via Python Client](#prompt-via-python-client)
   - [Chat via OpenAI API](#chat-via-openai-api)
+  - [Metrics](#metrics)
   - [Next steps](#next-steps)
 - [🙇 Acknowledgements](#-acknowledgements)
 - [🗺️ Roadmap](#️-roadmap)
 
 ## 🌳 Features
 
-- 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter in your request, it will be loaded just-in-time without blocking concurrent requests.
-- 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
-- 🧁 **Adapter Exchange Scheduling:** asynchronously prefetches and offloads adapters between GPU and CPU memory, schedules request batching to optimize the aggregate throughput of the system.
-- 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, pre-compiled CUDA kernels ([flash-attention](https://arxiv.org/abs/2307.08691), [paged attention](https://arxiv.org/abs/2309.06180), [SGMV](https://arxiv.org/abs/2310.18547)), quantization, token streaming.
-- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry. OpenAI compatible API supporting multi-turn chat conversations. Private adapters through per-request tenant isolation.
-- 🤯 **Free for Commercial Use:** Apache 2.0 License. Enough said 😎.
-
+-   🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter in your request, it will be loaded just-in-time without blocking concurrent requests.
+-   🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
+-   🧁 **Adapter Exchange Scheduling:** asynchronously prefetches and offloads adapters between GPU and CPU memory, schedules request batching to optimize the aggregate throughput of the system.
+-   👬 **Optimized Inference:** high throughput and low latency optimizations including tensor parallelism, pre-compiled CUDA kernels ([flash-attention](https://arxiv.org/abs/2307.08691), [paged attention](https://arxiv.org/abs/2309.06180), [SGMV](https://arxiv.org/abs/2310.18547)), quantization, token streaming.
+-   🚢 **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry. OpenAI compatible API supporting multi-turn chat conversations. Private adapters through per-request tenant isolation.
+-   🤯 **Free for Commercial Use:** Apache 2.0 License. Enough said 😎.
 
 <p align="center">
   <img src="https://github.com/predibase/lorax/assets/29719151/f88aa16c-66de-45ad-ad40-01a7874ed8a9" />
 </p>
 
-
 ## 🏠 Models
 
 Serving a fine-tuned model with LoRAX consists of two components:
 
-- [Base Model](https://predibase.github.io/lorax/models/base_models): pretrained large model shared across all adapters.
-- [Adapter](https://predibase.github.io/lorax/models/adapters): task-specific adapter weights dynamically loaded per request.
+-   [Base Model](https://predibase.github.io/lorax/models/base_models): pretrained large model shared across all adapters.
+-   [Adapter](https://predibase.github.io/lorax/models/adapters): task-specific adapter weights dynamically loaded per request.
 
-LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). See [Supported Architectures](https://predibase.github.io/lorax/models/base_models/#supported-architectures) for a complete list of supported base models. 
+LoRAX supports a number of Large Language Models as the base model including [Llama](https://huggingface.co/meta-llama) (including [CodeLlama](https://huggingface.co/codellama)), [Mistral](https://huggingface.co/mistralai) (including [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)), and [Qwen](https://huggingface.co/Qwen). See [Supported Architectures](https://predibase.github.io/lorax/models/base_models/#supported-architectures) for a complete list of supported base models.
 
 Base models can be loaded in fp16 or quantized with `bitsandbytes`, [GPT-Q](https://arxiv.org/abs/2210.17323), or [AWQ](https://arxiv.org/abs/2306.00978).
 
@@ -163,13 +162,56 @@ print("Response:", resp[0].choices[0].message.content)
 
 See [OpenAI Compatible API](https://predibase.github.io/lorax/guides/openai_api) for details.
 
+### Metrics
+
+LoRAX exports metrics in the standard Prometheus format. Metrics are available via a `GET` request to the `/metrics` endpoint of the server.
+
+| Metric                                             |
+| ------------------------------------------------- | 
+| lorax_batch_current_max_tokens                    | 
+| lorax_batch_current_size                          | 
+| lorax_batch_inference_count                       | 
+| lorax_batch_inference_duration_bucket             | 
+| lorax_batch_inference_duration_count              | 
+| lorax_batch_inference_duration_sum                | 
+| lorax_batch_inference_success                     | 
+| lorax_batch_next_size_bucket                      | 
+| lorax_batch_next_size_count                       | 
+| lorax_batch_next_size_sum                         | 
+| lorax_request_count                               | 
+| lorax_request_duration_bucket                     | 
+| lorax_request_duration_count                      | 
+| lorax_request_duration_sum                        | 
+| lorax_request_generated_tokens_bucket             | 
+| lorax_request_generated_tokens_count              | 
+| lorax_request_generated_tokens_sum                | 
+| lorax_request_inference_duration_bucket           | 
+| lorax_request_inference_duration_count            | 
+| lorax_request_inference_duration_sum              | 
+| lorax_request_input_length_bucket                 | 
+| lorax_request_input_length_count                  | 
+| lorax_request_input_length_sum                    | 
+| lorax_request_max_new_tokens_bucket               | 
+| lorax_request_max_new_tokens_count                | 
+| lorax_request_max_new_tokens_sum                  | 
+| lorax_request_mean_time_per_token_duration_bucket | 
+| lorax_request_mean_time_per_token_duration_count  | 
+| lorax_request_mean_time_per_token_duration_sum    | 
+| lorax_request_queue_duration_bucket               | 
+| lorax_request_queue_duration_count                | 
+| lorax_request_queue_duration_sum                  | 
+| lorax_request_success                             | 
+| lorax_request_validation_duration_bucket          | 
+| lorax_request_validation_duration_count           | 
+| lorax_request_validation_duration_sum             | 
+
 ### Next steps
 
 Here are some other interesting Mistral-7B fine-tuned models to try out:
 
-- [alignment-handbook/zephyr-7b-dpo-lora](https://huggingface.co/alignment-handbook/zephyr-7b-dpo-lora): Mistral-7b fine-tuned on Zephyr-7B dataset with DPO.
-- [IlyaGusev/saiga_mistral_7b_lora](https://huggingface.co/IlyaGusev/saiga_mistral_7b_lora): Russian chatbot based on `Open-Orca/Mistral-7B-OpenOrca`.
-- [Undi95/Mistral-7B-roleplay_alpaca-lora](https://huggingface.co/Undi95/Mistral-7B-roleplay_alpaca-lora): Fine-tuned using role-play prompts.
+-   [alignment-handbook/zephyr-7b-dpo-lora](https://huggingface.co/alignment-handbook/zephyr-7b-dpo-lora): Mistral-7b fine-tuned on Zephyr-7B dataset with DPO.
+-   [IlyaGusev/saiga_mistral_7b_lora](https://huggingface.co/IlyaGusev/saiga_mistral_7b_lora): Russian chatbot based on `Open-Orca/Mistral-7B-OpenOrca`.
+-   [Undi95/Mistral-7B-roleplay_alpaca-lora](https://huggingface.co/Undi95/Mistral-7B-roleplay_alpaca-lora): Fine-tuned using role-play prompts.
 
 You can find more LoRA adapters [here](https://huggingface.co/models?pipeline_tag=text-generation&sort=trending&search=-lora), or try fine-tuning your own with [PEFT](https://github.com/huggingface/peft) or [Ludwig](https://ludwig.ai).
 
