@@ -34,6 +34,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 static MODEL_ID: OnceCell<String> = OnceCell::new();
+pub static DEFAULT_ADAPTER_SOURCE: OnceCell<String> = OnceCell::new();
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
 #[utoipa::path(
@@ -709,6 +710,7 @@ pub async fn run(
     ngrok: bool,
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
+    adapter_source: String,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -856,6 +858,11 @@ pub async fn run(
     MODEL_ID.set(model_id.clone()).unwrap_or_else(|_| {
         panic!("MODEL_ID was already set!");
     });
+    DEFAULT_ADAPTER_SOURCE
+        .set(adapter_source.clone())
+        .unwrap_or_else(|_| {
+            panic!("DEFAULT_ADAPTER_SOURCE was already set!");
+        });
 
     // Create router
     let app = Router::new()

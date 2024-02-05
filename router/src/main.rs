@@ -69,6 +69,8 @@ struct Args {
     ngrok_authtoken: Option<String>,
     #[clap(long, env)]
     ngrok_edge: Option<String>,
+    #[clap(default_value = "hub", long, env)]
+    adapter_source: String,
 }
 
 fn main() -> Result<(), RouterError> {
@@ -99,6 +101,7 @@ fn main() -> Result<(), RouterError> {
         ngrok,
         ngrok_authtoken,
         ngrok_edge,
+        adapter_source,
     } = args;
 
     // Validate args
@@ -284,6 +287,7 @@ fn main() -> Result<(), RouterError> {
                 ngrok,
                 ngrok_authtoken,
                 ngrok_edge,
+                adapter_source,
             )
             .await?;
             Ok(())

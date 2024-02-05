@@ -105,8 +105,8 @@ struct Args {
     /// or it can be a local directory containing the necessary files
     /// as saved by `save_pretrained(...)` methods of transformers.
     /// Should be compatible with the model specified in `model_id`.
-    #[clap(default_value = "", long, env)]
-    adapter_id: String,
+    #[clap(long, env)]
+    adapter_id: Option<String>,
 
     /// The source of the model to load.
     /// Can be `hub` or `s3`.
@@ -115,7 +115,7 @@ struct Args {
     #[clap(default_value = "hub", long, env)]
     source: String,
 
-    /// The source of the model to load.
+    /// The source of the static adapter to load.
     /// Can be `hub` or `s3` or `pbase`
     /// `hub` will load the model from the huggingface hub.
     /// `s3` will load the model from the predibase S3 bucket.
@@ -986,6 +986,8 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
+        "--adapter-source".to_string(),
+        args.adapter_source,
     ];
 
     // Model optional max batch total tokens
