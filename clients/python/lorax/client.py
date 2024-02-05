@@ -3,7 +3,7 @@ import requests
 
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
-from typing import Dict, Optional, List, AsyncIterator, Iterator
+from typing import Any, Dict, Optional, List, AsyncIterator, Iterator
 
 from lorax.types import (
     StreamResponse,
@@ -79,6 +79,7 @@ class Client:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
         decoder_input_details: bool = False,
     ) -> Response:
         """
@@ -124,6 +125,8 @@ class Client:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
+            schema (`Optional[Dict[str, Any]]`):
+                Optional JSON schema to validate the response
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
 
@@ -150,6 +153,7 @@ class Client:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
+            schema=json.dumps(schema) if schema is not None else None,
             decoder_input_details=decoder_input_details,
         )
         request = Request(inputs=prompt, stream=False, parameters=parameters)
@@ -185,6 +189,7 @@ class Client:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
     ) -> Iterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens
@@ -227,6 +232,8 @@ class Client:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
+            schema (`Optional[Dict[str, Any]]`):
+                Optional JSON schema to validate the response
 
         Returns:
             Iterator[StreamResponse]: stream of generated tokens
@@ -252,6 +259,7 @@ class Client:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
+            schema=json.dumps(schema) if schema is not None else None,
         )
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 
@@ -353,6 +361,7 @@ class AsyncClient:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
         decoder_input_details: bool = False,
     ) -> Response:
         """
@@ -398,6 +407,8 @@ class AsyncClient:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
+            schema (`Optional[Dict[str, Any]]`):
+                Optional JSON schema to validate the response
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
 
@@ -425,6 +436,7 @@ class AsyncClient:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
+            schema=json.dumps(schema) if schema is not None else None,
         )
         request = Request(inputs=prompt, stream=False, parameters=parameters)
 
@@ -457,6 +469,7 @@ class AsyncClient:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens asynchronously
@@ -499,6 +512,8 @@ class AsyncClient:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
+            schema (`Optional[Dict[str, Any]]`):
+                Optional JSON schema to validate the response
 
         Returns:
             AsyncIterator[StreamResponse]: stream of generated tokens
