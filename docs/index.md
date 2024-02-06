@@ -27,7 +27,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 
 ## 🌳 Features
 
-- 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter in your request, it will be loaded just-in-time without blocking concurrent requests.
+- 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter from [HuggingFace](./models/adapters.md#huggingface-hub), [Predibase](./models/adapters.md#predibase), or [any filesystem](./models/adapters.md#local) in your request, it will be loaded just-in-time without blocking concurrent requests. [Merge adapters](./guides/merging_adapters.md) per request to instantly create powerful ensembles.
 - 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
 - 🧁 **Adapter Exchange Scheduling:** asynchronously prefetches and offloads adapters between GPU and CPU memory, schedules request batching to optimize the aggregate throughput of the system.
 - 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, pre-compiled CUDA kernels ([flash-attention](https://arxiv.org/abs/2307.08691), [paged attention](https://arxiv.org/abs/2309.06180), [SGMV](https://arxiv.org/abs/2310.18547)), quantization, token streaming.
