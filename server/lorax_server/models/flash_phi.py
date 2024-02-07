@@ -70,21 +70,16 @@ class FlashPhi(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
 
-        # if adapter_id passed in as part of model instantiation, then we merge
+        # if adapter_id passed in as part of model instantiation, then we merge 
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
         dynamic_adapter_loading_enabled = True
         if len(adapter_id) > 0:
-            logger.info(
-                f"Merging adapter weights from adapter_id {adapter_id} into model weights."
-            )
+            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
             # Need to pass the adapter source here
             merged_weight_filenames = create_merged_weight_files(
-                adapter_id,
-                model_id,
-                model_weight_filenames=filenames,
-                adapter_source=adapter_source,
+                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
             )
             dynamic_adapter_loading_enabled = False
             adapter_id = adapter_id
@@ -92,11 +87,11 @@ class FlashPhi(FlashCausalLM):
             adapter_id = BASE_MODEL_ADAPTER_ID
 
         weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-            merged_weight_filenames=merged_weight_filenames,
+            filenames, 
+            device, 
+            dtype, 
+            process_group=self.process_group, 
+            merged_weight_filenames=merged_weight_filenames
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -121,14 +116,13 @@ class FlashPhi(FlashCausalLM):
             adapter_id=adapter_id,
             dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
-
+    
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-
+    
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
-
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
@@ -142,13 +136,12 @@ class FlashPhi(FlashCausalLM):
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-
+    
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-
+    
     def get_num_layers_for_type(self, layer_type: str) -> int:
-
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
     
     def is_row_parallel(self, layer_type: str) -> bool:

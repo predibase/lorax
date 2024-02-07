@@ -1,3 +1,4 @@
+import os
 import torch
 
 from loguru import logger
@@ -68,7 +69,7 @@ if FLASH_ATTENTION:
     __all__.append(FlashGPT2)
     __all__.append(FlashQwen)
     __all__.append(FlashPhi)
-
+    
 MISTRAL = True
 try:
     from lorax_server.models.flash_mistral import FlashMistral
@@ -106,7 +107,7 @@ def get_model(
     if source == "s3":
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
-        logger.info("Using the local files since we are coming from s3")
+        logger.info(f"Using the local files since we are coming from s3")
         model_path = get_s3_model_local_dir(model_id)
         logger.info(f"model_path: {model_path}")
         config_dict, _ = PretrainedConfig.get_config_dict(
@@ -118,9 +119,9 @@ def get_model(
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
         )
-    else:
+    else: 
         raise ValueError(f"Unknown source {source}")
-
+    
     model_type = config_dict["model_type"]
 
     if dtype is None:
@@ -284,7 +285,7 @@ def get_model(
                     dtype=dtype,
                     trust_remote_code=trust_remote_code,
                 )
-            raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format("Sharded Falcon"))
+            raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format(f"Sharded Falcon"))
         else:
             if FLASH_ATTENTION and not config_dict.get("alibi", False):
                 return FlashRWSharded(
@@ -318,7 +319,7 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
         raise NotImplementedError("Mistral model requires flash attention v2")
-
+    
     if model_type == "mixtral":
         if MIXTRAL:
             return FlashMixtral(
@@ -331,10 +332,8 @@ def get_model(
                 dtype=dtype,
                 trust_remote_code=trust_remote_code,
             )
-        raise NotImplementedError(
-            "Mixtral models requires flash attention v2, stk and megablocks"
-        )
-
+        raise NotImplementedError("Mixtral models requires flash attention v2, stk and megablocks")
+    
     if model_type == "qwen":
         if FLASH_ATTENTION:
             return FlashQwen(
@@ -348,7 +347,7 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
         raise NotImplementedError("Qwen model requires flash attention v2")
-
+    
     if model_type in ["phi-msft", "phi"]:
         if FLASH_ATTENTION:
             return FlashPhi(
@@ -390,9 +389,13 @@ def get_model(
             "gptq quantization is not supported for AutoModel, you can try to quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
         )
     elif (quantize == "bitsandbytes-fp4") or (quantize == "bitsandbytes-nf4"):
-        raise ValueError("4bit quantization is not supported for AutoModel")
+        raise ValueError(
+            "4bit quantization is not supported for AutoModel"
+        )
     if quantize == "awq":
-        raise ValueError("awq quantization is not supported for AutoModel")
+        raise ValueError(
+            "awq quantization is not supported for AutoModel"
+        )
 
     if model_type in modeling_auto.MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
         return CausalLM(

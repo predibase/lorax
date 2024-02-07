@@ -23,6 +23,9 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     ATTN_O_PROJ,
     ATTN_Q_PROJ,
     ATTN_V_PROJ,
+    MOE_W1,
+    MOE_W2,
+    MOE_W3,
     FlashMixtralForCausalLM,
     MixtralConfig,
 )
@@ -207,10 +210,8 @@ class FlashMixtralBatch(FlashCausalLMBatch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens)
 
-        adapter_indices = torch.cat(adapter_indices_list).to(
-            dtype=torch.int64, device=device
-        )
-
+        adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
+        
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, dtype, device
         )
@@ -252,9 +253,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         )
 
         adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
-        adapter_segments = torch.tensor(
-            adapter_segments, dtype=torch.int32, device=device
-        )
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         if all_prefill_logprobs:
             prefill_head_indices = None
@@ -358,21 +357,16 @@ class FlashMixtral(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
 
-        # if adapter_id passed in as part of model instantiation, then we merge
+        # if adapter_id passed in as part of model instantiation, then we merge 
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
         dynamic_adapter_loading_enabled = True
         if len(adapter_id) > 0:
-            logger.info(
-                f"Merging adapter weights from adapter_id {adapter_id} into model weights."
-            )
+            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
             # Need to pass the adapter source here
             merged_weight_filenames = create_merged_weight_files(
-                adapter_id,
-                model_id,
-                model_weight_filenames=filenames,
-                adapter_source=adapter_source,
+                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
             )
             dynamic_adapter_loading_enabled = False
             adapter_id = adapter_id
@@ -380,11 +374,11 @@ class FlashMixtral(FlashCausalLM):
             adapter_id = BASE_MODEL_ADAPTER_ID
 
         weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-            merged_weight_filenames=merged_weight_filenames,
+            filenames, 
+            device, 
+            dtype, 
+            process_group=self.process_group, 
+            merged_weight_filenames=merged_weight_filenames
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -418,7 +412,6 @@ class FlashMixtral(FlashCausalLM):
     def batch_type(self) -> Type[FlashMixtralBatch]:
         return FlashMixtralBatch
 
-
     def forward(self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
@@ -446,43 +439,31 @@ class FlashMixtral(FlashCausalLM):
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None
         return logits
-
+    
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, ATTN_Q_PROJ)] = (
-                f"{prefix}.{i}.self_attn.q_proj",
-                layer.self_attn.query_key_value,
-            )
-            layer_weights[(i, ATTN_K_PROJ)] = (
-                f"{prefix}.{i}.self_attn.k_proj",
-                layer.self_attn.query_key_value,
-            )
-            layer_weights[(i, ATTN_V_PROJ)] = (
-                f"{prefix}.{i}.self_attn.v_proj",
-                layer.self_attn.query_key_value,
-            )
-            layer_weights[(i, ATTN_O_PROJ)] = (
-                f"{prefix}.{i}.self_attn.o_proj",
-                layer.self_attn.o_proj,
-            )
+            layer_weights[(i, ATTN_Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, ATTN_K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, ATTN_V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, ATTN_O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
             # TODO(travis): requires implementing this for block sparse MoE
             # layer_weights[(i, MOE_W1)] = (f"{prefix}.{i}.moe.w1", layer.moe.w1)
             # layer_weights[(i, MOE_W2)] = (f"{prefix}.{i}.moe.w2", layer.moe.w2)
             # layer_weights[(i, MOE_W3)] = (f"{prefix}.{i}.moe.w3", layer.moe.w3)
-
+        
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-
+    
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-
+    
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
-
+    
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

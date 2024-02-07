@@ -153,7 +153,7 @@ class FlashCausalLMBatch(Batch):
 
         next_token_chooser_parameters = []
         stopping_criterias = []
-
+        
         adapter_indices_list = []
         adapter_set = set()
 
