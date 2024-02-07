@@ -22,7 +22,6 @@ def lora_ref_impl(
     lora_rank: int,
 ):
     for i in range(len(wa)):
-
         if s_end[i] - s_start[i] <= 0:
             continue
         
@@ -54,7 +53,7 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     nlayers = 2
 
     device = torch.device("cuda:0")
-
+    
     y = torch.zeros((B, H), dtype=torch.float16, device=device)
     x = torch.randn((B, H), dtype=torch.float16, device=device)
     wa = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
@@ -64,7 +63,6 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
 
     # TODO(travis): transpose (r, H) -> (H, r) when not using cutlass
     wb = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
-
 
     s1, s2 = segments
     s_start = torch.tensor(s1, dtype=torch.int32, device=device)

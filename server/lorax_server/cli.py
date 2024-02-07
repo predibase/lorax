@@ -90,7 +90,6 @@ def serve(
         model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, uds_path, source, adapter_source
     )
 
-
 def _download_weights(
     model_id: str,
     revision: Optional[str] = None,
@@ -175,7 +174,7 @@ def _download_weights(
             discard_names = getattr(class_, "_tied_weights_keys", [])
             discard_names.extend(getattr(class_, "_keys_to_ignore_on_load_missing", []))
 
-        except Exception:
+        except Exception as e:
             discard_names = []
         # Convert pytorch weights to safetensors
         utils.convert_files(local_pt_files, local_st_files, discard_names)

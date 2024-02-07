@@ -134,7 +134,6 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         api_token = request.api_token
         adapter_source = _adapter_source_enum_to_string(request.adapter_source)
-
         for adapter_id in adapter_parameters.adapter_ids:
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 logger.info("No adapter to download for base model. Skipping.")
@@ -188,7 +187,6 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                     adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                     adapter_parameters.adapter_ids[i] = adapter_id
                 adapter_source = S3
-
             
             self.model.load_adapter(adapter_parameters, adapter_source, adapter_index, api_token)
             
@@ -207,7 +205,6 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_idx = request.adapter_index
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
-
             self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
             
             return generate_pb2.OffloadAdapterResponse(offloaded=True)
@@ -252,7 +249,6 @@ def serve(
 
         try:
             model = get_model(
-
                 model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, source, adapter_source
             )
         except Exception:
