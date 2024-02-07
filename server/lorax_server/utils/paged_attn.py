@@ -14,10 +14,10 @@ _PARTITION_SIZE = 512
 
 
 def reshape_and_cache(
-    key: torch.Tensor,  # [num_tokens, num_heads, head_size]
-    value: torch.Tensor,  # [num_tokens, num_heads, head_size]
-    key_cache: torch.Tensor,  # [num_blocks, num_heads, head_size/x, block_size, x]
-    value_cache: torch.Tensor,  # [num_blocks, num_heads, head_size, block_size]
+    key: torch.Tensor,           # [num_tokens, num_heads, head_size]
+    value: torch.Tensor,         # [num_tokens, num_heads, head_size]
+    key_cache: torch.Tensor,     # [num_blocks, num_heads, head_size/x, block_size, x]
+    value_cache: torch.Tensor,   # [num_blocks, num_heads, head_size, block_size]
     slot_mapping: torch.Tensor,  # [num_tokens]
 ):
     cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slot_mapping)
@@ -25,20 +25,20 @@ def reshape_and_cache(
 
 # Source: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/attention.py
 def single_query_cached_kv_attention(
-    output: torch.Tensor,  # [num_tokens, num_heads, head_size]
-    query: torch.Tensor,  # [num_tokens, num_heads, head_size]
-    key_cache: torch.Tensor,  # [num_blocks, num_heads, head_size/x, block_size, x]
-    value_cache: torch.Tensor,  # [num_blocks, num_heads, head_size, block_size]
+    output: torch.Tensor,         # [num_tokens, num_heads, head_size]
+    query: torch.Tensor,          # [num_tokens, num_heads, head_size]
+    key_cache: torch.Tensor,      # [num_blocks, num_heads, head_size/x, block_size, x]
+    value_cache: torch.Tensor,    # [num_blocks, num_heads, head_size, block_size]
     kv_head_mapping: torch.Tensor,
     softmax_scale: float,
-    block_tables: torch.Tensor,  # [num_blocks, block_size]
+    block_tables: torch.Tensor,   # [num_blocks, block_size]
     input_lengths: torch.Tensor,  # [num_blocks]
     max_s: int,
 ):
     block_size = value_cache.shape[3]
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
-
+    
     # NOTE(woosuk): We use a simple heuristic to decide whether to use
     # PagedAttention V1 or V2. If the number of partitions is 1, we use
     # V1 to avoid the overhead of reduction. Also, if the number of

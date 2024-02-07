@@ -7,7 +7,6 @@ import torch
 
 try:
     import punica_kernels as _kernels
-
     HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
 except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
@@ -62,11 +61,9 @@ def add_lora_sgmv_cutlass(
     """
     if lora_rank < MIN_RANK_CUSTOM or lora_rank > MAX_RANK_CUSTOM:
         # Custom SGMV shrink only supports rank 16, 32, 64, 128
-        _add_lora_sgmv_cutlass_legacy(
-            y, x, wa_ptr, wb_ptr, s_start, s_end, layer_idx, lora_rank
-        )
+        _add_lora_sgmv_cutlass_legacy(y, x, wa_ptr, wb_ptr, s_start, s_end, layer_idx, lora_rank)
         return
-
+    
     tmp1 = torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=x.device)
     tmp2_size = _kernels.sgmv_cutlass_tmp_size(wa_ptr.size(0))
     tmp2 = torch.empty((tmp2_size,), dtype=torch.uint8, device=x.device)
