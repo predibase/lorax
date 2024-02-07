@@ -43,15 +43,15 @@ class BaseModelSource:
 
     def weight_files(self, extension: str = None):
         raise NotImplementedError
-
+    
     def download_weights(self, filenames: List[str]):
         raise NotImplementedError
-
+    
     def download_model_assets(self):
-        """The reason we need this function is that for s3
-        we need to download all the model files whereas for
-        hub we only need to download the weight files. And maybe
-        for other future sources  we might need something different.
+        """ The reason we need this function is that for s3 
+        we need to download all the model files whereas for 
+        hub we only need to download the weight files. And maybe 
+        for other future sources  we might need something different. 
         So this function will take the necessary steps to download
-        the needed files for any source"""
+        the needed files for any source """
         raise NotImplementedError

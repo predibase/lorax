@@ -16,7 +16,7 @@ except ImportError:
     HAS_BITS_AND_BYTES = False
 
 HAS_AWQ = True
-try:
+try: 
     from lorax_server.utils.awq.awq import AWQLinear
 except ImportError:
     HAS_AWQ = False
@@ -43,12 +43,7 @@ except ImportError:
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import (
-    lora_a_sgmv_cutlass,
-    lora_b_sgmv_cutlass,
-    has_sgmv,
-    orient_for_rank,
-)
+from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -271,17 +266,13 @@ class Linear8bitLt(nn.Module):
                 self.weight.data = self.state.CxB
         return out
 
-
 class Linear4bit(nn.Module):
     def __init__(self, weight, bias, quant_type):
         super().__init__()
 
         # Initialize weight with 4-bit quantization
         self.weight = Params4bit(
-            weight.data,
-            requires_grad=False,
-            compress_statistics=True,
-            quant_type=quant_type,
+            weight.data, requires_grad=False, compress_statistics=True, quant_type=quant_type
         )
         self.weight.cuda(weight.device)
 
@@ -296,9 +287,7 @@ class Linear4bit(nn.Module):
 
         # Check if quantization state is initialized
         if getattr(self.weight, "quant_state", None) is None:
-            print(
-                "FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first."
-            )
+            print("FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first.")
 
         # Convert input to compute_dtype if specified
         inp_dtype = x.dtype
@@ -309,15 +298,12 @@ class Linear4bit(nn.Module):
         bias = None if self.bias is None else self.bias.to(self.compute_dtype)
 
         # Perform 4-bit matrix multiplication
-        out = bnb.matmul_4bit(
-            x, self.weight.t(), bias=bias, quant_state=self.weight.quant_state
-        )
+        out = bnb.matmul_4bit(x, self.weight.t(), bias=bias, quant_state=self.weight.quant_state)
 
         # Convert output back to the input dtype
         out = out.to(inp_dtype)
 
         return out
-
 
 def get_linear(weight, bias, quantize, fan_in_fan_out=False):
     # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
@@ -360,13 +346,11 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
         except Exception:
             raise NotImplementedError(
-                "The passed weight is not `gptq` compatible, loader needs to be updated."
+                f"The passed weight is not `gptq` compatible, loader needs to be updated."
             )
 
         if use_exllama:
-            linear = exllamav2QuantLinear(
-                qweight, qzeros, scales, g_idx, bias, bits, groupsize
-            )
+            linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
         else:
             linear = QuantLinear(
                 qweight,
@@ -381,7 +365,6 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         try:
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
-
             raise NotImplementedError(
                 f"The passed weight is not compatible with `awq`"
             )
@@ -487,28 +470,23 @@ class TensorParallelColumnLinear(SuperLayer):
             raise NotImplementedError("packed_qkv only implemented for baichuan")
         else:
             bias = None
-        linear = get_linear(
-            weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out
-        )
+        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
 
     @classmethod
-    def load(
-        cls, config, prefix: str, weights, bias: bool, fan_in_fan_out: bool = False
-    ):
+    def load(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out: bool = False):
         return cls.load_multi(
-            config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out
-        )
+            config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out)
 
     @classmethod
     def load_multi(
-        cls,
-        config,
-        prefixes: List[Union[str, Tuple]],
-        weights,
-        bias: bool,
-        dim: int,
-        fan_in_fan_out=False,
+        cls, 
+        config, 
+        prefixes: List[Union[str, Tuple]], 
+        weights, 
+        bias: bool, 
+        dim: int, 
+        fan_in_fan_out=False
     ):
         weight = weights.get_multi_weights_col(
             prefixes, quantize=config.quantize, dim=dim
@@ -519,11 +497,9 @@ class TensorParallelColumnLinear(SuperLayer):
             bias = torch.cat(b, dim=dim)
         else:
             bias = None
-        linear = get_linear(
-            weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out
-        )
+        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
-
+    
 
 class TensorParallelAdapterLinear(nn.Module):
     def __init__(self, base_layer, layer_id, process_group):
@@ -575,24 +551,18 @@ class TensorParallelAdapterLinear(nn.Module):
                         rank_segments.segment_ends,
                         self.layer_id,
                     )
-
+            
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (
-                        (adapter_data.meta.adapter_indices == adapter_index)
-                        .to(input.dtype)
-                        .view(-1, 1)
-                    )
-                    layer_result = self.forward_lora(
-                        input, data, adapter_index, adapter_mask
-                    )
+                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 
         return result
-
+    
     def forward_lora(
         self,
         input: torch.Tensor,
@@ -606,14 +576,14 @@ class TensorParallelAdapterLinear(nn.Module):
 
         if self.process_group.size() > 1:
             a_out = self.collect_lora_a(a_out)
-
+        
         lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
         result = (a_out @ lora_b) * adapter_mask
         return result
 
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("Implemented in subclasses")
-
+    
 
 class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
     def __init__(self, base_layer, layer_id, layer_names, sizes, process_group):
@@ -626,10 +596,8 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
         return TensorParallelMultiAdapterLinear(
             base_layer, layer_id, layer_names, sizes, process_group
         )
-
-    def forward(
-        self, input: torch.Tensor, adapter_data: AdapterBatchData
-    ) -> torch.Tensor:
+    
+    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
         
         # handle models like Bloom that have inputs of shape
@@ -645,7 +613,6 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
         offset = 0
         for i, layer_name in enumerate(self.layer_names):
             start_idx = offset // self.process_group.size()
-
 
             if self.sizes is not None:
                 offset += self.sizes[i]
@@ -668,9 +635,7 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
         #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
         #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
         #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
-        gathered_tensors = [
-            torch.empty_like(a_out) for _ in range(self.process_group.size())
-        ]
+        gathered_tensors = [torch.empty_like(a_out) for _ in range(self.process_group.size())]
         torch.distributed.all_gather(gathered_tensors, a_out)
         return torch.cat(gathered_tensors, dim=1)
 
@@ -682,25 +647,19 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
 
     @classmethod
     def load(cls, base_layer, layer_id, layer_name, process_group):
-        return TensorParallelAdapterRowLinear(
-            base_layer, layer_id, layer_name, process_group
-        )
-
-    def forward(
-        self, input: torch.Tensor, adapter_data: AdapterBatchData
-    ) -> torch.Tensor:
+        return TensorParallelAdapterRowLinear(base_layer, layer_id, layer_name, process_group)
+    
+    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         result = self.base_layer(input)
-
+        
         # Fused all-gather + all-reduce from S-LoRA paper: https://arxiv.org/abs/2311.03285
         stride = result.shape[-1] // self.process_group.size()
         start_idx = self.process_group.rank() * stride
         end_idx = (self.process_group.rank() + 1) * stride
 
-        self.forward_layer_type(
-            result, input, adapter_data, self.layer_name, start_idx, end_idx
-        )
+        self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
         return result
-
+    
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
         # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
@@ -711,7 +670,7 @@ class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
         #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
         torch.distributed.all_reduce(a_out, group=self.process_group)
         return a_out
-
+    
 
 class TensorParallelRowLinear(SuperLayer):
     def __init__(self, linear, process_group, all_reduce: bool = True):
@@ -721,11 +680,11 @@ class TensorParallelRowLinear(SuperLayer):
 
     @classmethod
     def load(
-        cls,
-        config,
-        prefix: str,
-        weights,
-        bias: bool,
+        cls, 
+        config, 
+        prefix: str, 
+        weights, 
+        bias: bool, 
         fan_in_fan_out: bool = False,
         all_reduce: bool = True,
     ):
@@ -1008,14 +967,14 @@ try:
 
         def __init__(
             self,
-            dim,
-            max_position_embeddings=2048,
-            base=10000,
-            factor=1,
-            original_max_position_embeddings=2048,
-            extrapolation_factor=1,
-            attn_factor=1,
-            beta_fast=32,
+            dim, 
+            max_position_embeddings=2048, 
+            base=10000, 
+            factor=1, 
+            original_max_position_embeddings=2048, 
+            extrapolation_factor=1, 
+            attn_factor=1, 
+            beta_fast=32, 
             beta_slow=1,
             finetuned=True,
             device=None,
@@ -1042,58 +1001,35 @@ try:
             ):
                 self._seq_len_cached = seqlen
 
-                t = torch.arange(
-                    self._seq_len_cached, device=device, dtype=self.inv_freq.dtype
-                )
+                t = torch.arange(self._seq_len_cached, device=device, dtype=self.inv_freq.dtype)
                 freqs = torch.outer(t, self.inv_freq.to(device=t.device))
 
                 self._cos_cached = (torch.cos(freqs) * self.mscale).to(dtype)
                 self._sin_cached = (torch.sin(freqs) * self.mscale).to(dtype)
-
         
         def yarn(self, device, scaling_factor):
             pos_freqs = self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
             inv_freq_extrapolation = 1.0 / pos_freqs
             inv_freq_interpolation = 1.0 / (scaling_factor * pos_freqs)
 
-            low, high = find_correction_range(
-                self.beta_fast,
-                self.beta_slow,
-                self.dim,
-                self.base,
-                self.original_max_position_embeddings,
-            )
-            inv_freq_mask = (
-                1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)
-            ) * self.extrapolation_factor  # Get n-d rotational scaling corrected for extrapolation
-            inv_freq = (
-                inv_freq_interpolation * (1 - inv_freq_mask)
-                + inv_freq_extrapolation * inv_freq_mask
-            )
+            low, high = find_correction_range(self.beta_fast, self.beta_slow, self.dim, self.base, self.original_max_position_embeddings)
+            inv_freq_mask = (1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)) * self.extrapolation_factor # Get n-d rotational scaling corrected for extrapolation
+            inv_freq = inv_freq_interpolation * (1 - inv_freq_mask) + inv_freq_extrapolation * inv_freq_mask
 
             self.inv_freq = inv_freq
-
             self.mscale = float(get_mscale(scaling_factor) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
 
     # Inverse dim formula to find dim based on number of rotations
-    def find_correction_dim(
-        num_rotations, dim, base=10000, max_position_embeddings=2048
-    ):
-        return (
-            dim * math.log(max_position_embeddings / (num_rotations * 2 * math.pi))
-        ) / (2 * math.log(base))
+    def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):
+        return (dim * math.log(max_position_embeddings/(num_rotations * 2 * math.pi)))/(2 * math.log(base))
 
     # Find dim range bounds based on rotations
-    def find_correction_range(
-        low_rot, high_rot, dim, base=10000, max_position_embeddings=2048
-    ):
-        low = math.floor(
-            find_correction_dim(low_rot, dim, base, max_position_embeddings)
-        )
-        high = math.ceil(
-            find_correction_dim(high_rot, dim, base, max_position_embeddings)
-        )
-        return max(low, 0), min(high, dim - 1)  # Clamp values just in case
+    def find_correction_range(low_rot, high_rot, dim, base=10000, max_position_embeddings=2048):
+        low = math.floor(find_correction_dim(
+            low_rot, dim, base, max_position_embeddings))
+        high = math.ceil(find_correction_dim(
+            high_rot, dim, base, max_position_embeddings))
+        return max(low, 0), min(high, dim-1)  # Clamp values just in case
 
     def linear_ramp_mask(min, max, dim):
         if min == max:

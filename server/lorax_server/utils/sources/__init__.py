@@ -4,16 +4,7 @@ from functools import lru_cache
 
 import requests
 
-from .hub import (
-    EntryNotFoundError,
-    LocalEntryNotFoundError,
-    RevisionNotFoundError,
-    get_hub_model_local_dir,
-    weight_files,
-    download_weights,
-    weight_hub_files,
-    HubModelSource,
-)
+from .hub import EntryNotFoundError, LocalEntryNotFoundError, RevisionNotFoundError, get_hub_model_local_dir, weight_files, download_weights, weight_hub_files, HubModelSource
 from .local import LocalModelSource, get_model_local_dir
 from .s3 import S3ModelSource, get_s3_model_local_dir
 
@@ -24,9 +15,7 @@ PBASE = "pbase"
 
 PREDIBASE_MODEL_URL_ENDPOINT = "/v1/models/version/name/{}"
 PREDIBASE_MODEL_VERSION_URL_ENDPOINT = "/v1/models/version/name/{}?version={}"
-PREDIBASE_GATEWAY_ENDPOINT = os.getenv(
-    "PREDIBASE_GATEWAY_ENDPOINT", "https://api.predibase.com"
-)
+PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://api.predibase.com")
 
 
 @lru_cache(maxsize=256)
@@ -41,9 +30,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
         url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_URL_ENDPOINT.format(name)
     elif len(name_components) == 2:
         name, version = name_components
-        url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_VERSION_URL_ENDPOINT.format(
-            name, version
-        )
+        url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_VERSION_URL_ENDPOINT.format(name, version)
     else:
         raise ValueError(f"Invalid model id {model_id}")
     resp = requests.get(url, headers=headers)
