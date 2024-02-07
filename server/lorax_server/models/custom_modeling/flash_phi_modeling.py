@@ -14,6 +14,7 @@ import torch.distributed
 
 from torch import nn
 from transformers.activations import ACT2FN
+from transformers.models.phi import PhiConfig
 from typing import Optional, List, Tuple
 
 from lorax_server.utils import flash_attn
@@ -37,7 +38,7 @@ ATTN_V_PROJ = "self_attn.v_proj"
 ATTN_DENSE = "self_attn.dense"
 MLP_FC1 = "mlp.fc1"
 MLP_FC2 = "mlp.fc2"
-
+        
 
 def load_attention(config, prefix, weights, layer_id, head_dim, n_head, n_head_kv):
     base_layer = load_attention_multi(config, prefix, weights, head_dim, n_head, n_head_kv)
@@ -105,9 +106,7 @@ class FlashPhiAttention(torch.nn.Module):
 
         # After initializing layers, scale num heads by num shards for use in forward() to split outputs
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = (
-            self.num_key_value_heads // weights.process_group.size()
-        )
+        self.num_key_value_heads = self.num_key_value_heads // weights.process_group.size()
 
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
@@ -204,24 +203,15 @@ class PhiMLP(nn.Module):
 
         out_size = fc1.linear.weight.shape[-1] * weights.process_group.size()
         self.fc1 = TensorParallelMultiAdapterLinear.load(
-            fc1,
-            layer_id,
-            [MLP_FC1],
-            sizes=[out_size],
-            process_group=weights.process_group,
+            fc1, layer_id, [MLP_FC1], sizes=[out_size], process_group=weights.process_group
         )
-        self.fc2 = TensorParallelAdapterRowLinear.load(
-            TensorParallelRowLinear.load(
-                config,
-                prefix=f"{prefix}.fc2",
-                weights=weights,
-                bias=True,
-            ),
-            layer_id,
-            MLP_FC2,
-            process_group=weights.process_group,
-        )
-
+        self.fc2 = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+            config,
+            prefix=f"{prefix}.fc2",
+            weights=weights,
+            bias=True,
+        ), layer_id, MLP_FC2, process_group=weights.process_group)
+        
     def forward(self, hidden_states, adapter_data):
         hidden_states = self.fc1(hidden_states, adapter_data)
         hidden_states = self.act(hidden_states)
@@ -240,6 +230,7 @@ class FlashPhiLayer(nn.Module):
         self.self_attn = FlashPhiAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
+        self.mlp = PhiMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
         self.process_group = weights.process_group
 
     def forward(
@@ -353,7 +344,6 @@ class FlashPhiModel(torch.nn.Module):
 class FlashPhiForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
-
 
         self.model = FlashPhiModel(config, weights)
         self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
