@@ -10,21 +10,19 @@ logger = getLogger(__name__)
 try:
     from exllamav2_kernels import make_q_matrix, gemm_half_q_half
 except ImportError:
-    logger.error("exllamav2_kernels not installed.")
+    logger.error('exllamav2_kernels not installed.')
     raise
 
 # Dummy tensor to pass instead of g_idx since there is no way to pass "None" to a C++ extension
 none_tensor = torch.empty((1, 1), device="meta")
 
-
 def ext_gemm_half_q_half(x, q_handle, q4_width, force_cuda):
     """Matrix multiplication, returns x @ q4"""
     output_shape = x.shape[:-1] + (q4_width,)
     x = x.view(-1, x.shape[-1])
-    output = torch.empty((x.shape[0], q4_width), dtype=torch.half, device=x.device)
+    output = torch.empty((x.shape[0], q4_width), dtype = torch.half, device = x.device)
     gemm_half_q_half(x, q_handle, output, force_cuda)
     return output.view(output_shape)
-
 
 def make_group_map(q_groups, num_qrows):
     # Convert q_groups to a list
@@ -100,7 +98,6 @@ def ext_make_q_matrix(w: dict, temp_dq):
             none_tensor,
             temp_dq,
         )
-
         return q_matrix
 
     # Check if 'qweight' is in the dictionary
@@ -126,7 +123,6 @@ def ext_make_q_matrix(w: dict, temp_dq):
             )
             w["q_invperm"] = torch.empty_like(w["q_perm"])
 
-
             # Create Q matrix for GPTQ with 'g_idx'
             q_matrix = make_q_matrix(
                 w["qweight"],
@@ -135,14 +131,12 @@ def ext_make_q_matrix(w: dict, temp_dq):
                 none_tensor,
                 none_tensor,
                 none_tensor,
-
                 none_tensor,
                 w["qzeros"],
                 w["scales"],
                 w["g_idx"].cpu(),
                 temp_dq,
             )
-
             return q_matrix
 
         else:
@@ -160,14 +154,12 @@ def ext_make_q_matrix(w: dict, temp_dq):
                 none_tensor,
                 temp_dq,
             )
-
             return q_matrix
 
 
 DEVICE = None
 FIXED_BYTES = 0
 LAYERS = []
-
 
 def set_device(device):
     global DEVICE
@@ -191,12 +183,11 @@ class QuantLinear(nn.Module):
         super().__init__()
         if bits != 4:
             raise ValueError(
-                f"Exllamav2 kernel supports only bits=4, requested bits={bits}. Something is wrong in the model initialization."
-            )
+                f"Exllamav2 kernel supports only bits=4, requested bits={bits}. Something is wrong in the model initialization.")
         self.q_handle = None
         self.q_tensors = None
         self.bits = bits
-        self.maxq = 2**self.bits - 1
+        self.maxq = 2 ** self.bits - 1
         self.infeatures = qweight.shape[0] // self.bits * 32
         self.outfeatures = qweight.shape[1] + qweight.shape[1] % 32
 
@@ -216,36 +207,39 @@ class QuantLinear(nn.Module):
         assert self.qweight.device.type == "cuda"
         assert self.qweight.device.index is not None
         self.q_tensors = {
-            "qweight": self.qweight,
-            "qzeros": self.qzeros,
-            "scales": self.scales,
-            "g_idx": self.g_idx,
+            "qweight":self.qweight,
+            "qzeros":self.qzeros,
+            "scales":self.scales,
+            "g_idx":self.g_idx
         }
         temp_dq = temp_dq.get_scratch_slice(self.temp_dq_size())
-        self.q_handle = ext_make_q_matrix(self.q_tensors, temp_dq)
-
-    def forward(self, x, force_cuda=False):
+        self.q_handle = ext_make_q_matrix(
+            self.q_tensors, temp_dq
+        )
+    
+    def forward(self, x, force_cuda = False):
         output = ext_gemm_half_q_half(x, self.q_handle, self.outfeatures, force_cuda)
 
         if self.bias is not None:
             output.add_(self.bias)
         return output
-
+    
     def temp_dq_size(self):
         return self.infeatures * self.outfeatures * 2 + 128
-
+    
     def temp_fwd_size(self, max_input_len, max_batch_size):
         return self.outfeatures * max_input_len * max_batch_size * 4 + 128
-
+    
     def scratch_spacing(self, max_input_len=8192, max_batch_size=32):
         return self.temp_dq_size() + self.temp_fwd_size(max_input_len, max_batch_size)
 
     @property
     def weight(self) -> torch.Tensor:
         return self.qweight
-
-
+               
+    
 class ExLlamaV2DeviceTensors:
+
     device_idx: int
     scratch_bytes: int
     scratch_idx: int
@@ -254,15 +248,13 @@ class ExLlamaV2DeviceTensors:
     def __init__(self, device, scratch_bytes):
         self.device = device
         self.scratch_bytes = scratch_bytes
-
+    
     def prepare(self):
-        self.scratch = torch.empty(
-            (self.scratch_bytes // 2,), dtype=torch.half, device=self.device
-        )
+        self.scratch = torch.empty((self.scratch_bytes // 2,), dtype = torch.half, device = self.device)
 
     def get_scratch_slice(self, size_bytes):
-        if self.scratch is None:
-            self.prepare()
+
+        if self.scratch is None: self.prepare()
 
         size_bytes = ((size_bytes + 127) // 128) * 128
         size_half = size_bytes // 2

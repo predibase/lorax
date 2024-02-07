@@ -54,8 +54,8 @@ def query_lorax(args):
     if adapter_id is not None:
         request_params["adapter_source"] = "local"
         request_params["adapter_id"] = adapter_id
-
-    print("request_params", request_params)
+        
+    print("request_params", request_params)    
     url = "http://localhost:8080/generate"
     headers = {
         "Content-Type": "application/json",
@@ -67,7 +67,7 @@ def query_lorax(args):
         },
     ).encode("utf-8")
     request = Request(url, headers=headers, data=data)
-
+    
     try:
         with urlopen(request) as response:
             response_body = json.loads(response.read().decode("utf-8"))
@@ -78,22 +78,19 @@ def query_lorax(args):
         print(f"exception in request: {adapter_id}")
         return adapter_id, 0, None
 
-    print(
-        "adapter_id: {}\nCompleted {} in {:3f} seconds ({:3f} tokens / s)\n----".format(
-            adapter_id,
-            ntokens,
-            duration_s,
-            (ntokens / duration_s),
-        )
-    )
+    print("adapter_id: {}\nCompleted {} in {:3f} seconds ({:3f} tokens / s)\n----".format(
+        adapter_id,
+        ntokens,
+        duration_s,
+        (ntokens / duration_s),
+    ))
     return adapter_id, ntokens, duration_s, response_body["generated_text"]
 
 
 def get_local_path(model_id):
     model_id = model_id.replace("/", "--")
-    return (
-        f"/data/models--{model_id}/snapshots/834b33af35ff5965ea3e4bc18b51ad5d65da7466"
-    )
+    return f"/data/models--{model_id}/snapshots/834b33af35ff5965ea3e4bc18b51ad5d65da7466"
+
 
 
 def main():
@@ -152,6 +149,7 @@ completes the request.
     # #     # "hessertaboada/ludwig-webinar",
     # #     # "AmlanSamanta/ludwig-webinar",
 
+
     # #     # None,
 
     # #     # # download error: bad adapter name
@@ -203,5 +201,6 @@ completes the request.
     # print({k: np.mean(v) for k, v in d.items()})
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
+
