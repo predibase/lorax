@@ -33,11 +33,14 @@ from transformers.modeling_outputs import (
 from transformers import BloomConfig, PreTrainedModel
 
 from lorax_server.utils.layers import (
+    TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
+    TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelHead,
 )
+from lorax_server.utils.lora import AdapterBatchData
 
 CUSTOM_KERNELS_ENABLED = False
 if not os.environ.get("DISABLE_CUSTOM_KERNELS", "False") == "True":
@@ -60,6 +63,12 @@ BLOOM_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "bigscience/bloom-7b1",
     "bigscience/bloom",
 ]
+
+ATTN_QKV = "attn.query_key_value"
+ATTN_DENSE = "attn.dense"
+MLP_DENSE_H_TO_4H = "mlp.dense_h_to_4h"
+MLP_DENSE_4H_TO_H = "mlp.dense_4h_to_h"
+LM_HEAD = "lm_head"
 
 
 def _make_causal_mask(
@@ -231,7 +240,7 @@ def _merge_heads(x: torch.Tensor, num_heads: int, head_dim: int) -> torch.Tensor
 
 
 class BloomAttention(nn.Module):
-    def __init__(self, prefix, config: BloomConfig, weights):
+    def __init__(self, prefix, config: BloomConfig, weights, layer_id):
         super().__init__()
 
         self.pretraining_tp = config.pretraining_tp
@@ -262,14 +271,25 @@ class BloomAttention(nn.Module):
                 f"and `num_shards`: {process_group.size()}"
             )
         self.num_heads = self.num_heads // process_group.size()
-        self.query_key_value = TensorParallelColumnLinear.load(
-            config=config,
-            prefix=f"{prefix}.query_key_value",
-            weights=weights,
-            bias=True,
+        self.query_key_value = TensorParallelMultiAdapterLinear.load(
+            TensorParallelColumnLinear.load(
+                config=config,
+                prefix=f"{prefix}.query_key_value",
+                weights=weights,
+                bias=True,
+            ),
+            layer_id, 
+            [ATTN_QKV],
+            sizes=None,
+            process_group=weights.process_group,
         )
-        self.dense = TensorParallelRowLinear.load(
-            config=config, prefix=f"{prefix}.dense", weights=weights, bias=True
+        self.dense = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config=config, prefix=f"{prefix}.dense", weights=weights, bias=True
+            ),
+            layer_id,
+            ATTN_DENSE,
+            process_group=weights.process_group,
         )
         self.attention_dropout = nn.Dropout(config.attention_dropout)
 
@@ -360,10 +380,11 @@ class BloomAttention(nn.Module):
         layer_past: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         head_mask: Optional[torch.Tensor] = None,
         use_cache: bool = False,
+        adapter_data: Optional[AdapterBatchData] = None,
         output_attentions: bool = False,
     ):
         fused_qkv = self.query_key_value(
-            hidden_states
+            hidden_states, adapter_data,
         )  # [batch_size, seq_length, 3 x hidden_size]
         batch_size, q_length, _ = fused_qkv.shape
 
@@ -417,7 +438,7 @@ class BloomAttention(nn.Module):
                     self.dense.weight[:, int(i * slices) : int((i + 1) * slices)],
                 )
         else:
-            output_tensor = self.dense(context_layer)
+            output_tensor = self.dense(context_layer, adapter_data)
 
         # output_tensor = dropout_add(output_tensor, residual, self.hidden_dropout, self.training)
         output_tensor += residual
@@ -430,26 +451,42 @@ class BloomAttention(nn.Module):
 
 
 class BloomMLP(nn.Module):
-    def __init__(self, prefix, config: BloomConfig, weights):
+    def __init__(self, prefix, config: BloomConfig, weights, layer_id):
         super().__init__()
 
         self.pretraining_tp = config.pretraining_tp
         self.slow_but_exact = config.slow_but_exact
-        self.dense_h_to_4h = TensorParallelColumnLinear.load(
-            config=config, prefix=f"{prefix}.dense_h_to_4h", weights=weights, bias=True
+        self.dense_h_to_4h = TensorParallelMultiAdapterLinear.load(
+            TensorParallelColumnLinear.load(
+                config=config, prefix=f"{prefix}.dense_h_to_4h", weights=weights, bias=True
+            ),
+            layer_id, 
+            [MLP_DENSE_H_TO_4H],
+            sizes=None,
+            process_group=weights.process_group,
         )
-        self.dense_4h_to_h = TensorParallelRowLinear.load(
-            config=config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True
+        self.dense_4h_to_h = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config=config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True
+            ),
+            layer_id,
+            MLP_DENSE_4H_TO_H,
+            process_group=weights.process_group,
         )
         self.gelu_impl = torch.nn.GELU(approximate="tanh")
         self.hidden_dropout = config.hidden_dropout
 
     def forward(
-        self, hidden_states: torch.Tensor, residual: torch.Tensor
+        self, 
+        hidden_states: torch.Tensor, 
+        residual: torch.Tensor, 
+        adapter_data: Optional[AdapterBatchData] = None,
     ) -> torch.Tensor:
-        hidden_states = self.gelu_impl(self.dense_h_to_4h(hidden_states))
+        hidden_states = self.gelu_impl(self.dense_h_to_4h(hidden_states, adapter_data))
 
-        if self.pretraining_tp > 1 and self.slow_but_exact:
+        if self.pretraining_tp > 1 and self.slow_but_exact and (
+            adapter_data is None or adapter_data.max_rank == 0
+        ):
             intermediate_output = torch.zeros_like(residual)
             slices = self.dense_4h_to_h.weight.shape[-1] / self.pretraining_tp
             for i in range(self.pretraining_tp):
@@ -460,7 +497,7 @@ class BloomMLP(nn.Module):
                     ],
                 )
         else:
-            intermediate_output = self.dense_4h_to_h(hidden_states)
+            intermediate_output = self.dense_4h_to_h(hidden_states, adapter_data)
 
         # output = dropout_add(intermediate_output, residual, self.hidden_dropout, self.training)
         intermediate_output += residual
@@ -480,7 +517,7 @@ class BloomBlock(nn.Module):
         )
         self.num_heads = config.n_head
         self.self_attention = BloomAttention(
-            prefix=f"{prefix}.self_attention", config=config, weights=weights
+            prefix=f"{prefix}.self_attention", config=config, weights=weights, layer_id=layer_id,
         )
         self.post_attention_layernorm = LayerNorm.load(
             prefix=f"{prefix}.post_attention_layernorm",
@@ -488,7 +525,7 @@ class BloomBlock(nn.Module):
             eps=config.layer_norm_epsilon,
         )
 
-        self.mlp = BloomMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
+        self.mlp = BloomMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
         self.apply_residual_connection_post_layernorm = (
             config.apply_residual_connection_post_layernorm
         )
@@ -502,6 +539,7 @@ class BloomBlock(nn.Module):
         layer_past: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         head_mask: Optional[torch.Tensor] = None,
         use_cache: bool = False,
+        adapter_data: Optional[AdapterBatchData] = None,
         output_attentions: bool = False,
     ):
         # hidden_states: [batch_size, seq_length, hidden_size]
@@ -524,6 +562,7 @@ class BloomBlock(nn.Module):
             alibi=alibi,
             head_mask=head_mask,
             use_cache=use_cache,
+            adapter_data=adapter_data,
             output_attentions=output_attentions,
         )
 
@@ -540,7 +579,7 @@ class BloomBlock(nn.Module):
             residual = attention_output
 
         # MLP.
-        output = self.mlp(layernorm_output, residual)
+        output = self.mlp(layernorm_output, residual, adapter_data=adapter_data)
 
         if use_cache:
             outputs = (output,) + outputs
@@ -669,6 +708,7 @@ class BloomModel(BloomPreTrainedModel):
         head_mask: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
+        adapter_data: Optional[AdapterBatchData] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
@@ -773,6 +813,7 @@ class BloomModel(BloomPreTrainedModel):
                 attention_mask=causal_mask,
                 head_mask=head_mask[i],
                 use_cache=use_cache,
+                adapter_data=adapter_data,
                 output_attentions=output_attentions,
                 alibi=alibi,
             )
@@ -817,10 +858,12 @@ class BloomForCausalLM(BloomPreTrainedModel):
         super().__init__(config)
         self.transformer = BloomModel(config, weights)
 
-        self.lm_head = TensorParallelHead.load(
-            config,
-            prefix="word_embeddings",
-            weights=weights,
+        self.lm_head = TensorParallelAdapterRowLinear.load(
+            TensorParallelHead.load(
+                config,
+                prefix="word_embeddings",
+                weights=weights,
+            ), 0, LM_HEAD, process_group=weights.process_group
         )
 
     def prepare_inputs_for_generation(
@@ -863,6 +906,7 @@ class BloomForCausalLM(BloomPreTrainedModel):
         inputs_embeds: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         use_cache: Optional[bool] = None,
+        adapter_data: Optional[AdapterBatchData] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
@@ -895,13 +939,14 @@ class BloomForCausalLM(BloomPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
             use_cache=use_cache,
+            adapter_data=adapter_data,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
         hidden_states = transformer_outputs[0]
 
-        lm_logits = self.lm_head(hidden_states)
+        lm_logits = self.lm_head(hidden_states, adapter_data)
         loss = None
 
         if not return_dict:

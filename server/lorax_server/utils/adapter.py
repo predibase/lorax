@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import os
 from collections import defaultdict
 from functools import lru_cache
@@ -11,23 +12,99 @@ from loguru import logger
 from peft import LoraConfig
 from peft.utils import transpose
 from safetensors.torch import load_file, save_file
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 from tqdm import tqdm
 from filelock import FileLock
 
+from lorax_server.pb import generate_pb2
 from lorax_server.utils.sources import get_model_source, get_config_path, weight_files
+from lorax_server.utils.merges.strategies import merge_adapters    
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
 
 
+ModuleMap = Dict[str, Dict[str, Tuple[torch.Tensor, str]]]
+
+
+@dataclass
+class AdapterParametersContainer:
+    adapter_parameters: generate_pb2.AdapterParameters
+    adapter_source: str
+    adapter_index: int
+    
+    def __hash__(self) -> int:
+        return self.adapter_index
+
+
+def is_base_model(adapter_parameters: generate_pb2.AdapterParameters) -> bool:
+    if len(adapter_parameters.adapter_ids) != 1:
+        return False
+    return adapter_parameters.adapter_ids[0] == BASE_MODEL_ADAPTER_ID
+
+
+def load_and_merge_adapters(
+    model_id: str,
+    adapter_parameters: generate_pb2.AdapterParameters,
+    adapter_source: str,
+    adapter_index: int,
+    weight_names: Tuple[str],
+    api_token: str,
+) -> Tuple[ModuleMap, LoraConfig, Set[str], PreTrainedTokenizer]:
+    if len(adapter_parameters.adapter_ids) == 1:
+        return load_module_map(
+            model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token
+        )
+
+    adapter_params = AdapterParametersContainer(adapter_parameters, adapter_source, adapter_index)
+    return _load_and_merge(model_id, adapter_params, weight_names, api_token)
+
+
+@lru_cache(maxsize=32)
+def _load_and_merge(
+    model_id: str,
+    adapter_params: AdapterParametersContainer,
+    weight_names: Tuple[str],
+    api_token: str,
+) -> Tuple[ModuleMap, LoraConfig, Set[str], PreTrainedTokenizer]:
+    params = adapter_params.adapter_parameters
+    
+    adapters_to_merge = []
+    merged_weight_names = set()
+    tokenizer = None
+    for adapter_id in params.adapter_ids:
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            raise ValueError("Base model adapter cannot be merged.")
+        
+        module_map, adapter_config, adapter_weight_names, adapter_tokenizer = load_module_map(
+            model_id, adapter_id, adapter_params.adapter_source, weight_names, api_token,
+        )
+        
+        adapters_to_merge.append((module_map, adapter_config))
+        merged_weight_names = merged_weight_names.union(adapter_weight_names)
+        if tokenizer is None:
+            tokenizer = adapter_tokenizer
+
+    if len(adapters_to_merge) == 0:
+        raise ValueError("No adapters to merge.")
+    
+    module_map, adapter_config = merge_adapters(adapters_to_merge, params)
+    return module_map, adapter_config, merged_weight_names, tokenizer
+
+
 @lru_cache(maxsize=128)
-def load_module_map(model_id, adapter_id, adapter_source, weight_names):
-    # TODO(geoffrey): refactor this and merge parts of this function with
-    # lorax_server/utils/adapter.py::create_merged_weight_files
-    source = get_model_source(adapter_source, adapter_id, extension=".safetensors")
+def load_module_map(
+    model_id: str,
+    adapter_id: str,
+    adapter_source: str,
+    weight_names: Tuple[str],
+    api_token: str,
+) -> Tuple[ModuleMap, LoraConfig, Set[str], PreTrainedTokenizer]:
+
+    # lorax_server/utils/adapter.py::create_merged_weight_files       
+    source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
     config_path = get_config_path(adapter_id, adapter_source)
-    adapter_config = LoraConfig.from_pretrained(config_path)
+    adapter_config = LoraConfig.from_pretrained(config_path, token=api_token)
     if adapter_config.base_model_name_or_path != model_id:
         expected_config = AutoConfig.from_pretrained(model_id)
         model_config = AutoConfig.from_pretrained(
@@ -46,6 +123,12 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
                 f"Use --model-id '{adapter_config.base_model_name_or_path}' instead."
             )
 
+    try:
+        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token)
+    except Exception:
+        # Adapter does not have a tokenizer, so fallback to base model tokenizer
+        adapter_tokenizer = None
+    
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_filenames = source.weight_files()
     adapter_weights = {}
@@ -67,7 +150,7 @@ def load_module_map(model_id, adapter_id, adapter_source, weight_names):
         }
         adapter_weight_names.add(lora_a_name)
         adapter_weight_names.add(lora_b_name)
-    return module_map, adapter_config, adapter_weight_names
+    return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
 
 
 def compute_delta_weight(

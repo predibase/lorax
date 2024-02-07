@@ -32,16 +32,9 @@ from lorax_server.utils.lora import (
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [
-    Q_PROJ,
-    K_PROJ,
-    V_PROJ,
-    O_PROJ,
-    GATE_PROJ,
-    UP_PROJ,
-    DOWN_PROJ,
-    LM_HEAD,
-]
+
+# TODO(travis): re-enable LM_HEAD after resolving issues with outputs
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]  # LM_HEAD
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 
@@ -53,6 +46,7 @@ class FlashLlama(FlashCausalLM):
         adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -84,8 +78,7 @@ class FlashLlama(FlashCausalLM):
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
-        self.dynamic_adapter_loading_enabled = True
-        self.adapter_id = BASE_MODEL_ADAPTER_ID
+        dynamic_adapter_loading_enabled = True
         if len(adapter_id) > 0:
             logger.info(
                 f"Merging adapter weights from adapter_id {adapter_id} into model weights."
@@ -97,8 +90,10 @@ class FlashLlama(FlashCausalLM):
                 model_weight_filenames=filenames,
                 adapter_source=adapter_source,
             )
-            self.dynamic_adapter_loading_enabled = False
-            self.adapter_id = adapter_id
+            dynamic_adapter_loading_enabled = False
+            adapter_id = adapter_id
+        else:
+            adapter_id = BASE_MODEL_ADAPTER_ID
 
         weights = Weights(
             filenames,
@@ -108,14 +103,14 @@ class FlashLlama(FlashCausalLM):
             merged_weight_filenames=merged_weight_filenames,
         )
 
-        if config.quantize in ["gptq", "awq"]:
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
-        self.model_id = model_id
         model = FlashLlamaForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashLlama, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             num_layers=len(model.model.layers),
@@ -125,6 +120,9 @@ class FlashLlama(FlashCausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            compile=compile,
+            adapter_id=adapter_id,
+            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
 
     @property

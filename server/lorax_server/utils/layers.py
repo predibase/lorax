@@ -21,6 +21,25 @@ try:
 except ImportError:
     HAS_AWQ = False
 
+HAS_EETQ = False
+try:
+    from EETQ import quant_weights, w8_a16_gemm
+
+    HAS_EETQ = True
+except ImportError:
+    pass
+
+HAS_HQQ = True
+try:
+    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+
+    class HQQLinearLayer(HQQLinear):
+        @property
+        def weight(self) -> torch.Tensor:
+            return self.W_q
+except ImportError:
+    HAS_HQQ = False
+
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -121,6 +140,78 @@ class FastConv1D(nn.Module):
         x = torch.addmm(self.bias, input.view(-1, input.size(-1)), self.weight)
         x = x.view(size_out)
         return x
+    
+
+class EETQLinear(nn.Module):
+    """
+    EETQLinear module applies quantized linear transformation to the input tensor.
+
+    Args:
+        weight (torch.Tensor): The weight tensor for the linear transformation.
+        bias (torch.Tensor): The bias tensor for the linear transformation.
+
+    Attributes:
+        weight (torch.Tensor): The weight tensor for the linear transformation.
+        scale (torch.Tensor): The scale tensor used for quantization.
+        bias (torch.Tensor): The bias tensor for the linear transformation.
+
+    """
+
+    def __init__(
+        self,
+        weight,
+        bias,
+    ) -> None:
+        super().__init__()
+        # Get the device where the weight tensor is currently stored.
+        device = weight.device
+
+        # Transpose the weight tensor and make a contiguous copy of it on the CPU.
+        # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
+        # which can improve performance in some cases.
+        weight_transposed = torch.t(weight)
+        weight_contiguous = weight_transposed.contiguous()
+        weight_cpu = weight_contiguous.cpu()
+
+        # Quantize the weights. The quant_weights function is assumed to perform the quantization.
+        # The weights are quantized to int8 format, and the quantization is not performed in place (False).
+        weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
+
+        # Move the quantized weights and the scale back to the original device (GPU if available).
+        # The cuda() function is used to move the tensors to the GPU.
+        self.weight = weight_quantized.cuda(device)
+        self.scale = scale.cuda(device)
+
+        # If a bias is present, move it to the GPU as well. If not, set the bias to None.
+        if bias is not None:
+            self.bias = bias.cuda(device)
+        else:
+            self.bias = None
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+            """
+            Performs the forward pass of the layer.
+
+            Args:
+                input (torch.Tensor): The input tensor.
+
+            Returns:
+                torch.Tensor: The output tensor.
+            """
+            # The function w8_a16_gemm performs a matrix multiplication operation between the input and the weight of the layer.
+            # The result is then scaled by a factor (self.scale).
+            gemm_output = w8_a16_gemm(input, self.weight, self.scale)
+
+            # If a bias is present (i.e., self.bias is not None), it is added to the output of the matrix multiplication.
+            # If a bias is not present (i.e., self.bias is None), the output of the matrix multiplication is returned as is.
+            if self.bias is not None:
+                final_output = gemm_output + self.bias
+            else:
+                final_output = gemm_output
+
+            # The final output is returned.
+            return final_output
+
 
 
 class Linear8bitLt(nn.Module):
@@ -257,6 +348,13 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             bias,
             quant_type="fp4",
         )
+    elif quantize == "eetq":
+        if HAS_EETQ:
+            linear = EETQLinear(weight, bias)
+        else:
+            raise ImportError(
+                "Please install EETQ from https://github.com/NetEase-FuXi/EETQ"
+            )
     elif quantize == "gptq":
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
@@ -283,15 +381,27 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         try:
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
-            raise NotImplementedError("The passed weight is not compatible with `awq`")
-        linear = AWQLinear(
-            w_bit=bits,
-            group_size=groupsize,
-            qweight=qweight,
-            qzeros=qzeros,
-            scales=scales,
-            bias=bias is not None,
-        )
+
+            raise NotImplementedError(
+                f"The passed weight is not compatible with `awq`"
+            )
+        linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
+    elif "hqq-" in quantize:
+        if quantize == "hqq-4bit":
+            quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
+        elif quantize == "hqq-3bit":
+            quant_config = BaseQuantizeConfig(nbits=3, group_size=64, quant_zero=True, quant_scale=False)
+        elif quantize == "hqq-2bit":
+            quant_config = BaseQuantizeConfig(nbits=2, group_size=16, quant_zero=True, quant_scale=False)
+
+        # init nn.linear from weight and bias
+        layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
+        with torch.no_grad():
+            layer.weight.data = weight
+            if bias is not None:
+                layer.bias.data = bias
+        
+        linear = HQQLinearLayer(layer, quant_config, del_orig=True)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear
@@ -432,7 +542,7 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-        
+
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
@@ -443,8 +553,9 @@ class TensorParallelAdapterLinear(nn.Module):
                 lora_a_ptr = rank_segments.lora_a_ptr
                 lora_b_ptr = rank_segments.lora_b_ptr
                 if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v, tmp = lora_a_sgmv_cutlass(
+                    v = lora_a_sgmv_cutlass(
                         input,
+                        rank_segments.tmp_shrink,
                         lora_a_ptr,
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
@@ -458,7 +569,7 @@ class TensorParallelAdapterLinear(nn.Module):
                     lora_b_sgmv_cutlass(
                         proj,
                         v,
-                        tmp,
+                        rank_segments.tmp_expand,
                         lora_b_ptr,
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
@@ -520,17 +631,32 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
         self, input: torch.Tensor, adapter_data: AdapterBatchData
     ) -> torch.Tensor:
         result = self.base_layer(input)
+        
+        # handle models like Bloom that have inputs of shape
+        # (batch_size, sequence_length, hidden_size)
+        # we need to reshape them to (batch_size * sequence_length, hidden_size)
+        # for the LoRA computation, then reshape back
+        prev_shape = result.shape
+        is_3d = len(input.shape) >= 3
+        if is_3d:
+            input = input.reshape(-1, input.shape[-1])
+            result = result.reshape(-1, result.shape[-1])
 
         offset = 0
         for i, layer_name in enumerate(self.layer_names):
             start_idx = offset // self.process_group.size()
 
-            offset += self.sizes[i]
-            end_idx = offset // self.process_group.size()
 
-            result = self.forward_layer_type(
-                result, input, adapter_data, layer_name, start_idx, end_idx
-            )
+            if self.sizes is not None:
+                offset += self.sizes[i]
+                end_idx = offset // self.process_group.size()
+            else:
+                end_idx = result.shape[1]
+            
+            result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
+        
+        if is_3d:
+            result = result.reshape(prev_shape)
 
         return result
 
@@ -720,7 +846,7 @@ try:
         return getattr(config, "rope_scaling", None)
 
     class PositionRotaryEmbedding(nn.Module):
-        def __init__(self, inv_freq, scaling_factor):
+        def __init__(self, inv_freq, scaling_factor, max_position_embeddings, device, dtype):
             super().__init__()
             self.inv_freq = inv_freq
             self._seq_len_cached = 0
@@ -730,9 +856,10 @@ try:
             self._sin_k_cached = None
             self.scaling_factor = scaling_factor
             self.dynamic_args = None
+            self._update_cos_sin_cache(dtype, device, max_position_embeddings)
 
         @classmethod
-        def static(cls, config, dim, base, device):
+        def static(cls, config, dim, base, device, dtype):
             inv_freq = _create_inv_freq(dim, base, device)
             scaling_factor = None
             rope_scaling = _get_rope_config(config)
@@ -748,6 +875,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=base,
                         device=inv_freq.device,
+                        dtype=dtype,
                         scaling_factor=scaling_factor,
                     )
                 elif rope_type == "yarn":
@@ -756,13 +884,14 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=base,
                         device=inv_freq.device,
+                        dtype=dtype,
                         **rope_scaling,
                     )
                 else:
                     raise NotImplementedError(
                         f"rope scaling type {rope_type} is not implemented or invalid"
                     )
-            return cls(inv_freq, scaling_factor)
+            return cls(inv_freq, scaling_factor, config.max_position_embeddings, device, dtype)
 
         @classmethod
         def load(cls, config, prefix, weights):
@@ -786,6 +915,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=10000.0,
                         device=inv_freq.device,
+                        dtype=dtype,
                         scaling_factor=scaling_factor,
                     )
                 elif rope_type == "yarn":
@@ -794,6 +924,7 @@ try:
                         max_position_embeddings=config.max_position_embeddings,
                         base=10000.0,
                         device=inv_freq.device,
+                        dtype=dtype,
                         **rope_scaling,
                     )
                 else:
@@ -827,9 +958,6 @@ try:
             """
             Return cos and sin for the asked position ids
             """
-
-            self._update_cos_sin_cache(dtype, position_ids.device, max_s)
-
             cos = torch.index_select(self._cos_cached, 0, position_ids)
             sin = torch.index_select(self._sin_cached, 0, position_ids)
             return cos.unsqueeze(1), sin.unsqueeze(1)
@@ -843,12 +971,12 @@ try:
             return x
 
     class DynamicPositionRotaryEmbedding(PositionRotaryEmbedding):
-        def __init__(self, dim, max_position_embeddings, base, device, scaling_factor):
+        def __init__(self, dim, max_position_embeddings, base, device, dtype, scaling_factor):
             inv_freq = _create_inv_freq(dim, base, device)
-            super().__init__(inv_freq, scaling_factor)
             self.dim = dim
             self.max_position_embeddings = max_position_embeddings
             self.base = base
+            super().__init__(inv_freq, scaling_factor, max_position_embeddings, device, dtype)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
@@ -891,8 +1019,8 @@ try:
             beta_slow=1,
             finetuned=True,
             device=None,
+            dtype=None,
         ):
-            super().__init__(_create_inv_freq(dim, base, device), factor)
             self.dim = dim
             self.max_position_embeddings = max_position_embeddings
             self.base = base
@@ -903,7 +1031,8 @@ try:
             self.beta_slow = beta_slow
             self.finetuned = finetuned
 
-            self.yarn(device)
+            self.yarn(device, factor)
+            super().__init__(_create_inv_freq(dim, base, device), factor, max_position_embeddings, device, dtype)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             if (
@@ -921,12 +1050,11 @@ try:
                 self._cos_cached = (torch.cos(freqs) * self.mscale).to(dtype)
                 self._sin_cached = (torch.sin(freqs) * self.mscale).to(dtype)
 
-        def yarn(self, device):
-            pos_freqs = self.base ** (
-                torch.arange(0, self.dim, 2).float().to(device) / self.dim
-            )
+        
+        def yarn(self, device, scaling_factor):
+            pos_freqs = self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
             inv_freq_extrapolation = 1.0 / pos_freqs
-            inv_freq_interpolation = 1.0 / (self.scaling_factor * pos_freqs)
+            inv_freq_interpolation = 1.0 / (scaling_factor * pos_freqs)
 
             low, high = find_correction_range(
                 self.beta_fast,
@@ -944,9 +1072,8 @@ try:
             )
 
             self.inv_freq = inv_freq
-            self.mscale = float(
-                get_mscale(self.scaling_factor) * self.attn_factor
-            )  # Get n-d magnitude scaling corrected for interpolation
+
+            self.mscale = float(get_mscale(scaling_factor) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
 
     # Inverse dim formula to find dim based on number of rotations
     def find_correction_dim(

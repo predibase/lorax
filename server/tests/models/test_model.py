@@ -14,10 +14,11 @@ def get_test_model():
         def generate_token(self, batch):
             raise NotImplementedError
 
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
+    model_id = "meta-llama/Llama-2-7b-hf"
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     model = TestModel(
-        torch.nn.Linear(1, 1), tokenizer, False, torch.float32, torch.device("cpu")
+        model_id, torch.nn.Linear(1, 1), tokenizer, False, torch.float32, torch.device("cpu")
     )
     return model
 

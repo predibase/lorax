@@ -1,11 +1,13 @@
 /// HTTP Server logic
+use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, CompatGenerateRequest, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken,
-    StreamDetails, StreamResponse, Token, Validation,
+    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
+    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
+    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -18,6 +20,7 @@ use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use once_cell::sync::OnceCell;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -25,10 +28,13 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+static MODEL_ID: OnceCell<String> = OnceCell::new();
+pub static DEFAULT_ADAPTER_SOURCE: OnceCell<String> = OnceCell::new();
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
 #[utoipa::path(
@@ -74,6 +80,130 @@ async fn compat_generate(
         let (headers, generation) = generate(infer, Json(req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
+    }
+}
+
+/// OpenAI compatible completions endpoint
+#[utoipa::path(
+post,
+tag = "LoRAX",
+path = "/v1/completions",
+request_body = CompletionRequest,
+responses(
+(status = 200, description = "Generated Text",
+content(
+("application/json" = CompletionResponse),
+("text/event-stream" = CompletionStreamResponse),
+)),
+(status = 424, description = "Generation Error", body = ErrorResponse,
+example = json ! ({"error": "Request failed during generation"})),
+(status = 429, description = "Model is overloaded", body = ErrorResponse,
+example = json ! ({"error": "Model is overloaded"})),
+(status = 422, description = "Input validation error", body = ErrorResponse,
+example = json ! ({"error": "Input validation error"})),
+(status = 500, description = "Incomplete generation", body = ErrorResponse,
+example = json ! ({"error": "Incomplete generation"})),
+)
+)]
+#[instrument(skip(infer, req))]
+async fn completions_v1(
+    default_return_full_text: Extension<bool>,
+    infer: Extension<Infer>,
+    req: Json<CompletionRequest>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let req = req.0;
+    let mut gen_req = CompatGenerateRequest::from(req);
+
+    // default return_full_text given the pipeline_tag
+    if gen_req.parameters.return_full_text.is_none() {
+        gen_req.parameters.return_full_text = Some(default_return_full_text.0)
+    }
+
+    // switch on stream
+    if gen_req.stream {
+        let callback = move |resp: StreamResponse| {
+            Event::default()
+                .json_data(CompletionStreamResponse::from(resp))
+                .map_or_else(
+                    |err| {
+                        tracing::error!("Failed to serialize CompletionStreamResponse: {err}");
+                        Event::default()
+                    },
+                    |data| data,
+                )
+        };
+
+        let (headers, stream) =
+            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+        Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
+    } else {
+        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
+        // wrap generation inside a Vec to match api-inference
+        Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
+    }
+}
+
+/// OpenAI compatible chat completions endpoint
+#[utoipa::path(
+post,
+tag = "LoRAX",
+path = "/v1/chat/completions",
+request_body = ChatCompletionRequest,
+responses(
+(status = 200, description = "Generated Text",
+content(
+("application/json" = ChatCompletionResponse),
+("text/event-stream" = ChatCompletionStreamResponse),
+)),
+(status = 424, description = "Generation Error", body = ErrorResponse,
+example = json ! ({"error": "Request failed during generation"})),
+(status = 429, description = "Model is overloaded", body = ErrorResponse,
+example = json ! ({"error": "Model is overloaded"})),
+(status = 422, description = "Input validation error", body = ErrorResponse,
+example = json ! ({"error": "Input validation error"})),
+(status = 500, description = "Incomplete generation", body = ErrorResponse,
+example = json ! ({"error": "Incomplete generation"})),
+)
+)]
+#[instrument(skip(infer, req))]
+async fn chat_completions_v1(
+    default_return_full_text: Extension<bool>,
+    infer: Extension<Infer>,
+    req: Json<ChatCompletionRequest>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let req = req.0;
+    let mut gen_req = CompatGenerateRequest::from(req);
+
+    // default return_full_text given the pipeline_tag
+    if gen_req.parameters.return_full_text.is_none() {
+        gen_req.parameters.return_full_text = Some(default_return_full_text.0)
+    }
+
+    // switch on stream
+    if gen_req.stream {
+        let callback = move |resp: StreamResponse| {
+            Event::default()
+                .json_data(ChatCompletionStreamResponse::from(resp))
+                .map_or_else(
+                    |err| {
+                        tracing::error!("Failed to serialize ChatCompletionStreamResponse: {err}");
+                        Event::default()
+                    },
+                    |data| data,
+                )
+        };
+
+        let (headers, stream) =
+            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+        Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
+    } else {
+        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
+        // wrap generation inside a Vec to match api-inference
+        Ok((
+            headers,
+            Json(vec![ChatCompletionResponse::from(generation.0)]),
+        )
+            .into_response())
     }
 }
 
@@ -161,6 +291,11 @@ async fn generate(
     }
 
     let details = req.0.parameters.details || req.0.parameters.decoder_input_details;
+    let (adapter_source, adapter_parameters) = extract_adapter_params(
+        req.0.parameters.adapter_id.clone(),
+        req.0.parameters.adapter_source.clone(),
+        req.0.parameters.adapter_parameters.clone(),
+    );
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -170,6 +305,10 @@ async fn generate(
         }
         _ => (infer.generate(req.0).await?, None),
     };
+
+    let generated_tokens = response.generated_text.generated_tokens;
+    let prompt_tokens = response.prompt_tokens;
+    let total_tokens = prompt_tokens + generated_tokens;
 
     // Token details
     let details = match details {
@@ -201,7 +340,8 @@ async fn generate(
 
             Some(Details {
                 finish_reason: FinishReason::from(response.generated_text.finish_reason),
-                generated_tokens: response.generated_text.generated_tokens,
+                prompt_tokens: prompt_tokens,
+                generated_tokens: generated_tokens,
                 prefill: response.prefill,
                 tokens: response.tokens,
                 seed: response.generated_text.seed,
@@ -242,14 +382,14 @@ async fn generate(
         total_time.as_millis().to_string().parse().unwrap(),
     );
     headers.insert(
-        "x-total-tokens",
-        response
-            .generated_text
-            .generated_tokens
-            .to_string()
-            .parse()
-            .unwrap(),
+        "x-prompt-tokens",
+        prompt_tokens.to_string().parse().unwrap(),
     );
+    headers.insert(
+        "x-generated-tokens",
+        generated_tokens.to_string().parse().unwrap(),
+    );
+    headers.insert("x-total-tokens", total_tokens.to_string().parse().unwrap());
     headers.insert(
         "x-validation-time",
         validation_time.as_millis().to_string().parse().unwrap(),
@@ -266,6 +406,22 @@ async fn generate(
         "x-time-per-token",
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
+
+    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+
+    let adapter_id_string = adapter_parameters
+        .adapter_ids
+        .iter()
+        .map(|id| id.as_str())
+        // filter out base model adapter id
+        .filter(|id| *id != BASE_MODEL_ADAPTER_ID)
+        .collect::<Vec<_>>()
+        .join(",");
+
+    if adapter_id_string.len() > 0 {
+        headers.insert("x-adapter-ids", adapter_id_string.parse().unwrap());
+        headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
+    }
 
     // Metrics
     metrics::increment_counter!("lorax_request_success");
@@ -346,6 +502,16 @@ async fn generate_stream(
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
+    let callback = |resp: StreamResponse| Event::default().json_data(resp).unwrap();
+    let (headers, stream) = generate_stream_with_callback(infer, req, callback).await;
+    (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+async fn generate_stream_with_callback(
+    infer: Extension<Infer>,
+    req: Json<GenerateRequest>,
+    callback: impl Fn(StreamResponse) -> Event,
+) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
@@ -366,6 +532,8 @@ async fn generate_stream(
         // Inference
         let mut end_reached = false;
         let mut error = false;
+
+        let mut prefill_tokens_length = 0;
 
         let mut add_prompt = None;
         if req.0.parameters.return_full_text.unwrap_or(false) {
@@ -394,7 +562,12 @@ async fn generate_stream(
                             Ok(response) => {
                                 match response {
                                     // Prefill is ignored
-                                    InferStreamResponse::Prefill(_) => {}
+                                    InferStreamResponse::Prefill {
+                                        tokens_length,
+                                        ..
+                                    } => {
+                                        prefill_tokens_length = tokens_length;
+                                    }
                                     // Yield event for every new token
                                     InferStreamResponse::Token(token) => {
                                         tracing::debug!(parent: &span, "Token: {:?}", token);
@@ -406,7 +579,7 @@ async fn generate_stream(
                                             details: None,
                                         };
 
-                                        yield Ok(Event::default().json_data(stream_token).unwrap())
+                                        yield Ok(callback(stream_token))
                                     }
                                     // Yield event for last token and compute timings
                                     InferStreamResponse::End {
@@ -419,6 +592,7 @@ async fn generate_stream(
                                         let details = match details {
                                             true => Some(StreamDetails {
                                                 finish_reason: FinishReason::from(generated_text.finish_reason),
+                                                prompt_tokens: prefill_tokens_length,
                                                 generated_tokens: generated_text.generated_tokens,
                                                 seed: generated_text.seed,
                                             }),
@@ -466,7 +640,7 @@ async fn generate_stream(
                                             details
                                         };
 
-                                        yield Ok(Event::default().json_data(stream_token).unwrap());
+                                        yield Ok(callback(stream_token));
                                         break;
                                     }
                                 }
@@ -497,7 +671,7 @@ async fn generate_stream(
         }
     };
 
-    (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
+    (headers, stream)
 }
 
 /// Prometheus metrics scrape endpoint
@@ -532,10 +706,14 @@ pub async fn run(
     tokenizer: Option<Tokenizer>,
     validation_workers: usize,
     addr: SocketAddr,
-    allow_origin: Option<AllowOrigin>,
+    cors_allow_origin: Option<AllowOrigin>,
+    cors_allow_methods: Option<AllowMethods>,
+    cors_allow_credentials: Option<AllowCredentials>,
+    cors_allow_headers: Option<AllowHeaders>,
     ngrok: bool,
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
+    adapter_source: String,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -604,6 +782,8 @@ pub async fn run(
         generation_health,
     );
 
+    let model_id = model_info.model_id.clone();
+
     // Duration buckets
     let duration_matcher = Matcher::Suffix(String::from("duration"));
     let n_duration_buckets = 35;
@@ -651,11 +831,26 @@ pub async fn run(
         .expect("failed to install metrics recorder");
 
     // CORS layer
-    let allow_origin = allow_origin.unwrap_or(AllowOrigin::any());
+    let cors_allow_origin = cors_allow_origin.unwrap_or(AllowOrigin::any());
+    // unwrap allow methods with default get and post
+    let cors_allow_methods =
+        cors_allow_methods.unwrap_or(AllowMethods::list(vec![Method::GET, Method::POST]));
+
+    let cors_allow_headers =
+        cors_allow_headers.unwrap_or(AllowHeaders::list(vec![http::header::CONTENT_TYPE]));
+
+    let cors_allow_credentials = cors_allow_credentials.unwrap_or(AllowCredentials::default());
+
+    // log cors stuff
+    tracing::info!(
+        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, credentials: {cors_allow_credentials:?}",
+    );
+
     let cors_layer = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([http::header::CONTENT_TYPE])
-        .allow_origin(allow_origin);
+        .allow_methods(cors_allow_methods)
+        .allow_headers(cors_allow_headers)
+        .allow_credentials(cors_allow_credentials)
+        .allow_origin(cors_allow_origin);
 
     // Endpoint info
     let info = Info {
@@ -678,6 +873,15 @@ pub async fn run(
         docker_label: option_env!("DOCKER_LABEL"),
     };
 
+    MODEL_ID.set(model_id.clone()).unwrap_or_else(|_| {
+        panic!("MODEL_ID was already set!");
+    });
+    DEFAULT_ADAPTER_SOURCE
+        .set(adapter_source.clone())
+        .unwrap_or_else(|_| {
+            panic!("DEFAULT_ADAPTER_SOURCE was already set!");
+        });
+
     // Create router
     let app = Router::new()
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
@@ -686,6 +890,8 @@ pub async fn run(
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
         .route("/generate_stream", post(generate_stream))
+        .route("/v1/completions", post(completions_v1))
+        .route("/v1/chat/completions", post(chat_completions_v1))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate))
         // Base Health route

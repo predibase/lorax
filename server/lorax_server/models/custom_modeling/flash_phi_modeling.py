@@ -31,37 +31,29 @@ from lorax_server.utils.layers import (
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData
 
 
-ATTN_WQKV = "mixer.Wqkv"
-ATTN_OUT_PROJ = "mixer.out_proj"
+ATTN_Q_PROJ = "self_attn.q_proj"
+ATTN_K_PROJ = "self_attn.k_proj"
+ATTN_V_PROJ = "self_attn.v_proj"
+ATTN_DENSE = "self_attn.dense"
 MLP_FC1 = "mlp.fc1"
 MLP_FC2 = "mlp.fc2"
 
 
 def load_attention(config, prefix, weights, layer_id, head_dim, n_head, n_head_kv):
-    op_size = head_dim * (n_head + 2 * n_head_kv)
-    base_layer = load_attention_multi(
-        config, prefix, weights, head_dim, n_head, n_head_kv
-    )
+    base_layer = load_attention_multi(config, prefix, weights, head_dim, n_head, n_head_kv)
     return TensorParallelMultiAdapterLinear.load(
-        base_layer,
-        layer_id,
-        [ATTN_WQKV],
-        sizes=[op_size],
-        process_group=weights.process_group,
+        base_layer, layer_id, [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ], sizes=[
+            head_dim * n_head,
+            head_dim * n_head_kv,
+            head_dim * n_head_kv,
+        ], process_group=weights.process_group
     )
 
 
 def load_attention_multi(config, prefix, weights, head_dim, n_head, n_head_kv):
     return TensorParallelColumnLinear.load_multi(
         config,
-        prefixes=[
-            (f"{prefix}.Wqkv", (0, head_dim * n_head)),
-            (f"{prefix}.Wqkv", (head_dim * n_head, head_dim * n_head_kv)),
-            (
-                f"{prefix}.Wqkv",
-                ((head_dim * n_head) + (head_dim * n_head_kv), head_dim * n_head_kv),
-            ),
-        ],
+        prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
         dim=0,
         weights=weights,
         bias=True,
@@ -77,19 +69,21 @@ class FlashPhiAttention(torch.nn.Module):
         layer_id: int,
     ):
         super().__init__()
-        self.num_heads = config.n_head
-        self.hidden_size = config.n_embd
+        self.num_heads = config.num_attention_heads
+        self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
         self.process_group = weights.process_group
 
         rope_theta = 10000
         config.max_position_embeddings = getattr(config, "n_positions", 2048)
 
+        rotary_dim = int(config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads))
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
-            dim=config.rotary_dim,
+            dim=rotary_dim,
             base=rope_theta,
             device=weights.device,
+            dtype=weights.dtype,
         )
 
         self.softmax_scale = self.head_size**-0.5
@@ -101,26 +95,13 @@ class FlashPhiAttention(torch.nn.Module):
             )
         self.num_key_value_heads = getattr(config, "n_head_kv", None) or self.num_heads
 
-        self.Wqkv = load_attention(
+        self.qkv_proj = load_attention(config, prefix, weights, layer_id, self.head_size, self.num_heads, self.num_key_value_heads)
+        self.dense = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
             config,
-            prefix,
-            weights,
-            layer_id,
-            self.head_size,
-            self.num_heads,
-            self.num_key_value_heads,
-        )
-        self.out_proj = TensorParallelAdapterRowLinear.load(
-            TensorParallelRowLinear.load(
-                config,
-                prefix=f"{prefix}.out_proj",
-                weights=weights,
-                bias=True,
-            ),
-            layer_id,
-            ATTN_OUT_PROJ,
-            process_group=weights.process_group,
-        )
+            prefix=f"{prefix}.dense",
+            weights=weights,
+            bias=True,
+        ), layer_id, ATTN_DENSE, process_group=weights.process_group)
 
         # After initializing layers, scale num heads by num shards for use in forward() to split outputs
         self.num_heads = self.num_heads // weights.process_group.size()
@@ -147,7 +128,7 @@ class FlashPhiAttention(torch.nn.Module):
         max_s,
         adapter_data,
     ):
-        qkv = self.Wqkv(hidden_states, adapter_data)
+        qkv = self.qkv_proj(hidden_states, adapter_data)
         query, kv = qkv.split(
             [
                 self.head_size * self.num_heads,
@@ -195,15 +176,13 @@ class FlashPhiAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.out_proj(
-            attn_output.view(-1, self.num_heads * self.head_size), adapter_data
-        )
+        return self.dense(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
 class PhiMLP(nn.Module):
     def __init__(self, prefix, config, weights, layer_id):
         super().__init__()
-        act = config.activation_function
+        act = config.hidden_act
         self.act = (
             ACT2FN[act]
             if "gelu" not in act
@@ -253,19 +232,13 @@ class PhiMLP(nn.Module):
 class FlashPhiLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.h.{layer_id}"
-
-        self.ln = FastLayerNorm.load(
-            prefix=f"{prefix}.ln", weights=weights, eps=config.layer_norm_epsilon
+        prefix = f"model.layers.{layer_id}"
+        
+        self.input_layernorm = FastLayerNorm.load(
+            prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.layer_norm_eps
         )
-        self.mixer = FlashPhiAttention(
-            prefix=f"{prefix}.mixer",
-            config=config,
-            weights=weights,
-            layer_id=layer_id,
-        )
-        self.mlp = PhiMLP(
-            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        self.self_attn = FlashPhiAttention(
+            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
         self.process_group = weights.process_group
 
@@ -283,9 +256,9 @@ class FlashPhiLayer(nn.Module):
         max_s,
         adapter_data,
     ):
-        normed_hidden_states, _ = self.ln(hidden_states, residual=None)
+        normed_hidden_states, _ = self.input_layernorm(hidden_states, residual=None)
 
-        attn_output = self.mixer(
+        attn_output = self.self_attn(
             normed_hidden_states,
             cos,
             sin,
@@ -314,25 +287,28 @@ class FlashPhiModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embd = TensorParallelEmbedding(
-            prefix="transformer.embd.wte", weights=weights
+        self.embed_tokens = TensorParallelEmbedding(
+            prefix="model.embed_tokens", weights=weights
         )
-        self.h = nn.ModuleList(
+        self.layers = nn.ModuleList(
             [
                 FlashPhiLayer(
                     layer_id,
                     config,
                     weights,
                 )
-                for layer_id in range(config.n_layer)
+                for layer_id in range(config.num_hidden_layers)
             ]
+        )
+        self.final_layernorm = FastLayerNorm.load(
+            prefix="model.final_layernorm", weights=weights, eps=config.layer_norm_eps
         )
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.h[0].mixer.head_size
-        self.num_heads = self.h[0].mixer.num_heads
-        self.num_key_value_heads = self.h[0].mixer.num_key_value_heads
+        self.head_size = self.layers[0].self_attn.head_size
+        self.num_heads = self.layers[0].self_attn.num_heads
+        self.num_key_value_heads = self.layers[0].self_attn.num_key_value_heads
 
     def forward(
         self,
@@ -346,16 +322,16 @@ class FlashPhiModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
-        hidden_states = self.embd(input_ids)
+        hidden_states = self.embed_tokens(input_ids)
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.h[0].mixer.rotary_emb.get_cos_sin(
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
             position_ids, max_s, hidden_states.dtype
         )
 
         residual = None
-        for i, layer in enumerate(self.h):
+        for i, layer in enumerate(self.layers):
             hidden_states, residual = layer(
                 hidden_states,
                 residual,
@@ -369,32 +345,8 @@ class FlashPhiModel(torch.nn.Module):
                 max_s,
                 adapter_data,
             )
-
-        return hidden_states
-
-
-class PhiCausalLMHead(torch.nn.Module):
-    def __init__(self, config, weights):
-        super().__init__()
-
-        prefix = "lm_head"
-        self.ln = FastLayerNorm.load(
-            prefix=f"{prefix}.ln", weights=weights, eps=config.layer_norm_epsilon
-        )
-        self.linear = TensorParallelAdapterRowLinear.load(
-            TensorParallelHead.load(
-                config,
-                prefix=f"{prefix}.linear",
-                weights=weights,
-            ),
-            0,
-            LM_HEAD,
-            process_group=weights.process_group,
-        )
-
-    def forward(self, hidden_states, adapter_data):
-        hidden_states, _ = self.ln(hidden_states)
-        hidden_states = self.linear(hidden_states, adapter_data)
+        
+        hidden_states, _ = self.final_layernorm(hidden_states)
         return hidden_states
 
 
@@ -402,8 +354,13 @@ class FlashPhiForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
-        self.transformer = FlashPhiModel(config, weights)
-        self.lm_head = PhiCausalLMHead(config, weights)
+
+        self.model = FlashPhiModel(config, weights)
+        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
+            config,
+            prefix="lm_head",
+            weights=weights,
+        ), 0, LM_HEAD, process_group=weights.process_group)
 
     def forward(
         self,
@@ -418,7 +375,7 @@ class FlashPhiForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        hidden_states = self.transformer(
+        hidden_states = self.model(
             input_ids,
             position_ids,
             cu_seqlen_prefill,

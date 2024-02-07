@@ -17,6 +17,10 @@ class Quantization(str, Enum):
     bitsandbytes_fp4 = "bitsandbytes-fp4"
     gptq = "gptq"
     awq = "awq"
+    eetq = "eetq"
+    hqq_4bit = "hqq-4bit"
+    hqq_3bit = "hqq-3bit"
+    hqq_2bit = "hqq-2bit"
 
 
 class Dtype(str, Enum):
@@ -31,6 +35,7 @@ def serve(
     revision: Optional[str] = None,
     sharded: bool = False,
     quantize: Optional[Quantization] = None,
+    compile: bool = False,
     dtype: Optional[Dtype] = None,
     trust_remote_code: bool = False,
     uds_path: Path = "/tmp/lorax-server",
@@ -82,16 +87,7 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id,
-        adapter_id,
-        revision,
-        sharded,
-        quantize,
-        dtype,
-        trust_remote_code,
-        uds_path,
-        source,
-        adapter_source,
+        model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, uds_path, source, adapter_source
     )
 
 
@@ -101,12 +97,12 @@ def _download_weights(
     extension: str = ".safetensors",
     auto_convert: bool = True,
     source: str = "hub",
+    api_token: Optional[str] = None,
 ):
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
     from lorax_server.utils import sources
-
-    model_source = sources.get_model_source(source, model_id, revision, extension)
+    model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
 
     # Test if files were already download
     try:
@@ -196,6 +192,7 @@ def download_weights(
     source: str = "hub",
     adapter_id: str = "",
     adapter_source: str = "hub",
+    api_token: Optional[str] = None,
 ):
     # Remove default handler
     logger.remove()
@@ -208,9 +205,9 @@ def download_weights(
         backtrace=True,
         diagnose=False,
     )
-    _download_weights(model_id, revision, extension, auto_convert, source)
+    _download_weights(model_id, revision, extension, auto_convert, source, api_token)
     if adapter_id:
-        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source)
+        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
 
 
 @app.command()

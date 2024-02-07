@@ -102,6 +102,8 @@ message Request {
     bool prefill_logprobs = 6;
     /// Adapter index
     uint32 adapter_index = 7;
+    /// Apply chat template to inputs
+    bool apply_chat_template = 8;
 }
 
 message Batch {
@@ -167,6 +169,8 @@ message Generation {
     bool token_is_special = 6;
     /// Complete generated text
     optional GeneratedText generated_text = 7;
+    /// Prefill tokens length
+    uint32 prefill_tokens_length = 8;
 }
 
 message FilterBatchRequest {
@@ -228,9 +232,48 @@ enum AdapterSource {
     PBASE = 3;
 }
 
+enum MergeStrategy {
+    /// Linear combination of adapters
+    LINEAR = 0;
+
+    /// TIES method for combining adapters
+    TIES = 1;
+
+    /// DARE method for combining adapters
+    DARE_LINEAR = 2;
+
+    /// DARE + TIES method for combining adapters
+    DARE_TIES = 3;
+}
+
+enum MajoritySignMethod {
+    /// Total method
+    TOTAL = 0;
+
+    /// Frequency method
+    FREQUENCY = 1;
+}
+
+message AdapterParameters {
+    /// Adapter IDs
+    repeated string adapter_ids = 1;
+    
+    /// Adapter weights for merging
+    repeated float weights = 2;
+
+    /// Merge strategy (default: linear)
+    MergeStrategy merge_strategy = 3;
+
+    /// [0, 1], 0: full pruning, 1: no pruning
+    float density = 4;
+
+    /// Majority sign method (default: total)
+    MajoritySignMethod majority_sign_method = 5;
+}
+
 message DownloadAdapterRequest {
-    /// Adapter ID
-    string adapter_id = 1;
+    /// Adapter Parameters
+    AdapterParameters adapter_parameters = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
     /// Token for external API (predibase / HuggingFace)
@@ -238,15 +281,13 @@ message DownloadAdapterRequest {
 }
 
 message DownloadAdapterResponse {
-    /// Adapter ID
-    string adapter_id = 1;
-    /// Adapter source
-    AdapterSource adapter_source = 2;
+    /// True if download occurred, false if skipped
+    bool downloaded = 1;
 }
 
 message LoadAdapterRequest {
-    /// Adapter ID
-    string adapter_id = 1;
+    /// Adapter Parameters
+    AdapterParameters adapter_parameters = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
     /// Adapter index
@@ -256,17 +297,13 @@ message LoadAdapterRequest {
 }
 
 message LoadAdapterResponse {
-    /// Adapter ID
-    string adapter_id = 1;
-    /// Adapter source
-    AdapterSource adapter_source = 2;
-    /// Adapter index
-    uint32 adapter_index = 3;
+    /// True if load occurred, false if skipped
+    bool loaded = 1;
 }
 
 message OffloadAdapterRequest {
-    /// Adapter ID
-    string adapter_id = 1;
+    /// Adapter Parameters
+    AdapterParameters adapter_parameters = 1;
     /// Adapter source
     AdapterSource adapter_source = 2;
     /// Adapter index
@@ -274,10 +311,6 @@ message OffloadAdapterRequest {
 }
 
 message OffloadAdapterResponse {
-    /// Adapter ID
-    string adapter_id = 1;
-    /// Adapter source
-    AdapterSource adapter_source = 2;
-    /// Adapter index
-    uint32 adapter_index = 3;
+    /// True if offload occurred, false if skipped
+    bool offloaded = 1;
 }

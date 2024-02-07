@@ -3,6 +3,7 @@ import pytest
 from lorax_server.pb import generate_pb2
 from lorax_server.models.causal_lm import CausalLMBatch
 from lorax_server.models.santacoder import SantaCoder
+from lorax_server.utils.tokenizer import TokenizerManager
 
 
 @pytest.fixture(scope="session")
@@ -49,6 +50,7 @@ def test_santacoder_generate_token_completion(default_santacoder, default_pb_bat
     batch = CausalLMBatch.from_pb(
         default_pb_batch,
         default_santacoder.tokenizer,
+        TokenizerManager(),
         default_santacoder.dtype,
         default_santacoder.device,
     )
@@ -77,6 +79,7 @@ def test_fim_santacoder_generate_token_completion(
     batch = CausalLMBatch.from_pb(
         default_fim_pb_batch,
         default_santacoder.tokenizer,
+        TokenizerManager(),
         default_santacoder.dtype,
         default_santacoder.device,
     )

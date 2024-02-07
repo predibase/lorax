@@ -26,68 +26,142 @@ def ext_gemm_half_q_half(x, q_handle, q4_width, force_cuda):
     return output.view(output_shape)
 
 
-def ext_make_q_matrix(w: dict, temp_dq, key: str = None):
+def make_group_map(q_groups, num_qrows):
+    # Convert q_groups to a list
+    gr = q_groups.tolist()
+
+    # Initialize an empty list for group_map
+    group_map = []
+
+    # Calculate the number of groups
+    num_groups = len(gr) // 2
+
+    # Loop through each group
+    for i in range(num_groups):
+        # Get the number of bits for the current group
+        bits = gr[i * 2]
+
+        # Calculate the number of qrows for the current group
+        if i < num_groups - 1:
+            qrows = gr[i * 2 + 3] - gr[i * 2 + 1]
+        else:
+            qrows = num_qrows - gr[i * 2 + 1]
+
+        # Calculate the number of rows for the current group
+        rows = qrows * 32 // bits
+
+        # Loop through each row in the current group
+        for j in range(rows):
+            # Add the current group index to the group_map
+            group_map.append(i)
+
+            # Add the remaining rows to the group_map
+            remaining_rows = rows - j
+            group_map.append(remaining_rows)
+
+    # Convert the group_map to a torch tensor and return it
+    group_map_tensor = torch.tensor(group_map, dtype=torch.short, device=q_groups.device)
+    return group_map_tensor
+
+
+def ext_make_q_matrix(w: dict, temp_dq):
     """
     Create Q matrix
     """
-    # EXL2
-    # won't work as the moment because the tensors are not the same.
-    if "q_weight" in w:
-        w["q_scale_max"] /= 256
+    # Check if 'q_weight' is in the dictionary
+    q_weight_exists = "q_weight" in w
+
+    if q_weight_exists:
+        # Adjust 'q_scale_max' value
+        w["q_scale_max"] = w["q_scale_max"] / 256
+
+        # Convert 'q_perm' and 'q_invperm' to short type
         w["q_perm"] = w["q_perm"].short()
         w["q_invperm"] = w["q_invperm"].short()
-        return make_q_matrix(
+
+        # Check if 'q_group_map' is not in the dictionary
+        q_group_map_not_exists = "q_group_map" not in w
+
+        if q_group_map_not_exists:
+            # Create 'q_group_map'
+            w["q_group_map"] = make_group_map(w["q_groups"], w["q_weight"].shape[0])
+
+        # Create Q matrix for EXL2
+        q_matrix = make_q_matrix(
             w["q_weight"],
             w["q_perm"],
             w["q_invperm"],
             w["q_scale"],
             w["q_scale_max"],
             w["q_groups"],
+            w["q_group_map"],
             none_tensor,
             none_tensor,
             none_tensor,
             temp_dq,
         )
-    # GPTQ
-    elif "qweight" in w:
-        if w["scales"].dtype == torch.float:
+
+        return q_matrix
+
+    # Check if 'qweight' is in the dictionary
+    qweight_exists = "qweight" in w
+
+    if qweight_exists:
+        # Check if 'scales' dtype is float
+        scales_dtype_is_float = w["scales"].dtype == torch.float
+
+        if scales_dtype_is_float:
+            # Convert 'scales' to half type
             w["scales"] = w["scales"].half()
 
-        # GPTQ with g_idx (act_order)
-        if w.get("g_idx", None) is not None and not (w["g_idx"] == 0).all().item():
+        # Check if 'g_idx' exists and is not all zeros
+        g_idx_exists_and_not_all_zeros = w.get("g_idx", None) is not None and not (w["g_idx"] == 0).all().item()
+
+        if g_idx_exists_and_not_all_zeros:
+            # Create 'q_perm' and 'q_invperm'
             w["q_perm"] = torch.empty(
                 (w["qweight"].shape[0] * 8,),
                 dtype=torch.short,
                 device=w["qweight"].device,
             )
             w["q_invperm"] = torch.empty_like(w["q_perm"])
-            # make_q4 segfaults if g_idx is not on cpu in the act-order case. In the non act-order case, None needs to be passed for g_idx.
-            return make_q_matrix(
+
+
+            # Create Q matrix for GPTQ with 'g_idx'
+            q_matrix = make_q_matrix(
                 w["qweight"],
                 w["q_perm"],
                 w["q_invperm"],
                 none_tensor,
                 none_tensor,
                 none_tensor,
+
+                none_tensor,
                 w["qzeros"],
                 w["scales"],
                 w["g_idx"].cpu(),
                 temp_dq,
             )
-        # GPTQ without g_idx
+
+            return q_matrix
+
         else:
-            return make_q_matrix(
+            # Create Q matrix for GPTQ without 'g_idx'
+            q_matrix = make_q_matrix(
                 w["qweight"],
                 none_tensor,
                 none_tensor,
                 none_tensor,
                 none_tensor,
                 none_tensor,
+                none_tensor,
                 w["qzeros"],
                 w["scales"],
                 none_tensor,
                 temp_dq,
             )
+
+            return q_matrix
 
 
 DEVICE = None

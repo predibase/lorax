@@ -27,11 +27,11 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 
 ## 🌳 Features
 
-- 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter in your request, it will be loaded just-in-time without blocking concurrent requests.
+- 🚅 **Dynamic Adapter Loading:** include any fine-tuned LoRA adapter from [HuggingFace](./models/adapters.md#huggingface-hub), [Predibase](./models/adapters.md#predibase), or [any filesystem](./models/adapters.md#local) in your request, it will be loaded just-in-time without blocking concurrent requests. [Merge adapters](./guides/merging_adapters.md) per request to instantly create powerful ensembles.
 - 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
 - 🧁 **Adapter Exchange Scheduling:** asynchronously prefetches and offloads adapters between GPU and CPU memory, schedules request batching to optimize the aggregate throughput of the system.
 - 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, pre-compiled CUDA kernels ([flash-attention](https://arxiv.org/abs/2307.08691), [paged attention](https://arxiv.org/abs/2309.06180), [SGMV](https://arxiv.org/abs/2310.18547)), quantization, token streaming.
-- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry.
+- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry. OpenAI compatible API supporting multi-turn chat conversations. Private adapters through per-request tenant isolation.
 - 🤯 **Free for Commercial Use:** Apache 2.0 License. Enough said 😎.
 
 
@@ -118,6 +118,34 @@ print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generate
 See [Reference - Python Client](./reference/python_client.md) for full details.
 
 For other ways to run LoRAX, see [Getting Started - Kubernetes](./getting_started/kubernetes.md), [Getting Started - SkyPilot](./getting_started/skypilot.md), and [Getting Started - Local](./getting_started/local.md).
+
+### Chat via OpenAI API
+
+LoRAX supports multi-turn chat conversations combined with dynamic adapter loading through an OpenAI compatible API. Just specify any adapter as the `model` parameter.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="EMPTY",
+    base_url="http://127.0.0.1:8080/v1",
+)
+
+resp = client.chat.completions.create(
+    model="alignment-handbook/zephyr-7b-dpo-lora",
+    messages=[
+        {
+            "role": "system",
+            "content": "You are a friendly chatbot who always responds in the style of a pirate",
+        },
+        {"role": "user", "content": "How many helicopters can a human eat in one sitting?"},
+    ],
+    max_tokens=100,
+)
+print("Response:", resp[0].choices[0].message.content)
+```
+
+See [OpenAI Compatible API](./guides/openai_api.md) for details.
 
 ## 🙇 Acknowledgements
 

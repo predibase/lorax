@@ -26,6 +26,10 @@ enum Quantization {
     BitsandbytesFP4,
     Gptq,
     Awq,
+    Eetq,
+    Hqq_4bit,
+    Hqq_3bit,
+    Hqq_2bit,
 }
 
 impl std::fmt::Display for Quantization {
@@ -46,6 +50,18 @@ impl std::fmt::Display for Quantization {
             }
             Quantization::Awq => {
                 write!(f, "awq")
+            }
+            Quantization::Eetq => {
+                write!(f, "eetq")
+            }
+            Quantization::Hqq_4bit => {
+                write!(f, "hqq-4bit")
+            }
+            Quantization::Hqq_3bit => {
+                write!(f, "hqq-3bit")
+            }
+            Quantization::Hqq_2bit => {
+                write!(f, "hqq-2bit")
             }
         }
     }
@@ -89,8 +105,8 @@ struct Args {
     /// or it can be a local directory containing the necessary files
     /// as saved by `save_pretrained(...)` methods of transformers.
     /// Should be compatible with the model specified in `model_id`.
-    #[clap(default_value = "", long, env)]
-    adapter_id: String,
+    #[clap(long, env)]
+    adapter_id: Option<String>,
 
     /// The source of the model to load.
     /// Can be `hub` or `s3`.
@@ -99,7 +115,7 @@ struct Args {
     #[clap(default_value = "hub", long, env)]
     source: String,
 
-    /// The source of the model to load.
+    /// The source of the static adapter to load.
     /// Can be `hub` or `s3` or `pbase`
     /// `hub` will load the model from the huggingface hub.
     /// `s3` will load the model from the predibase S3 bucket.
@@ -134,6 +150,11 @@ struct Args {
     /// quantization on the fly, or `gptq`.
     #[clap(long, env, value_enum)]
     quantize: Option<Quantization>,
+
+    /// Whether you want to compile the model into a CUDA graph.
+    /// This will speed up decoding but increase GPU memory usage.
+    #[clap(long, env, value_enum)]
+    compile: bool,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -302,6 +323,16 @@ struct Args {
 
     #[clap(long, env)]
     cors_allow_origin: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_headers: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_methods: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_credentials: Option<bool>,
+
     #[clap(long, env)]
     watermark_gamma: Option<f32>,
     #[clap(long, env)]
@@ -342,6 +373,7 @@ fn shard_manager(
     source: String,
     adapter_source: String,
     quantize: Option<Quantization>,
+    compile: bool,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -405,6 +437,11 @@ fn shard_manager(
     if let Some(quantize) = quantize {
         shard_args.push("--quantize".to_string());
         shard_args.push(quantize.to_string())
+    }
+
+    // CUDA graph compilation
+    if compile {
+        shard_args.push("--compile".to_string());
     }
 
     if let Some(dtype) = dtype {
@@ -727,9 +764,10 @@ fn download_convert_model(
         download_args.push(revision.to_string())
     }
 
-    if !args.adapter_id.is_empty() {
+    // check if option has a value
+    if let Some(adapter_id) = &args.adapter_id {
         download_args.push("--adapter-id".to_string());
-        download_args.push(args.adapter_id.clone());
+        download_args.push(adapter_id.to_string());
     }
 
     // Copy current process env
@@ -840,7 +878,7 @@ fn spawn_shards(
     // Start shard processes
     for rank in 0..num_shard {
         let model_id = args.model_id.clone();
-        let adapter_id = args.adapter_id.clone();
+        let adapter_id = args.adapter_id.clone().unwrap_or_default();
         let revision = args.revision.clone();
         let source: String = args.source.clone();
         let adapter_source: String = args.adapter_source.clone();
@@ -853,6 +891,7 @@ fn spawn_shards(
         let shutdown_sender = shutdown_sender.clone();
         let otlp_endpoint = args.otlp_endpoint.clone();
         let quantize = args.quantize;
+        let compile = args.compile;
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -868,6 +907,7 @@ fn spawn_shards(
                 source,
                 adapter_source,
                 quantize,
+                compile,
                 dtype,
                 trust_remote_code,
                 uds_path,
@@ -957,6 +997,8 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
+        "--adapter-source".to_string(),
+        args.adapter_source,
     ];
 
     // Model optional max batch total tokens
@@ -985,6 +1027,24 @@ fn spawn_webserver(
     for origin in args.cors_allow_origin.into_iter() {
         router_args.push("--cors-allow-origin".to_string());
         router_args.push(origin);
+    }
+
+    // CORS methods
+    for origin in args.cors_allow_methods.into_iter() {
+        router_args.push("--cors-allow-methods".to_string());
+        router_args.push(origin);
+    }
+
+    // CORS headers
+    for origin in args.cors_allow_headers.into_iter() {
+        router_args.push("--cors-allow-headers".to_string());
+        router_args.push(origin);
+    }
+
+    // CORS credentials
+    for origin in args.cors_allow_credentials.into_iter() {
+        router_args.push("--cors-allow-credentials".to_string());
+        router_args.push(origin.to_string());
     }
 
     // Ngrok

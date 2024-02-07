@@ -46,8 +46,10 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 
 ### Phi
 
-- `Wqkv`
-- `out_proj`
+- `q_proj`
+- `k_proj`
+- `v_proj`
+- `dense`
 - `fc1`
 - `fc2`
 - `lm_head`
@@ -57,6 +59,14 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `c_attn`
 - `c_proj`
 - `c_fc`
+
+### Bloom
+
+- `query_key_value`
+- `dense`
+- `dense_h_to_4h`
+- `dense_4h_to_h`
+- `lm_head`
 
 ## Source
 
@@ -73,7 +83,24 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "hub",
+    "adapter_source": "hub"
+}
+```
+
+### Predibase
+
+Any adapter hosted in [Predibase](https://predibase.com/) can be used in LoRAX by setting `adapter_source="pbase"`.
+
+When using Predibase hosted adapters, the `adapter_id` format is `<model_repo>/<model_version>`. If the `model_version` is
+omitted, the latest version in the [Model Repoistory](https://docs.predibase.com/ui-guide/Supervised-ML/models/model-repos)
+will be used.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "model_repo/model_version",
+    "adapter_source": "pbase"
 }
 ```
 
@@ -97,7 +124,7 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "/data/adapters/vineetsharma--qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "local",
+    "adapter_source": "local"
 }
 ```
 
@@ -110,6 +137,36 @@ Usage:
 ```json
 "parameters": {
     "adapter_id": "s3://adapters_bucket/vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    "adapter_source": "s3",
+    "adapter_source": "s3"
 }
 ```
+
+## Merging Adapters
+
+Multiple adapters can be mixed / merged together per request to create powerful ensembles of different specialized adapters.
+
+This is particularly useful when you want your LLM to be capable of handling multiple types of tasks based on the user's prompt without
+requiring them to specify the type of task they wish to perform.
+
+See [Merging Adapters](../guides/merging_adapters.md) for details.
+
+## Private Adapter Repositories
+
+For hosted adapter repositories like HuggingFace Hub and [Predibase](https://predibase.com/), you can perform inference using private adapters per request.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "my-repo/private-adapter",
+    "api_token": "<auth_token>"
+}
+```
+
+The authorization check is performed per-request in the background (prior to batching to prevent slowing down inference) every time, so even if the
+adapter is cachd locally or the authorization token has been invalidated, the check will be performed and handled appropriately.
+
+For details on generating API tokens, see:
+
+- [HuggingFace docs](https://huggingface.co/docs/hub/security-tokens)
+- [Predibase docs](https://docs.predibase.com/)

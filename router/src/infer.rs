@@ -1,9 +1,9 @@
 /// Batching and inference logic
-use crate::adapter::{Adapter, BASE_MODEL_ADAPTER_ID, DEFAULT_ADAPTER_SOURCE};
+use crate::adapter::{extract_adapter_params, Adapter};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
-use crate::{Entry, Token};
+use crate::{AdapterParameters, Entry, Token};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -32,7 +32,7 @@ pub struct Infer {
     /// Manages the queues of the various adapters
     adapter_scheduler: AdapterScheduler,
     /// Maps adapter ID to a unique index
-    adapter_to_index: Arc<Mutex<HashMap<String, u32>>>,
+    adapter_to_index: Arc<Mutex<HashMap<AdapterParameters, u32>>>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
 }
@@ -69,7 +69,13 @@ impl Infer {
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([("".to_string(), 0)])));
+        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
+            AdapterParameters {
+                adapter_ids: vec!["".to_string()],
+                ..Default::default()
+            },
+            0,
+        )])));
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -117,30 +123,28 @@ impl Infer {
                 err
             })?;
 
-        let mut adapter_id = request.parameters.adapter_id.clone();
-        if adapter_id.is_none() {
-            adapter_id = Some(BASE_MODEL_ADAPTER_ID.to_string());
-        }
-        let mut adapter_source = request.parameters.adapter_source.clone();
-        if adapter_source.is_none() {
-            adapter_source = Some(DEFAULT_ADAPTER_SOURCE.to_string());
-        }
+        let (adapter_source, adapter_parameters) = extract_adapter_params(
+            request.parameters.adapter_id.clone(),
+            request.parameters.adapter_source.clone(),
+            request.parameters.adapter_parameters.clone(),
+        );
 
         let adapter_idx;
         {
             // TODO(travis): can optimize concurrency here using RWLock
             let mut adapter_to_index = self.adapter_to_index.lock().await;
-            if adapter_to_index.contains_key(&adapter_id.clone().unwrap()) {
-                adapter_idx = *adapter_to_index.get(&adapter_id.clone().unwrap()).unwrap();
+            let adapter_key = adapter_parameters.clone();
+            if adapter_to_index.contains_key(&adapter_key) {
+                adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
             } else {
                 adapter_idx = adapter_to_index.len() as u32;
-                adapter_to_index.insert(adapter_id.clone().unwrap(), adapter_idx);
+                adapter_to_index.insert(adapter_key, adapter_idx);
             }
         }
 
         let api_token = request.parameters.api_token.clone();
         let adapter = Adapter::new(
-            adapter_id.unwrap(),
+            adapter_parameters,
             adapter_source.unwrap(),
             adapter_idx,
             api_token,
@@ -189,6 +193,7 @@ impl Infer {
         // Return values
         let mut result_prefill = Vec::new();
         let mut result_tokens = Vec::new();
+        let mut result_prefill_length = 0;
         let mut result_generated_text = None;
         let mut result_start = None;
         let mut result_queued = None;
@@ -197,16 +202,22 @@ impl Infer {
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
-                InferStreamResponse::Prefill(tokens) => {
+                InferStreamResponse::Prefill {
+                    tokens,
+                    tokens_length,
+                } => {
                     // Create Token objects
                     // We do that here instead of in the Python code as Rust for loops are faster
-                    result_prefill = tokens
-                        .ids
-                        .into_iter()
-                        .zip(tokens.logprobs.into_iter())
-                        .zip(tokens.texts.into_iter())
-                        .map(|((id, logprob), text)| PrefillToken { id, text, logprob })
-                        .collect();
+                    if let Some(tokens_val) = tokens {
+                        result_prefill = tokens_val
+                            .ids
+                            .into_iter()
+                            .zip(tokens_val.logprobs.into_iter())
+                            .zip(tokens_val.texts.into_iter())
+                            .map(|((id, logprob), text)| PrefillToken { id, text, logprob })
+                            .collect();
+                    }
+                    result_prefill_length = tokens_length;
                 }
                 // Push last token
                 InferStreamResponse::Token(token) => result_tokens.push(token),
@@ -233,6 +244,7 @@ impl Infer {
             Ok(InferResponse {
                 prefill: result_prefill,
                 tokens: result_tokens,
+                prompt_tokens: result_prefill_length,
                 generated_text,
                 queued,
                 start,
@@ -569,10 +581,13 @@ fn send_responses(
 
     let mut stopped = false;
 
-    if let Some(prefill_tokens) = generation.prefill_tokens {
+    if generation.prefill_tokens_length > 0 {
         // Send message
         entry.response_tx.send_timeout(
-            Ok(InferStreamResponse::Prefill(prefill_tokens)),
+            Ok(InferStreamResponse::Prefill {
+                tokens: generation.prefill_tokens,
+                tokens_length: generation.prefill_tokens_length,
+            }),
             Duration::from_millis(10),
         )?;
     }
@@ -629,7 +644,10 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
 #[derive(Debug)]
 pub(crate) enum InferStreamResponse {
     // Optional first message
-    Prefill(PrefillTokens),
+    Prefill {
+        tokens: Option<PrefillTokens>,
+        tokens_length: u32,
+    },
     // Intermediate messages
     Token(Token),
     // Last message
@@ -645,6 +663,7 @@ pub(crate) enum InferStreamResponse {
 pub(crate) struct InferResponse {
     pub(crate) prefill: Vec<PrefillToken>,
     pub(crate) tokens: Vec<Token>,
+    pub(crate) prompt_tokens: u32,
     pub(crate) generated_text: GeneratedText,
     pub(crate) queued: Instant,
     pub(crate) start: Instant,

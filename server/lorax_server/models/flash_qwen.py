@@ -41,6 +41,7 @@ class FlashQwen(FlashCausalLM):
         adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -72,8 +73,7 @@ class FlashQwen(FlashCausalLM):
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
-        self.dynamic_adapter_loading_enabled = True
-        self.adapter_id = BASE_MODEL_ADAPTER_ID
+        dynamic_adapter_loading_enabled = True
         if len(adapter_id) > 0:
             logger.info(
                 f"Merging adapter weights from adapter_id {adapter_id} into model weights."
@@ -85,8 +85,10 @@ class FlashQwen(FlashCausalLM):
                 model_weight_filenames=filenames,
                 adapter_source=adapter_source,
             )
-            self.dynamic_adapter_loading_enabled = False
-            self.adapter_id = adapter_id
+            dynamic_adapter_loading_enabled = False
+            adapter_id = adapter_id
+        else:
+            adapter_id = BASE_MODEL_ADAPTER_ID
 
         weights = Weights(
             filenames,
@@ -96,15 +98,15 @@ class FlashQwen(FlashCausalLM):
             merged_weight_filenames=merged_weight_filenames,
         )
 
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
-        self.model_id = model_id
         model = FlashQwenForCausalLM(config, weights)
         self.config = config
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashQwen, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             num_layers=len(model.transformer.h),
@@ -114,6 +116,9 @@ class FlashQwen(FlashCausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            compile=compile,
+            adapter_id=adapter_id,
+            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
 
     @property

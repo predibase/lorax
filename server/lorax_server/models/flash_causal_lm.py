@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 import math
 import itertools
 from loguru import logger
@@ -29,14 +30,11 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_module_map
 from lorax_server.utils.dist import MEMORY_FRACTION
-from lorax_server.utils.lora import (
-    AdapterBatchData,
-    AdapterBatchMetadata,
-    BatchedLoraWeights,
-    MergedLoraWeights,
-)
+from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.weights import shard_on_dim
+from lorax_server.utils.graph import GraphCache
+from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.globals import get_speculation_num
 
 tracer = trace.get_tracer(__name__)
@@ -119,13 +117,15 @@ class FlashCausalLMBatch(Batch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            batch_inputs.append(r.inputs)
+            inputs = tokenizers.get_inputs(r, tokenizer)
+            batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
         batch_tokenized_inputs = tokenizer(
@@ -709,6 +709,7 @@ class FlashCausalLMBatch(Batch):
 class FlashCausalLM(Model):
     def __init__(
         self,
+        model_id: str,
         model: torch.nn.Module,
         tokenizer: PreTrainedTokenizerBase,
         num_layers: int,
@@ -719,18 +720,16 @@ class FlashCausalLM(Model):
         rank: int = 0,
         world_size: int = 1,
         sliding_window: Optional[int] = None,
+        compile: bool = False,
+        adapter_id: str = BASE_MODEL_ADAPTER_ID,
+        dynamic_adapter_loading_enabled: bool = True,
     ):
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
         self.head_size = head_size
 
-        # This may be set to False in the subclass constructor
-        self.dynamic_adapter_loading_enabled = True
-        self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(
-            BatchedLoraWeights
-        )
-
         super(FlashCausalLM, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             requires_padding=False,
@@ -739,165 +738,13 @@ class FlashCausalLM(Model):
             rank=rank,
             world_size=world_size,
             sliding_window=sliding_window,
+            adapter_id=adapter_id,
+            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
 
-        self.target_to_layer = self.adapter_target_to_layer()
 
-    @property
-    def supports_adapter_loading(self) -> bool:
-        return False
-
-    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
-        return {}
-
-    @property
-    def adapter_layers(self) -> List[str]:
-        return []
-
-    def get_num_layers_for_type(self, layer_type: str) -> int:
-        return 0
-
-    def is_row_parallel(self, layer_type: str) -> bool:
-        return False
-
-    def load_adapter(self, adapter_id, adapter_source, adapter_index):
-        """Physically loads the adapter weights into the model.
-
-        adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded
-        into model. Otherwise, the adapter weights are merged into the model
-        weights on the fly.
-        """
-        if not self.supports_adapter_loading:
-            raise ValueError("This model does not support adapter loading.")
-
-        if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(
-                    f"This model was initialized with the adapter {self.adapter_id} "
-                    f"and therefore does not support dynamic adapter loading. "
-                    f"Please initialize a new model instance from the base model in "
-                    f"order to use the dynamic adapter loading feature."
-                )
-
-        # If we are doing dynamic adapter loading, then we need to reset the weights
-        if adapter_id == self.adapter_id:
-            return
-        elif adapter_id != BASE_MODEL_ADAPTER_ID:
-            logger.info(f"Loading adapter weights into model: {adapter_id}")
-            weight_names = tuple([v[0] for v in self.target_to_layer.values()])
-            module_map, adapter_config, adapter_weight_names = load_module_map(
-                self.model_id, adapter_id, adapter_source, weight_names
-            )
-
-            unused_weight_names = adapter_weight_names.copy()
-            for layer_name in self.adapter_layers:
-                self.load_batched_adapter_weights(
-                    module_map,
-                    adapter_config,
-                    adapter_index,
-                    layer_name,
-                    unused_weight_names,
-                )
-
-            if len(unused_weight_names) > 0:
-                logger.warning(
-                    f"{adapter_id} unused adapter weights: {unused_weight_names}"
-                )
-
-            self.adapter_id = adapter_id
-
-    def shard_lora_weights(
-        self,
-        weights_a: List[torch.Tensor],
-        weights_b: List[torch.Tensor],
-        layer_type: str,
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        # [hidden_size, r]
-        split_dim = 0 if self.is_row_parallel(layer_type) else 1
-        weights_a = [
-            shard_on_dim(w, dim=split_dim, process_group=self.process_group)
-            for w in weights_a
-        ]
-
-        # [r, hidden_size]
-        weights_b = [
-            shard_on_dim(w, dim=1, process_group=self.process_group) for w in weights_b
-        ]
-
-        return weights_a, weights_b
-
-    def load_batched_adapter_weights(
-        self,
-        module_map: Dict[str, Dict],
-        adapter_config: LoraConfig,
-        adapter_index: int,
-        layer_type: str,
-        unused_weight_names: Set[str],
-    ):
-        nlayers = self.get_num_layers_for_type(layer_type)
-        lora_a_list = [None] * nlayers
-        lora_b_list = [None] * nlayers
-
-        for layer_id in range(nlayers):
-            key = (layer_id, layer_type)
-            weight_name, layer = self.target_to_layer[key]
-
-            base_weight = layer.base_layer.linear.weight
-            base_device = base_weight.device
-
-            if weight_name not in module_map:
-                # There is no LoRA weight for this layer type in the adapter
-                return
-
-            lora_a, lora_a_name = module_map[weight_name]["lora_A"]
-            lora_a = lora_a.to(base_device, self.dtype)
-
-            lora_b, lora_b_name = module_map[weight_name]["lora_B"]
-            lora_b = lora_b.to(base_device, self.dtype)
-
-            scale = adapter_config.lora_alpha / adapter_config.r
-
-            unused_weight_names.discard(lora_a_name)
-            unused_weight_names.discard(lora_b_name)
-
-            # Merge scaling factor into lora_b due to associativity of matrix multiplication:
-            # (A * B) * C = A * (B * C)
-            lora_a_list[layer_id] = lora_a.transpose(0, 1)
-            lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
-
-        q_lora_merged = MergedLoraWeights(
-            *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type),
-            adapter_config,
-        )
-        q_lora_weights = self.batched_lora_weights[layer_type]
-        q_lora_weights.add_adapter(adapter_index, q_lora_merged)
-
-    def offload_adapter(self, adapter_id, adapter_source, adapter_index):
-        """Offloads the adapter weights from GPU to CPU or disk."""
-        if not self.supports_adapter_loading:
-            raise ValueError("This model does not support adapter loading.")
-
-        if not self.dynamic_adapter_loading_enabled:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                return
-            else:
-                raise ValueError(
-                    f"This model was initialized with the adapter {self.adapter_id} "
-                    f"and therefore does not support dynamic adapter loading. "
-                    f"Please initialize a new model instance from the base model in "
-                    f"order to use the dynamic adapter loading feature."
-                )
-
-        if adapter_id == BASE_MODEL_ADAPTER_ID:
-            return
-        else:
-            for layer_name in self.adapter_layers:
-                if layer_name in self.batched_lora_weights:
-                    self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
-
-            self.adapter_id = BASE_MODEL_ADAPTER_ID
+        self.compile = compile
+        self.model_graph_wrapper: GraphCache = None
 
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
@@ -929,6 +776,19 @@ class FlashCausalLM(Model):
 
         torch.cuda.synchronize(self.device)
 
+        graph_cache_memory = 0
+        if self.compile:
+            if self.world_size > 1:
+                raise ValueError("Cannot enable `--compile` when sharding across multiple GPUs")
+            
+            # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
+            # Needs to be estimated here rather than fully initialized as the graph cache relies on the
+            # cache manager being set.
+            self.model_graph_wrapper = GraphCache(self.model, self.device, self.adapter_layers)
+            graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
+            logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
+            torch.cuda.synchronize(self.device)
+
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
         dtype_size = torch.tensor([], dtype=self.dtype).element_size()
@@ -936,6 +796,8 @@ class FlashCausalLM(Model):
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
         total_free_memory, _ = torch.cuda.mem_get_info(self.device)
+        total_free_memory -= graph_cache_memory
+
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
 
         free_memory = max(
@@ -961,6 +823,14 @@ class FlashCausalLM(Model):
             self.device,
         )
 
+        torch.cuda.synchronize(self.device)
+
+        if self.model_graph_wrapper is not None:
+            # Warmup the graph cache. Needs to be done after setting cache manager as
+            # tracing will use the static kv cache tensors
+            self.model_graph_wrapper.warmup()
+            torch.cuda.synchronize(self.device)
+
         return int(num_blocks * BLOCK_SIZE)
 
     def decode(self, generated_ids: Union[torch.Tensor, List[int]]) -> str:
@@ -968,10 +838,16 @@ class FlashCausalLM(Model):
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
 
-    def forward(
-        self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        global CACHE_MANAGER
+
+    def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        if (
+            self.model_graph_wrapper is not None and
+            not prefill and
+            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
+            model = self.model_graph_wrapper
 
         if batch.speculation_ids is not None:
             B, speculative_length = batch.speculation_ids.shape
@@ -1001,7 +877,7 @@ class FlashCausalLM(Model):
             max_s = max_s + speculative_length
 
         # Model Forward
-        return self.model.forward(
+        return model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
@@ -1303,6 +1179,7 @@ class FlashCausalLM(Model):
                 generation = Generation(
                     request.id,
                     prefill_tokens,
+                    len(all_input_ids[:-1]) if prefill else 0,
                     next_token_id,
                     next_token_logprobs,
                     next_token_text,

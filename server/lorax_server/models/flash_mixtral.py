@@ -1,3 +1,4 @@
+import json
 import math
 import torch
 import torch.distributed
@@ -36,6 +37,7 @@ from lorax_server.utils import (
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import find_segments
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -59,6 +61,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
@@ -68,7 +71,8 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            batch_inputs.append(r.inputs)
+            inputs = tokenizers.get_inputs(r, tokenizer)
+            batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
         batch_tokenized_inputs = tokenizer(
@@ -316,6 +320,7 @@ class FlashMixtral(FlashCausalLM):
         adapter_source: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -357,8 +362,7 @@ class FlashMixtral(FlashCausalLM):
         # the adapter weights with the model weights. This also disables dynamic
         # adapter loading, since the model is now itself initialized with an adapter.
         merged_weight_filenames = None
-        self.dynamic_adapter_loading_enabled = True
-        self.adapter_id = BASE_MODEL_ADAPTER_ID
+        dynamic_adapter_loading_enabled = True
         if len(adapter_id) > 0:
             logger.info(
                 f"Merging adapter weights from adapter_id {adapter_id} into model weights."
@@ -370,8 +374,10 @@ class FlashMixtral(FlashCausalLM):
                 model_weight_filenames=filenames,
                 adapter_source=adapter_source,
             )
-            self.dynamic_adapter_loading_enabled = False
-            self.adapter_id = adapter_id
+            dynamic_adapter_loading_enabled = False
+            adapter_id = adapter_id
+        else:
+            adapter_id = BASE_MODEL_ADAPTER_ID
 
         weights = Weights(
             filenames,
@@ -381,14 +387,14 @@ class FlashMixtral(FlashCausalLM):
             merged_weight_filenames=merged_weight_filenames,
         )
 
-        if config.quantize in ["gptq", "awq"]:
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
-        self.model_id = model_id
         model = FlashMixtralForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashMixtral, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             num_layers=len(model.model.layers),
@@ -399,6 +405,9 @@ class FlashMixtral(FlashCausalLM):
             rank=rank,
             world_size=world_size,
             sliding_window=config.sliding_window,
+            compile=compile,
+            adapter_id=adapter_id,
+            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
         )
 
     @property
@@ -409,11 +418,19 @@ class FlashMixtral(FlashCausalLM):
     def batch_type(self) -> Type[FlashMixtralBatch]:
         return FlashMixtralBatch
 
-    def forward(
-        self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def forward(self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        if (
+            self.model_graph_wrapper is not None and
+            not prefill and
+            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
+            model = self.model_graph_wrapper
+        
         # Model Forward
-        logits = self.model.forward(
+        logits = model.forward(
             input_ids=batch.input_ids,
             position_ids=batch.position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,

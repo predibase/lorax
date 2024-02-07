@@ -5,7 +5,55 @@ from typing import Optional, List
 from lorax.errors import ValidationError
 
 
-ADAPTER_SOURCES = ["hub", "local", "s3"]
+ADAPTER_SOURCES = ["hub", "local", "s3", "pbase"]
+MERGE_STRATEGIES = ["linear", "ties", "dare_linear", "dare_ties"]
+MAJORITY_SIGN_METHODS = ["total", "frequency"]
+
+
+class MergedAdapters(BaseModel):
+    # IDs of the adapters to merge
+    ids: List[str]
+    # Weights of the adapters to merge
+    weights: List[float]
+    # Merge strategy
+    merge_strategy: Optional[str]
+    # Density
+    density: float
+    # Majority sign method
+    majority_sign_method: Optional[str]
+
+    @validator("ids")
+    def validate_ids(cls, v):
+        if not v:
+            raise ValidationError("`ids` cannot be empty")
+        return v
+
+    @validator("weights")
+    def validate_weights(cls, v, values):
+        ids = values["ids"]
+        if not v:
+            raise ValidationError("`weights` cannot be empty")
+        if len(ids) != len(v):
+            raise ValidationError("`ids` and `weights` must have the same length")
+        return v
+    
+    @validator("merge_strategy")
+    def validate_merge_strategy(cls, v):
+        if v is not None and v not in MERGE_STRATEGIES:
+            raise ValidationError(f"`merge_strategy` must be one of {MERGE_STRATEGIES}")
+        return v
+    
+    @validator("density")
+    def validate_density(cls, v):
+        if v < 0 or v > 1.0:
+            raise ValidationError("`density` must be >= 0.0 and <= 1.0")
+        return v
+    
+    @validator("majority_sign_method")
+    def validate_majority_sign_method(cls, v):
+        if v is not None and v not in MAJORITY_SIGN_METHODS:
+            raise ValidationError(f"`majority_sign_method` must be one of {MAJORITY_SIGN_METHODS}")
+        return v
 
 
 class Parameters(BaseModel):
@@ -13,6 +61,10 @@ class Parameters(BaseModel):
     adapter_id: Optional[str]
     # The source of the adapter to use
     adapter_source: Optional[str]
+    # Adapter merge parameters
+    merged_adapters: Optional[MergedAdapters]
+    # API token for accessing private adapters
+    api_token: Optional[str]
     # Activate logits sampling
     do_sample: bool = False
     # Maximum number of generated tokens
@@ -46,6 +98,13 @@ class Parameters(BaseModel):
     details: bool = False
     # Get decoder input token logprobs and ids
     decoder_input_details: bool = False
+
+    @validator("adapter_id")
+    def valid_adapter_id(cls, v, values):
+        merged_adapters = values.get("merged_adapters")
+        if v is not None and merged_adapters is not None:
+            raise ValidationError("you must specify at most one of `adapter_id` or `merged_adapters`")
+        return v
 
     @validator("adapter_source")
     def valid_adapter_source(cls, v):
@@ -198,6 +257,8 @@ class BestOfSequence(BaseModel):
 class Details(BaseModel):
     # Generation finish reason
     finish_reason: FinishReason
+    # Number of prompt tokens
+    prompt_tokens: int
     # Number of generated tokens
     generated_tokens: int
     # Sampling seed if sampling was activated
@@ -222,6 +283,8 @@ class Response(BaseModel):
 class StreamDetails(BaseModel):
     # Generation finish reason
     finish_reason: FinishReason
+    # Number of prompt tokens
+    prompt_tokens: int
     # Number of generated tokens
     generated_tokens: int
     # Sampling seed if sampling was activated

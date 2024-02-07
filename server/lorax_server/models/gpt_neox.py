@@ -24,9 +24,13 @@ class GPTNeoxSharded(CausalLM):
         model_id: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
+        if compile:
+            raise ValueError("`--compile` is not supported with GPT-NeoX")
+        
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")
@@ -56,13 +60,14 @@ class GPTNeoxSharded(CausalLM):
         weights = Weights(
             filenames, device=device, dtype=dtype, process_group=self.process_group
         )
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
         model = GPTNeoxForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(CausalLM, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             requires_padding=True,

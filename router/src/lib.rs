@@ -7,6 +7,8 @@ mod queue;
 mod scheduler;
 pub mod server;
 mod validation;
+use lorax_client::AdapterParameters as AdapterParametersMessage;
+use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use infer::Infer;
 use loader::AdapterLoader;
@@ -65,6 +67,91 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
 }
 
+#[derive(Clone, Debug, Deserialize, ToSchema, Default)]
+pub(crate) struct AdapterParameters {
+    #[serde(rename(deserialize = "ids"))]
+    #[schema(inline, example = json ! (["arnavgrg/codealpaca-qlora"]))]
+    pub adapter_ids: Vec<String>,
+    #[serde(default)]
+    #[schema(inline, example = json ! ([0.25, 0.75]))]
+    pub weights: Vec<f32>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "linear")]
+    pub merge_strategy: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = false, default = 0.0, example = 0.5)]
+    pub density: f32,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "total")]
+    pub majority_sign_method: Option<String>,
+}
+
+impl Into<AdapterParametersMessage> for AdapterParameters {
+    fn into(self) -> AdapterParametersMessage {
+        AdapterParametersMessage {
+            adapter_ids: self.adapter_ids,
+            weights: self.weights,
+            merge_strategy: MergeStrategy::from_str_name(
+                self.merge_strategy
+                    .unwrap_or("linear".to_string())
+                    .to_uppercase()
+                    .as_str(),
+            )
+            .unwrap()
+            .into(),
+            density: self.density,
+            majority_sign_method: MajoritySignMethod::from_str_name(
+                self.majority_sign_method
+                    .unwrap_or("total".to_string())
+                    .to_uppercase()
+                    .as_str(),
+            )
+            .unwrap()
+            .into(),
+        }
+    }
+}
+
+impl std::hash::Hash for AdapterParameters {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.adapter_ids.len() == 1 {
+            self.adapter_ids[0].hash(state);
+            return;
+        }
+
+        self.adapter_ids.hash(state);
+
+        // Convert weights vec into vec of u32 bits
+        let weights: Vec<u32> = self.weights.iter().map(|x| x.to_bits()).collect();
+        weights.hash(state);
+
+        self.merge_strategy.hash(state);
+
+        // Hash the raw bits of the float, acknowledging that this
+        // can cause issues with different representations of the same value.
+        self.density.to_bits().hash(state);
+
+        self.majority_sign_method.hash(state);
+    }
+}
+
+impl PartialEq for AdapterParameters {
+    fn eq(&self, other: &Self) -> bool {
+        if self.adapter_ids.len() == 1 {
+            return self.adapter_ids[0] == other.adapter_ids[0];
+        }
+
+        // In this implementation, we assume that adapter order matters
+        self.adapter_ids == other.adapter_ids
+            && self.weights == other.weights
+            && self.merge_strategy == other.merge_strategy
+            && self.density == other.density // direct comparison of f32
+            && self.majority_sign_method == other.majority_sign_method
+    }
+}
+
+impl Eq for AdapterParameters {}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct GenerateParameters {
     #[serde(default)]
@@ -77,8 +164,15 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "hub")]
     pub adapter_source: Option<String>,
+    #[serde(rename(deserialize = "merged_adapters"))]
+    #[schema(nullable = true, default = "null")]
+    pub adapter_parameters: Option<AdapterParameters>,
     #[serde(default)]
-    #[schema(nullable = true, default = "null", example = "<token from predibase>")]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "<token for private adapters>"
+    )]
     pub api_token: Option<String>,
     #[serde(default)]
     #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 1)]
@@ -145,6 +239,9 @@ pub(crate) struct GenerateParameters {
     #[schema(default = "true")]
     pub decoder_input_details: bool,
     #[serde(default)]
+    #[schema(default = "false")]
+    pub apply_chat_template: bool,
+    #[serde(default)]
     #[schema(
         exclusive_minimum = 0,
         nullable = true,
@@ -162,6 +259,7 @@ fn default_parameters() -> GenerateParameters {
     GenerateParameters {
         adapter_id: None,
         adapter_source: None,
+        adapter_parameters: None,
         api_token: None,
         best_of: None,
         temperature: None,
@@ -177,6 +275,7 @@ fn default_parameters() -> GenerateParameters {
         watermark: false,
         details: false,
         decoder_input_details: false,
+        apply_chat_template: false,
         seed: None,
     }
 }
@@ -262,6 +361,8 @@ pub(crate) struct Details {
     #[schema(example = "length")]
     pub finish_reason: FinishReason,
     #[schema(example = 1)]
+    pub prompt_tokens: u32,
+    #[schema(example = 1)]
     pub generated_tokens: u32,
     #[schema(nullable = true, example = 42)]
     pub seed: Option<u64>,
@@ -284,6 +385,8 @@ pub(crate) struct StreamDetails {
     #[schema(example = "length")]
     pub finish_reason: FinishReason,
     #[schema(example = 1)]
+    pub prompt_tokens: u32,
+    #[schema(example = 1)]
     pub generated_tokens: u32,
     #[schema(nullable = true, example = 42)]
     pub seed: Option<u64>,
@@ -302,6 +405,350 @@ pub(crate) struct StreamResponse {
 pub(crate) struct ErrorResponse {
     pub error: String,
     pub error_type: String,
+}
+
+// OpenAI compatible structs
+
+#[derive(Serialize, ToSchema)]
+struct UsageInfo {
+    prompt_tokens: u32,
+    total_tokens: u32,
+    completion_tokens: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ChatCompletionRequest {
+    model: String,
+    messages: Vec<std::collections::HashMap<String, String>>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    n: Option<i32>,
+    max_tokens: Option<i32>,
+    #[serde(default)]
+    stop: Vec<String>,
+    stream: Option<bool>,
+    presence_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    logit_bias: Option<std::collections::HashMap<String, f32>>,
+    user: Option<String>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct CompletionRequest {
+    model: String,
+    prompt: String,
+    suffix: Option<String>,
+    max_tokens: Option<i32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    n: Option<i32>,
+    stream: Option<bool>,
+    logprobs: Option<i32>,
+    echo: Option<bool>,
+    #[serde(default)]
+    stop: Vec<String>,
+    presence_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    best_of: Option<i32>,
+    logit_bias: Option<std::collections::HashMap<String, f32>>,
+    user: Option<String>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+}
+
+#[derive(Serialize, ToSchema)]
+struct LogProbs {
+    text_offset: Vec<i32>,
+    token_logprobs: Vec<Option<f32>>,
+    tokens: Vec<String>,
+    top_logprobs: Option<Vec<Option<std::collections::HashMap<i32, f32>>>>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponseChoice {
+    index: i32,
+    text: String,
+    logprobs: Option<LogProbs>,
+    finish_reason: Option<CompletionFinishReason>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<CompletionResponseChoice>,
+    usage: UsageInfo,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionResponseStreamChoice {
+    index: i32,
+    text: String,
+    logprobs: Option<LogProbs>,
+    finish_reason: Option<CompletionFinishReason>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompletionStreamResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<CompletionResponseStreamChoice>,
+    usage: Option<UsageInfo>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionResponseChoice {
+    index: i32,
+    message: ChatMessage,
+    finish_reason: Option<CompletionFinishReason>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<ChatCompletionResponseChoice>,
+    usage: UsageInfo,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionStreamResponseChoice {
+    index: i32,
+    delta: ChatMessage,
+    finish_reason: Option<CompletionFinishReason>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChatCompletionStreamResponse {
+    id: String,
+    object: String,
+    created: i64,
+    model: String,
+    choices: Vec<ChatCompletionStreamResponseChoice>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all(serialize = "snake_case"))]
+pub(crate) enum CompletionFinishReason {
+    #[schema(rename = "stop")]
+    Stop,
+    #[schema(rename = "length")]
+    Length,
+    #[schema(rename = "content_filter")]
+    ContentFilter,
+    #[schema(rename = "tool_calls")]
+    ToolCalls,
+}
+
+impl From<CompletionRequest> for CompatGenerateRequest {
+    fn from(req: CompletionRequest) -> Self {
+        CompatGenerateRequest {
+            inputs: req.prompt,
+            parameters: GenerateParameters {
+                adapter_id: req.model.parse().ok(),
+                adapter_source: None,
+                adapter_parameters: None,
+                api_token: None,
+                best_of: req.best_of.map(|x| x as usize),
+                temperature: req.temperature,
+                repetition_penalty: None,
+                top_k: None,
+                top_p: req.top_p,
+                typical_p: None,
+                do_sample: !req.n.is_none(),
+                max_new_tokens: req
+                    .max_tokens
+                    .map(|x| x as u32)
+                    .unwrap_or(default_max_new_tokens()),
+                return_full_text: req.echo,
+                stop: req.stop,
+                truncate: None,
+                watermark: false,
+                details: true,
+                decoder_input_details: req.logprobs.is_some(),
+                apply_chat_template: false,
+                seed: None,
+            },
+            stream: req.stream.unwrap_or(false),
+        }
+    }
+}
+
+impl From<ChatCompletionRequest> for CompatGenerateRequest {
+    fn from(req: ChatCompletionRequest) -> Self {
+        CompatGenerateRequest {
+            inputs: serde_json::to_string(&req.messages).unwrap(),
+            parameters: GenerateParameters {
+                adapter_id: req.model.parse().ok(),
+                adapter_source: None,
+                adapter_parameters: None,
+                api_token: None,
+                best_of: req.n.map(|x| x as usize),
+                temperature: req.temperature,
+                repetition_penalty: None,
+                top_k: None,
+                top_p: req.top_p,
+                typical_p: None,
+                do_sample: !req.n.is_none(),
+                max_new_tokens: req
+                    .max_tokens
+                    .map(|x| x as u32)
+                    .unwrap_or(default_max_new_tokens()),
+                return_full_text: None,
+                stop: req.stop,
+                truncate: None,
+                watermark: false,
+                details: true,
+                decoder_input_details: false,
+                apply_chat_template: true,
+                seed: None,
+            },
+            stream: req.stream.unwrap_or(false),
+        }
+    }
+}
+
+impl From<GenerateResponse> for CompletionResponse {
+    fn from(resp: GenerateResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        CompletionResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![CompletionResponseChoice {
+                index: 0,
+                text: resp.generated_text,
+                logprobs: None,
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
+            }],
+            usage: UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            },
+        }
+    }
+}
+
+impl From<StreamResponse> for CompletionStreamResponse {
+    fn from(resp: StreamResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        CompletionStreamResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![CompletionResponseStreamChoice {
+                index: 0,
+                text: resp.token.text,
+                logprobs: None,
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
+            }],
+            usage: Some(UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            }),
+        }
+    }
+}
+
+impl From<GenerateResponse> for ChatCompletionResponse {
+    fn from(resp: GenerateResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp
+            .details
+            .as_ref()
+            .map(|x| x.generated_tokens)
+            .unwrap_or(0);
+        let total_tokens = prompt_tokens + completion_tokens;
+
+        ChatCompletionResponse {
+            id: "null".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![ChatCompletionResponseChoice {
+                index: 0,
+                message: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: resp.generated_text,
+                },
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
+            }],
+            usage: UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: Some(completion_tokens),
+            },
+        }
+    }
+}
+
+impl From<StreamResponse> for ChatCompletionStreamResponse {
+    fn from(resp: StreamResponse) -> Self {
+        ChatCompletionStreamResponse {
+            id: "null".to_string(),
+            object: "chat.completion.chunk".to_string(),
+            created: 0,
+            model: "null".to_string(),
+            choices: vec![ChatCompletionStreamResponseChoice {
+                index: 0,
+                delta: ChatMessage {
+                    role: "assistant".to_string(),
+                    content: resp.token.text,
+                },
+                finish_reason: resp
+                    .details
+                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
+            }],
+        }
+    }
+}
+
+impl From<FinishReason> for CompletionFinishReason {
+    fn from(reason: FinishReason) -> Self {
+        match reason {
+            FinishReason::Length => CompletionFinishReason::Length,
+            FinishReason::EndOfSequenceToken => CompletionFinishReason::Stop,
+            FinishReason::StopSequence => CompletionFinishReason::ContentFilter,
+        }
+    }
 }
 
 #[cfg(test)]

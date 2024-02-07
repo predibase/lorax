@@ -10,7 +10,7 @@
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
-    "version": "0.3.0"
+    "version": "0.5.0"
   },
   "paths": {
     "/": {
@@ -270,6 +270,184 @@
         }
       }
     },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "LoRAX"
+        ],
+        "summary": "OpenAI Chat Completions v1 compatible endpoint",
+        "description": "OpenAI Chat Completions v1 compatible endpoint",
+        "operationId": "chat_completions_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Generated Text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionStreamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Input validation error"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Generation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Request failed during generation"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Model is overloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Model is overloaded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Incomplete generation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Incomplete generation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/completions": {
+      "post": {
+        "tags": [
+          "LoRAX"
+        ],
+        "summary": "OpenAI Completions v1 compatible endpoint",
+        "description": "OpenAI Completions v1 compatible endpoint",
+        "operationId": "completions_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Generated Text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionStreamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Input validation error"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Generation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Request failed during generation"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Model is overloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Model is overloaded"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Incomplete generation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Incomplete generation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -413,6 +591,7 @@
         "type": "object",
         "required": [
           "finish_reason",
+          "prompt_tokens",
           "generated_tokens",
           "prefill",
           "tokens"
@@ -427,6 +606,12 @@
           },
           "finish_reason": {
             "$ref": "#/components/schemas/FinishReason"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "example": 1,
+            "minimum": 0.0
           },
           "generated_tokens": {
             "type": "integer",
@@ -477,6 +662,61 @@
           "eos_token",
           "stop_sequence"
         ]
+      },
+      "AdapterParameters": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "adapter1",
+              "adapter2"
+            ]
+          },
+          "weights": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "example": [
+              0.5,
+              0.5
+            ]
+          },
+          "merge_strategy": {
+            "type": "string",
+            "enum": [
+              "linear",
+              "ties",
+              "dare_linear",
+              "dare_ties"
+            ],
+            "default": "linear",
+            "example": "ties"
+          },
+          "density": {
+            "type": "number",
+            "format": "float",
+            "default": 0.0,
+            "example": 0.5,
+            "nullable": false,
+            "minimum": 0.0,
+            "maximim": 1.0
+          },
+          "majority_sign_method": {
+            "type": "string",
+            "enum": [
+              "total",
+              "frequency"
+            ],
+            "default": "total",
+            "example": "total"
+          }
+        }
       },
       "GenerateParameters": {
         "type": "object",
@@ -597,9 +837,17 @@
             "type": "string",
             "nullable": true
           },
+          "merged_adapters": {
+            "$ref": "#/components/schemas/AdapterParameters"
+          },
           "api_token": {
             "type": "string",
             "nullable": true
+          },
+          "apply_chat_template": {
+            "type": "boolean",
+            "default": "false",
+            "example": true
           }
         }
       },
@@ -635,6 +883,335 @@
           "generated_text": {
             "type": "string",
             "example": "test"
+          }
+        }
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "example": "alignment-handbook/zephyr-7b-dpo-lora"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "role",
+                "content"
+              ],
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "example": "user"
+                },
+                "content": {
+                  "type": "string",
+                  "example": "What is deep learning?"
+                }
+              }
+            }
+          },
+          "temperature": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.5,
+            "nullable": true,
+            "exclusiveMinimum": 0.0
+          },
+          "top_p": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.95,
+            "nullable": true,
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0
+          },
+          "n": {
+            "type": "integer",
+            "default": "null",
+            "example": 3,
+            "nullable": true,
+            "exclusiveMinimum": 0
+          },
+          "max_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "default": "20",
+            "minimum": 0.0,
+            "exclusiveMaximum": 512.0,
+            "exclusiveMinimum": 0.0
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "photographer"
+            ],
+            "maxItems": 4
+          },
+          "stream": {
+            "type": "boolean",
+            "default": "false"
+          }
+        }
+      },
+      "CompletionRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "example": "alignment-handbook/zephyr-7b-dpo-lora"
+          },
+          "prompt": {
+            "type": "string",
+            "example": "What is deep learning?"
+          },
+          "temperature": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.5,
+            "nullable": true,
+            "exclusiveMinimum": 0.0
+          },
+          "top_p": {
+            "type": "number",
+            "format": "float",
+            "default": "null",
+            "example": 0.95,
+            "nullable": true,
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0
+          },
+          "n": {
+            "type": "integer",
+            "default": "null",
+            "example": 3,
+            "nullable": true,
+            "exclusiveMinimum": 0
+          },
+          "max_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "default": "20",
+            "minimum": 0.0,
+            "exclusiveMaximum": 512.0,
+            "exclusiveMinimum": 0.0
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "photographer"
+            ],
+            "maxItems": 4
+          },
+          "stream": {
+            "type": "boolean",
+            "default": "false"
+          }
+        }
+      },
+      "ChatCompletionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCompletionResponseChoice"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageInfo"
+          }
+        }
+      },
+      "ChatCompletionStreamResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCompletionStreamResponseChoice"
+            }
+          }
+        }
+      },
+      "ChatCompletionStreamResponseChoice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "format": "int32" },
+          "delta": { "type": "object", "$ref": "#/components/schemas/ChatCompletionResponseMessage" },
+          "finish_reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ChatCompletionResponseChoice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "format": "int32" },
+          "message": { "type": "object", "$ref": "#/components/schemas/ChatCompletionResponseMessage" },
+          "finish_reason": { 
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ChatCompletionResponseMessage": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string" },
+          "content": { "type": "string" }
+        }
+      },
+      "CompletionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompletionResponseChoice"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageInfo"
+          }
+        }
+      },
+      "CompletionResponseChoice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "format": "int32" },
+          "text": { "type": "string" },
+          "logprobs": { 
+            "type": "object",
+            "nullable": true,
+            "$ref": "#/components/schemas/LogProbs"
+          },
+          "finish_reason": { 
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CompletionStreamResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string" },
+          "created": { "type": "integer", "format": "int64" },
+          "model": { "type": "string" },
+          "choices": { 
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CompletionResponseStreamChoice" }
+          },
+          "usage": { 
+            "type": "object",
+            "nullable": true,
+            "$ref": "#/components/schemas/UsageInfo"
+          }
+        }
+      },
+      "CompletionResponseStreamChoice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "format": "int32" },
+          "text": { "type": "string" },
+          "logprobs": { 
+            "type": "object",
+            "nullable": true,
+            "$ref": "#/components/schemas/LogProbs"
+          },
+          "finish_reason": { 
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "LogProbs": {
+        "type": "object",
+        "properties": {
+          "text_offset": { 
+            "type": "array",
+            "items": { "type": "integer", "format": "int32" }
+          },
+          "token_logprobs": { 
+            "type": "array",
+            "items": { "type": "number", "format": "float", "nullable": true }
+          },
+          "tokens": { 
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "top_logprobs": { 
+            "type": "array",
+            "items": { 
+              "type": "object",
+              "nullable": true,
+              "additionalProperties": { "type": "number", "format": "float" }
+            },
+            "nullable": true
+          }
+        }
+      },
+      "UsageInfo": {
+        "type": "object",
+        "properties": {
+          "prompt_tokens": { "type": "integer", "format": "uint32" },
+          "total_tokens": { "type": "integer", "format": "uint32" },
+          "completion_tokens": { 
+            "type": "integer",
+            "format": "uint32",
+            "nullable": true
           }
         }
       },
@@ -773,11 +1350,18 @@
         "type": "object",
         "required": [
           "finish_reason",
+          "prompt_tokens",
           "generated_tokens"
         ],
         "properties": {
           "finish_reason": {
             "$ref": "#/components/schemas/FinishReason"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "example": 1,
+            "minimum": 0.0
           },
           "generated_tokens": {
             "type": "integer",

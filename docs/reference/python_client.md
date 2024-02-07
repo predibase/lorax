@@ -67,7 +67,9 @@ Example:
 ```python
 from lorax import Client
 
-endpoint_url = f"https://api.app.predibase.com/v1/llms/{llm_deployment_name}"
+# You can get your Predibase API token by going to Settings > My Profile > Generate API Token
+# You can get your Predibase Tenant short code by going to Settings > My Profile > Overview > Tenant ID
+endpoint_url = f"https://serving.app.predibase.com/{predibase_tenant_short_code}/deployments/v2/llms/{llm_deployment_name}"
 headers = {
     "Authorization": f"Bearer {api_token}"
 }
@@ -93,6 +95,8 @@ class Parameters:
     adapter_id: Optional[str]
     # The source of the adapter to use
     adapter_source: Optional[str]
+    # API token for accessing private adapters
+    api_token: Optional[str]
     # Activate logits sampling
     do_sample: bool
     # Maximum number of generated tokens
@@ -179,6 +183,8 @@ class BestOfSequence:
 class Details:
     # Generation finish reason
     finish_reason: FinishReason
+    # Number of prompt tokens
+    prompt_tokens: int
     # Number of generated tokens
     generated_tokens: int
     # Sampling seed if sampling was activated
@@ -203,6 +209,8 @@ class Response:
 class StreamDetails:
     # Generation finish reason
     finish_reason: FinishReason
+    # Number of prompt tokens
+    prompt_tokens: int
     # Number of generated tokens
     generated_tokens: int
     # Sampling seed if sampling was activated

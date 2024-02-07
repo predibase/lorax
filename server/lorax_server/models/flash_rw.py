@@ -25,6 +25,7 @@ class FlashRWSharded(FlashCausalLM):
         model_id: str,
         revision: Optional[str] = None,
         quantize: Optional[str] = None,
+        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
     ):
@@ -58,13 +59,14 @@ class FlashRWSharded(FlashCausalLM):
         )
 
         config.quantize = quantize
-        if config.quantize == "gptq":
+        if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
         model = FlashRWForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashRWSharded, self).__init__(
+            model_id=model_id,
             model=model.to(device),
             tokenizer=tokenizer,
             num_layers=len(model.transformer.h),
@@ -74,4 +76,5 @@ class FlashRWSharded(FlashCausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            compile=compile,
         )
