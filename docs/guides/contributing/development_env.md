@@ -59,7 +59,7 @@ hash -r
 Download weights from HF:
 
 ```shell
-lorax-server download-weights mistralai/Mixtral-8x7B-Instruct-v0.1
+lorax-server download-weights mistralai/Mistral-7B-Instruct-v0.1
 ```
 
 Create `tmux` session so we don't lose our state when we close our laptop:
@@ -73,6 +73,7 @@ From within the `tmux` session, move into the LoRAX `server` directory within th
 ```shell
 cd /data/lorax/server
 pip install -e .
+make gen-server
 ```
 
 Launch the server:
