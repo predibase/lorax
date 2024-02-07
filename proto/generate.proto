@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package generate.v2;
+package generate.v1;
 
 service LoraxService {
     /// Model Info
@@ -38,7 +38,6 @@ message InfoResponse {
     string dtype = 2;
     string device_type = 3;
     optional uint32 window_size = 4;
-    uint32 speculate = 5;
 }
 
 /// Empty request
