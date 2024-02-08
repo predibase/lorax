@@ -847,7 +847,7 @@ pub async fn run(
 
     // log cors stuff
     tracing::info!(
-        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, credentials: {cors_allow_credentials:?}",
+        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, expose-headers: {cors_expose_headers:?} credentials: {cors_allow_credentials:?}",
     );
 
     let cors_layer = CorsLayer::new()
@@ -856,6 +856,9 @@ pub async fn run(
         .allow_credentials(cors_allow_credentials)
         .expose_headers(cors_expose_headers)
         .allow_origin(cors_allow_origin);
+
+    // log all the cors layer
+    tracing::info!("CORS: {cors_layer:?}");
 
     // Endpoint info
     let info = Info {
