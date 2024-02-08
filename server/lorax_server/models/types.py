@@ -1,13 +1,13 @@
-import torch
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional
 
+import torch
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
+from lorax_server.utils.tokenizer import TokenizerManager
 
 
 class Batch(ABC):
@@ -32,7 +32,12 @@ class Batch(ABC):
 
     @classmethod
     @abstractmethod
-    def concatenate(cls, batches: List["Batch"]) -> "Batch":
+    def concatenate(
+        cls,
+        batches: List["Batch"],
+        tokenizer: PreTrainedTokenizerBase,
+        tokenizer_mgr: TokenizerManager
+    ) -> "Batch":
         raise NotImplementedError
 
     @abstractmethod

@@ -267,8 +267,12 @@ class Seq2SeqLMBatch(Batch):
 
     @classmethod
     @tracer.start_as_current_span("concatenate")
-    def concatenate(cls, batches: List["Seq2SeqLMBatch"]) -> "Seq2SeqLMBatch":
-        """Concatenate multiple batches together by padding internal torch tensors"""
+    def concatenate(cls, batches: List["Seq2SeqLMBatch"], tokenizers) -> "Seq2SeqLMBatch":
+        """Concatenate multiple batches together by padding internal torch tensors
+
+        Args:
+            tokenizers:
+        """
 
         # Used for padding
         total_batch_size = 0

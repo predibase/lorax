@@ -1,9 +1,8 @@
 import math
-import torch
-
 from functools import lru_cache
 from typing import Optional, List, Dict, Union
 
+import torch
 from transformers import (
     LogitsWarper,
     LogitsProcessor,
@@ -17,6 +16,7 @@ from transformers import (
 try:
     from outlines.fsm.fsm import RegexFSM
     from outlines.fsm.json_schema import build_regex_from_object
+
     HAS_OUTLINES = True
 except ImportError:
     HAS_OUTLINES = False
@@ -198,7 +198,7 @@ class HeterogeneousTopPLogitsWarper(LogitsWarper):
         # Remove tokens with cumulative top_p above the threshold (token with 0 are kept)
         sorted_indices_to_remove = probs <= self.top_p_opposite
         # Keep at least min_tokens_to_keep
-        sorted_indices_to_remove[..., -self.min_tokens_to_keep :] = 0
+        sorted_indices_to_remove[..., -self.min_tokens_to_keep:] = 0
 
         # scatter sorted tensors to original indexing
         indices_to_remove = sorted_indices_to_remove.scatter(
@@ -403,7 +403,7 @@ class HeterogeneousProcessorWrapper(LogitsProcessor):
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in self.processors.items():
-            scores[i : i + 1] = processor(input_ids[i : i + 1], scores[i : i + 1])
+            scores[i: i + 1] = processor(input_ids[i: i + 1], scores[i: i + 1])
         return scores
 
     def filter(self, indices):
@@ -432,9 +432,14 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
 
     def __init__(
         self,
-        schemas: List[Optional[str]],
-        tokenizers: List[Optional[PreTrainedTokenizerBase]],
+        schemas: List[Optional[str]] = None,
+        tokenizers: List[Optional[PreTrainedTokenizerBase]] = None,
     ):
+        if schemas is None:
+            schemas = []
+        if tokenizers is None:
+            tokenizers = []
+
         self.sequence_processors = [
             None if schema is None else OutlinesLogitsProcessor(schema, tokenizer)
             for schema, tokenizer in zip(schemas, tokenizers)
@@ -452,6 +457,16 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
             return self
         return None
 
+    # @classmethod
+    # def concatenate(
+    #     cls,
+    #     processors: List["HeterogeneousSchemaLogitsProcessor"]
+    # ) -> "HeterogeneousSchemaLogitsProcessor":
+    #     ret = HeterogeneousSchemaLogitsProcessor()
+    #     for p in processors:
+    #         ret.sequence_processors.extend(p.sequence_processors)
+    #     return ret
+
 
 # Source: https://github.com/outlines-dev/outlines/blob/main/outlines/serve/vllm.py
 class OutlinesLogitsProcessor:
@@ -467,7 +482,7 @@ class OutlinesLogitsProcessor:
         if not HAS_OUTLINES:
             raise ImportError("Unable to enforce JSON schema: `outlines` is not installed.")
 
-        tokenizer = self.adapt_tokenizer(tokenizer)
+        self.tokenizer = self.adapt_tokenizer(tokenizer)
 
         regex_string = build_regex_from_object(schema)
         self.fsm = RegexFSM(regex_string, tokenizer)
@@ -487,17 +502,17 @@ class OutlinesLogitsProcessor:
 
         return biased_scores
 
-    def adapt_tokenizer(self, tokenizer):
+    def adapt_tokenizer(self, tokenizer: PreTrainedTokenizerBase):
         """Adapt vLLM's tokenizer to use to compile the FSM.
 
         The API of Outlines tokenizers is slightly different to that of
-        `transformers`. In addition we need to handle the missing spaces to
+        `transformers`. In addition, we need to handle the missing spaces to
         Llama's tokenizer to be able to compile FSMs for this model.
         """
         if hasattr(tokenizer, "vocabulary"):
             # We've already adapted the tokenizer from a previous request
             return tokenizer
-        
+
         tokenizer.vocabulary = tokenizer.get_vocab()
         tokenizer.special_tokens = set(tokenizer.all_special_tokens)
 

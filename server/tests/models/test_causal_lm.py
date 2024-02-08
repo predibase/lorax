@@ -91,7 +91,7 @@ def test_batch_from_pb(default_pb_batch, default_causal_lm_batch):
 
 def test_batch_concatenate_no_prefill(default_causal_lm_batch):
     with pytest.raises(ValueError):
-        CausalLMBatch.concatenate([default_causal_lm_batch, default_causal_lm_batch])
+        CausalLMBatch.concatenate([default_causal_lm_batch, default_causal_lm_batch], [])
 
 
 def test_causal_lm_batch_type(default_causal_lm):
@@ -226,7 +226,7 @@ def test_batch_concatenate(
         (k.clone(), v.clone()) for (k, v) in next_batch_1.past_key_values
     ]
 
-    next_batch = CausalLMBatch.concatenate([next_batch_0, next_batch_1])
+    next_batch = CausalLMBatch.concatenate([next_batch_0, next_batch_1], [])
 
     assert torch.equal(next_batch.all_input_ids[0], next_batch_0.all_input_ids[0])
     assert torch.equal(next_batch.all_input_ids[1], next_batch_1.all_input_ids[0])

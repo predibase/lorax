@@ -201,7 +201,7 @@ class HeterogeneousNextTokenChooser:
         watermark (List[bool]): A list of booleans indicating whether watermark processing should be applied for each token.
         temperature (List[float]): A list of temperature values for temperature-based logits warping.
         repetition_penalty (List[float]): A list of repetition penalty values for repetition penalty-based logits warping.
-        schema (List[str]): A list of JSON schema strings for Outlines logits warping.
+        schemas (List[str]): A list of JSON schema strings for Outlines logits warping.
         top_k (List[int]): A list of top-k values for top-k-based logits warping.
         top_p (List[float]): A list of top-p values for top-p-based logits warping.
         typical_p (List[float]): A list of typical-p values for typical-p-based logits warping.
@@ -391,7 +391,7 @@ class HeterogeneousNextTokenChooser:
             typical_p=[pb_.typical_p for pb_ in pb],
             do_sample=[pb_.do_sample for pb_ in pb],
             seeds=[pb_.seed for pb_ in pb],
-            tokenizer=tokenizers,
+            tokenizers=tokenizers,
             device=device,
             dtype=dtype,
         )
