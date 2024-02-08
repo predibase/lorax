@@ -14,7 +14,7 @@ from transformers import (
 )
 
 try:
-    from outlines.fsm.fsm import RegexFSM
+    from outlines.fsm.fsm import RegexFSM, FSMState
     from outlines.fsm.json_schema import build_regex_from_object
 
     HAS_OUTLINES = True
@@ -486,13 +486,19 @@ class OutlinesLogitsProcessor:
 
         regex_string = build_regex_from_object(schema)
         self.fsm = RegexFSM(regex_string, tokenizer)
-        self.fsm_state = 0
+
+        self.fsm_state = FSMState(0)
+        self.is_first_token = True
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         """Use the FSM to bias the logits before sampling the next token."""
 
-        last_token = input_ids[-1]
-        self.fsm_state = self.fsm.next_state(self.fsm_state, last_token)
+        if self.is_first_token:
+            # For the very first token generated, we want to select the allowed tokens from the FSM's initial state.
+            self.is_first_token = False
+        else:
+            last_token = input_ids[0][-1].item()
+            self.fsm_state = self.fsm.next_state(self.fsm_state, last_token)
 
         allowed_tokens = self.fsm.allowed_token_ids(self.fsm_state)
 
