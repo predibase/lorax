@@ -457,16 +457,6 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
             return self
         return None
 
-    # @classmethod
-    # def concatenate(
-    #     cls,
-    #     processors: List["HeterogeneousSchemaLogitsProcessor"]
-    # ) -> "HeterogeneousSchemaLogitsProcessor":
-    #     ret = HeterogeneousSchemaLogitsProcessor()
-    #     for p in processors:
-    #         ret.sequence_processors.extend(p.sequence_processors)
-    #     return ret
-
 
 # Source: https://github.com/outlines-dev/outlines/blob/main/outlines/serve/vllm.py
 class OutlinesLogitsProcessor:
