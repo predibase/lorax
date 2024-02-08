@@ -14,7 +14,7 @@ use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
 use tokenizers::{FromPretrainedParameters, Tokenizer};
-use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin};
+use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, ExposeHeaders};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -64,11 +64,13 @@ struct Args {
     #[clap(long, env)]
     cors_allow_origin: Option<Vec<String>>,
     #[clap(long, env)]
-    cors_allow_methods: Option<Vec<String>>,
+    cors_allow_method: Option<Vec<String>>,
+    #[clap(long, env)]
+    cors_allow_header: Option<Vec<String>>,
+    #[clap(long, env)]
+    cors_expose_header: Option<Vec<String>>,
     #[clap(long, env)]
     cors_allow_credentials: Option<bool>,
-    #[clap(long, env)]
-    cors_allow_headers: Option<Vec<String>>,
     #[clap(long, env)]
     ngrok: bool,
     #[clap(long, env)]
@@ -104,9 +106,10 @@ fn main() -> Result<(), RouterError> {
         json_output,
         otlp_endpoint,
         cors_allow_origin,
-        cors_allow_methods,
+        cors_allow_method,
+        cors_allow_header,
+        cors_expose_header,
         cors_allow_credentials,
-        cors_allow_headers,
         ngrok,
         ngrok_authtoken,
         ngrok_edge,
@@ -152,7 +155,7 @@ fn main() -> Result<(), RouterError> {
     // CORS allowed methods
     // map to go inside the option and then map to parse from String to HeaderValue
     // Finally, convert to AllowMethods.
-    let cors_allow_methods: Option<AllowMethods> = cors_allow_methods.map(|cors_allow_methods| {
+    let cors_allow_method: Option<AllowMethods> = cors_allow_method.map(|cors_allow_methods| {
         AllowMethods::list(
             cors_allow_methods
                 .iter()
@@ -160,21 +163,30 @@ fn main() -> Result<(), RouterError> {
         )
     });
 
-    // CORS allow credentials
-    // Parse bool into AllowCredentials
-    let cors_allow_credentials: Option<AllowCredentials> = cors_allow_credentials
-        .map(|cors_allow_credentials| AllowCredentials::from(cors_allow_credentials));
-
     // CORS allowed headers
     // map to go inside the option and then map to parse from String to HeaderValue
     // Finally, convert to AllowHeaders.
-    let cors_allow_headers: Option<AllowHeaders> = cors_allow_headers.map(|cors_allow_headers| {
+    let cors_allow_header: Option<AllowHeaders> = cors_allow_header.map(|cors_allow_headers| {
         AllowHeaders::list(
             cors_allow_headers
                 .iter()
                 .map(|header| header.parse::<HeaderName>().unwrap()),
         )
     });
+
+    // CORS expose headers
+    let cors_expose_header: Option<ExposeHeaders> = cors_expose_header.map(|cors_expose_headers| {
+        ExposeHeaders::list(
+            cors_expose_headers
+                .iter()
+                .map(|header| header.parse::<HeaderName>().unwrap()),
+        )
+    });
+
+    // CORS allow credentials
+    // Parse bool into AllowCredentials
+    let cors_allow_credentials: Option<AllowCredentials> = cors_allow_credentials
+        .map(|cors_allow_credentials| AllowCredentials::from(cors_allow_credentials));
 
     // Parse Huggingface hub token
     let authorization_token = std::env::var("HUGGING_FACE_HUB_TOKEN").ok();
@@ -320,9 +332,10 @@ fn main() -> Result<(), RouterError> {
                 validation_workers,
                 addr,
                 cors_allow_origin,
-                cors_allow_methods,
+                cors_allow_method,
                 cors_allow_credentials,
-                cors_allow_headers,
+                cors_allow_header,
+                cors_expose_header,
                 ngrok,
                 ngrok_authtoken,
                 ngrok_edge,
