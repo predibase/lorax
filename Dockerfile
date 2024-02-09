@@ -116,12 +116,6 @@ COPY server/awq_kernels/ .
 # Build specific version of transformers
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
-# Build awq kernels
-FROM kernel-builder as aqlm-kernels-builder
-WORKDIR /usr/src
-COPY server/aqlm_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" pip install .
-
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
 WORKDIR /usr/src
@@ -197,9 +191,6 @@ COPY --from=custom-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /
 COPY --from=exllama-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 # Copy build artifacts from awq kernels builder
 COPY --from=awq-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-# Copy build artifacts from aqlm kernels builder
-COPY --from=aqlm-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-
 
 # Copy builds artifacts from vllm builder
 COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages

@@ -1,2 +1,0 @@
-include src/aqlm/inference_kernels/*.cpp
-include src/aqlm/inference_kernels/*.cu
