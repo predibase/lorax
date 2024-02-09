@@ -92,10 +92,7 @@ class CausalLMBatch(Batch):
             requests_idx_mapping[r.id] = i
             req_inputs = tokenizers.get_inputs(r, tokenizer)
             inputs.append(req_inputs)
-            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters,
-                                                                device,
-                                                                tokenizers.get_tokenizer(adapter_indices_list[i],
-                                                                                            tokenizer)))
+            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device, tokenizer))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
             )

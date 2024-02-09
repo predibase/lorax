@@ -111,7 +111,7 @@ class NextTokenChooser:
         cls,
         pb: generate_pb2.NextTokenChooserParameters,
         device: torch.device,
-        tokenizer: PreTrainedTokenizerBase,
+        tokenizer: Optional[PreTrainedTokenizerBase],
     ) -> "NextTokenChooser":
         """
         Create a NextTokenChooser instance from a protobuf message.

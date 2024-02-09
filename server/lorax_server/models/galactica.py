@@ -95,7 +95,7 @@ class GalacticaCausalLMBatch(CausalLMBatch):
             # Add escape_custom_split_sequence to the CausalLMBatch logic
             req_inputs = tokenizers.get_inputs(r, tokenizer)
             inputs.append(escape_custom_split_sequence(req_inputs))
-            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
+            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device, tokenizer))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
             )
