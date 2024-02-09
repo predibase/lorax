@@ -432,8 +432,8 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
 
     def __init__(
         self,
-        schemas: List[Optional[str]] = None,
-        tokenizers: List[Optional[PreTrainedTokenizerBase]] = None,
+        schemas: Optional[List[Optional[str]]] = None,
+        tokenizers: Optional[List[Optional[PreTrainedTokenizerBase]]] = None,
     ):
         if schemas is None:
             schemas = []
@@ -441,7 +441,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
             tokenizers = []
 
         self.sequence_processors = [
-            None if schema is None else OutlinesLogitsProcessor(schema, tokenizer)
+            None if schema is None or tokenizer is None else OutlinesLogitsProcessor(schema, tokenizer)
             for schema, tokenizer in zip(schemas, tokenizers)
         ]
 
@@ -469,7 +469,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
 
 
 # Source: https://github.com/outlines-dev/outlines/blob/main/outlines/serve/vllm.py
-class OutlinesLogitsProcessor:
+class OutlinesLogitsProcessor(LogitsProcessor):
     def __init__(self, schema: str, tokenizer: PreTrainedTokenizerBase):
         """Compile the FSM that drives the regex-guided generation.
 

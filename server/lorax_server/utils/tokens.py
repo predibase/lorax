@@ -18,7 +18,7 @@ from lorax_server.utils.logits_process import (
     HeterogeneousTopPLogitsWarper,
     HeterogeneousTypicalLogitsWarper,
     HeterogeneousProcessorWrapper,
-    HeterogeneousSchemaLogitsProcessor,
+    HeterogeneousSchemaLogitsProcessor, OutlinesLogitsProcessor,
 )
 
 
@@ -30,12 +30,14 @@ class NextTokenChooser:
         watermark (bool): Whether to apply watermark processing to logits. Default is False.
         temperature (float): The temperature value for warping logits. Default is 1.0.
         repetition_penalty (float): The penalty value for repetition in logits. Default is 1.0.
+        schema (str): A JSON schema string for Outlines logits warping.
         top_k (int): The value for top-k warping of logits. Default is None.
         top_p (float): The value for top-p warping of logits. Default is None.
         typical_p (float): The value for typical-p warping of logits. Default is None.
         do_sample (bool): Whether to perform sampling. Default is False.
         seed (int): The seed value for random number generation. Default is 0.
         device (str): The device to use for computation. Default is "cpu".
+        tokenizer (PreTrainedTokenizerBase): A tokenizer to use for processing the tokens.
 
     Returns:
         next_id (torch.Tensor): The next token ID.
@@ -44,15 +46,17 @@ class NextTokenChooser:
 
     def __init__(
         self,
-        watermark=False,
-        temperature=1.0,
-        repetition_penalty=1.0,
-        top_k=None,
-        top_p=None,
-        typical_p=None,
-        do_sample=False,
-        seed=0,
-        device="cpu",
+        watermark: bool = False,
+        temperature: float = 1.0,
+        repetition_penalty: float = 1.0,
+        schema: str = None,
+        top_k: int = None,
+        top_p: float = None,
+        typical_p: float = None,
+        do_sample: bool = False,
+        seed: int = 0,
+        device: str = "cpu",
+        tokenizer: Optional[PreTrainedTokenizerBase] = None,
     ):
         self.watermark_processor = (
             WatermarkLogitsProcessor(device=device) if watermark else None
@@ -60,6 +64,12 @@ class NextTokenChooser:
         self.repetition_processor = (
             RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty)
             if repetition_penalty
+            else None
+        )
+
+        self.schema_processor = (
+            OutlinesLogitsProcessor(schema, tokenizer)
+            if schema is not None and tokenizer is not None
             else None
         )
 
@@ -84,6 +94,8 @@ class NextTokenChooser:
             scores = self.watermark_processor(input_ids, scores)
         if self.repetition_processor is not None:
             scores = self.repetition_processor(input_ids, scores)
+        if self.schema_processor is not None:
+            scores = self.schema_processor(input_ids, scores)
 
         if self.static_warper is None:
             next_logprob = torch.log_softmax(scores, -1)
@@ -99,6 +111,7 @@ class NextTokenChooser:
         cls,
         pb: generate_pb2.NextTokenChooserParameters,
         device: torch.device,
+        tokenizer: PreTrainedTokenizerBase,
     ) -> "NextTokenChooser":
         """
         Create a NextTokenChooser instance from a protobuf message.
@@ -106,6 +119,7 @@ class NextTokenChooser:
         Args:
             pb (generate_pb2.NextTokenChooserParameters): The protobuf message containing the parameters.
             device (torch.device): The device to use for computation.
+            tokenizer (PreTrainedTokenizerBase): A tokenizer for use in processing the tokens.
 
         Returns:
             NextTokenChooser: The NextTokenChooser instance.
@@ -114,12 +128,14 @@ class NextTokenChooser:
             watermark=pb.watermark,
             temperature=pb.temperature,
             repetition_penalty=pb.repetition_penalty,
+            schema=pb.schema,
             top_k=pb.top_k,
             top_p=pb.top_p,
             typical_p=pb.typical_p,
             do_sample=pb.do_sample,
             seed=pb.seed,
             device=device,
+            tokenizer=tokenizer,
         )
 
 

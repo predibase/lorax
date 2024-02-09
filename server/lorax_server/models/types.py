@@ -22,7 +22,7 @@ class Batch(ABC):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
-        tokenizer_mgr: TokenizerManager,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "Batch":

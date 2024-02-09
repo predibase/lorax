@@ -57,7 +57,7 @@ class FlashMistralBatch(FlashCausalLMBatch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
-        tokenizer_mgr: TokenizerManager,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
@@ -67,7 +67,7 @@ class FlashMistralBatch(FlashCausalLMBatch):
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            inputs = tokenizer_mgr.get_inputs(r, tokenizer)
+            inputs = tokenizers.get_inputs(r, tokenizer)
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
@@ -206,7 +206,7 @@ class FlashMistralBatch(FlashCausalLMBatch):
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
         request_tokenizers = [
-            tokenizer_mgr.get_tokenizer(r.adapter_index, tokenizer)
+            tokenizers.get_tokenizer(r.adapter_index, tokenizer)
             for r in pb.requests
         ]
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
