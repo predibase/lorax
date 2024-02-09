@@ -95,7 +95,7 @@ def test_batch_from_pb(default_pb_batch, default_seq2seq_lm_batch):
 
 def test_batch_concatenate_no_prefill(default_seq2seq_lm_batch):
     with pytest.raises(ValueError):
-        Seq2SeqLMBatch.concatenate([default_seq2seq_lm_batch, default_seq2seq_lm_batch], [])
+        Seq2SeqLMBatch.concatenate([default_seq2seq_lm_batch, default_seq2seq_lm_batch])
 
 
 def test_seq2seq_lm_batch_type(default_seq2seq_lm):
@@ -236,7 +236,7 @@ def test_batch_concatenate(
         [t.clone() for t in layer] for layer in next_batch_1.past_key_values
     ]
 
-    next_batch = Seq2SeqLMBatch.concatenate([next_batch_0, next_batch_1], [])
+    next_batch = Seq2SeqLMBatch.concatenate([next_batch_0, next_batch_1])
 
     assert next_batch.batch_id == 0
 

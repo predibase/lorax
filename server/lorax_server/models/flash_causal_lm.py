@@ -27,6 +27,7 @@ from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
+from lorax_server.utils.logits_process import HeterogeneousSchemaLogitsProcessor
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
@@ -485,12 +486,7 @@ class FlashCausalLMBatch(Batch):
 
     @classmethod
     @tracer.start_as_current_span("concatenate")
-    def concatenate(
-        cls,
-        batches: List["FlashCausalLMBatch"],
-        tokenizer: PreTrainedTokenizerBase,
-        tokenizers: TokenizerManager
-    ) -> "FlashCausalLMBatch":
+    def concatenate(cls, batches: List["FlashCausalLMBatch"]) -> "FlashCausalLMBatch":
         # Batch attributes
         requests = []
         requests_idx_mapping = {}
@@ -613,18 +609,14 @@ class FlashCausalLMBatch(Batch):
 
         start_slots = torch.concat(start_slots)
 
-        request_tokenizers = [
-            tokenizers.get_tokenizer(r.adapter_index, tokenizer)
-            for r in requests
-        ]
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters,
-            tokenizers=request_tokenizers,
+            tokenizers=[],
             dtype=batches[0].next_token_chooser.dtype,
             device=batches[0].next_token_chooser.device,
         )
-        # next_token_chooser.schema_processor = HeterogeneousSchemaLogitsProcessor.concatenate(
-        #     [b.next_token_chooser.schema_processor for b in batches])
+        next_token_chooser.schema_processor = HeterogeneousSchemaLogitsProcessor.concatenate(
+            [b.next_token_chooser.schema_processor for b in batches])
 
         adapter_segments, adapter_segment_indices = adapter_segment_builder.build()
 

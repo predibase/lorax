@@ -283,7 +283,7 @@ class CausalLMBatch(Batch):
 
     @classmethod
     @tracer.start_as_current_span("concatenate")
-    def concatenate(cls, batches: List["CausalLMBatch"], tokenizers) -> "CausalLMBatch":
+    def concatenate(cls, batches: List["CausalLMBatch"]) -> "CausalLMBatch":
         # Used for padding
         total_batch_size = 0
         max_input_length = 0
