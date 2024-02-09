@@ -8,6 +8,7 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
+from lorax_server.utils.tokenizer import TokenizerManager
 
 
 class Batch(ABC):
@@ -21,6 +22,7 @@ class Batch(ABC):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
+        tokenizer_mgr: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "Batch":
