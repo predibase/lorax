@@ -206,8 +206,10 @@ class Weights:
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         elif quantize == "aqlm":
             nbits_per_codebook, num_codebooks, out_group_size, in_group_size = self._get_aqlm_params()
-            qweight = self.get_sharded_list("weight", prefixes, dim=0)
-            weight = (qweight, nbits_per_codebook, num_codebooks, out_group_size, in_group_size)
+            scales = self.get_sharded_list("scales", prefixes, dim=0)
+            codebooks = self.get_sharded_list("codebooks", prefixes, dim=0)
+            codes = self.get_sharded_list("codes", prefixes, dim=0)
+            weight = (scales, codebooks, codes, nbits_per_codebook, num_codebooks, out_group_size, in_group_size)
         else:
             w = self.get_sharded_list("weight", prefixes, dim=0)
             weight = torch.cat(w, dim=dim)
@@ -296,8 +298,10 @@ class Weights:
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
         elif quantize == "aqlm":
             nbits_per_codebook, num_codebooks, out_group_size, in_group_size = self._get_aqlm_params()
-            qweight = self.get_sharded(f"{prefix}.weight", dim=1)
-            weight = (qweight, nbits_per_codebook, num_codebooks, out_group_size, in_group_size)
+            scales = self.get_sharded(f"{prefix}.scales", dim=1)
+            codebooks = self.get_sharded(f"{prefix}.codebooks", dim=1)
+            codes = self.get_sharded(f"{prefix}.codes", dim=1)
+            weight = (scales, codebooks, codes, nbits_per_codebook, num_codebooks, out_group_size, in_group_size)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
         return weight
