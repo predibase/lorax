@@ -5,6 +5,25 @@ from lorax_server.pb import generate_pb2
 
 @pytest.fixture
 def default_pb_parameters():
+    schema = """{
+    "$defs": {
+        "Armor": {
+            "enum": ["leather", "chainmail", "plate"],
+            "title": "Armor",
+            "type": "string"
+        }
+    },
+    "properties": {
+        "name": {"maxLength": 10, "title": "Name", "type": "string"},
+        "age": {"title": "Age", "type": "integer"},
+        "armor": {"$ref": "#/$defs/Armor"},
+        "strength": {"title": "Strength", "type": "integer"}\
+    },
+    "required": ["name", "age", "armor", "strength"],
+    "title": "Character",
+    "type": "object"
+}"""
+
     return generate_pb2.NextTokenChooserParameters(
         temperature=1.0,
         repetition_penalty=1.0,
@@ -12,6 +31,7 @@ def default_pb_parameters():
         top_p=1.0,
         typical_p=1.0,
         do_sample=False,
+        schema=schema,
     )
 
 
