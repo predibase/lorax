@@ -21,6 +21,7 @@ class Quantization(str, Enum):
     hqq_4bit = "hqq-4bit"
     hqq_3bit = "hqq-3bit"
     hqq_2bit = "hqq-2bit"
+    aqlm = "aqlm"
 
 
 class Dtype(str, Enum):
