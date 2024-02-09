@@ -204,6 +204,10 @@ class Weights:
 
             bits, groupsize = self._get_gptq_params()
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
+        elif quantize == "aqlm":
+            nbits_per_codebook, num_codebooks, out_group_size, in_group_size = self._get_aqlm_params()
+            qweight = self.get_sharded_list("weight", prefixes, dim=0)
+            weight = (qweight, nbits_per_codebook, num_codebooks, out_group_size, in_group_size)
         else:
             w = self.get_sharded_list("weight", prefixes, dim=0)
             weight = torch.cat(w, dim=dim)
@@ -290,6 +294,10 @@ class Weights:
             g_idx = None
             use_exllama = False
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
+        elif quantize == "aqlm":
+            nbits_per_codebook, num_codebooks, out_group_size, in_group_size = self._get_aqlm_params()
+            qweight = self.get_sharded(f"{prefix}.weight", dim=1)
+            weight = (qweight, nbits_per_codebook, num_codebooks, out_group_size, in_group_size)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
         return weight
@@ -342,6 +350,22 @@ class Weights:
                     self.gptq_groupsize = data["q_group_size"]
                 except Exception:
                     pass
+    
+    def _get_aqlm_params(self) -> Tuple[int, int, int, int]:
+        return self.nbits_per_codebook, self.num_codebooks, self.out_group_size, self.in_group_size
+
+    def _set_aqlm_params(self, model_id):
+        filename = "config.json"
+        if os.path.exists(os.path.join(model_id, filename)):
+            filename = os.path.join(model_id, filename)
+        else:
+            filename = hf_hub_download(model_id, filename=filename)
+        with open(filename, "r") as f:
+            data = json.load(f)
+        self.nbits_per_codebook = data["aqlm"]["nbits_per_codebook"]
+        self.num_codebooks = data["aqlm"]["num_codebooks"]
+        self.out_group_size = data["aqlm"]["out_group_size"]
+        self.in_group_size = data["aqlm"]["in_group_size"]
 
 def get_start_stop_idxs_for_rank(offset, size, rank, world_size):
     block_size = size // world_size

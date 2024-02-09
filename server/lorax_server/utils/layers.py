@@ -40,6 +40,12 @@ try:
 except ImportError:
     HAS_HQQ = False
 
+HAS_AQLM = True
+try:
+    from aqlm import QuantizedLinear
+except ImportError:
+    HAS_AQLM = False
+
 from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -385,6 +391,13 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
                 layer.bias.data = bias
         
         linear = HQQLinearLayer(layer, quant_config, del_orig=True)
+    elif quantize == "aqlm":
+        qweight, nbits_per_codebook, num_codebooks, out_group_size, in_group_size = weight
+        linear = QuantizedLinear(qweight.shape[1], qweight.shape[0], in_group_size, out_group_size, num_codebooks, nbits_per_codebook)
+        with torch.no_grad():
+            linear.codes.data = qweight
+            if bias is not None:
+                linear.bias.data = bias
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
     return linear

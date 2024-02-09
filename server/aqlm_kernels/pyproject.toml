@@ -1,0 +1,18 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 120
+required-version = "22.3.0"
+
+[tool.isort]
+profile = "black"
+line_length = 120
+combine_as_imports = true
+combine_star = true
+known_local_folder = ["tests", "cli"]
+known_first_party = ["test_utils"]
