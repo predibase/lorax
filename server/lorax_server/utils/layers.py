@@ -393,7 +393,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         linear = HQQLinearLayer(layer, quant_config, del_orig=True)
     elif quantize == "aqlm":
         scales, codebooks, codes, nbits_per_codebook, num_codebooks, out_group_size, in_group_size = weight
-        linear = QuantizedLinear(codes.shape[1], codes.shape[0], in_group_size, out_group_size, num_codebooks, nbits_per_codebook)
+        linear = QuantizedLinear(scales.shape[1], scales.shape[0], in_group_size, out_group_size, num_codebooks, nbits_per_codebook)
         with torch.no_grad():
             linear.scales = scales
             linear.codebooks = codebooks
