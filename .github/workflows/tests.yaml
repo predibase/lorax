@@ -22,6 +22,7 @@ jobs:
     env:
       SCCACHE_GHA_ENABLED: "on"
       RUSTC_WRAPPER: /usr/local/bin/sccache
+      RUST_BACKTRACE: 1
       SCCACHE: 0.3.3
 
     steps:
