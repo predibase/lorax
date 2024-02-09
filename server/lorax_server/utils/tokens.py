@@ -69,7 +69,7 @@ class NextTokenChooser:
 
         self.schema_processor = (
             OutlinesLogitsProcessor(schema, tokenizer)
-            if schema is not None and tokenizer is not None
+            if schema and tokenizer
             else None
         )
 

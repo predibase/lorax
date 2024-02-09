@@ -441,7 +441,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
             tokenizers = []
 
         self.sequence_processors = [
-            None if schema is None or tokenizer is None else OutlinesLogitsProcessor(schema, tokenizer)
+            OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
             for schema, tokenizer in zip(schemas, tokenizers)
         ]
 
