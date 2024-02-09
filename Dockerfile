@@ -120,7 +120,6 @@ RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 FROM kernel-builder as aqlm-kernels-builder
 WORKDIR /usr/src
 COPY server/aqlm_kernels/ .
-# Build specific version of transformers
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" pip install .
 
 # Build Transformers CUDA kernels
