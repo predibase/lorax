@@ -182,7 +182,7 @@ def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, generated_
     assert all([generation.generated_text is None for generation in generations])
     assert all([len(generation.prefill_tokens) == 1 for generation in generations])
     assert all([generation.token_id.item() == generated_token_id for generation in generations])
-    assert all([generation.token_text == "." for generation in generations])
+    assert all([generation.token_text == "{" for generation in generations])
     assert generations[0].request_id == 0
 
 
