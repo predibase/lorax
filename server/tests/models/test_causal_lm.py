@@ -143,11 +143,11 @@ def test_causal_lm_batch_type(default_causal_lm):
     assert default_causal_lm.batch_type == CausalLMBatch
 
 
-@pytest.mark.parametrize("causal_lm_batch", [
-    "default_causal_lm_batch",
-    "schema_constrained_causal_lm_batch",
+@pytest.mark.parametrize("causal_lm_batch, generated_token_id", [
+    ("default_causal_lm_batch", 13),
+    ("schema_constrained_causal_lm_batch", 90),
 ])
-def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, request):
+def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, generated_token_id, request):
     causal_lm_batch = request.getfixturevalue(causal_lm_batch)
 
     sequence_length = len(causal_lm_batch.all_input_ids[0])
@@ -159,7 +159,10 @@ def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, request):
     assert len(next_batch.all_input_ids) == len(next_batch)
     assert len(next_batch.all_input_ids[0]) == sequence_length + 1
     assert len(next_batch.attention_mask[0]) == 11
-    assert next_batch.all_input_ids[0][-1] == 13
+    assert next_batch.all_input_ids[0][-1] == generated_token_id
+
+    print(f"\n\ngen_token: {default_causal_lm.tokenizer.decode(next_batch.all_input_ids[0][-1])}")
+
     assert next_batch.all_input_ids[0][-2] == 14402
     assert torch.all(next_batch.all_input_ids[0][:-2] == 50256)
 
