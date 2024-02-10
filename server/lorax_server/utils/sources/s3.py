@@ -231,4 +231,5 @@ class S3ModelSource(BaseModelSource):
         return download_model_from_s3(self.bucket, self.model_id, self.extension)
 
     def get_local_path(self, model_id: str):
+        _, model_id = _get_bucket_and_model_id(model_id)
         return get_s3_model_local_dir(model_id)
