@@ -160,9 +160,6 @@ def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, generated_
     assert len(next_batch.all_input_ids[0]) == sequence_length + 1
     assert len(next_batch.attention_mask[0]) == 11
     assert next_batch.all_input_ids[0][-1] == generated_token_id
-
-    print(f"\n\ngen_token: {default_causal_lm.tokenizer.decode(next_batch.all_input_ids[0][-1])}")
-
     assert next_batch.all_input_ids[0][-2] == 14402
     assert torch.all(next_batch.all_input_ids[0][:-2] == 50256)
 
@@ -170,7 +167,7 @@ def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, generated_
     assert torch.all(next_batch.attention_mask[0][2:] == 0)
 
     assert next_batch.input_ids.shape == (len(next_batch), 1)
-    assert next_batch.input_ids[0, 0] == 13
+    assert next_batch.input_ids[0, 0] == generated_token_id
 
     assert next_batch.input_lengths == [2]
     assert next_batch.max_input_length == next_batch.input_lengths[0]
