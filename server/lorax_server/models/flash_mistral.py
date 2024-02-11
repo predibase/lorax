@@ -376,6 +376,8 @@ class FlashMistral(FlashCausalLM):
 
         if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
+        elif config.quantize == "aqlm":
+            weights._set_aqlm_params(model_id)
 
         model = FlashMistralForCausalLM(config, weights)
 

@@ -234,7 +234,7 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
 
-    if model_type == "llama":
+    if model_type in ["llama", "llama_aqlm"]:
         if FLASH_ATTENTION:
             return FlashLlama(
                 model_id,
@@ -306,7 +306,7 @@ def get_model(
                     trust_remote_code=trust_remote_code,
                 )
 
-    if model_type == "mistral":
+    if model_type in ["mistral", "mistral_aqlm"]:
         if MISTRAL:
             return FlashMistral(
                 model_id,
@@ -320,7 +320,7 @@ def get_model(
             )
         raise NotImplementedError("Mistral model requires flash attention v2")
     
-    if model_type == "mixtral":
+    if model_type in ["mixtral", "mixtral_aqlm"]:
         if MIXTRAL:
             return FlashMixtral(
                 model_id,
