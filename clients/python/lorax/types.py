@@ -145,8 +145,8 @@ class Parameters(BaseModel):
 
     @validator("temperature")
     def valid_temp(cls, v):
-        if v is not None and v <= 0:
-            raise ValidationError("`temperature` must be strictly positive")
+        if v is not None and v < 0:
+            raise ValidationError("`temperature` must be non-negative")
         return v
 
     @validator("top_k")

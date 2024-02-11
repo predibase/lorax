@@ -1,3 +1,6 @@
+from transformers import AutoTokenizer
+
+
 from lorax_server.utils.tokens import (
     StopSequenceCriteria,
     StoppingCriteria,
