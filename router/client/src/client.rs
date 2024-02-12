@@ -126,6 +126,7 @@ impl Client {
                     repetition_penalty: 1.2,
                     watermark: true,
                     adapter_id: "".to_string(),
+                    schema: None,
                 }),
                 stopping_parameters: Some(StoppingCriteriaParameters {
                     max_new_tokens: 2,

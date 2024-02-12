@@ -829,6 +829,12 @@
             "default": "false",
             "example": true
           },
+          "schema": {
+            "type": "string",
+            "default": "null",
+            "example": "{\"type\": \"string\", \"title\": \"response\"}",
+            "nullable": true
+          },
           "adapter_id": {
             "type": "string",
             "nullable": true

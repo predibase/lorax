@@ -1,17 +1,25 @@
 import math
-import torch
-
 from functools import lru_cache
 from typing import Optional, List, Dict, Union
 
+import torch
 from transformers import (
     LogitsWarper,
     LogitsProcessor,
+    PreTrainedTokenizerBase,
     TemperatureLogitsWarper,
     TopKLogitsWarper,
     TopPLogitsWarper,
     TypicalLogitsWarper,
 )
+
+try:
+    from outlines.fsm.fsm import RegexFSM, FSMState
+    from outlines.fsm.json_schema import build_regex_from_object
+
+    HAS_OUTLINES = True
+except ImportError:
+    HAS_OUTLINES = False
 
 mempool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
 
@@ -118,7 +126,7 @@ class HeterogeneousRepetitionPenaltyLogitsProcessor(LogitsProcessor):
         return None
 
 
-class HeterogeneousTemperatureLogitsWarper:
+class HeterogeneousTemperatureLogitsWarper(LogitsWarper):
     r"""
     [`LogitsWarper`] for temperature (exponential scaling output probability distribution).
     This version allows for a separate value for each sample and runs inplace when possible.
@@ -190,7 +198,7 @@ class HeterogeneousTopPLogitsWarper(LogitsWarper):
         # Remove tokens with cumulative top_p above the threshold (token with 0 are kept)
         sorted_indices_to_remove = probs <= self.top_p_opposite
         # Keep at least min_tokens_to_keep
-        sorted_indices_to_remove[..., -self.min_tokens_to_keep :] = 0
+        sorted_indices_to_remove[..., -self.min_tokens_to_keep:] = 0
 
         # scatter sorted tensors to original indexing
         indices_to_remove = sorted_indices_to_remove.scatter(
@@ -395,7 +403,7 @@ class HeterogeneousProcessorWrapper(LogitsProcessor):
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in self.processors.items():
-            scores[i : i + 1] = processor(input_ids[i : i + 1], scores[i : i + 1])
+            scores[i: i + 1] = processor(input_ids[i: i + 1], scores[i: i + 1])
         return scores
 
     def filter(self, indices):
@@ -408,3 +416,123 @@ class HeterogeneousProcessorWrapper(LogitsProcessor):
             self.processors = new_processors
             return self
         return None
+
+
+class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
+    r"""
+    [`LogitsWarper`] for JSON schema enforcement.
+    This version uses Outlines to perform the constrained decoding.
+
+    Args:
+        schemas (`List[Optional[str]]`):
+            The JSON encoded schemas to enforce. `None` means no enforcement.
+        tokenizers (`List[Optional[PreTrainedTokenizerBase]]`):
+            The tokenizers to use for each request.
+    """
+
+    def __init__(
+        self,
+        schemas: Optional[List[Optional[str]]] = None,
+        tokenizers: Optional[List[Optional[PreTrainedTokenizerBase]]] = None,
+    ):
+        if schemas is None:
+            schemas = []
+        if tokenizers is None:
+            tokenizers = []
+
+        self.sequence_processors = [
+            OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
+            for schema, tokenizer in zip(schemas, tokenizers)
+        ]
+
+    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
+        for i, processor in enumerate(self.sequence_processors):
+            if processor is not None:
+                scores[i:i + 1] = processor(input_ids[i:i + 1], scores[i:i + 1])
+        return scores
+
+    def filter(self, indices):
+        self.sequence_processors = [self.sequence_processors[i] for i in indices]
+        if any([x is not None for x in self.sequence_processors]):
+            return self
+        return None
+
+    @classmethod
+    def concatenate(
+        cls,
+        processors: List["HeterogeneousSchemaLogitsProcessor"]
+    ) -> "HeterogeneousSchemaLogitsProcessor":
+        ret = HeterogeneousSchemaLogitsProcessor()
+        for p in processors:
+            ret.sequence_processors.extend(p.sequence_processors)
+        return ret
+
+
+# Source: https://github.com/outlines-dev/outlines/blob/main/outlines/serve/vllm.py
+class OutlinesLogitsProcessor(LogitsProcessor):
+    def __init__(self, schema: str, tokenizer: PreTrainedTokenizerBase):
+        """Compile the FSM that drives the regex-guided generation.
+
+        Args:
+            schema (str):
+                JSON schema to enforce.
+            tokenizer (PreTrainedTokenizerBase):
+                The tokenizer to use for the FSM.
+        """
+        if not HAS_OUTLINES:
+            raise ImportError("Unable to enforce JSON schema: `outlines` is not installed.")
+
+        self.tokenizer = self.adapt_tokenizer(tokenizer)
+
+        regex_string = build_regex_from_object(schema)
+        self.fsm = RegexFSM(regex_string, tokenizer)
+
+        self.fsm_state = FSMState(0)
+        self.is_first_token = True
+
+    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
+        """Use the FSM to bias the logits before sampling the next token."""
+
+        if self.is_first_token:
+            # For the very first token generated, we want to select the allowed tokens from the FSM's initial state.
+            self.is_first_token = False
+        else:
+            last_token = input_ids[0][-1].item()
+            self.fsm_state = self.fsm.next_state(self.fsm_state, last_token)
+
+        allowed_tokens = self.fsm.allowed_token_ids(self.fsm_state)
+
+        mask = torch.full((scores.shape[-1],), -math.inf, device=scores.device)
+        mask[allowed_tokens] = 0
+        biased_scores = scores + mask
+
+        return biased_scores
+
+    def adapt_tokenizer(self, tokenizer: PreTrainedTokenizerBase):
+        """Adapt vLLM's tokenizer to use to compile the FSM.
+
+        The API of Outlines tokenizers is slightly different to that of
+        `transformers`. In addition, we need to handle the missing spaces to
+        Llama's tokenizer to be able to compile FSMs for this model.
+        """
+        if hasattr(tokenizer, "vocabulary"):
+            # We've already adapted the tokenizer from a previous request
+            return tokenizer
+
+        tokenizer.vocabulary = tokenizer.get_vocab()
+        tokenizer.special_tokens = set(tokenizer.all_special_tokens)
+
+        def convert_token_to_string(token: str) -> str:
+            from transformers.file_utils import SPIECE_UNDERLINE
+
+            string = tokenizer.convert_tokens_to_string([token])
+
+            # A hack to handle missing spaces to HF's Llama tokenizers
+            if token.startswith(SPIECE_UNDERLINE) or token == "<0x20>":
+                return " " + string
+
+            return string
+
+        tokenizer.convert_token_to_string = convert_token_to_string
+
+        return tokenizer

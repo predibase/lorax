@@ -18,3 +18,38 @@ def default_pb_parameters():
 @pytest.fixture
 def default_pb_stop_parameters():
     return generate_pb2.StoppingCriteriaParameters(stop_sequences=[], max_new_tokens=10)
+
+
+@pytest.fixture
+def default_json_schema():
+    return """{
+    "$defs": {
+        "Armor": {
+            "enum": ["leather", "chainmail", "plate"],
+            "title": "Armor",
+            "type": "string"
+        }
+    },
+    "properties": {
+        "name": {"maxLength": 10, "title": "Name", "type": "string"},
+        "age": {"title": "Age", "type": "integer"},
+        "armor": {"$ref": "#/$defs/Armor"},
+        "strength": {"title": "Strength", "type": "integer"}\
+    },
+    "required": ["name", "age", "armor", "strength"],
+    "title": "Character",
+    "type": "object"
+}"""
+
+
+@pytest.fixture
+def schema_constrained_pb_parameters(default_json_schema):
+    return generate_pb2.NextTokenChooserParameters(
+        temperature=1.0,
+        repetition_penalty=1.0,
+        top_k=0,
+        top_p=1.0,
+        typical_p=1.0,
+        do_sample=False,
+        schema=default_json_schema,
+    )

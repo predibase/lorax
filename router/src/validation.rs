@@ -147,6 +147,7 @@ impl Validation {
             adapter_parameters,
             decoder_input_details,
             apply_chat_template,
+            schema,
             ..
         } = request.parameters;
 
@@ -273,6 +274,7 @@ impl Validation {
             seed,
             watermark,
             adapter_id,
+            schema,
         };
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens,

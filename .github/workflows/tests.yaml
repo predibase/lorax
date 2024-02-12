@@ -22,6 +22,7 @@ jobs:
     env:
       SCCACHE_GHA_ENABLED: "on"
       RUSTC_WRAPPER: /usr/local/bin/sccache
+      RUST_BACKTRACE: 1
       SCCACHE: 0.3.3
 
     steps:
@@ -33,7 +34,7 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.70.0
+          toolchain: 1.74.0
           override: true
           components: rustfmt, clippy
       - name: Install Protoc
