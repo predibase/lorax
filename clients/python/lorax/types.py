@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field
 from typing import Optional, List
 
 from lorax.errors import ValidationError
@@ -98,6 +98,8 @@ class Parameters(BaseModel):
     details: bool = False
     # Get decoder input token logprobs and ids
     decoder_input_details: bool = False
+    # Optional JSON schema string to constrain the generated text
+    json_schema: Optional[str] = Field(alias="schema")
 
     @validator("adapter_id")
     def valid_adapter_id(cls, v, values):

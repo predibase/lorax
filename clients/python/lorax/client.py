@@ -160,7 +160,7 @@ class Client:
 
         resp = requests.post(
             self.base_url,
-            json=request.dict(),
+            json=request.dict(by_alias=True),
             headers=self.headers,
             cookies=self.cookies,
             timeout=self.timeout,
@@ -168,6 +168,7 @@ class Client:
         payload = resp.json()
         if resp.status_code != 200:
             raise parse_error(resp.status_code, payload)
+
         return Response(**payload[0])
 
     def generate_stream(
