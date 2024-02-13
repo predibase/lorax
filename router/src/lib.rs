@@ -14,7 +14,7 @@ use infer::Infer;
 use loader::AdapterLoader;
 use queue::Entry;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::json;
 use utoipa::ToSchema;
 use validation::Validation;
 
@@ -426,6 +426,19 @@ struct UsageInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+enum ResponseFormatType {
+    #[serde(alias = "json_object")]
+    JsonObject,
+    // TODO: default value?
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ResponseFormat {
+    r#type: ResponseFormatType,
+    schema: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<std::collections::HashMap<String, String>>,
@@ -442,19 +455,9 @@ struct ChatCompletionRequest {
     user: Option<String>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
-    response_format: Option<std::collections::HashMap<String, >
+    response_format: Option<ResponseFormat>,
 }
 
-enum ResponseFormatType {
-    #[serde(alias = "json_object")]
-    JsonObject,
-    // TODO: default value?
-}
-
-struct ResponseFormat {
-    type: ResponseFormatType,
-    schema: serde::Value;
-}
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct CompletionRequest {
@@ -477,6 +480,7 @@ struct CompletionRequest {
     user: Option<String>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
+    response_format: Option<ResponseFormat>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -577,6 +581,17 @@ pub(crate) enum CompletionFinishReason {
 
 impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
+        let mut schema: Option<String> = None;
+        if req.response_format.is_some() {
+          let response_format = req.response_format.unwrap();
+//           schema = Some(match response_format.schema {
+//               Some(s) => s.to_string(),
+//               None => r#"{ "type": "object" }"#.to_string(),
+//           })
+
+          schema = Some(response_format.schema.unwrap_or(json!({ "type": "object" })).to_string())
+        }
+
         CompatGenerateRequest {
             inputs: req.prompt,
             parameters: GenerateParameters {
@@ -603,7 +618,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: req.logprobs.is_some(),
                 apply_chat_template: false,
                 seed: None,
-                schema: None,
+                schema: schema,
             },
             stream: req.stream.unwrap_or(false),
         }
@@ -612,6 +627,17 @@ impl From<CompletionRequest> for CompatGenerateRequest {
 
 impl From<ChatCompletionRequest> for CompatGenerateRequest {
     fn from(req: ChatCompletionRequest) -> Self {
+        let mut schema: Option<String> = None;
+        if req.response_format.is_some() {
+          let response_format = req.response_format.unwrap();
+//           schema = Some(match response_format.schema {
+//               Some(s) => s.to_string(),
+//               None => r#"{ "type": "object" }"#.to_string(),
+//           })
+
+          schema = Some(response_format.schema.unwrap_or(json!({ "type": "object" })).to_string())
+        }
+
         CompatGenerateRequest {
             inputs: serde_json::to_string(&req.messages).unwrap(),
             parameters: GenerateParameters {
@@ -638,7 +664,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: false,
                 apply_chat_template: true,
                 seed: None,
-                schema: None,
+                schema: schema,
             },
             stream: req.stream.unwrap_or(false),
         }
