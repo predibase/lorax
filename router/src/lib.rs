@@ -14,6 +14,7 @@ use infer::Infer;
 use loader::AdapterLoader;
 use queue::Entry;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use validation::Validation;
 
@@ -441,6 +442,18 @@ struct ChatCompletionRequest {
     user: Option<String>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
+    response_format: Option<std::collections::HashMap<String, >
+}
+
+enum ResponseFormatType {
+    #[serde(alias = "json_object")]
+    JsonObject,
+    // TODO: default value?
+}
+
+struct ResponseFormat {
+    type: ResponseFormatType,
+    schema: serde::Value;
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
