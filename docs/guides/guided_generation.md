@@ -14,8 +14,11 @@ prevents the LLM from selecting an invalid token by modifying the probability di
 invalid tokens to something like -infinity. In this way, we can guarantee that, at each step, only tokens that will produce
 valid JSON can be selected.
 
-It's important to note that guided generation does not guarantee the _quality_ of generated text, only its _form_. Guided
+### Important Notes
+* Guided generation does not guarantee the _quality_ of generated text, only its _form_. Guided
 generation may force the LLM to output valid JSON, but it can't ensure that the content of the JSON is desirable or accurate.
+* Even with guided generation enabled, LLM output may not be fully valid JSON if the number of `max_new_tokens` is too low,
+    as this could result in necessary tokens (e.g., a closing `}`) being cut off.
 
 ## Guided Generation with Outlines
 
