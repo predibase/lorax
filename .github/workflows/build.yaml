@@ -53,7 +53,7 @@ jobs:
             version = 2
             
             # persistent data location
-            root = "/var/lib/kubelet/containerd"
+            root = "/runner/build/containerd"
 
       - name: Docker meta
         id: meta
@@ -74,9 +74,9 @@ jobs:
         run: |
           tag_hash=$(echo -n "$tags" | md5sum | awk '{print $1}')
           echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
-          echo "cache_dir=/var/lib/kubelet/images/cache" >> $GITHUB_OUTPUT
-          echo "image_dir=/var/lib/kubelet/images" >> $GITHUB_OUTPUT
-          echo "image_path=/var/lib/kubelet/images/lorax" >> $GITHUB_OUTPUT
+          echo "cache_dir=/runner/build/images/cache" >> $GITHUB_OUTPUT
+          echo "image_dir=/runner/build/images" >> $GITHUB_OUTPUT
+          echo "image_path=/runner/build/images/lorax" >> $GITHUB_OUTPUT
 
       - name: Create and update image/cache directory
         env:
