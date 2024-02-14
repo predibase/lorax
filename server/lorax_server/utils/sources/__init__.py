@@ -6,7 +6,7 @@ import requests
 
 from .hub import EntryNotFoundError, LocalEntryNotFoundError, RevisionNotFoundError, get_hub_model_local_dir, weight_files, download_weights, weight_hub_files, HubModelSource
 from .local import LocalModelSource, get_model_local_dir
-from .s3 import S3ModelSource, get_s3_model_local_dir
+from .s3 import S3ModelSource, get_s3_model_local_dir, _get_bucket_and_model_id
 
 HUB = "hub"
 S3 = "s3"
@@ -55,6 +55,7 @@ def get_config_path(model_id: str, source: str) -> str:
     if source == HUB:
         return model_id
     elif source == S3:
+        _, model_id = _get_bucket_and_model_id(model_id)
         return get_s3_model_local_dir(model_id).as_posix()
     elif source == LOCAL:
         return get_model_local_dir(model_id).as_posix()
