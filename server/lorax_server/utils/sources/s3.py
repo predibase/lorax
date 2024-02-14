@@ -48,6 +48,9 @@ def _get_bucket_and_model_id(model_id: str) -> Tuple[str, str]:
         return bucket_name, model_id
     
     return bucket, model_id
+
+def _get_s3_uri(bucket_name: str, model_id: str) -> str:
+    return f"{S3_PREFIX}{bucket_name}/{model_id}"
     
 
 def _get_bucket_resource(bucket_name: str) -> "Bucket":
@@ -96,14 +99,14 @@ def download_files_from_s3(
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
     def download_file(filename):
-        repo_cache = get_s3_model_local_dir(model_id)
+        repo_cache = get_s3_model_local_dir(_get_s3_uri(bucket, model_id))
         local_file = try_to_load_from_cache(repo_cache, revision, filename)
         if local_file is not None:
             logger.info(f"File {filename} already present in cache.")
             return Path(local_file)
         logger.info(f"Download file: {filename}")
         start_time = time.time()
-        local_file_path = get_s3_model_local_dir(model_id) / filename
+        local_file_path = get_s3_model_local_dir(_get_s3_uri(bucket, model_id)) / filename
         # ensure cache dir exists and create it if needed
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         model_id_path = Path(model_id)
@@ -141,7 +144,7 @@ def weight_files_s3(
 ) -> List[Path]:
     """Get the local files"""
     # Local model
-    local_path = get_s3_model_local_dir(model_id)
+    local_path = get_s3_model_local_dir(_get_s3_uri(bucket, model_id))
     if local_path.exists() and local_path.is_dir():
         local_files = list(local_path.glob(f"*{extension}"))
         if not local_files:
@@ -193,7 +196,7 @@ def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safete
     logger.info(filenames)
     download_files_from_s3(bucket, filenames, model_id)
     logger.info(f"Downloaded {len(filenames)} files")
-    logger.info(f"Contents of the cache folder: {os.listdir(get_s3_model_local_dir(model_id))}")
+    logger.info(f"Contents of the cache folder: {os.listdir(get_s3_model_local_dir(_get_s3_uri(bucket, model_id)))}")
 
     # Raise an error if none of the files we downloaded have the correct extension
     filenames_with_extension = [f for f in model_files if f.key.endswith(extension)]
@@ -231,5 +234,4 @@ class S3ModelSource(BaseModelSource):
         return download_model_from_s3(self.bucket, self.model_id, self.extension)
 
     def get_local_path(self, model_id: str):
-        _, model_id = _get_bucket_and_model_id(model_id)
         return get_s3_model_local_dir(model_id)
