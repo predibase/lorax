@@ -429,13 +429,12 @@ struct UsageInfo {
 enum ResponseFormatType {
     #[serde(alias = "json_object")]
     JsonObject,
-    // TODO: default value?
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
     r#type: ResponseFormatType,
-    schema: Option<serde_json::Value>,
+    schema: serde_json::Value,  // TODO: make this optional once arbitrary JSON object is supported in Outlines
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -584,12 +583,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
         let mut schema: Option<String> = None;
         if req.response_format.is_some() {
           let response_format = req.response_format.unwrap();
-//           schema = Some(match response_format.schema {
-//               Some(s) => s.to_string(),
-//               None => r#"{ "type": "object" }"#.to_string(),
-//           })
-
-          schema = Some(response_format.schema.unwrap_or(json!({ "type": "object" })).to_string())
+          schema = Some(response_format.schema.to_string())
         }
 
         CompatGenerateRequest {
@@ -630,12 +624,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
         let mut schema: Option<String> = None;
         if req.response_format.is_some() {
           let response_format = req.response_format.unwrap();
-//           schema = Some(match response_format.schema {
-//               Some(s) => s.to_string(),
-//               None => r#"{ "type": "object" }"#.to_string(),
-//           })
-
-          schema = Some(response_format.schema.unwrap_or(json!({ "type": "object" })).to_string())
+          schema = Some(response_format.schema.to_string())
         }
 
         CompatGenerateRequest {
