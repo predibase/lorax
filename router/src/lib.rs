@@ -434,7 +434,7 @@ enum ResponseFormatType {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
     r#type: ResponseFormatType,
-    schema: serde_json::Value,  // TODO: make this optional once arbitrary JSON object is supported in Outlines
+    schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -456,7 +456,6 @@ struct ChatCompletionRequest {
     // TODO(travis): add other LoRAX params here
     response_format: Option<ResponseFormat>,
 }
-
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct CompletionRequest {
@@ -582,8 +581,8 @@ impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
         let mut schema: Option<String> = None;
         if req.response_format.is_some() {
-          let response_format = req.response_format.unwrap();
-          schema = Some(response_format.schema.to_string())
+            let response_format = req.response_format.unwrap();
+            schema = Some(response_format.schema.to_string())
         }
 
         CompatGenerateRequest {
@@ -623,8 +622,8 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
     fn from(req: ChatCompletionRequest) -> Self {
         let mut schema: Option<String> = None;
         if req.response_format.is_some() {
-          let response_format = req.response_format.unwrap();
-          schema = Some(response_format.schema.to_string())
+            let response_format = req.response_format.unwrap();
+            schema = Some(response_format.schema.to_string())
         }
 
         CompatGenerateRequest {
