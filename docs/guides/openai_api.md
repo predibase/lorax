@@ -51,6 +51,10 @@ for message in messages:
     print(message)
 ```
 
+### Guided Generation (JSON Mode)
+
+See [here](guided_generation.md#openai-compatible-api) for an example.
+
 ### REST API
 
 The REST API can be used directly in addition to the Python SDK:
@@ -98,7 +102,7 @@ client = OpenAI(
     base_url="http://127.0.0.1:8080/v1",
 )
 
-# synchrounous completions
+# synchronous completions
 completion = client.completions.create(
     model=adapter_id,
     prompt=prompt,
@@ -116,7 +120,11 @@ for message in completion_stream:
     print("Completion message:", message)
 ```
 
-REST:
+### Guided Generation (JSON Mode)
+
+See [here](guided_generation.md#openai-compatible-api) for an example.
+
+### REST API
 
 ```bash
 curl http://127.0.0.1:8080/v1/completions \

@@ -34,6 +34,8 @@ valid next tokens using this FSM and sets the probability of invalid tokens to -
 This example follows the [JSON-guided generation example](https://outlines-dev.github.io/outlines/quickstart/#json-guided-generation) in the Outlines quickstart.
 
 We assume that you have already deployed LoRAX using a suitable base model and installed the [LoRAX Python Client](../reference/python_client.md).
+Alternatively, see [below](guided_generation.md#openai-compatible-api) for an example of guided generation using an 
+OpenAI client.
 
 ```python
 from lorax import Client
@@ -65,3 +67,57 @@ prompt = "Generate a new character for my awesome game: name, age (between 1 and
 response = client.generate(prompt, schema=schema)
 print(response.generated_text)
 ```
+
+### OpenAI-compatible API
+
+Guided generation of JSON following a schema is supported with the `response_format` parameter.
+
+NOTE: Currently a schema is REQUIRED. This differs from the existing OpenAI JSON mode, in which no schema is supported.
+
+```python
+schema = {
+    "$defs": {
+        "Armor": {
+            "enum": ["leather", "chainmail", "plate"],
+            "title": "Armor",
+            "type": "string"
+        }
+    },
+    "properties": {
+        "name": {"maxLength": 10, "title": "Name", "type": "string"},
+        "age": {"title": "Age", "type": "integer"},
+        "armor": {"$ref": "#/$defs/Armor"},
+        "strength": {"title": "Strength", "type": "integer"}
+    },
+    "required": ["name", "age", "armor", "strength"],
+    "title": "Character",
+    "type": "object"
+}
+
+# Chat Completions API
+resp = client.chat.completions.create(
+    model=adapter_id,
+    messages=[
+        {
+            "role": "user",
+            "content": "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. ",
+        },
+    ],
+    max_tokens=100,
+    response_format={"type": "json_object", "schema": schema}
+)
+
+print("Response:", resp[0].choices[0].message.content)
+
+# Legacy Completions API
+resp = client.completions.create(
+    model=adapter_id,
+    prompt="Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. ",
+    max_tokens=100,
+    response_format={"type": "json_object", "schema": schema}
+)
+
+print("Response:", resp[0].choices[0].message.content)
+```
+
+
