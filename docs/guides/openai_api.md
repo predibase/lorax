@@ -122,7 +122,7 @@ for message in completion_stream:
 
 ### Guided Generation (JSON Mode)
 
-See [here](guided_generation.md#openai-compatible-api) for an example.
+JSON mode is not supported in the legacy completions API. Please use the Chat Completions API above instead.
 
 ### REST API
 

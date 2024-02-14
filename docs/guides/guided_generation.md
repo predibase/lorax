@@ -108,16 +108,6 @@ resp = client.chat.completions.create(
 )
 
 print("Response:", resp[0].choices[0].message.content)
-
-# Legacy Completions API
-resp = client.completions.create(
-    model=adapter_id,
-    prompt="Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. ",
-    max_tokens=100,
-    response_format={"type": "json_object", "schema": schema}
-)
-
-print("Response:", resp[0].choices[0].message.content)
 ```
 
 

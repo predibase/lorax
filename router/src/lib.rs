@@ -579,12 +579,6 @@ pub(crate) enum CompletionFinishReason {
 
 impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
-        let mut schema: Option<String> = None;
-        if req.response_format.is_some() {
-            let response_format = req.response_format.unwrap();
-            schema = Some(response_format.schema.to_string())
-        }
-
         CompatGenerateRequest {
             inputs: req.prompt,
             parameters: GenerateParameters {
@@ -611,7 +605,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: req.logprobs.is_some(),
                 apply_chat_template: false,
                 seed: None,
-                schema: schema,
+                schema: None,
             },
             stream: req.stream.unwrap_or(false),
         }
