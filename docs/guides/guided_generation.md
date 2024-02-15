@@ -62,15 +62,15 @@ schema = {
     "type": "object"
 }
 
-# Now simply pass this schema along when sending a generate request:
+# Now simply pass this schema in the `response_format` parameter when sending a generate request:
 prompt = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. "
-response = client.generate(prompt, schema=schema)
+response = client.generate(prompt, response_format={"type": "json_object", "schema": schema})
 print(response.generated_text)
 ```
 
 ### OpenAI-compatible API
 
-Guided generation of JSON following a schema is supported with the `response_format` parameter.
+Guided generation of JSON following a schema is supported via the `response_format` parameter.
 
 NOTE: Currently a schema is REQUIRED. This differs from the existing OpenAI JSON mode, in which no schema is supported.
 
@@ -104,7 +104,7 @@ resp = client.chat.completions.create(
         },
     ],
     max_tokens=100,
-    response_format={"type": "json_object", "schema": schema}
+    response_format={"type": "json_object", "schema": schema},
 )
 
 print("Response:", resp[0].choices[0].message.content)
