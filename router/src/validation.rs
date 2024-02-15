@@ -147,7 +147,7 @@ impl Validation {
             adapter_parameters,
             decoder_input_details,
             apply_chat_template,
-            schema,
+            response_format,
             ..
         } = request.parameters;
 
@@ -263,6 +263,12 @@ impl Validation {
         let (inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
+
+        let mut schema: Option<String> = None;
+        if response_format.is_some() {
+            let response_format_val = response_format.unwrap();
+            schema = Some(response_format_val.schema.to_string())
+        }
 
         let parameters = NextTokenChooserParameters {
             temperature,
