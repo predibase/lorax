@@ -478,7 +478,6 @@ struct CompletionRequest {
     user: Option<String>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
-    response_format: Option<ResponseFormat>,
 }
 
 #[derive(Serialize, ToSchema)]
