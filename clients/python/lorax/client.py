@@ -10,7 +10,7 @@ from lorax.types import (
     Response,
     Request,
     Parameters,
-    MergedAdapters,
+    MergedAdapters, ResponseFormat,
 )
 from lorax.errors import parse_error
 
@@ -79,7 +79,7 @@ class Client:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
-        schema: Optional[Dict[str, Any]] = None,
+        response_format: Optional[ResponseFormat] = None,
         decoder_input_details: bool = False,
     ) -> Response:
         """
@@ -125,8 +125,17 @@ class Client:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
-            schema (`Optional[Dict[str, Any]]`):
-                Optional JSON schema to validate the response
+            response_format (`Optional[Dict[str, Any]]`):
+                Optional specification of a format to impose upon the generated text, e.g.,:
+                ```
+                {
+                    "type": "json_object",
+                    "schema": {
+                        "type": "string",
+                        "title": "response"
+                    }
+                }
+                ```
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
 
@@ -153,7 +162,7 @@ class Client:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
-            schema=json.dumps(schema) if schema is not None else None,
+            response_format=response_format, # TODO: make object, ensure all variants of generate are migrated
             decoder_input_details=decoder_input_details,
         )
         request = Request(inputs=prompt, stream=False, parameters=parameters)
@@ -165,6 +174,10 @@ class Client:
             cookies=self.cookies,
             timeout=self.timeout,
         )
+
+        # TODO: handle 422 errors
+        print(resp.text) # Failed to deserialize the JSON body into the target type: parameters.response_format: missing field `type` at line 1 column 854
+
         payload = resp.json()
         if resp.status_code != 200:
             raise parse_error(resp.status_code, payload)
@@ -190,7 +203,7 @@ class Client:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
-        schema: Optional[Dict[str, Any]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Iterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens
@@ -233,8 +246,17 @@ class Client:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
-            schema (`Optional[Dict[str, Any]]`):
-                Optional JSON schema to validate the response
+            response_format (`Optional[Dict[str, Any]]`):
+                Optional specification of a format to impose upon the generated text, e.g.,:
+                ```
+                {
+                    "type": "json_object",
+                    "schema": {
+                        "type": "string",
+                        "title": "response"
+                    }
+                }
+                ```
 
         Returns:
             Iterator[StreamResponse]: stream of generated tokens
@@ -260,7 +282,7 @@ class Client:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
-            schema=json.dumps(schema) if schema is not None else None,
+            response_format=json.dumps(response_format) if response_format is not None else None,
         )
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 
@@ -362,7 +384,7 @@ class AsyncClient:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
-        schema: Optional[Dict[str, Any]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
         decoder_input_details: bool = False,
     ) -> Response:
         """
@@ -408,8 +430,17 @@ class AsyncClient:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
-            schema (`Optional[Dict[str, Any]]`):
-                Optional JSON schema to validate the response
+            response_format (`Optional[Dict[str, Any]]`):
+                Optional specification of a format to impose upon the generated text, e.g.,:
+                ```
+                {
+                    "type": "json_object",
+                    "schema": {
+                        "type": "string",
+                        "title": "response"
+                    }
+                }
+                ```
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
 
@@ -437,7 +468,7 @@ class AsyncClient:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
-            schema=json.dumps(schema) if schema is not None else None,
+            response_format=json.dumps(response_format) if response_format is not None else None,
         )
         request = Request(inputs=prompt, stream=False, parameters=parameters)
 
@@ -470,7 +501,7 @@ class AsyncClient:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
-        schema: Optional[Dict[str, Any]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens asynchronously
@@ -513,8 +544,17 @@ class AsyncClient:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
-            schema (`Optional[Dict[str, Any]]`):
-                Optional JSON schema to validate the response
+            response_format (`Optional[Dict[str, Any]]`):
+                Optional specification of a format to impose upon the generated text, e.g.,:
+                ```
+                {
+                    "type": "json_object",
+                    "schema": {
+                        "type": "string",
+                        "title": "response"
+                    }
+                }
+                ```
 
         Returns:
             AsyncIterator[StreamResponse]: stream of generated tokens
@@ -540,6 +580,7 @@ class AsyncClient:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
+            response_format=json.dumps(response_format) if response_format is not None else None,
         )
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 

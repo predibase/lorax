@@ -254,9 +254,9 @@ pub(crate) struct GenerateParameters {
     #[schema(
         nullable = true,
         default = "null",
-        example = "{\"type\": \"string\", \"title\": \"response\"}"
+        example = json!(r#"{"type": "json_object", "schema": {type": "string", "title": "response"}}"#)
     )]
-    pub schema: Option<String>,
+    pub response_format: Option<ResponseFormat>,
 }
 
 fn default_max_new_tokens() -> u32 {
@@ -285,7 +285,7 @@ fn default_parameters() -> GenerateParameters {
         decoder_input_details: false,
         apply_chat_template: false,
         seed: None,
-        schema: None,
+        response_format: None,
     }
 }
 
@@ -605,7 +605,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: req.logprobs.is_some(),
                 apply_chat_template: false,
                 seed: None,
-                schema: None,
+                response_format: None,
             },
             stream: req.stream.unwrap_or(false),
         }
@@ -614,12 +614,6 @@ impl From<CompletionRequest> for CompatGenerateRequest {
 
 impl From<ChatCompletionRequest> for CompatGenerateRequest {
     fn from(req: ChatCompletionRequest) -> Self {
-        let mut schema: Option<String> = None;
-        if req.response_format.is_some() {
-            let response_format = req.response_format.unwrap();
-            schema = Some(response_format.schema.to_string())
-        }
-
         CompatGenerateRequest {
             inputs: serde_json::to_string(&req.messages).unwrap(),
             parameters: GenerateParameters {
@@ -646,7 +640,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: false,
                 apply_chat_template: true,
                 seed: None,
-                schema: schema,
+                response_format: req.response_format,
             },
             stream: req.stream.unwrap_or(false),
         }
