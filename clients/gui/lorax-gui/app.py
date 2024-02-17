@@ -108,6 +108,9 @@ def main():
 
     txt = st.text_area("Enter prompt", "Type Here ...")
     client = lorax.Client(HOST)
+    params_dict = params.dict()
+    params_dict['stop_sequences'] = params_dict['stop']
+    params_dict.pop('stop')
     if st.button("Generate"):
         resp = client.generate(prompt=txt, **params.dict())
         st.write(resp)
