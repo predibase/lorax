@@ -25,20 +25,26 @@ def has_sgmv() -> bool:
     return HAS_SGMV
 
 
-def pad_rank(t: torch.Tensor, dim: int) -> torch.Tensor:
+def pad_rank(t: torch.Tensor, dim: int, world_size: int) -> torch.Tensor:
     """Pad a tensor to the minimum rank for SGMV and the nearest multiple of the SGMV block size."""
     if not has_sgmv():
         return t
+    
+    # tensor parallelism will result in effective rank being divided by world_size,
+    # so we need to scale the min rank to offset that effect
+    min_rank = MIN_SGMV_RANK * world_size
 
+    # if we're at or below the min rank, pad up to the min rank
+    # otherwise, pad to the nearest multiple of the block size
     current_rank = t.size(dim)
-    nearest_rank = (
-        MIN_SGMV_RANK if current_rank <= MIN_SGMV_RANK else
+    target_rank = (
+        min_rank if current_rank <= min_rank else
         (current_rank + SGMV_BLOCK_SIZE - 1) // SGMV_BLOCK_SIZE * SGMV_BLOCK_SIZE
     )
-    if current_rank == nearest_rank:
+    if current_rank == target_rank:
         return t
 
-    pad_size = nearest_rank - current_rank
+    pad_size = target_rank - current_rank
 
     # see complicatd pad syntax here: https://pytorch.org/docs/stable/generated/torch.nn.functional.pad.html
     pad = [0, 0] * t.dim()
