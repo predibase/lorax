@@ -114,7 +114,9 @@ def main():
     params_dict.pop('details')
     if st.button("Generate"):
         resp = client.generate(prompt=txt, **params_dict)
-        st.write(resp)
+        st.write(resp.generated_text)
+        with st.expander("Response details"):
+            st.write(resp.details.dict())
 
 
 if __name__ == "__main__":
