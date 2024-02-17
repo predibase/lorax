@@ -86,7 +86,7 @@ class Parameters(BaseModel):
     # Whether to prepend the prompt to the generated text
     return_full_text: bool = False
     # Stop generating tokens if a member of `stop_sequences` is generated
-    stop: List[str] = []
+    stop_sequences: List[str] = []
     # Random sampling seed
     seed: Optional[int]
     # The value used to module the logits distribution.
