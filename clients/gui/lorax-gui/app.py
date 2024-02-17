@@ -52,7 +52,7 @@ def render_parameters(params: Parameters):
         params.max_new_tokens = max_new_tokens
         params.repetition_penalty = repetition_penalty
         params.return_full_text = return_full_text
-        params.stop_sequences = stop_sequences
+        params.stop = stop_sequences
         params.seed = seed
         params.temperature = temperature
         params.best_of = best_of_int
