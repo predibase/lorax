@@ -96,7 +96,7 @@ class Seq2SeqLMBatch(Batch):
             inputs.append(req_inputs)
             requests_idx_mapping[r.id] = i
             decoder_input_lengths.append(1)
-            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
+            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device, tokenizer))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
             )
@@ -268,7 +268,11 @@ class Seq2SeqLMBatch(Batch):
     @classmethod
     @tracer.start_as_current_span("concatenate")
     def concatenate(cls, batches: List["Seq2SeqLMBatch"]) -> "Seq2SeqLMBatch":
-        """Concatenate multiple batches together by padding internal torch tensors"""
+        """Concatenate multiple batches together by padding internal torch tensors
+
+        Args:
+            tokenizers:
+        """
 
         # Used for padding
         total_batch_size = 0

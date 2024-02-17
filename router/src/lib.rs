@@ -14,6 +14,7 @@ use infer::Infer;
 use loader::AdapterLoader;
 use queue::Entry;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use utoipa::ToSchema;
 use validation::Validation;
 
@@ -249,6 +250,13 @@ pub(crate) struct GenerateParameters {
         example = "null"
     )]
     pub seed: Option<u64>,
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = json!(r#"{"type": "json_object", "schema": {type": "string", "title": "response"}}"#)
+    )]
+    pub response_format: Option<ResponseFormat>,
 }
 
 fn default_max_new_tokens() -> u32 {
@@ -277,6 +285,7 @@ fn default_parameters() -> GenerateParameters {
         decoder_input_details: false,
         apply_chat_template: false,
         seed: None,
+        response_format: None,
     }
 }
 
@@ -417,6 +426,18 @@ struct UsageInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+enum ResponseFormatType {
+    #[serde(alias = "json_object")]
+    JsonObject,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ResponseFormat {
+    r#type: ResponseFormatType,
+    schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<std::collections::HashMap<String, String>>,
@@ -433,6 +454,7 @@ struct ChatCompletionRequest {
     user: Option<String>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
+    response_format: Option<ResponseFormat>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -582,6 +604,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: req.logprobs.is_some(),
                 apply_chat_template: false,
                 seed: None,
+                response_format: None,
             },
             stream: req.stream.unwrap_or(false),
         }
@@ -616,6 +639,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: false,
                 apply_chat_template: true,
                 seed: None,
+                response_format: req.response_format,
             },
             stream: req.stream.unwrap_or(false),
         }

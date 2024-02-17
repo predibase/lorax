@@ -1,6 +1,6 @@
 from enum import Enum
-from pydantic import BaseModel, validator
-from typing import Optional, List
+from pydantic import BaseModel, validator, Field, ConfigDict
+from typing import Optional, List, Dict, Any
 
 from lorax.errors import ValidationError
 
@@ -56,6 +56,17 @@ class MergedAdapters(BaseModel):
         return v
 
 
+class ResponseFormatType(str, Enum):
+    json_object = "json_object"
+
+
+class ResponseFormat(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    type: ResponseFormatType
+    schema_spec: Dict[str, Any] = Field(alias="schema")
+
+
 class Parameters(BaseModel):
     # The ID of the adapter to use
     adapter_id: Optional[str]
@@ -98,6 +109,8 @@ class Parameters(BaseModel):
     details: bool = False
     # Get decoder input token logprobs and ids
     decoder_input_details: bool = False
+    # Optional response format specification to constrain the generated text
+    response_format: Optional[ResponseFormat]
 
     @validator("adapter_id")
     def valid_adapter_id(cls, v, values):

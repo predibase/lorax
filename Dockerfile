@@ -1,5 +1,5 @@
 # Rust builder
-FROM lukemathwalker/cargo-chef:latest-rust-1.70 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.75 AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -154,7 +154,7 @@ COPY server/Makefile-eetq Makefile
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
 
 # LoRAX base image
-FROM nvidia/cuda:11.8.0-base-ubuntu20.04 as base
+FROM nvidia/cuda:11.8.0-base-ubuntu22.04 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
@@ -218,7 +218,7 @@ COPY server/Makefile server/Makefile
 
 RUN cd server && \
     make gen-server && \
-    pip install ".[bnb, accelerate, quantize, peft]" --no-cache-dir
+    pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
 
 # Install router
 COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router

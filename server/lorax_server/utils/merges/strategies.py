@@ -1,7 +1,7 @@
 from abc import ABC
 from collections import defaultdict
 import copy
-from typing import TYPE_CHECKING, Dict, List, Tuple, Type
+from typing import TYPE_CHECKING, Dict, List, Tuple, Type, Union
 
 import torch
 from peft import LoraConfig
@@ -17,8 +17,11 @@ if TYPE_CHECKING:
     from lorax_server.utils.adapter import ModuleMap
 
 
-def _apply_weights(tensors: List[torch.Tensor], w: torch.Tensor) -> torch.Tensor:
-    t = torch.stack(tensors, dim=0)
+def _apply_weights(tensors: Union[torch.Tensor, List[torch.Tensor]], w: torch.Tensor) -> torch.Tensor:
+    if isinstance(tensors, torch.Tensor):
+        t = tensors
+    else:
+        t = torch.stack(tensors, dim=0)
 
     # element-wise weighting of each task tensor
     # need to unsqueeze weights to match task tensor dimensions
@@ -50,10 +53,11 @@ class TiesMerge(MergeStrategy):
     def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
         # sparsify
         task_tensors = [prune(tensor, self.density, method="magnitude") for tensor in task_tensors]
+        task_tensors = torch.stack(task_tensors, dim=0)
+
+        # elect sign before applying weights
+        majority_sign_mask = calculate_majority_sign_mask(task_tensors, method=self.majority_sign_method)
         weighted_task_tensors = _apply_weights(task_tensors, weights)
-        
-        # elect sign
-        majority_sign_mask = calculate_majority_sign_mask(weighted_task_tensors, method=self.majority_sign_method)
         
         # disjoint merge
         return disjoint_merge(weighted_task_tensors, majority_sign_mask)
@@ -78,10 +82,11 @@ class DareTiesMerge(MergeStrategy):
     def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
         # sparsify
         task_tensors = [prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors]
+        task_tensors = torch.stack(task_tensors, dim=0)
+
+        # elect sign before applying weights
+        majority_sign_mask = calculate_majority_sign_mask(task_tensors, method=self.majority_sign_method)
         weighted_task_tensors = _apply_weights(task_tensors, weights)
-        
-        # elect sign
-        majority_sign_mask = calculate_majority_sign_mask(weighted_task_tensors, method=self.majority_sign_method)
         
         # disjoint merge
         mixed_task_tensors = disjoint_merge(weighted_task_tensors, majority_sign_mask)
