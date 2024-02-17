@@ -114,7 +114,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             raise ValueError("All batches are empty")
 
         if len(batches) > 1:
-            batch = self.model.batch_type.concatenate(batches, self.model.tokenizer, self.model.tokenizers)
+            batch = self.model.batch_type.concatenate(batches)
         else:
             batch = batches[0]
 
