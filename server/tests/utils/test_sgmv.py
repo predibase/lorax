@@ -7,6 +7,7 @@ from lorax_server.utils.sgmv import (
     lora_a_sgmv_cutlass,
     lora_b_sgmv_cutlass,
     has_sgmv,
+    pad_rank,
     use_cutlass_shrink,
 )
 
@@ -101,3 +102,7 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     graph.replay()
 
     assert torch.allclose(y_ours, y_ours_graph, rtol=1e-2, atol=1e-3)
+
+
+def test_pad_rank():
+    pass
