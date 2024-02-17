@@ -104,5 +104,23 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     assert torch.allclose(y_ours, y_ours_graph, rtol=1e-2, atol=1e-3)
 
 
-def test_pad_rank():
-    pass
+@pytest.mark.parametrize("world_size", [1, 2, 4, 8])
+@pytest.mark.parametrize("lora_rank", [8, 16, 32, 64, 128])
+def test_pad_rank(lora_rank: int, world_size: int):
+    bs = 8
+    h = 1024
+    x = torch.randn((bs, h), dtype=torch.float16)
+
+    lora_a = torch.randn((h, lora_rank), dtype=torch.float16)
+    lora_b = torch.randn((lora_rank, h), dtype=torch.float16)
+
+    lora_a_padded = pad_rank(lora_a, dim=1, world_size=world_size)
+    lora_b_padded = pad_rank(lora_b, dim=0, world_size=world_size)
+    
+    assert lora_a_padded.size(1) == lora_b_padded.size(0)
+    assert lora_a_padded.size(1) >= lora_a.size(1)
+    assert lora_b_padded.size(0) >= lora_b.size(0)
+
+    expected = x @ lora_a @ lora_b
+    actual = x @ lora_a_padded @ lora_b_padded
+    assert torch.allclose(expected, actual)
