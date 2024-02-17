@@ -80,7 +80,6 @@ class Client:
         typical_p: Optional[float] = None,
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
-        details: bool = True,
         decoder_input_details: bool = False,
     ) -> Response:
         """
@@ -137,8 +136,6 @@ class Client:
                     }
                 }
                 ```
-            details (`bool`):
-                Return the generation details
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
 
@@ -152,7 +149,7 @@ class Client:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=best_of,
-            details=details,
+            details=True,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             repetition_penalty=repetition_penalty,
@@ -193,7 +190,6 @@ class Client:
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
-        details: bool = True,
         max_new_tokens: int = 20,
         repetition_penalty: Optional[float] = None,
         return_full_text: bool = False,
@@ -223,8 +219,6 @@ class Client:
                 API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
-            details (`bool`):
-                Return the generation details
             max_new_tokens (`int`):
                 Maximum number of generated tokens
             repetition_penalty (`float`):
@@ -272,7 +266,7 @@ class Client:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=None,
-            details=details,
+            details=True,
             decoder_input_details=False,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
@@ -389,7 +383,6 @@ class AsyncClient:
         typical_p: Optional[float] = None,
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
-        details: bool = True,
         decoder_input_details: bool = False,
     ) -> Response:
         """
@@ -446,8 +439,6 @@ class AsyncClient:
                     }
                 }
                 ```
-            details (`bool`):
-                Return the generation details
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
 
@@ -461,7 +452,7 @@ class AsyncClient:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=best_of,
-            details=details,
+            details=True,
             decoder_input_details=decoder_input_details,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
@@ -497,7 +488,6 @@ class AsyncClient:
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
-        details : bool = True,
         max_new_tokens: int = 20,
         repetition_penalty: Optional[float] = None,
         return_full_text: bool = False,
@@ -527,8 +517,6 @@ class AsyncClient:
                 API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
-            details (`bool`):
-                Return the generation details
             max_new_tokens (`int`):
                 Maximum number of generated tokens
             repetition_penalty (`float`):
@@ -576,7 +564,7 @@ class AsyncClient:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=None,
-            details=details,
+            details=True,
             decoder_input_details=False,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
