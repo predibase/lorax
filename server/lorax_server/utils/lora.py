@@ -6,7 +6,7 @@ import torch
 from peft import LoraConfig
 from torch.distributed import ProcessGroup
 
-from lorax_server.utils.sgmv import MIN_SGMV_RANK, get_tmp_tensors, orient_for_rank
+from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank
 
 
 # Constants
@@ -47,7 +47,7 @@ class AdapterWeightData:
     
     def can_vectorize(self, pg: ProcessGroup) -> bool:
         return all(
-            rank_data.rank // pg.size() >= MIN_SGMV_RANK
+            rank_data.rank // pg.size() <= MAX_RANK_CUSTOM
             for rank_data in self.rank_data.values()
         )
     
