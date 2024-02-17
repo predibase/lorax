@@ -139,7 +139,6 @@ class BatchedLoraWeights:
         """
         first_weights = list(self.lora_weights.values())[0]
         device = first_weights.weights_a.device
-        dtype = first_weights.weights_a.dtype
         segment_indices = meta.segment_indices
 
         lora_a = {
@@ -185,12 +184,16 @@ class BatchedLoraWeights:
         for segment_idx, adapter_idx in enumerate(segment_indices):
             if adapter_idx not in self.lora_weights:
                 continue
-            rank_indices[self.lora_weights[adapter_idx].adapter_config.r].append(segment_idx)
+            rank_indices[self.lora_weights[adapter_idx].weights_a.size(2)].append(segment_idx)
 
         rank_data = {}
         for rank, indices in rank_indices.items():
             lora_a_ptr_indices = lora_a_ptr[indices]
-            tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+            tmp_shrink, tmp_expand = get_tmp_tensors(
+                lora_a_ptr_indices.size(0),
+                rank,
+                device
+            )
 
             rank_data[rank] = RankSegments(
                 rank=rank,
