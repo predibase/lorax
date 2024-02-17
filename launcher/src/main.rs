@@ -357,6 +357,15 @@ struct Args {
     /// Download model weights only
     #[clap(long, env)]
     download_only: bool,
+
+    /// Launch testing GUI
+    /// This will launch a GUI that will allow you to test the model
+    #[clap(long, env)]
+    launch_gui: bool,
+
+    /// Gui port
+    #[clap(long, env)]
+    gui_port: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -956,6 +965,10 @@ fn spawn_shards(
         }
     }
     Ok(())
+}
+
+fn spawn_gui(port: u16) -> Result<Child, LauncherError> {
+    tracing::info!("Starting GUI");
 }
 
 fn spawn_webserver(
