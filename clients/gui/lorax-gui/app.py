@@ -112,7 +112,7 @@ def main():
     params_dict['stop_sequences'] = params_dict['stop']
     params_dict.pop('stop')
     if st.button("Generate"):
-        resp = client.generate(prompt=txt, **params.dict())
+        resp = client.generate(prompt=txt, **params_dict)
         st.write(resp)
 
 
