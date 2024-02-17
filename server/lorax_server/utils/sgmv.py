@@ -4,6 +4,7 @@ import warnings
 from typing import Tuple
 
 import torch
+import torch.nn.functional as F
 
 try:
     import punica_kernels as _kernels
@@ -17,10 +18,40 @@ except ImportError:
 MIN_SGMV_RANK = 8
 MIN_RANK_CUSTOM = 16
 MAX_RANK_CUSTOM = 128
+SGMV_BLOCK_SIZE = 16
 
 
 def has_sgmv() -> bool:
     return HAS_SGMV
+
+
+def pad_rank(t: torch.Tensor, dim: int, world_size: int) -> torch.Tensor:
+    """Pad a tensor to the minimum rank for SGMV and the nearest multiple of the SGMV block size."""
+    if not has_sgmv():
+        return t
+    
+    # tensor parallelism will result in effective rank being divided by world_size,
+    # so we need to scale the min rank to offset that effect
+    min_rank = MIN_SGMV_RANK * world_size
+
+    # if we're at or below the min rank, pad up to the min rank
+    # otherwise, pad to the nearest multiple of the block size
+    current_rank = t.size(dim)
+    target_rank = (
+        min_rank if current_rank <= min_rank else
+        (current_rank + SGMV_BLOCK_SIZE - 1) // SGMV_BLOCK_SIZE * SGMV_BLOCK_SIZE
+    )
+    if current_rank == target_rank:
+        return t
+
+    pad_size = target_rank - current_rank
+
+    # see complicatd pad syntax here: https://pytorch.org/docs/stable/generated/torch.nn.functional.pad.html
+    pad = [0, 0] * t.dim()
+    pad[(t.dim() - dim - 1) * 2 + 1] = pad_size
+    pad = tuple(pad)
+
+    return F.pad(t, pad, mode="constant", value=0.0)
 
 
 def use_cutlass_shrink(lora_rank: int) -> bool:

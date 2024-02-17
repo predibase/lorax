@@ -13,6 +13,7 @@ from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoR
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_and_merge_adapters
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.lora import BatchedLoraWeights, MergedLoraWeights
+from lorax_server.utils.sgmv import pad_rank
 from lorax_server.utils.weights import shard_on_dim
 
 B = TypeVar("B", bound=Batch)
@@ -243,6 +244,15 @@ class Model(ABC):
             # (A * B) * C = A * (B * C)
             lora_a_list[layer_id] = lora_a.transpose(0, 1)
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
+        
+        # pad lora ranks to be compatible with sgmv
+        lora_a_list = [pad_rank(w, dim=1, world_size=self.world_size) for w in lora_a_list]
+        lora_b_list = [pad_rank(w, dim=0, world_size=self.world_size) for w in lora_b_list]
+
+        if lora_b_list:
+            # update rank if it was padded
+            padded_rank = lora_b_list[0].size(0)
+            adapter_config.r = padded_rank
 
         q_lora_merged = MergedLoraWeights(
             *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type), adapter_config,
