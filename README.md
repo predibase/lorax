@@ -161,7 +161,7 @@ resp = client.chat.completions.create(
 print("Response:", resp[0].choices[0].message.content)
 ```
 
-See [OpenAI Compatible API](https://predibase.github.io/lorax/guides/openai_api) for details.
+See [OpenAI Compatible API](https://predibase.github.io/lorax/reference/openai_api) for details.
 
 ### Next steps
 

@@ -1,20 +1,21 @@
-# Guided Generation
+# Structured Output (JSON)
 
-Guided generation (also called constrained decoding) is a technique that forces LLM output to follow certain rules. For 
-example, guided generation is useful when you need generated text to parse as valid JSON or even conform to a custom [JSON schema](https://json-schema.org/).
+LoRAX can enforce that responses consist only of valid JSON and adhere to a provided [JSON schema](https://json-schema.org/).
 
 ## Background: Guided Generation
 
-During each forward pass of inference, LLMs produce a probability distribution over their vocabulary of tokens. The token 
+LoRAX enforces adherence to a schema through a process known as **guided generation** (also called *constrained decoding*). 
+Unlike guess-and-check validation methods, guided generation manipulates the next token likelihoods (logits) to enforce adherence to a schema at the token level. During each forward pass of inference, LLMs produce a probability distribution over their vocabulary of tokens. The token 
 that is actually generated is selected by sampling from this distribution. 
 
 Suppose you've tasked an LLM with generating some valid JSON, and so far the LLM has produced the text `{ "name"`. When 
 considering the next token to output, it's clear that tokens like `A` or `<` will not result in valid JSON. Guided generation
-prevents the LLM from selecting an invalid token by modifying the probability distribution and setting the probability of
-invalid tokens to something like -infinity. In this way, we can guarantee that, at each step, only tokens that will produce
+prevents the LLM from selecting an invalid token by modifying the probability distribution and setting the likelihood of
+invalid tokens to `-infinity`. In this way, we can guarantee that, at each step, only tokens that will produce
 valid JSON can be selected.
 
-### Important Notes
+### Caveats
+
 * Guided generation does not guarantee the _quality_ of generated text, only its _form_. Guided
 generation may force the LLM to output valid JSON, but it can't ensure that the content of the JSON is desirable or accurate.
 * Even with guided generation enabled, LLM output may not be fully valid JSON if the number of `max_new_tokens` is too low,
@@ -25,11 +26,11 @@ generation may force the LLM to output valid JSON, but it can't ensure that the 
 [Outlines](https://github.com/outlines-dev/outlines) is an open-source library supporting various ways of specifying and enforcing
 guided generation rules onto LLM outputs.
 
-Currently, LoRAX uses Outlines to support guided generation following a user-provided JSON schema. This JSON schema is
+LoRAX uses Outlines to support guided generation following a user-provided JSON schema. This JSON schema is
 converted into a regular expression, and then into a finite-state machine (FSM). For each token, LoRAX then determines the set of
-valid next tokens using this FSM and sets the probability of invalid tokens to -infinity.
+valid next tokens using this FSM and sets the likelihood of invalid tokens to `-infinity`.
 
-## Example
+### Example: Python client
 
 This example follows the [JSON-guided generation example](https://outlines-dev.github.io/outlines/quickstart/#json-guided-generation) in the Outlines quickstart.
 
@@ -39,40 +40,36 @@ OpenAI client.
 
 ```python
 from lorax import Client
+from pydantic import BaseModel, constr
 
-client = Client(endpoint_url)
 
-# Specify your desired format as a JSON schema
-schema = {
-    "$defs": {
-        "Armor": {
-            "enum": ["leather", "chainmail", "plate"],
-            "title": "Armor",
-            "type": "string"
-        }
-    },
-    "properties": {
-        "name": {"maxLength": 10, "title": "Name", "type": "string"},
-        "age": {"title": "Age", "type": "integer"},
-        "armor": {"$ref": "#/$defs/Armor"},
-        "strength": {"title": "Strength", "type": "integer"}
-    },
-    "required": ["name", "age", "armor", "strength"],
-    "title": "Character",
-    "type": "object"
-}
+class Armor(str, Enum):
+    leather = "leather"
+    chainmail = "chainmail"
+    plate = "plate"
+
+
+class Character(BaseModel):
+    name: constr(max_length=10)
+    age: int
+    armor: Armor
+    strength: int
+
+
+client = Client("http://127.0.0.1:8080")
 
 # Now simply pass this schema in the `response_format` parameter when sending a generate request:
 prompt = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. "
-response = client.generate(prompt, response_format={"type": "json_object", "schema": schema})
-print(response.generated_text)
+response = client.generate(prompt, response_format={
+    "type": "json_object",
+    "schema": Character.model_json_schema(),
+})
+
+my_character = json.loads(response.generated_text)
+print(my_character)
 ```
 
-### OpenAI-compatible API
-
-Guided generation of JSON following a schema is supported via the `response_format` parameter.
-
-NOTE: Currently a schema is REQUIRED. This differs from the existing OpenAI JSON mode, in which no schema is supported.
+You can also specify the JSON schema directly rather than using Pydantic:
 
 ```python
 schema = {
@@ -93,10 +90,44 @@ schema = {
     "title": "Character",
     "type": "object"
 }
+```
+
+### Example: OpenAI-compatible API
+
+Guided generation of JSON following a schema is supported via the `response_format` parameter.
+
+!!! note
+
+    Currently a schema is **required**. This differs from the existing OpenAI JSON mode, in which no schema is supported.
+
+```python
+import json
+from enum import Enum
+from openai import OpenAI
+from pydantic import BaseModel, constr
+
+
+class Armor(str, Enum):
+    leather = "leather"
+    chainmail = "chainmail"
+    plate = "plate"
+
+
+class Character(BaseModel):
+    name: constr(max_length=10)
+    age: int
+    armor: Armor
+    strength: int
+
+
+client = OpenAI(
+    api_key="EMPTY",
+    base_url="http://127.0.0.1:8080/v1",
+)
 
 # Chat Completions API
 resp = client.chat.completions.create(
-    model=adapter_id,
+    model="",  # optional: specify an adapter ID here
     messages=[
         {
             "role": "user",
@@ -104,10 +135,14 @@ resp = client.chat.completions.create(
         },
     ],
     max_tokens=100,
-    response_format={"type": "json_object", "schema": schema},
+    response_format={
+        "type": "json_object",
+        "schema": Character.model_json_schema(),
+    },
 )
 
-print("Response:", resp[0].choices[0].message.content)
+my_character = json.loads(resp[0].choices[0].message.content)
+print(my_character)
 ```
 
 

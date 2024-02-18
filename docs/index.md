@@ -145,7 +145,7 @@ resp = client.chat.completions.create(
 print("Response:", resp[0].choices[0].message.content)
 ```
 
-See [OpenAI Compatible API](./guides/openai_api.md) for details.
+See [OpenAI Compatible API](./reference/openai_api.md) for details.
 
 ## 🙇 Acknowledgements
 
