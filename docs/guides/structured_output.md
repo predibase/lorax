@@ -35,10 +35,12 @@ valid next tokens using this FSM and sets the likelihood of invalid tokens to `-
 This example follows the [JSON-guided generation example](https://outlines-dev.github.io/outlines/quickstart/#json-guided-generation) in the Outlines quickstart.
 
 We assume that you have already deployed LoRAX using a suitable base model and installed the [LoRAX Python Client](../reference/python_client.md).
-Alternatively, see [below](guided_generation.md#openai-compatible-api) for an example of guided generation using an 
+Alternatively, see [below](structured_output.md#openai-compatible-api) for an example of guided generation using an 
 OpenAI client.
 
 ```python
+import json
+from enum import Enum
 from lorax import Client
 from pydantic import BaseModel, constr
 
@@ -58,7 +60,6 @@ class Character(BaseModel):
 
 client = Client("http://127.0.0.1:8080")
 
-# Now simply pass this schema in the `response_format` parameter when sending a generate request:
 prompt = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. "
 response = client.generate(prompt, response_format={
     "type": "json_object",
@@ -125,7 +126,6 @@ client = OpenAI(
     base_url="http://127.0.0.1:8080/v1",
 )
 
-# Chat Completions API
 resp = client.chat.completions.create(
     model="",  # optional: specify an adapter ID here
     messages=[
