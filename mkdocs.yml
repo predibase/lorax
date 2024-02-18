@@ -43,12 +43,12 @@ nav:
       - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md
       - Python Client: reference/python_client.md
+      - OpenAI Compatible API: reference/openai_api.md
   - 🔬 Guides:
-      - OpenAI Compatible API: guides/openai_api.md
       - Quantization: guides/quantization.md
+      - Structured Output (JSON): guides/structured_output.md
       - CUDA Graph Compilation: guides/cuda_graphs.md
       - Merging Adapters: guides/merging_adapters.md
-      - Guided Generation: guides/guided_generation.md
       - Contributing to LoRAX:
         - Contributing to LoRAX: guides/contributing/index.md
         - Development Environment: guides/contributing/development_env.md

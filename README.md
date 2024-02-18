@@ -36,7 +36,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 - 🏋️‍♀️ **Heterogeneous Continuous Batching:** packs requests for different adapters together into the same batch, keeping latency and throughput nearly constant with the number of concurrent adapters.
 - 🧁 **Adapter Exchange Scheduling:** asynchronously prefetches and offloads adapters between GPU and CPU memory, schedules request batching to optimize the aggregate throughput of the system.
 - 👬 **Optimized Inference:**  high throughput and low latency optimizations including tensor parallelism, pre-compiled CUDA kernels ([flash-attention](https://arxiv.org/abs/2307.08691), [paged attention](https://arxiv.org/abs/2309.06180), [SGMV](https://arxiv.org/abs/2310.18547)), quantization, token streaming.
-- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry. OpenAI compatible API supporting multi-turn chat conversations. Private adapters through per-request tenant isolation.
+- 🚢  **Ready for Production** prebuilt Docker images, Helm charts for Kubernetes, Prometheus metrics, and distributed tracing with Open Telemetry. OpenAI compatible API supporting multi-turn chat conversations. Private adapters through per-request tenant isolation. [Structured Output](https://predibase.github.io/lorax/guides/structured_output) (JSON mode).
 - 🤯 **Free for Commercial Use:** Apache 2.0 License. Enough said 😎.
 
 
@@ -161,7 +161,7 @@ resp = client.chat.completions.create(
 print("Response:", resp[0].choices[0].message.content)
 ```
 
-See [OpenAI Compatible API](https://predibase.github.io/lorax/guides/openai_api) for details.
+See [OpenAI Compatible API](https://predibase.github.io/lorax/reference/openai_api) for details.
 
 ### Next steps
 
