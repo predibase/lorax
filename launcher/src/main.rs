@@ -967,9 +967,29 @@ fn spawn_shards(
     Ok(())
 }
 
-fn spawn_gui(port: u16) -> Result<Child, LauncherError> {
-    tracing::info!("Starting GUI");
-}
+// fn spawn_gui(port: u16) -> Result<Child, LauncherError> {
+//     tracing::info!("Starting GUI");
+
+//     let mut webserver = match Command::new("lorax-router")
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::piped())
+//         .process_group(0)
+//         .spawn()
+//     {
+//         Ok(p) => p,
+//         Err(err) => {
+//             tracing::error!("Failed to start webserver: {}", err);
+//             if err.kind() == io::ErrorKind::NotFound {
+//                 tracing::error!("lorax-router not found in PATH");
+//                 tracing::error!("Please install it with `make install-router`")
+//             } else {
+//                 tracing::error!("{}", err);
+//             }
+//             return Err(LauncherError::WebserverCannotStart);
+//         }
+//     };
+//     Ok(webserver)
+// }
 
 fn spawn_webserver(
     args: Args,

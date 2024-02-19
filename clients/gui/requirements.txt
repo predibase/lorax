@@ -1,3 +1,2 @@
 streamlit
 lorax-client
-streamlit-pydantic
