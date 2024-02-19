@@ -325,10 +325,13 @@ struct Args {
     cors_allow_origin: Vec<String>,
 
     #[clap(long, env)]
-    cors_allow_headers: Vec<String>,
+    cors_allow_header: Vec<String>,
 
     #[clap(long, env)]
-    cors_allow_methods: Vec<String>,
+    cors_expose_header: Vec<String>,
+
+    #[clap(long, env)]
+    cors_allow_method: Vec<String>,
 
     #[clap(long, env)]
     cors_allow_credentials: Option<bool>,
@@ -1030,14 +1033,20 @@ fn spawn_webserver(
     }
 
     // CORS methods
-    for origin in args.cors_allow_methods.into_iter() {
-        router_args.push("--cors-allow-methods".to_string());
+    for origin in args.cors_allow_method.into_iter() {
+        router_args.push("--cors-allow-method".to_string());
         router_args.push(origin);
     }
 
-    // CORS headers
-    for origin in args.cors_allow_headers.into_iter() {
-        router_args.push("--cors-allow-headers".to_string());
+    // CORS Allow headers
+    for origin in args.cors_allow_header.into_iter() {
+        router_args.push("--cors-allow-header".to_string());
+        router_args.push(origin);
+    }
+
+    // CORS expose headers
+    for origin in args.cors_expose_header.into_iter() {
+        router_args.push("--cors-expose-header".to_string());
         router_args.push(origin);
     }
 

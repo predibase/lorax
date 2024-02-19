@@ -28,7 +28,9 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::time::Instant;
-use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
+use tower_http::cors::{
+    AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
+};
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -706,10 +708,11 @@ pub async fn run(
     tokenizer: Option<Tokenizer>,
     validation_workers: usize,
     addr: SocketAddr,
-    cors_allow_origin: Option<AllowOrigin>,
+    cors_allow_origin: Option<AllowOrigin>, // exact match
     cors_allow_methods: Option<AllowMethods>,
     cors_allow_credentials: Option<AllowCredentials>,
     cors_allow_headers: Option<AllowHeaders>,
+    cors_expose_headers: Option<ExposeHeaders>,
     ngrok: bool,
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
@@ -839,18 +842,23 @@ pub async fn run(
     let cors_allow_headers =
         cors_allow_headers.unwrap_or(AllowHeaders::list(vec![http::header::CONTENT_TYPE]));
 
+    let cors_expose_headers = cors_expose_headers.unwrap_or(ExposeHeaders::default());
     let cors_allow_credentials = cors_allow_credentials.unwrap_or(AllowCredentials::default());
 
     // log cors stuff
     tracing::info!(
-        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, credentials: {cors_allow_credentials:?}",
+        "CORS: origin: {cors_allow_origin:?}, methods: {cors_allow_methods:?}, headers: {cors_allow_headers:?}, expose-headers: {cors_expose_headers:?} credentials: {cors_allow_credentials:?}",
     );
 
     let cors_layer = CorsLayer::new()
         .allow_methods(cors_allow_methods)
         .allow_headers(cors_allow_headers)
         .allow_credentials(cors_allow_credentials)
+        .expose_headers(cors_expose_headers)
         .allow_origin(cors_allow_origin);
+
+    // log all the cors layer
+    tracing::info!("CORS: {cors_layer:?}");
 
     // Endpoint info
     let info = Info {
