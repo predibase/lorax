@@ -30,7 +30,7 @@ opentelemetry-otlp = "0.12.0"
 rand = "0.8.5"
 reqwest = { version = "0.11.14", features = [] }
 serde = "1.0.152"
-serde_json = "1.0.93"
+serde_json = { version = "1.0.93", features = ["preserve_order"] }
 thiserror = "1.0.38"
 tokenizers = "0.13.4"
 tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "parking_lot", "signal", "sync"] }

@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, validator, Field, ConfigDict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, OrderedDict, Union
 
 from lorax.errors import ValidationError
 
@@ -64,7 +64,7 @@ class ResponseFormat(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     type: ResponseFormatType
-    schema_spec: Dict[str, Any] = Field(alias="schema")
+    schema_spec: Union[Dict[str, Any], OrderedDict] = Field(alias="schema")
 
 
 class Parameters(BaseModel):
