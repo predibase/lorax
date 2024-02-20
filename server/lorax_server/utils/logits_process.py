@@ -419,31 +419,20 @@ class HeterogeneousProcessorWrapper(LogitsProcessor):
 
 
 class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
-    r"""
+    """
     [`LogitsWarper`] for JSON schema enforcement.
     This version uses Outlines to perform the constrained decoding.
 
     Args:
-        schemas (`List[Optional[str]]`):
-            The JSON encoded schemas to enforce. `None` means no enforcement.
-        tokenizers (`List[Optional[PreTrainedTokenizerBase]]`):
-            The tokenizers to use for each request.
+        sequence_processors (`List[Optional[OutlinesLogitsProcessor]]`):
+            The Outlines processors to use for each request.
     """
 
     def __init__(
         self,
-        schemas: Optional[List[Optional[str]]] = None,
-        tokenizers: Optional[List[Optional[PreTrainedTokenizerBase]]] = None,
+        sequence_processors: List[Optional["OutlinesLogitsProcessor"]],
     ):
-        if schemas is None:
-            schemas = []
-        if tokenizers is None:
-            tokenizers = []
-
-        self.sequence_processors = [
-            OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
-            for schema, tokenizer in zip(schemas, tokenizers)
-        ]
+        self.sequence_processors = sequence_processors
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in enumerate(self.sequence_processors):
@@ -456,16 +445,30 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
         if any([x is not None for x in self.sequence_processors]):
             return self
         return None
-
+    
     @classmethod
-    def concatenate(
+    def from_schemas(
         cls,
-        processors: List["HeterogeneousSchemaLogitsProcessor"]
+        schemas: List[Optional[str]],
+        tokenizers: List[Optional[PreTrainedTokenizerBase]],
     ) -> "HeterogeneousSchemaLogitsProcessor":
-        ret = HeterogeneousSchemaLogitsProcessor()
-        for p in processors:
-            ret.sequence_processors.extend(p.sequence_processors)
-        return ret
+        """
+        Args:
+            schemas (`List[Optional[str]]`):
+                The JSON encoded schemas to enforce. `None` means no enforcement.
+            tokenizers (`List[Optional[PreTrainedTokenizerBase]]`):
+                The tokenizers to use for each request.
+        """
+        if schemas is None:
+            schemas = []
+        if tokenizers is None:
+            tokenizers = []
+
+        sequence_processors = [
+            OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
+            for schema, tokenizer in zip(schemas, tokenizers)
+        ]
+        return cls(sequence_processors)
 
 
 # Source: https://github.com/outlines-dev/outlines/blob/main/outlines/serve/vllm.py

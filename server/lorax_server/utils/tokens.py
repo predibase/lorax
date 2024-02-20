@@ -251,6 +251,7 @@ class HeterogeneousNextTokenChooser:
         do_sample: List[bool],
         seeds: List[int],
         tokenizers: List[PreTrainedTokenizerBase],
+        sequence_processors: Optional[List[OutlinesLogitsProcessor]] = None,
     ):
         warpers = []
 
@@ -274,11 +275,19 @@ class HeterogeneousNextTokenChooser:
             else None
         )
 
-        self.schema_processor = (
-            HeterogeneousSchemaLogitsProcessor(schemas, tokenizers)
-            if any(schemas)
-            else None
-        )
+        if sequence_processors is not None:
+            # Reuse the state from the previous generation steps
+            self.schema_processor = (
+                HeterogeneousSchemaLogitsProcessor(sequence_processors)
+                if any(sequence_processors)
+                else None
+            )
+        else:
+            self.schema_processor = (
+                HeterogeneousSchemaLogitsProcessor.from_schemas(schemas, tokenizers)
+                if any(schemas)
+                else None
+            )
 
         if any([x != 1.0 for x in temperature]):
             do_sample = [
@@ -384,6 +393,7 @@ class HeterogeneousNextTokenChooser:
         tokenizers: List[PreTrainedTokenizerBase],
         dtype: torch.dtype,
         device: torch.device,
+        sequence_processors: Optional[List[OutlinesLogitsProcessor]] = None,
     ) -> "HeterogeneousNextTokenChooser":
         """
         Creates a `HeterogeneousNextTokenChooser` instance from the given protocol buffer.
@@ -393,6 +403,7 @@ class HeterogeneousNextTokenChooser:
             tokenizers (List[PreTrainedTokenizerBase]): The tokenizers to use for processing the tokens.
             dtype (torch.dtype): The data type of the tokens.
             device (torch.device): The device on which the tokens are processed.
+            sequence_processors (Optional[List[OutlinesLogitsProcessor]]): The sequence processors to use for processing the tokens.
 
         Returns:
             HeterogeneousNextTokenChooser: The created `HeterogeneousNextTokenChooser` instance.
@@ -408,6 +419,7 @@ class HeterogeneousNextTokenChooser:
             do_sample=[pb_.do_sample for pb_ in pb],
             seeds=[pb_.seed for pb_ in pb],
             tokenizers=tokenizers,
+            sequence_processors=sequence_processors,
             device=device,
             dtype=dtype,
         )
