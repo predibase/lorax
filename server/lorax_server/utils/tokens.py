@@ -277,7 +277,7 @@ class HeterogeneousNextTokenChooser:
         self.schema_processor = (
             HeterogeneousSchemaLogitsProcessor(schemas, tokenizers)
             if any(schemas)
-            else None
+            else HeterogeneousSchemaLogitsProcessor()
         )
 
         if any([x != 1.0 for x in temperature]):
