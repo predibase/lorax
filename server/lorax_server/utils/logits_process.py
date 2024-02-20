@@ -488,6 +488,7 @@ class OutlinesLogitsProcessor(LogitsProcessor):
         self.tokenizer = self.adapt_tokenizer(tokenizer)
 
         regex_string = build_regex_from_object(schema)
+        regex_string = '[\\n ]*' + regex_string  # Hack to allow preceding whitespace
         self.fsm = RegexFSM(regex_string, tokenizer)
 
         self.fsm_state = FSMState(0)
