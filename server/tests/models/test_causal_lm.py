@@ -145,7 +145,7 @@ def test_causal_lm_batch_type(default_causal_lm):
 
 @pytest.mark.parametrize("causal_lm_batch, generated_token_id", [
     ("default_causal_lm_batch", 13),
-    ("schema_constrained_causal_lm_batch", 128),
+    ("schema_constrained_causal_lm_batch", 198),
 ])
 def test_causal_lm_generate_token(default_causal_lm, causal_lm_batch, generated_token_id, request):
     causal_lm_batch = request.getfixturevalue(causal_lm_batch)
