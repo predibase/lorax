@@ -52,7 +52,7 @@ def query_lorax(args):
         "details": True,
     }
     if adapter_id is not None:
-        request_params["adapter_source"] = "local"
+        # request_params["adapter_source"] = "local"
         request_params["adapter_id"] = adapter_id
         
     print("request_params", request_params)    
@@ -113,14 +113,14 @@ completes the request.
     # ]
 
     # Mistral
-    # prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
-    # adapters = [
-    #     "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
-    # ]
+    prompt = "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
+    adapters = [
+        "vineetsharma/qlora-adapter-Mistral-7B-Instruct-v0.1-gsm8k",
+    ]
     
     # GPT2
-    prompt = "Brand Name : First Aid Beauty ; Product Name : Ultra Repair Cream Intense Hydration ; Review Title :"
-    adapters = ["/data/adapters/9789adb7-cd03-4862-91d5-b41b6746682e_ludwig/model_weights"]
+    # prompt = "Brand Name : First Aid Beauty ; Product Name : Ultra Repair Cream Intense Hydration ; Review Title :"
+    # adapters = ["/data/adapters/9789adb7-cd03-4862-91d5-b41b6746682e_ludwig/model_weights"]
 
     adapters += [None]
     # adapters = [None]

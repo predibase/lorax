@@ -544,6 +544,7 @@ class FlashCausalLMBatch(Batch):
         read_offsets = []
 
         next_token_chooser_parameters = []
+        sequence_processors = []
         stopping_criterias = []
 
         # Cumulative length
@@ -601,6 +602,11 @@ class FlashCausalLMBatch(Batch):
             read_offsets.extend(batch.read_offsets)
 
             next_token_chooser_parameters.extend([r.parameters for r in batch.requests])
+            if batch.next_token_chooser.schema_processor is not None:
+                sequence_processors.extend(batch.next_token_chooser.schema_processor.sequence_processors)
+            else:
+                # No sequence processors, so pad with Nones
+                sequence_processors.extend([None for _ in batch.requests])
             stopping_criterias.extend(batch.stopping_criterias)
 
             # Update
@@ -614,9 +620,8 @@ class FlashCausalLMBatch(Batch):
             tokenizers=[],
             dtype=batches[0].next_token_chooser.dtype,
             device=batches[0].next_token_chooser.device,
+            sequence_processors=sequence_processors,
         )
-        next_token_chooser.schema_processor = HeterogeneousSchemaLogitsProcessor.concatenate(
-            [b.next_token_chooser.schema_processor for b in batches])
 
         adapter_segments, adapter_segment_indices = adapter_segment_builder.build()
 
