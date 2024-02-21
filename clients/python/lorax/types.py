@@ -279,7 +279,7 @@ class Details(BaseModel):
     # Decoder input tokens, empty if decoder_input_details is False
     prefill: List[InputToken]
     # Generated tokens
-    tokens: List[Token]
+    tokens: Optional[List[Token]]
     # Additional sequences when using the `best_of` parameter
     best_of_sequences: Optional[List[BestOfSequence]]
 
