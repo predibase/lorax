@@ -50,6 +50,7 @@ try:
     from lorax_server.models.flash_rw import FlashRWSharded
     from lorax_server.models.flash_neox import FlashNeoXSharded
     from lorax_server.models.flash_llama import FlashLlama
+    from lorax_server.models.flash_gemma import FlashGemma
     from lorax_server.models.flash_gpt2 import FlashGPT2
     from lorax_server.models.flash_qwen import FlashQwen
     from lorax_server.models.flash_phi import FlashPhi
@@ -66,6 +67,7 @@ if FLASH_ATTENTION:
     __all__.append(FlashRWSharded)
     __all__.append(FlashSantacoderSharded)
     __all__.append(FlashLlama)
+    __all__.append(FlashGemma)
     __all__.append(FlashGPT2)
     __all__.append(FlashQwen)
     __all__.append(FlashPhi)
@@ -361,6 +363,20 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
         raise NotImplementedError("Phi model requires flash attention v2")
+    
+    if model_type == "gemma":
+        if FLASH_ATTENTION:
+            return FlashGemma(
+                model_id,
+                adapter_id,
+                adapter_source,
+                revision,
+                quantize=quantize,
+                compile=compile,
+                dtype=dtype,
+                trust_remote_code=trust_remote_code,
+            )
+        raise NotImplementedError("Gemma model requires flash attention v2")
 
     if model_type == "opt":
         return OPTSharded(

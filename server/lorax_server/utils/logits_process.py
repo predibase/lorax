@@ -15,7 +15,7 @@ from transformers import (
 
 try:
     from outlines.fsm.fsm import RegexFSM, FSMState
-    from outlines.fsm.json_schema import build_regex_from_object
+    from outlines.fsm.json_schema import build_regex_from_schema
 
     HAS_OUTLINES = True
 except ImportError:
@@ -487,8 +487,7 @@ class OutlinesLogitsProcessor(LogitsProcessor):
 
         self.tokenizer = self.adapt_tokenizer(tokenizer)
 
-        regex_string = build_regex_from_object(schema)
-        regex_string = '[\\n ]*' + regex_string  # Hack to allow preceding whitespace
+        regex_string = build_regex_from_schema(schema)
         self.fsm = RegexFSM(regex_string, tokenizer)
 
         self.fsm_state = FSMState(0)
@@ -513,7 +512,7 @@ class OutlinesLogitsProcessor(LogitsProcessor):
         return biased_scores
 
     def adapt_tokenizer(self, tokenizer: PreTrainedTokenizerBase):
-        """Adapt vLLM's tokenizer to use to compile the FSM.
+        """Adapt the HF tokenizer to use to compile the FSM.
 
         The API of Outlines tokenizers is slightly different to that of
         `transformers`. In addition, we need to handle the missing spaces to
