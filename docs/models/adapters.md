@@ -36,13 +36,15 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `o_proj`
 - `lm_head`
 
-### Qwen
+### Gemma
 
-- `c_attn`
-- `c_proj`
-- `w1`
-- `w2`
-- `lm_head`
+- `q_proj`
+- `k_proj`
+- `v_proj`
+- `o_proj`
+- `gate_proj`
+- `up_proj`
+- `down_proj`
 
 ### Phi
 
@@ -52,6 +54,14 @@ Any combination of linear layers can be targeted in the adapters, which correspo
 - `dense`
 - `fc1`
 - `fc2`
+- `lm_head`
+
+### Qwen
+
+- `c_attn`
+- `c_proj`
+- `w1`
+- `w2`
 - `lm_head`
 
 ### GPT2

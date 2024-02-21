@@ -7,8 +7,9 @@
 - 🌬️[Mistral](https://huggingface.co/mistralai)
     - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
 - 🔄 [Mixtral](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1)
-- 🔮 [Qwen](https://huggingface.co/Qwen)
+- 💎 [Gemma](https://blog.google/technology/developers/gemma-open-models/)
 - 🏛️ [Phi](https://huggingface.co/microsoft/phi-2)
+- 🔮 [Qwen](https://huggingface.co/Qwen)
 - 🤖 [GPT2](https://huggingface.co/gpt2)
 - 🌸 [Bloom](https://huggingface.co/bigscience/bloom)
 
