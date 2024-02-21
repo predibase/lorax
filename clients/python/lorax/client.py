@@ -81,6 +81,7 @@ class Client:
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         decoder_input_details: bool = False,
+        details: bool = True,
     ) -> Response:
         """
         Given a prompt, generate the following text
@@ -138,6 +139,8 @@ class Client:
                 ```
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
+            details (`bool`):
+                Return the token logprobs and ids for generated tokens
 
         Returns:
             Response: generated response
@@ -149,7 +152,7 @@ class Client:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=best_of,
-            details=True,
+            details=details,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             repetition_penalty=repetition_penalty,
@@ -202,6 +205,7 @@ class Client:
         typical_p: Optional[float] = None,
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
+        details: bool = True,
     ) -> Iterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens
@@ -255,6 +259,8 @@ class Client:
                     }
                 }
                 ```
+            details (`bool`):
+                Return the token logprobs and ids for generated tokens
 
         Returns:
             Iterator[StreamResponse]: stream of generated tokens
@@ -266,7 +272,7 @@ class Client:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=None,
-            details=True,
+            details=details,
             decoder_input_details=False,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
@@ -384,6 +390,7 @@ class AsyncClient:
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         decoder_input_details: bool = False,
+        details: bool = True,
     ) -> Response:
         """
         Given a prompt, generate the following text asynchronously
@@ -441,6 +448,8 @@ class AsyncClient:
                 ```
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
+            details (`bool`):
+                Return the token logprobs and ids for generated tokens
 
         Returns:
             Response: generated response
@@ -452,7 +461,7 @@ class AsyncClient:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=best_of,
-            details=True,
+            details=details,
             decoder_input_details=decoder_input_details,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
@@ -500,6 +509,7 @@ class AsyncClient:
         typical_p: Optional[float] = None,
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
+        details: bool = True,
     ) -> AsyncIterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens asynchronously
@@ -553,6 +563,8 @@ class AsyncClient:
                     }
                 }
                 ```
+            details (`bool`):
+                Return the token logprobs and ids for generated tokens
 
         Returns:
             AsyncIterator[StreamResponse]: stream of generated tokens
@@ -564,7 +576,7 @@ class AsyncClient:
             merged_adapters=merged_adapters,
             api_token=api_token,
             best_of=None,
-            details=True,
+            details=details,
             decoder_input_details=False,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
