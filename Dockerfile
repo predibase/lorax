@@ -231,9 +231,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/*
 
 # Install gui and client
-COPY client client
+COPY clients clients
 
-RUN cd client/gui && \
+RUN cd clients/gui && \
     make install
 
 # Final image
