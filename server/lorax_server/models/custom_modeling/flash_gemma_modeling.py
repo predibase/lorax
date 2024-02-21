@@ -114,7 +114,7 @@ class GemmaRMSNorm(nn.Module):
 
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
-    head_size = config.hidden_size // config.num_attention_heads
+    head_size = config.head_dim
     return TensorParallelMultiAdapterLinear.load(
         base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
             head_size * config.num_attention_heads,
@@ -150,7 +150,7 @@ def _load_gqa(config, prefix: str, weights):
     if config.quantize not in ["gptq", "awq"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
-        head_size = config.hidden_size // config.num_attention_heads
+        head_size = config.head_dim
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
         assert list(weight.shape) == [
@@ -174,7 +174,7 @@ class GemmaAttention(torch.nn.Module):
         super().__init__()
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
-        self.head_size = self.hidden_size // self.num_heads
+        self.head_size = config.head_dim
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
@@ -481,7 +481,7 @@ class GemmaModel(torch.nn.Module):
                 adapter_data,
             )
 
-        hidden_states, _ = self.norm(hidden_states, residual)
+        hidden_states = self.norm(hidden_states)
 
         return hidden_states
 
@@ -491,11 +491,8 @@ class GemmaForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = GemmaModel(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
-            config,
-            prefix="lm_head",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
+        self.embed_t = self.model.embed_tokens.weight.T.contiguous()
+        self.vocab_size = config.vocab_size
 
     def forward(
         self,
@@ -523,5 +520,8 @@ class GemmaForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.lm_head(hidden_states, adapter_data)
+
+        # lm_head reuses the weights of the embedding layer
+        logits = hidden_states @ self.embed_t
+        logits = logits[:, :self.vocab_size]
         return logits
