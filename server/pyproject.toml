@@ -18,7 +18,7 @@ typer = "^0.6.1"
 accelerate = { version = "^0.24.1", optional = true }
 bitsandbytes = { version = "^0.41.1", optional = true }
 scipy = { version = "^1.0.0", optional = true }
-safetensors = "0.3.1"
+safetensors = "0.4.2"
 loguru = "^0.6.0"
 opentelemetry-api = "^1.15.0"
 opentelemetry-exporter-otlp = "^1.15.0"
@@ -27,7 +27,7 @@ hf-transfer = "^0.1.2"
 sentencepiece = "^0.1.97"
 tokenizers = "0.15.0"
 huggingface-hub = "^0.19.4"
-transformers = "^4.36.1"
+transformers = "^4.38.0"
 einops = "^0.6.1"
 tiktoken = "^0.5.2"
 texttable = { version = "^1.6.7", optional = true }
@@ -38,7 +38,7 @@ boto3 = "^1.28.34"
 urllib3 = "<=1.26.18"
 hqq = { version = "^0.1.2", optional = true }
 stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
-outlines = { version = "^0.0.26", optional = true }
+outlines = { version = "^0.0.32", optional = true }
 
 [tool.poetry.extras]
 torch = ["torch"]
