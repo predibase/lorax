@@ -141,7 +141,7 @@ async fn completions_v1(
     } else {
         let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
-        Ok((headers, Json(vec![CompletionResponse::from(generation.0)])).into_response())
+        Ok((headers, Json(CompletionResponse::from(generation.0))).into_response())
     }
 }
 
@@ -203,7 +203,7 @@ async fn chat_completions_v1(
         // wrap generation inside a Vec to match api-inference
         Ok((
             headers,
-            Json(vec![ChatCompletionResponse::from(generation.0)]),
+            Json(ChatCompletionResponse::from(generation.0)),
         )
             .into_response())
     }

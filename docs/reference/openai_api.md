@@ -26,7 +26,7 @@ resp = client.chat.completions.create(
     ],
     max_tokens=100,
 )
-print("Response:", resp[0].choices[0].message.content)
+print("Response:", resp.choices[0].message.content)
 ```
 
 ### Streaming
@@ -111,7 +111,7 @@ completion = client.completions.create(
     model=adapter_id,
     prompt=prompt,
 )
-print("Completion result:", completion[0].choices[0].text)
+print("Completion result:", completion.choices[0].text)
 
 # streaming completions
 completion_stream = client.completions.create(
