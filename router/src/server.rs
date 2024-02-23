@@ -117,7 +117,12 @@ async fn completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    let _ = headers.get("Authorization").map_or((), |x| {
+    println!("!!! HEADERS !!!");
+    for (k, v) in &headers {
+        println!("{0}: {1}", k.as_str(), v.to_str().unwrap_or("N/A"));
+    }
+
+    let _ = headers.get("authorization").map_or((), |x| {
         x.to_str().map_or((), |y| {
             y.strip_prefix("Bearer :").map_or((), |token| {
                 println!("token!! {token}");
@@ -187,7 +192,12 @@ async fn chat_completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    headers.get("Authorization").map_or((), |x| {
+    println!("!!! HEADERS !!!");
+    for (k, v) in &headers {
+        println!("{0}: {1}", k.as_str(), v.to_str().unwrap_or("N/A"));
+    }
+
+    let _ = headers.get("Authorization").map_or((), |x| {
         x.to_str().map_or((), |y| {
             y.strip_prefix("Bearer :").map_or((), |token| {
                 println!("token!! {token}");
