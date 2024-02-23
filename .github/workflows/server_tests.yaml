@@ -30,7 +30,7 @@ jobs:
           sed -i '/stanford-stk/d' server/pyproject.toml
       - name: Install
         run: |
-          make install
+          make install-server install-custom-kernels
       - name: Run server tests
         run: |
           pip install pytest
