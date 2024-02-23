@@ -117,7 +117,7 @@ async fn completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    headers.get("Authorization").map_or((), |x| {
+    let _ = headers.get("Authorization").map_or((), |x| {
         x.to_str().map_or((), |y| {
             y.strip_prefix("Bearer :").map_or((), |token| {
                 println!("token!! {token}");
