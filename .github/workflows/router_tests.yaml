@@ -56,6 +56,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+      - name: Install
+        run: |
+          make install-router install-launcher
       - name: Run Rust fmt
         run: |
           cargo fmt --check
