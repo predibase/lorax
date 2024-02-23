@@ -117,11 +117,14 @@ async fn completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    match headers.get("Authorization") {
-        Some(x) => x.strip_prefix("Bearer :").and_then(|token| gen_req.parameters.api_token = token)
-        // TODO: Just for testing, don't merge
-        None => println!("headers: {headers}")
-    }
+    headers.get("Authorization").map_or((), |x| {
+        x.to_str().map_or((), |y| {
+            y.strip_prefix("Bearer :").map_or((), |token| {
+                println!("token!! {token}");
+                gen_req.parameters.api_token = Some(token.to_string());
+            })
+        })
+    });
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -184,11 +187,14 @@ async fn chat_completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    match headers.get("Authorization") {
-        Some(x) => x.strip_prefix("Bearer :").and_then(|token| gen_req.parameters.api_token = token)
-        // TODO: Just for testing, don't merge
-        None => println!("headers: {headers}")
-    }
+    headers.get("Authorization").map_or((), |x| {
+        x.to_str().map_or((), |y| {
+            y.strip_prefix("Bearer :").map_or((), |token| {
+                println!("token!! {token}");
+                gen_req.parameters.api_token = Some(token.to_string());
+            })
+        })
+    });
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
