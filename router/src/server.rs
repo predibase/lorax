@@ -111,10 +111,17 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
+
+    match headers.get("Authorization") {
+        Some(x) => x.strip_prefix("Bearer :").and_then(|token| gen_req.parameters.api_token = token)
+        // TODO: Just for testing, don't merge
+        None => println!("headers: {headers}")
+    }
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -171,10 +178,17 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
+
+    match headers.get("Authorization") {
+        Some(x) => x.strip_prefix("Bearer :").and_then(|token| gen_req.parameters.api_token = token)
+        // TODO: Just for testing, don't merge
+        None => println!("headers: {headers}")
+    }
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
