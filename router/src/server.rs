@@ -117,15 +117,10 @@ async fn completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    println!("!!! HEADERS !!!");
-    for (k, v) in &headers {
-        println!("{0}: {1}", k.as_str(), v.to_str().unwrap_or("N/A"));
-    }
-
+    // If a bearer token was present in this request, pass the associated token along.
     let _ = headers.get("authorization").map_or((), |x| {
         x.to_str().map_or((), |y| {
             y.strip_prefix("Bearer ").map_or((), |token| {
-                println!("token!! {token}");
                 gen_req.parameters.api_token = Some(token.to_string());
             })
         })
@@ -192,15 +187,10 @@ async fn chat_completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    println!("!!! HEADERS !!!");
-    for (k, v) in &headers {
-        println!("{0}: {1}", k.as_str(), v.to_str().unwrap_or("N/A"));
-    }
-
+    // If a bearer token was present in this request, pass the associated token along.
     let _ = headers.get("authorization").map_or((), |x| {
         x.to_str().map_or((), |y| {
             y.strip_prefix("Bearer ").map_or((), |token| {
-                println!("token!! {token}");
                 gen_req.parameters.api_token = Some(token.to_string());
             })
         })
