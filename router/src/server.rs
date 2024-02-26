@@ -574,6 +574,8 @@ async fn generate_stream_with_callback(
         headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
     }
 
+    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+
     let stream = async_stream::stream! {
         // Inference
         let mut end_reached = false;
