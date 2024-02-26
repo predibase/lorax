@@ -64,6 +64,7 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    req_headers: HeaderMap,
     req: Json<CompatGenerateRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
@@ -75,11 +76,11 @@ async fn compat_generate(
 
     // switch on stream
     if req.stream {
-        Ok(generate_stream(infer, Json(req.into()))
+        Ok(generate_stream(infer, req_headers, Json(req.into()))
             .await
             .into_response())
     } else {
-        let (headers, generation) = generate(infer, Json(req.into())).await?;
+        let (headers, generation) = generate(infer, req_headers, Json(req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
     }
@@ -111,21 +112,21 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
-    headers: HeaderMap,
+    req_headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    // If a bearer token was present in this request, pass the associated token along.
-    let _ = headers.get("authorization").map_or((), |x| {
-        x.to_str().map_or((), |y| {
-            y.strip_prefix("Bearer ").map_or((), |token| {
-                gen_req.parameters.api_token = Some(token.to_string());
-            })
-        })
-    });
-
+//     // If a bearer token was present in this request, pass the associated token along.
+//     let _ = req_headers.get("authorization").map_or((), |x| {
+//         x.to_str().map_or((), |y| {
+//             y.strip_prefix("Bearer ").map_or((), |token| {
+//                 gen_req.parameters.api_token = Some(token.to_string());
+//             })
+//         })
+//     });
+//
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
         gen_req.parameters.return_full_text = Some(default_return_full_text.0)
@@ -146,10 +147,10 @@ async fn completions_v1(
         };
 
         let (headers, stream) =
-            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+            generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
+        let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(CompletionResponse::from(generation.0))).into_response())
     }
@@ -181,20 +182,20 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
-    headers: HeaderMap,
+    req_headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
     // If a bearer token was present in this request, pass the associated token along.
-    let _ = headers.get("authorization").map_or((), |x| {
-        x.to_str().map_or((), |y| {
-            y.strip_prefix("Bearer ").map_or((), |token| {
-                gen_req.parameters.api_token = Some(token.to_string());
-            })
-        })
-    });
+//     let _ = req_headers.get("authorization").map_or((), |x| {
+//         x.to_str().map_or((), |y| {
+//             y.strip_prefix("Bearer ").map_or((), |token| {
+//                 gen_req.parameters.api_token = Some(token.to_string());
+//             })
+//         })
+//     });
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -216,10 +217,10 @@ async fn chat_completions_v1(
         };
 
         let (headers, stream) =
-            generate_stream_with_callback(infer, Json(gen_req.into()), callback).await;
+            generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) = generate(infer, Json(gen_req.into())).await?;
+        let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
     }
@@ -294,7 +295,8 @@ seed,
 )]
 async fn generate(
     infer: Extension<Infer>,
-    req: Json<GenerateRequest>,
+    req_headers: HeaderMap,
+    mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
@@ -314,6 +316,17 @@ async fn generate(
         req.0.parameters.adapter_source.clone(),
         req.0.parameters.adapter_parameters.clone(),
     );
+
+    if req.parameters.api_token.is_none() {
+      // If no API token was explicitly provided in the request payload, try to set it from the request headers.
+      let _ = req_headers.get("authorization").map_or((), |x| {
+          x.to_str().map_or((), |y| {
+              y.strip_prefix("Bearer ").map_or((), |token| {
+                  req.parameters.api_token = Some(token.to_string());
+              })
+          })
+      });
+    }
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -515,19 +528,21 @@ seed,
 )]
 async fn generate_stream(
     infer: Extension<Infer>,
-    req: Json<GenerateRequest>,
+    req_headers: HeaderMap,
+    mut req: Json<GenerateRequest>,
 ) -> (
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
     let callback = |resp: StreamResponse| Event::default().json_data(resp).unwrap();
-    let (headers, stream) = generate_stream_with_callback(infer, req, callback).await;
+    let (headers, stream) = generate_stream_with_callback(infer, req_headers, req, callback).await;
     (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn generate_stream_with_callback(
     infer: Extension<Infer>,
-    req: Json<GenerateRequest>,
+    req_headers: HeaderMap,
+    mut req: Json<GenerateRequest>,
     callback: impl Fn(StreamResponse) -> Event,
 ) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
@@ -545,6 +560,17 @@ async fn generate_stream_with_callback(
         compute_characters.to_string().parse().unwrap(),
     );
     headers.insert("X-Accel-Buffering", "no".parse().unwrap());
+
+    if req.parameters.api_token.is_none() {
+      // If no API token was explicitly provided in the request payload, try to set it from the request headers.
+      let _ = req_headers.get("authorization").map_or((), |x| {
+          x.to_str().map_or((), |y| {
+              y.strip_prefix("Bearer ").map_or((), |token| {
+                  req.parameters.api_token = Some(token.to_string());
+              })
+          })
+      });
+    }
 
     let stream = async_stream::stream! {
         // Inference
