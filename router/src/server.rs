@@ -118,15 +118,6 @@ async fn completions_v1(
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
 
-//     // If a bearer token was present in this request, pass the associated token along.
-//     let _ = req_headers.get("authorization").map_or((), |x| {
-//         x.to_str().map_or((), |y| {
-//             y.strip_prefix("Bearer ").map_or((), |token| {
-//                 gen_req.parameters.api_token = Some(token.to_string());
-//             })
-//         })
-//     });
-//
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
         gen_req.parameters.return_full_text = Some(default_return_full_text.0)
@@ -187,15 +178,6 @@ async fn chat_completions_v1(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
     let mut gen_req = CompatGenerateRequest::from(req);
-
-    // If a bearer token was present in this request, pass the associated token along.
-//     let _ = req_headers.get("authorization").map_or((), |x| {
-//         x.to_str().map_or((), |y| {
-//             y.strip_prefix("Bearer ").map_or((), |token| {
-//                 gen_req.parameters.api_token = Some(token.to_string());
-//             })
-//         })
-//     });
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -318,14 +300,14 @@ async fn generate(
     );
 
     if req.parameters.api_token.is_none() {
-      // If no API token was explicitly provided in the request payload, try to set it from the request headers.
-      let _ = req_headers.get("authorization").map_or((), |x| {
-          x.to_str().map_or((), |y| {
-              y.strip_prefix("Bearer ").map_or((), |token| {
-                  req.parameters.api_token = Some(token.to_string());
-              })
-          })
-      });
+        // If no API token was explicitly provided in the request payload, try to set it from the request headers.
+        let _ = req_headers.get("authorization").map_or((), |x| {
+            x.to_str().map_or((), |y| {
+                y.strip_prefix("Bearer ").map_or((), |token| {
+                    req.parameters.api_token = Some(token.to_string());
+                })
+            })
+        });
     }
 
     // Inference
@@ -562,14 +544,14 @@ async fn generate_stream_with_callback(
     headers.insert("X-Accel-Buffering", "no".parse().unwrap());
 
     if req.parameters.api_token.is_none() {
-      // If no API token was explicitly provided in the request payload, try to set it from the request headers.
-      let _ = req_headers.get("authorization").map_or((), |x| {
-          x.to_str().map_or((), |y| {
-              y.strip_prefix("Bearer ").map_or((), |token| {
-                  req.parameters.api_token = Some(token.to_string());
-              })
-          })
-      });
+        // If no API token was explicitly provided in the request payload, try to set it from the request headers.
+        let _ = req_headers.get("authorization").map_or((), |x| {
+            x.to_str().map_or((), |y| {
+                y.strip_prefix("Bearer ").map_or((), |token| {
+                    req.parameters.api_token = Some(token.to_string());
+                })
+            })
+        });
     }
 
     let stream = async_stream::stream! {
