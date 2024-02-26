@@ -141,7 +141,7 @@ resp = client.chat.completions.create(
     },
 )
 
-my_character = json.loads(resp[0].choices[0].message.content)
+my_character = json.loads(resp.choices[0].message.content)
 print(my_character)
 ```
 
