@@ -1,6 +1,8 @@
 /// LoRAX webserver entrypoint
 use axum::http::{HeaderName, HeaderValue};
 use clap::Parser;
+use hf_hub::api::tokio::{Api, ApiBuilder, ApiRepo};
+use hf_hub::{Repo, RepoType};
 use lorax_client::{ClientError, ShardedClient};
 use lorax_router::{server, HubModelInfo};
 use opentelemetry::sdk::propagation::TraceContextPropagator;
@@ -9,11 +11,13 @@ use opentelemetry::sdk::trace::Sampler;
 use opentelemetry::sdk::Resource;
 use opentelemetry::{global, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
-use tokenizers::{FromPretrainedParameters, Tokenizer};
+use tokenizers::tokenizer::Tokenizer;
 use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, ExposeHeaders};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -191,22 +195,50 @@ fn main() -> Result<(), RouterError> {
     // Parse Huggingface hub token
     let authorization_token = std::env::var("HUGGING_FACE_HUB_TOKEN").ok();
 
-    // Tokenizer instance
-    // This will only be used to validate payloads
+    // Load tokenizer
     let local_path = Path::new(&tokenizer_name);
     let local_model = local_path.exists() && local_path.is_dir();
     let tokenizer = if local_model {
-        // Load local tokenizer
         Tokenizer::from_file(local_path.join("tokenizer.json")).ok()
     } else {
-        // Download and instantiate tokenizer
-        // We need to download it outside of the Tokio runtime
-        let params = FromPretrainedParameters {
-            revision: revision.clone().unwrap_or("main".to_string()),
-            auth_token: authorization_token.clone(),
-            ..Default::default()
+        // Shared API builder initialization
+        let api_builder = || {
+            let mut builder = ApiBuilder::new()
+                .with_progress(false)
+                .with_token(authorization_token);
+
+            if let Ok(cache_dir) = std::env::var("HUGGINGFACE_HUB_CACHE") {
+                builder = builder.with_cache_dir(cache_dir.into());
+            }
+
+            builder
         };
-        Tokenizer::from_pretrained(tokenizer_name.clone(), Some(params)).ok()
+
+        tracing::info!("Using the Hugging Face API");
+        let api = match api_builder().build() {
+            Ok(api) => Some(api),
+            Err(_) => {
+                tracing::warn!("Unable to build the Hugging Face API");
+                None
+            }
+        };
+
+        if api.is_none() {
+            return Err(RouterError::ArgumentValidation(
+                "Unable to build the Hugging Face API".to_string(),
+            ));
+        }
+
+        let api_repo = api.unwrap().repo(Repo::with_revision(
+            tokenizer_name.to_string(),
+            RepoType::Model,
+            revision.clone().unwrap_or_else(|| "main".to_string()),
+        ));
+
+        match api_repo.get("tokenizer.json") {
+            Ok(tokenizer_filename) => Tokenizer::from_file(tokenizer_filename).ok(),
+            Err(_) => get_base_tokenizer(&api, &api_repo),
+        }
     };
 
     // Launch Tokio runtime
@@ -437,6 +469,31 @@ pub async fn get_model_info(
             );
         }
         Some(hub_model_info)
+    } else {
+        None
+    }
+}
+
+/// get base tokenizer
+pub fn get_base_tokenizer(api: &Api, api_repo: &ApiRepo) -> Option<Tokenizer> {
+    let config_filename = api_repo.get("config.json").ok()?;
+
+    // Open the file in read-only mode with buffer.
+    let file = File::open(config_filename).ok()?;
+    let reader = BufReader::new(file);
+
+    // Read the JSON contents of the file as an instance of `User`.
+    let config: serde_json::Value = serde_json::from_reader(reader).ok()?;
+
+    if let Some(serde_json::Value::String(base_model_id)) = config.get("base_model_name_or_path") {
+        let api_base_repo = api.repo(Repo::with_revision(
+            base_model_id.to_string(),
+            RepoType::Model,
+            "main".to_string(),
+        ));
+
+        let tokenizer_filename = api_base_repo.get("tokenizer.json").ok()?;
+        Tokenizer::from_file(tokenizer_filename).ok()
     } else {
         None
     }
