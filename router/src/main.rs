@@ -121,6 +121,8 @@ async fn main() -> Result<(), RouterError> {
         adapter_source,
     } = args;
 
+    init_logging(otlp_endpoint, json_output);
+
     // Validate args
     if max_input_length >= max_total_tokens {
         return Err(RouterError::ArgumentValidation(
@@ -197,9 +199,11 @@ async fn main() -> Result<(), RouterError> {
     let authorization_token = std::env::var("HUGGING_FACE_HUB_TOKEN").ok();
 
     // Load tokenizer
+    tracing::info!("Loading tokenizer {tokenizer_name}");
     let local_path = Path::new(&tokenizer_name);
     let local_model = local_path.exists() && local_path.is_dir();
     let tokenizer = if local_model {
+        tracing::info!("Using local tokenizer: {0}", local_path.to_str().unwrap());
         Tokenizer::from_file(local_path.join("tokenizer.json")).ok()
     } else {
         // Shared API builder initialization
@@ -242,9 +246,6 @@ async fn main() -> Result<(), RouterError> {
             Err(_) => get_base_tokenizer(&api, &api_repo).await,
         }
     };
-
-    // Launch Tokio runtime
-    init_logging(otlp_endpoint, json_output);
 
     if tokenizer.is_none() {
         tracing::warn!(
