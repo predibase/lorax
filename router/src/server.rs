@@ -432,7 +432,7 @@ async fn generate(
         .join(",");
 
     if adapter_id_string.len() > 0 {
-        headers.insert("x-adapter-ids", adapter_id_string.parse().unwrap());
+        headers.insert("x-adapter-id", adapter_id_string.parse().unwrap());
         headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
     }
 
@@ -570,7 +570,7 @@ async fn generate_stream_with_callback(
         .join(",");
 
     if adapter_id_string.len() > 0 {
-        headers.insert("x-adapter-ids", adapter_id_string.parse().unwrap());
+        headers.insert("x-adapter-id", adapter_id_string.parse().unwrap());
         headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
     }
 
