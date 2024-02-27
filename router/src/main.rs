@@ -248,9 +248,7 @@ async fn main() -> Result<(), RouterError> {
     };
 
     if tokenizer.is_none() {
-        tracing::warn!(
-            "Could not find a fast tokenizer implementation for {tokenizer_name}"
-        );
+        tracing::warn!("Could not find a fast tokenizer implementation for {tokenizer_name}");
         tracing::warn!("Rust input length validation and truncation is disabled");
     }
 
@@ -303,9 +301,8 @@ async fn main() -> Result<(), RouterError> {
     {
         // Older models do not support automatic max-batch-total-tokens
         None => {
-            let max_batch_total_tokens = max_batch_total_tokens.unwrap_or(
-                16000.max((max_total_tokens as u32).max(max_batch_prefill_tokens)),
-            );
+            let max_batch_total_tokens = max_batch_total_tokens
+                .unwrap_or(16000.max((max_total_tokens as u32).max(max_batch_prefill_tokens)));
             tracing::warn!("Model does not support automatic max batch total tokens");
             max_batch_total_tokens
         }
