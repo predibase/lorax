@@ -149,7 +149,8 @@ impl Client {
             max_tokens: 0,
         };
 
-        let request = tonic::Request::new(WarmupRequest { batch: Some(batch) }).inject_context();
+        let max_new_tokens = max_total_tokens - max_input_length;
+        let request = tonic::Request::new(WarmupRequest { batch: Some(batch), max_new_tokens }).inject_context();
         let response = self.stub.warmup(request).await?.into_inner();
         Ok(response.max_supported_total_tokens)
     }

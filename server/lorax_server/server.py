@@ -68,7 +68,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         return generate_pb2.FilterBatchResponse(batch=filtered_batch.to_pb())
 
-    async def Warmup(self, request, context):
+    async def Warmup(self, request: generate_pb2.WarmupRequest, context):
         batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,
@@ -76,13 +76,13 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.dtype,
             self.model.device,
         )
-        max_supported_total_tokens = self.model.warmup(batch)
+        max_supported_total_tokens = self.model.warmup(batch, request.max_new_tokens)
 
         return generate_pb2.WarmupResponse(
             max_supported_total_tokens=max_supported_total_tokens
         )
 
-    async def Prefill(self, request, context):
+    async def Prefill(self, request: generate_pb2.PrefillRequest, context):
         batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,
@@ -99,7 +99,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             batch=next_batch.to_pb() if next_batch else None,
         )
 
-    async def Decode(self, request, context):
+    async def Decode(self, request: generate_pb2.DecodeRequest, context):
         if len(request.batches) == 0:
             raise ValueError("Must provide at least one batch")
 
