@@ -8,6 +8,7 @@ import torch
 import torch.distributed
 from loguru import logger
 from opentelemetry import trace
+from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.models import Model
@@ -719,7 +720,7 @@ class FlashCausalLM(Model):
     def batch_type(self) -> Type[FlashCausalLMBatch]:
         return FlashCausalLMBatch
 
-    def warmup(self, batch: FlashCausalLMBatch):
+    def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
         torch.cuda.empty_cache()
         try:
             cache_manager = set_cache_manager(
@@ -731,7 +732,11 @@ class FlashCausalLM(Model):
                 self.dtype,
                 self.device,
             )
-            _, batch = self.generate_token(batch)
+
+            with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
+                for _ in range(max_new_tokens):
+                    _, batch = self.generate_token(batch)
+                    pbar.update(1)
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
                 raise RuntimeError(
