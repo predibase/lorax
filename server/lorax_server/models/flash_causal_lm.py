@@ -735,7 +735,7 @@ class FlashCausalLM(Model):
 
             with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
                 for _ in range(max_new_tokens):
-                    _, batch = self.generate_token(batch)
+                    _, batch = self.generate_token(batch, is_warmup=True)
                     pbar.update(1)
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
@@ -836,7 +836,7 @@ class FlashCausalLM(Model):
 
     @tracer.start_as_current_span("generate_token")
     def generate_token(
-        self, batch: FlashCausalLMBatch
+        self, batch: FlashCausalLMBatch, is_warmup: bool = False
     ) -> Tuple[List[Generation], Optional[FlashCausalLMBatch]]:
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
@@ -900,7 +900,9 @@ class FlashCausalLM(Model):
 
         # Results
         generations: List[Generation] = []
-        stopped = True
+
+        # During warmup, do not allow early stopping
+        stopped = not is_warmup
 
         # Zipped iterator
         iterator = zip(

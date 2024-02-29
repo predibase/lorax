@@ -33,7 +33,7 @@ struct Args {
     max_best_of: usize,
     #[clap(default_value = "4", long, env)]
     max_stop_sequences: usize,
-    #[clap(default_value = "1024", long, env)]
+    #[clap(default_value = "1792", long, env)]
     max_input_length: usize,
     #[clap(default_value = "2048", long, env)]
     max_total_tokens: usize,
