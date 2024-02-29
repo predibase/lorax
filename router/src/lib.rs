@@ -455,6 +455,8 @@ struct ChatCompletionRequest {
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     response_format: Option<ResponseFormat>,
+    repetition_penalty: Option<f32>,
+    top_k: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -478,6 +480,8 @@ struct CompletionRequest {
     user: Option<String>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
+    repetition_penalty: Option<f32>,
+    top_k: Option<i32>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -587,8 +591,8 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 api_token: None,
                 best_of: req.best_of.map(|x| x as usize),
                 temperature: req.temperature,
-                repetition_penalty: None,
-                top_k: None,
+                repetition_penalty: req.repetition_penalty,
+                top_k: req.top_k,
                 top_p: req.top_p,
                 typical_p: None,
                 do_sample: !req.n.is_none(),
@@ -622,8 +626,8 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 api_token: None,
                 best_of: req.n.map(|x| x as usize),
                 temperature: req.temperature,
-                repetition_penalty: None,
-                top_k: None,
+                repetition_penalty: req.repetition_penalty,
+                top_k: req.top_k,
                 top_p: req.top_p,
                 typical_p: None,
                 do_sample: !req.n.is_none(),
