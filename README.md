@@ -22,6 +22,7 @@ LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fin
 - [🌳 Features](#-features)
 - [🏠 Models](#-models)
 - [🏃‍♂️ Getting Started](#️-getting-started)
+  - [Requirements](#requirements)
   - [Launch LoRAX Server](#launch-lorax-server)
   - [Prompt via REST API](#prompt-via-rest-api)
   - [Prompt via Python Client](#prompt-via-python-client)
