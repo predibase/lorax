@@ -62,6 +62,15 @@ Supported adapters include LoRA adapters trained using the [PEFT](https://github
 
 We recommend starting with our pre-built Docker image to avoid compiling custom CUDA kernels and other dependencies.
 
+### Requirements
+
+The minimum system requirements need to run LoRAX include:
+
+- Nvidia GPU (Ampere generation or above)
+- CUDA 11.8 compatible device drivers and above
+- Linux OS
+- Docker (for this guide)
+
 ### Launch LoRAX Server
 
 ```shell
