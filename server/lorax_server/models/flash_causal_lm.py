@@ -1,6 +1,7 @@
 import itertools
 import math
 from dataclasses import dataclass
+import os
 from typing import Optional, Tuple, List, Type, Union, Dict
 
 import numpy as np
@@ -28,10 +29,12 @@ from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
-from lorax_server.utils.logits_process import HeterogeneousSchemaLogitsProcessor
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
+
+
+ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.0"))
 
 tracer = trace.get_tracer(__name__)
 
@@ -773,8 +776,9 @@ class FlashCausalLM(Model):
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
 
         free_memory = max(
-            0, total_free_memory - (1 - MEMORY_FRACTION) * total_gpu_memory
+            0, total_free_memory - (1 - MEMORY_FRACTION + ADAPTER_MEMORY_FRACTION) * total_gpu_memory
         )
+        logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
         num_blocks = (
                 int(free_memory // total_cache_size)
