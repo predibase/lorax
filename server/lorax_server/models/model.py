@@ -10,7 +10,12 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, load_and_merge_adapters
+from lorax_server.utils.adapter import (
+    BASE_MODEL_ADAPTER_ID,
+    get_scaling_factor,
+    load_and_merge_adapters,
+    uses_rslora,
+)
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.lora import BatchedLoraWeights, MergedLoraWeights
 from lorax_server.utils.sgmv import pad_rank
@@ -217,28 +222,29 @@ class Model(ABC):
         nlayers = self.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
-        
+
         for layer_id in range(nlayers):
             key = (layer_id, layer_type)
             weight_name, layer = self.target_to_layer[key]
-        
+
             base_weight = layer.base_layer.linear.weight
             base_device = base_weight.device
 
             if weight_name not in module_map:
                 # There is no LoRA weight for this layer type in the adapter
                 return
-            
+
             lora_a, lora_a_name = module_map[weight_name]["lora_A"]
             lora_a = lora_a.to(base_device, self.dtype)
 
             lora_b, lora_b_name = module_map[weight_name]["lora_B"]
             lora_b = lora_b.to(base_device, self.dtype)
 
-            if hasattr(adapter_config, "use_rslora") and adapter_config.use_rslora:
-                scale = adapter_config.lora_alpha / (adapter_config.r ** 0.5)
-            else:
-                scale = adapter_config.lora_alpha / adapter_config.r
+            scale: float = get_scaling_factor(
+                adapter_config.lora_alpha,
+                adapter_config.r,
+                uses_rslora=uses_rslora(adapter_config),
+            )
 
             unused_weight_names.discard(lora_a_name)
             unused_weight_names.discard(lora_b_name)
@@ -247,7 +253,7 @@ class Model(ABC):
             # (A * B) * C = A * (B * C)
             lora_a_list[layer_id] = lora_a.transpose(0, 1)
             lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
-        
+
         # pad lora ranks to be compatible with sgmv
         lora_a_list = [pad_rank(w, dim=1, world_size=self.world_size) for w in lora_a_list]
         lora_b_list = [pad_rank(w, dim=0, world_size=self.world_size) for w in lora_b_list]

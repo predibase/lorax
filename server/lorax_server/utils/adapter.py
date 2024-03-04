@@ -163,10 +163,7 @@ def compute_delta_weight(
 
     Reference: https://github.com/huggingface/peft/blob/v0.4.0/src/peft/tuners/lora.py#L799-L806
     """
-    if uses_rslora:
-        scaling = alpha / (r ** 0.5)
-    else:
-        scaling = alpha / r
+    scaling = get_scaling_factor(alpha, r, uses_rslora)
     delta_weight = transpose(lora_B @ lora_A, fan_in_fan_out) * scaling
     return delta_weight
 
@@ -211,14 +208,13 @@ def merge_adapter_weights(
         # TODO: put this on GPU if it is available. This should greatly speedup compute_delta_weight
         lora_A = adapter_weights[adapter_weight_names["lora_A"]]
         lora_B = adapter_weights[adapter_weight_names["lora_B"]]
-        uses_rslora = adapter_config.use_rslora if hasattr(adapter_config, "use_rslora") else False
         delta_weight = compute_delta_weight(
             lora_A,
             lora_B,
             adapter_config.fan_in_fan_out,
             adapter_config.lora_alpha,
             adapter_config.r,
-            uses_rslora,
+            uses_rslora=uses_rslora(adapter_config),
         )
 
         # transpose delta weight if necessary
@@ -292,12 +288,28 @@ def create_merged_weight_files(
         return merged_weight_filenames
 
 
+def uses_rslora(adapter_config: LoraConfig) -> bool:
+    """ Returns True if the adapter uses RSLora for scaling the delta weights. """
+    return adapter_config.use_rslora if hasattr(adapter_config, "use_rslora") else False
+
+
+def get_scaling_factor(
+    lora_alpha: int,
+    r: int,
+    uses_rslora: bool = False,
+) -> float:
+    """Computes the scaling factor for the lora weights."""
+    if uses_rslora:
+        return lora_alpha / (r ** 0.5)
+    return lora_alpha / r
+
+
 def main():
     adapter_id = "arnavgrg/codealpaca-qlora"
     adapter_config = LoraConfig.from_pretrained(adapter_id)
     model_id = adapter_config.base_model_name_or_path
     model_weight_filenames = weight_files(model_id, extension=".safetensors")
-    
+
     merged_adapter_filenames = create_merged_weight_files(adapter_id, model_id, model_weight_filenames)
     print(merged_adapter_filenames)
 
