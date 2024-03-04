@@ -36,19 +36,19 @@ class MergedAdapters(BaseModel):
         if len(ids) != len(v):
             raise ValidationError("`ids` and `weights` must have the same length")
         return v
-    
+
     @validator("merge_strategy")
     def validate_merge_strategy(cls, v):
         if v is not None and v not in MERGE_STRATEGIES:
             raise ValidationError(f"`merge_strategy` must be one of {MERGE_STRATEGIES}")
         return v
-    
+
     @validator("density")
     def validate_density(cls, v):
         if v < 0 or v > 1.0:
             raise ValidationError("`density` must be >= 0.0 and <= 1.0")
         return v
-    
+
     @validator("majority_sign_method")
     def validate_majority_sign_method(cls, v):
         if v is not None and v not in MAJORITY_SIGN_METHODS:
@@ -109,6 +109,8 @@ class Parameters(BaseModel):
     details: bool = False
     # Get decoder input token logprobs and ids
     decoder_input_details: bool = False
+    # The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
+    return_k_alternatives: Optional[int]
     # Optional response format specification to constrain the generated text
     response_format: Optional[ResponseFormat]
 
@@ -186,6 +188,12 @@ class Parameters(BaseModel):
             raise ValidationError("`typical_p` must be > 0.0 and < 1.0")
         return v
 
+    @validator("return_k_alternatives")
+    def valid_return_k_alternatives(cls, v):
+        if v is not None and v <= 0:
+            raise ValidationError("`return_k_alternatives` must be strictly positive")
+        return v
+
 
 class Request(BaseModel):
     # Prompt
@@ -226,6 +234,14 @@ class InputToken(BaseModel):
     # Optional since the logprob of the first token cannot be computed
     logprob: Optional[float]
 
+# Alternative Tokens
+class AlternativeToken(BaseModel):
+    # Token ID from the model tokenizer
+    id: int
+    # Token text
+    text: str
+    # Logprob
+    logprob: float
 
 # Generated tokens
 class Token(BaseModel):
@@ -238,6 +254,8 @@ class Token(BaseModel):
     # Is the token a special token
     # Can be used to ignore tokens when concatenating
     special: bool
+    # Alternative tokens
+    alternative_tokens: Optional[List[AlternativeToken]]
 
 
 # Generation finish reason

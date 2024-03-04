@@ -21,6 +21,7 @@ from lorax_server.models.cache_manager import (
 from lorax_server.models.types import (
     Batch,
     PrefillTokens,
+    AlternativeTokens,
     Generation,
     GeneratedText,
 )
@@ -844,6 +845,7 @@ class FlashCausalLM(Model):
     ) -> Tuple[List[Generation], Optional[FlashCausalLMBatch]]:
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
+        return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
 
         # Debugging for LoRAX
         # print("!!! adapter_indices", batch.adapter_indices)
@@ -881,6 +883,9 @@ class FlashCausalLM(Model):
         next_input_ids, next_token_logprobs = batch.next_token_chooser(
             batch.all_input_ids_tensor[:, : batch.max_seqlen], next_token_logits
         )
+
+        if return_alternatives:
+            alternative_token_logprobs, alternative_token_ids = torch.sort(torch.log_softmax(next_token_logits, -1), dim=-1, stable=True, descending=True)
 
         if prefill:
             if len(batch) > 1 and prefill_logprobs:
@@ -987,6 +992,10 @@ class FlashCausalLM(Model):
         next_token_logprobs = next_token_logprobs.tolist()
         next_token_ids = batch.input_ids.tolist()
 
+        if return_alternatives:
+            alternative_token_logprobs = alternative_token_logprobs.tolist()
+            alternative_token_ids = alternative_token_ids.tolist()
+
         # Zipped iterator
         iterator = zip(
             batch.requests,
@@ -1014,6 +1023,30 @@ class FlashCausalLM(Model):
                 next_token_id,
                 next_token_logprob,
         ) in enumerate(iterator):
+            if request.parameters.return_k_alternatives > 0:
+                # Select top-k logprobs
+                batch_alternative_token_ids = alternative_token_ids[i][:request.parameters.return_k_alternatives]
+                batch_alternative_token_logprobs = alternative_token_logprobs[i][:request.parameters.return_k_alternatives]
+
+                # Decode tokens
+                alternative_token_texts = list()
+                for alternative_token_id in batch_alternative_token_ids:
+                    all_input_ids.append(alternative_token_id)
+                    alternative_token_text, _, _ = self.decode_token(
+                        all_input_ids,
+                        prefix_offset,
+                        read_offset,
+                    )
+                    alternative_token_texts.append(alternative_token_text)
+                    all_input_ids.pop()
+                alternative_tokens = AlternativeTokens(
+                    batch_alternative_token_ids,
+                    batch_alternative_token_logprobs,
+                    alternative_token_texts
+                )
+            else:
+                alternative_tokens = None
+
             # Append next token to all tokens
             all_input_ids.append(next_token_id)
 
@@ -1075,6 +1108,7 @@ class FlashCausalLM(Model):
                     request.id,
                     prefill_tokens,
                     len(all_input_ids[:-1]) if prefill else 0,
+                    alternative_tokens,
                     next_token_id,
                     next_token_logprob,
                     next_token_text,

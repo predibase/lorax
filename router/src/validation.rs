@@ -146,6 +146,7 @@ impl Validation {
             adapter_id,
             adapter_parameters,
             decoder_input_details,
+            return_k_alternatives,
             apply_chat_template,
             response_format,
             ..
@@ -220,6 +221,15 @@ impl Validation {
             })
             .unwrap_or(Ok(0))?;
 
+        let return_k_alternatives: u32 = return_k_alternatives
+            .map(|value| {
+                if value <= 0 {
+                    return Err(ValidationError::ReturnKAlternatives);
+                }
+                Ok(value as u32)
+            })
+            .unwrap_or(Ok(0))?;
+
         if max_new_tokens == 0 {
             return Err(ValidationError::NegativeMaxNewTokens);
         }
@@ -281,6 +291,7 @@ impl Validation {
             watermark,
             adapter_id,
             schema,
+            return_k_alternatives
         };
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens,
@@ -398,6 +409,8 @@ pub enum ValidationError {
     TopP,
     #[error("`top_k` must be strictly positive")]
     TopK,
+    #[error("`return_k_alternatives` must be strictly positive")]
+    ReturnKAlternatives,
     #[error("`truncate` must be strictly positive and less than {0}. Given: {1}")]
     Truncate(usize, usize),
     #[error("`typical_p` must be > 0.0 and < 1.0")]

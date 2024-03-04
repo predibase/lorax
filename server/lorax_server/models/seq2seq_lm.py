@@ -518,7 +518,7 @@ class Seq2SeqLM(Model):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with Seq2SeqLM")
-        
+
         if torch.cuda.is_available():
             device = torch.device("cuda")
             dtype = torch.float16 if dtype is None else dtype
@@ -717,6 +717,7 @@ class Seq2SeqLM(Model):
                     request.id,
                     prefill_tokens,
                     prefill_tokens_length,
+                    None,
                     next_token_id_squeezed,
                     next_token_logprob,
                     next_token_text,

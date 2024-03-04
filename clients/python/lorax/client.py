@@ -81,6 +81,7 @@ class Client:
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         decoder_input_details: bool = False,
+        return_k_alternatives: Optional[int] = None,
         details: bool = True,
     ) -> Response:
         """
@@ -139,6 +140,8 @@ class Client:
                 ```
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
+            return_k_alternatives (`int`):
+                The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
             details (`bool`):
                 Return the token logprobs and ids for generated tokens
 
@@ -167,6 +170,7 @@ class Client:
             watermark=watermark,
             response_format=response_format,
             decoder_input_details=decoder_input_details,
+            return_k_alternatives=return_k_alternatives
         )
         request = Request(inputs=prompt, stream=False, parameters=parameters)
 
@@ -390,6 +394,7 @@ class AsyncClient:
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         decoder_input_details: bool = False,
+        return_k_alternatives: Optional[int] = None,
         details: bool = True,
     ) -> Response:
         """
@@ -448,6 +453,8 @@ class AsyncClient:
                 ```
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
+            return_k_alternatives (`int`):
+                The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
             details (`bool`):
                 Return the token logprobs and ids for generated tokens
 
@@ -463,6 +470,7 @@ class AsyncClient:
             best_of=best_of,
             details=details,
             decoder_input_details=decoder_input_details,
+            return_k_alternatives=return_k_alternatives,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             repetition_penalty=repetition_penalty,
@@ -510,6 +518,8 @@ class AsyncClient:
         watermark: bool = False,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         details: bool = True,
+        return_k_alternatives: Optional[int] = None,
+
     ) -> AsyncIterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens asynchronously
@@ -565,6 +575,8 @@ class AsyncClient:
                 ```
             details (`bool`):
                 Return the token logprobs and ids for generated tokens
+            return_k_alternatives (`int`):
+                The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
 
         Returns:
             AsyncIterator[StreamResponse]: stream of generated tokens
@@ -578,6 +590,7 @@ class AsyncClient:
             best_of=None,
             details=details,
             decoder_input_details=False,
+            return_k_alternatives=return_k_alternatives,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
             repetition_penalty=repetition_penalty,
