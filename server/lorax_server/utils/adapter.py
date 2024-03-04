@@ -231,10 +231,21 @@ def create_merged_weight_files(
     adapter_filenames = source.weight_files()
 
     adapter_path = get_config_path(adapter_id, adapter_source)
-    adapter_config = LoraConfig.from_pretrained(adapter_path)
+    api_token = None  # TODO(travis): add support for API token
+    adapter_config = LoraConfig.from_pretrained(adapter_path, token=api_token)
     if adapter_config.base_model_name_or_path != model_id:
-        raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
-                         f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+        expected_config = AutoConfig.from_pretrained(model_id)
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
+        if model_config.architectures == expected_config.architectures:
+            warnings.warn(
+                f"Adapter '{adapter_id}' was not trained on base model '{model_id}'. "
+                f"If you encounter issues, use --model-id '{adapter_config.base_model_name_or_path}' instead."
+            )
+        else:
+            # TODO(travis): revisit this when we support clasification heads which will not use CausalLM
+            raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
+                             f"Architectures differ: {model_config.architectures} != {expected_config.architectures}. "
+                             f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
     
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_weights = {}
