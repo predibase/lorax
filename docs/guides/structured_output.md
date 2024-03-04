@@ -2,40 +2,40 @@
 
 LoRAX can enforce that responses consist only of valid JSON and adhere to a provided [JSON schema](https://json-schema.org/).
 
-## Background: Guided Generation
+## Background: Structured Generation
 
-LoRAX enforces adherence to a schema through a process known as **guided generation** (also called *constrained decoding*). 
-Unlike guess-and-check validation methods, guided generation manipulates the next token likelihoods (logits) to enforce adherence to a schema at the token level. During each forward pass of inference, LLMs produce a probability distribution over their vocabulary of tokens. The token 
+LoRAX enforces adherence to a schema through a process known as **structured generation** (also called *constrained decoding*). 
+Unlike guess-and-check validation methods, structured generation manipulates the next token likelihoods (logits) to enforce adherence to a schema at the token level. During each forward pass of inference, LLMs produce a probability distribution over their vocabulary of tokens. The token 
 that is actually generated is selected by sampling from this distribution. 
 
 Suppose you've tasked an LLM with generating some valid JSON, and so far the LLM has produced the text `{ "name"`. When 
-considering the next token to output, it's clear that tokens like `A` or `<` will not result in valid JSON. Guided generation
+considering the next token to output, it's clear that tokens like `A` or `<` will not result in valid JSON. structured generation
 prevents the LLM from selecting an invalid token by modifying the probability distribution and setting the likelihood of
 invalid tokens to `-infinity`. In this way, we can guarantee that, at each step, only tokens that will produce
 valid JSON can be selected.
 
 ### Caveats
 
-* Guided generation does not guarantee the _quality_ of generated text, only its _form_. Guided
+* Structured generation does not guarantee the _quality_ of generated text, only its _form_. structured
 generation may force the LLM to output valid JSON, but it can't ensure that the content of the JSON is desirable or accurate.
-* Even with guided generation enabled, LLM output may not be fully valid JSON if the number of `max_new_tokens` is too low,
+* Even with structured generation enabled, LLM output may not be fully valid JSON if the number of `max_new_tokens` is too low,
     as this could result in necessary tokens (e.g., a closing `}`) being cut off.
 
-## Guided Generation with Outlines
+## Structured Generation with Outlines
 
 [Outlines](https://github.com/outlines-dev/outlines) is an open-source library supporting various ways of specifying and enforcing
-guided generation rules onto LLM outputs.
+structured generation rules onto LLM outputs.
 
-LoRAX uses Outlines to support guided generation following a user-provided JSON schema. This JSON schema is
+LoRAX uses Outlines to support structured generation following a user-provided JSON schema. This JSON schema is
 converted into a regular expression, and then into a finite-state machine (FSM). For each token, LoRAX then determines the set of
 valid next tokens using this FSM and sets the likelihood of invalid tokens to `-infinity`.
 
 ### Example: Python client
 
-This example follows the [JSON-guided generation example](https://outlines-dev.github.io/outlines/quickstart/#json-guided-generation) in the Outlines quickstart.
+This example follows the [JSON-structured generation example](https://outlines-dev.github.io/outlines/quickstart/#json-structured-generation) in the Outlines quickstart.
 
 We assume that you have already deployed LoRAX using a suitable base model and installed the [LoRAX Python Client](../reference/python_client.md).
-Alternatively, see [below](structured_output.md#openai-compatible-api) for an example of guided generation using an 
+Alternatively, see [below](structured_output.md#openai-compatible-api) for an example of structured generation using an 
 OpenAI client.
 
 ```python
@@ -95,7 +95,7 @@ schema = {
 
 ### Example: OpenAI-compatible API
 
-Guided generation of JSON following a schema is supported via the `response_format` parameter.
+Structured generation of JSON following a schema is supported via the `response_format` parameter.
 
 !!! note
 
