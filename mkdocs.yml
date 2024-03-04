@@ -42,7 +42,10 @@ nav:
   - 📚 Reference:
       - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md
-      - Python Client: reference/python_client.md
+      - Python Client:
+        - Python Client: reference/python_client/index.md
+        - lorax.client: reference/python_client/client.md
+        # - lorax.types: reference/python_client/types.md
       - OpenAI Compatible API: reference/openai_api.md
   - 🔬 Guides:
       - Quantization: guides/quantization.md
