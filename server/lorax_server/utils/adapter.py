@@ -154,15 +154,19 @@ def compute_delta_weight(
     lora_B: torch.Tensor, 
     fan_in_fan_out: bool, 
     alpha: float, 
-    r: float
+    r: float,
+    uses_rslora: bool = False
 ) -> torch.Tensor:
     """Computes the delta weight for a Linear layer given A and B LoRA matrices.
-    
+
     TODO: add logic for other module types beyond Linear layers.
-    
+
     Reference: https://github.com/huggingface/peft/blob/v0.4.0/src/peft/tuners/lora.py#L799-L806
     """
-    scaling = alpha / r
+    if uses_rslora:
+        scaling = alpha / (r ** 0.5)
+    else:
+        scaling = alpha / r
     delta_weight = transpose(lora_B @ lora_A, fan_in_fan_out) * scaling
     return delta_weight
 
@@ -197,7 +201,7 @@ def merge_adapter_weights(
                 matrix_type = adapter_weight_name.split(".")[-2]
                 module_mapping[weight_name][matrix_type] = adapter_weight_name
                 processed_adapter_weight_names.add(adapter_weight_name)
-    
+
     # merge adapter weights into model weights
     merged_weights = {}
     for weight_name, adapter_weight_names in tqdm(
@@ -207,9 +211,16 @@ def merge_adapter_weights(
         # TODO: put this on GPU if it is available. This should greatly speedup compute_delta_weight
         lora_A = adapter_weights[adapter_weight_names["lora_A"]]
         lora_B = adapter_weights[adapter_weight_names["lora_B"]]
+        uses_rslora = adapter_config.use_rslora if hasattr(adapter_config, "use_rslora") else False
         delta_weight = compute_delta_weight(
-            lora_A, lora_B, adapter_config.fan_in_fan_out, adapter_config.lora_alpha, adapter_config.r)
-        
+            lora_A,
+            lora_B,
+            adapter_config.fan_in_fan_out,
+            adapter_config.lora_alpha,
+            adapter_config.r,
+            uses_rslora,
+        )
+
         # transpose delta weight if necessary
         # TODO(geoffrey): I believe this is required when using Conv1D layers (gpt2).
         # We can likely take this out once we've switched to using Linear layers.

@@ -235,7 +235,10 @@ class Model(ABC):
             lora_b, lora_b_name = module_map[weight_name]["lora_B"]
             lora_b = lora_b.to(base_device, self.dtype)
 
-            scale = adapter_config.lora_alpha / adapter_config.r
+            if hasattr(adapter_config, "use_rslora") and adapter_config.use_rslora:
+                scale = adapter_config.lora_alpha / (adapter_config.r ** 0.5)
+            else:
+                scale = adapter_config.lora_alpha / adapter_config.r
 
             unused_weight_names.discard(lora_a_name)
             unused_weight_names.discard(lora_b_name)
