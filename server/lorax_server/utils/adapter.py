@@ -163,7 +163,7 @@ def compute_delta_weight(
 
     Reference: https://github.com/huggingface/peft/blob/v0.4.0/src/peft/tuners/lora.py#L799-L806
     """
-    scaling = get_scaling_factor(alpha, r, uses_rslora)
+    scaling = get_scaling_factor(alpha, r, uses_rslora=uses_rslora)
     delta_weight = transpose(lora_B @ lora_A, fan_in_fan_out) * scaling
     return delta_weight
 
