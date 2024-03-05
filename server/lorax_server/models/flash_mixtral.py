@@ -48,7 +48,7 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_O_PROJ, LM_HEAD]
+ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_O_PROJ]  # TODO(travis): add back LM_HEAD following https://github.com/predibase/lorax/issues/231
 ROW_PARALLEL = {ATTN_O_PROJ, LM_HEAD}
 
 

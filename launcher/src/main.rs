@@ -271,6 +271,13 @@ struct Args {
     #[clap(default_value = "2", long, env)]
     adapter_cycle_time_s: u64,
 
+    /// Reservation of memory set aside for loading adapters onto the GPU.
+    /// Increasing this value will reduce the size of the KV cache in exchange for allowing more
+    /// adapters to be loaded onto the GPU at once.
+    /// This value is NOT scaled relative to `cuda_memory_fraction`, but is expressed in absolute terms.
+    #[clap(default_value = "0.0", long, env)]
+    adapter_memory_fraction: f32,
+
     /// The IP address to listen on
     #[clap(default_value = "0.0.0.0", long, env)]
     hostname: String,
@@ -390,6 +397,7 @@ fn shard_manager(
     watermark_gamma: Option<f32>,
     watermark_delta: Option<f32>,
     cuda_memory_fraction: f32,
+    adapter_memory_fraction: f32,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
@@ -478,6 +486,12 @@ fn shard_manager(
     envs.push((
         "CUDA_MEMORY_FRACTION".into(),
         cuda_memory_fraction.to_string().into(),
+    ));
+
+    // Adapter memory fraction
+    envs.push((
+        "ADAPTER_MEMORY_FRACTION".into(),
+        adapter_memory_fraction.to_string().into(),
     ));
 
     // Safetensors load fast
@@ -902,6 +916,7 @@ fn spawn_shards(
         let watermark_gamma = args.watermark_gamma;
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
+        let adapter_memory_fraction = args.adapter_memory_fraction;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -924,6 +939,7 @@ fn spawn_shards(
                 watermark_gamma,
                 watermark_delta,
                 cuda_memory_fraction,
+                adapter_memory_fraction,
                 otlp_endpoint,
                 status_sender,
                 shutdown,
