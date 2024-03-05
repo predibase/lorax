@@ -291,7 +291,7 @@ impl Validation {
             watermark,
             adapter_id,
             schema,
-            return_k_alternatives
+            return_k_alternatives,
         };
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens,

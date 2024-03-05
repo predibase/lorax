@@ -598,13 +598,16 @@ fn send_responses(
         text: generation.token_text,
         logprob: generation.token_logprob,
         special: generation.token_is_special,
-        alternative_tokens: generation.alternative_tokens.and_then(|at|
-            Some(at.ids
-            .into_iter()
-            .zip(at.logprobs.into_iter())
-            .zip(at.texts.into_iter())
-            .map(|((id, logprob), text)| AlternativeToken { id, text, logprob })
-            .collect())),
+        alternative_tokens: generation.alternative_tokens.and_then(|at| {
+            Some(
+                at.ids
+                    .into_iter()
+                    .zip(at.logprobs.into_iter())
+                    .zip(at.texts.into_iter())
+                    .map(|((id, logprob), text)| AlternativeToken { id, text, logprob })
+                    .collect(),
+            )
+        }),
     };
 
     if let Some(generated_text) = generation.generated_text {
