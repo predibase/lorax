@@ -154,15 +154,16 @@ def compute_delta_weight(
     lora_B: torch.Tensor, 
     fan_in_fan_out: bool, 
     alpha: float, 
-    r: float
+    r: float,
+    uses_rslora: bool = False
 ) -> torch.Tensor:
     """Computes the delta weight for a Linear layer given A and B LoRA matrices.
-    
+
     TODO: add logic for other module types beyond Linear layers.
-    
+
     Reference: https://github.com/huggingface/peft/blob/v0.4.0/src/peft/tuners/lora.py#L799-L806
     """
-    scaling = alpha / r
+    scaling = get_scaling_factor(alpha, r, uses_rslora=uses_rslora)
     delta_weight = transpose(lora_B @ lora_A, fan_in_fan_out) * scaling
     return delta_weight
 
@@ -197,7 +198,7 @@ def merge_adapter_weights(
                 matrix_type = adapter_weight_name.split(".")[-2]
                 module_mapping[weight_name][matrix_type] = adapter_weight_name
                 processed_adapter_weight_names.add(adapter_weight_name)
-    
+
     # merge adapter weights into model weights
     merged_weights = {}
     for weight_name, adapter_weight_names in tqdm(
@@ -208,8 +209,14 @@ def merge_adapter_weights(
         lora_A = adapter_weights[adapter_weight_names["lora_A"]]
         lora_B = adapter_weights[adapter_weight_names["lora_B"]]
         delta_weight = compute_delta_weight(
-            lora_A, lora_B, adapter_config.fan_in_fan_out, adapter_config.lora_alpha, adapter_config.r)
-        
+            lora_A,
+            lora_B,
+            adapter_config.fan_in_fan_out,
+            adapter_config.lora_alpha,
+            adapter_config.r,
+            uses_rslora=uses_rslora(adapter_config),
+        )
+
         # transpose delta weight if necessary
         # TODO(geoffrey): I believe this is required when using Conv1D layers (gpt2).
         # We can likely take this out once we've switched to using Linear layers.
@@ -292,12 +299,28 @@ def create_merged_weight_files(
         return merged_weight_filenames
 
 
+def uses_rslora(adapter_config: LoraConfig) -> bool:
+    """ Returns True if the adapter uses RSLora for scaling the delta weights. """
+    return adapter_config.use_rslora if hasattr(adapter_config, "use_rslora") else False
+
+
+def get_scaling_factor(
+    lora_alpha: int,
+    r: int,
+    uses_rslora: bool = False,
+) -> float:
+    """Computes the scaling factor for the lora weights."""
+    if uses_rslora:
+        return lora_alpha / (r ** 0.5)
+    return lora_alpha / r
+
+
 def main():
     adapter_id = "arnavgrg/codealpaca-qlora"
     adapter_config = LoraConfig.from_pretrained(adapter_id)
     model_id = adapter_config.base_model_name_or_path
     model_weight_filenames = weight_files(model_id, extension=".safetensors")
-    
+
     merged_adapter_filenames = create_merged_weight_files(adapter_id, model_id, model_weight_filenames)
     print(merged_adapter_filenames)
 
