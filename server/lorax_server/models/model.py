@@ -240,7 +240,7 @@ class Model(ABC):
             lora_b, lora_b_name = module_map[weight_name]["lora_B"]
             lora_b = lora_b.to(base_device, self.dtype)
 
-            scale: float = get_scaling_factor(
+            scale = get_scaling_factor(
                 adapter_config.lora_alpha,
                 adapter_config.r,
                 uses_rslora=uses_rslora(adapter_config),
