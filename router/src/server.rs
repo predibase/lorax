@@ -715,9 +715,6 @@ async fn generate_stream_with_callback(
                                         metrics::histogram!("lorax_request_generated_tokens", generated_text.generated_tokens as f64);
 
 
-                                        // Call a thread function that writes to a file with tenant UUID / generated number of tokens / gpu sku
-                                        request_logger_sender.send((generated_text.generated_tokens as i64, info.model_id.clone(), info.model_device_type.clone())).await;
-
 
                                         // StreamResponse
                                         end_reached = true;
@@ -729,6 +726,10 @@ async fn generate_stream_with_callback(
 
                                         tracing::debug!(parent: &span, "Output: {}", output_text);
                                         tracing::info!(parent: &span, "Success");
+
+                                        tracing::info!("!!!! SENDING INFO TO Request logger <<<<<<<<<<<<");
+                                        request_logger_sender.send((generated_text.generated_tokens as i64, info.model_id.clone(), info.model_device_type.clone())).await;
+                                        tracing::info!("!!!! SENT INFO TO Request logger <<<<<<<<<<<<");
 
                                         let stream_token = StreamResponse {
                                             token,
@@ -1002,6 +1003,7 @@ pub async fn run(
 
     // Kick off thread here that writes to the log file
     let (tx, rx) = mpsc::channel(32);
+    tracing::info!("!!!! ABOUT TO SPAWN THE REQUEST LOGGER THREAD <<<<<<<<<<<<");
     tokio::spawn(request_logger(rx));
     let request_logger_sender = Arc::new(tx);
 
