@@ -81,6 +81,35 @@ class BaseModelSource:
                 hdrbuf = f.read(headerlen)
                 header = json.loads(hdrbuf)
                 metadata = header.get('__metadata__', {})
-                total_size += metadata.get('total_size', 0)
+                total_size_bytes = metadata.get('total_size')
+                if total_size_bytes is None:
+                    # Fallback to determining this value from the data offsets
+                    min_data_offset = None
+                    max_data_offset = None
+                    for v in header.values():
+                        if not isinstance(v, dict):
+                            continue
+                        
+                        data_offsets = v.get('data_offsets')
+                        if data_offsets is None:
+                            continue
+
+                        if min_data_offset is not None:
+                            min_data_offset = min(min_data_offset, data_offsets[0])
+                        else:
+                            min_data_offset = data_offsets[0]
+                        
+                        if max_data_offset is not None:
+                            max_data_offset = max(max_data_offset, data_offsets[1])
+                        else:
+                            max_data_offset = data_offsets[1]
+                    
+                    if min_data_offset is None or max_data_offset is None:
+                        # Fallback to determining total bytes from file size
+                        total_size_bytes = st.st_size
+                    else:
+                        total_size_bytes = max_data_offset - min_data_offset
+
+                total_size += total_size_bytes
         
         return total_size

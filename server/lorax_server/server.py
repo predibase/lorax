@@ -178,6 +178,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         
         adapter_memory_size = self.model.adapter_memory_size()
         if adapter_memory_size > 0:
+            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                        f"(reservation: {adapter_memory_size} bytes)")
             adapter_memory_fraction = adapter_bytes / adapter_memory_size
             if adapter_memory_fraction > 1:
                 raise ValueError(
@@ -186,6 +188,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 )
         else:
             # Assume 0.0 memory fraction if adapter memory size is not set
+            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                        f"(no reservation limit)")
             adapter_memory_fraction = 0.0
         
         return generate_pb2.DownloadAdapterResponse(
