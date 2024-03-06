@@ -26,7 +26,9 @@ use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
+use tokio::io::AsyncWriteExt;
 use tokio::signal;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
@@ -64,6 +66,7 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    info: Extension<Info>,
     req_headers: HeaderMap,
     req: Json<CompatGenerateRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -80,7 +83,7 @@ async fn compat_generate(
             .await
             .into_response())
     } else {
-        let (headers, generation) = generate(infer, req_headers, Json(req.into())).await?;
+        let (headers, generation) = generate(infer, info, req_headers, Json(req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
     }
@@ -112,6 +115,7 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    info: Extension<Info>,
     req_headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -141,7 +145,8 @@ async fn completions_v1(
             generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
+        let (headers, generation) =
+            generate(infer, info, req_headers, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(CompletionResponse::from(generation.0))).into_response())
     }
@@ -173,6 +178,7 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    info: Extension<Info>,
     req_headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -202,7 +208,8 @@ async fn chat_completions_v1(
             generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
+        let (headers, generation) =
+            generate(infer, info, req_headers, Json(gen_req.into())).await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
     }
@@ -277,6 +284,7 @@ seed,
 )]
 async fn generate(
     infer: Extension<Infer>,
+    info: Extension<Info>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -420,7 +428,7 @@ async fn generate(
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
 
-    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+    headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let adapter_id_string = adapter_parameters
         .adapter_ids
@@ -671,6 +679,10 @@ async fn generate_stream_with_callback(
                                         metrics::histogram!("lorax_request_mean_time_per_token_duration", time_per_token.as_secs_f64());
                                         metrics::histogram!("lorax_request_generated_tokens", generated_text.generated_tokens as f64);
 
+
+                                        // Call a thread function that writes to a file with tenant UUID / generated number of tokens / gpu sku
+
+
                                         // StreamResponse
                                         end_reached = true;
 
@@ -731,6 +743,15 @@ responses((status = 200, description = "Prometheus Metrics", body = String))
 )]
 async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
     prom_handle.render()
+}
+
+async fn request_logger(mut rx: mpsc::Receiver<String>) {
+    let mut file = tokio::fs::File::create("log.txt").await.unwrap();
+    while let Some(msg) = rx.recv().await {
+        if let Err(e) = file.write_all(msg.as_bytes()).await {
+            eprintln!("Error writing to file: {}", e);
+        }
+    }
 }
 
 /// Serving method
@@ -936,6 +957,11 @@ pub async fn run(
             panic!("DEFAULT_ADAPTER_SOURCE was already set!");
         });
 
+    // Kick off thread here that writes to the log file
+    let (tx, rx) = mpsc::channel(32);
+    tokio::spawn(request_logger(rx));
+    let tx_data = Arc::new(tx);
+
     // Create router
     let app = Router::new()
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
@@ -957,6 +983,7 @@ pub async fn run(
         // Prometheus metrics route
         .route("/metrics", get(metrics))
         .layer(Extension(info))
+        .layer(Extension(tx_data.clone()))
         .layer(Extension(health_ext.clone()))
         .layer(Extension(compat_return_full_text))
         .layer(Extension(infer))
