@@ -782,11 +782,17 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
 }
 
 async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
-    let mut file = tokio::fs::File::create("log.txt").await.unwrap();
+    // log the function is getting called
+    tracing::info!("!!!! Request logger thread is started <<<<<<<<<<<<");
+    let mut file = tokio::fs::File::create("/data/log.txt").await.unwrap();
     while let Some((tokens, metadata, gpu_type)) = rx.recv().await {
         let msg = format!(
             "Tokens: {}, Metadata: {}, GPU Type: {}\n",
             tokens, metadata, gpu_type
+        );
+        tracing::warn!(
+            "!!!! Request logger function is getting called with message: {}",
+            msg
         );
         if let Err(e) = file.write_all(msg.as_bytes()).await {
             eprintln!("Error writing to file: {}", e);
