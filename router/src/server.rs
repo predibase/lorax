@@ -597,6 +597,8 @@ async fn generate_stream_with_callback(
         });
     }
 
+    let api_token = req.parameters.api_token.clone();
+
     let (adapter_source, adapter_parameters) = extract_adapter_params(
         req.0.parameters.adapter_id.clone(),
         req.0.parameters.adapter_source.clone(),
@@ -727,9 +729,7 @@ async fn generate_stream_with_callback(
                                         tracing::debug!(parent: &span, "Output: {}", output_text);
                                         tracing::info!(parent: &span, "Success");
 
-                                        tracing::info!("!!!! SENDING INFO TO Request logger <<<<<<<<<<<<");
-                                        request_logger_sender.send((generated_text.generated_tokens as i64, info.model_id.clone(), info.model_device_type.clone())).await;
-                                        tracing::info!("!!!! SENT INFO TO Request logger <<<<<<<<<<<<");
+                                        request_logger_sender.send((generated_text.generated_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
 
                                         let stream_token = StreamResponse {
                                             token,
@@ -784,17 +784,9 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
 
 async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
     // log the function is getting called
-    tracing::info!("!!!! Request logger thread is started <<<<<<<<<<<<");
     let mut file = tokio::fs::File::create("/data/log.txt").await.unwrap();
-    while let Some((tokens, metadata, gpu_type)) = rx.recv().await {
-        let msg = format!(
-            "Tokens: {}, Metadata: {}, GPU Type: {}\n",
-            tokens, metadata, gpu_type
-        );
-        tracing::warn!(
-            "!!!! Request logger function is getting called with message: {}",
-            msg
-        );
+    while let Some((tokens, api_token, model_id)) = rx.recv().await {
+        let msg = format!("{},{},{}\n", tokens, api_token, model_id);
         if let Err(e) = file.write_all(msg.as_bytes()).await {
             eprintln!("Error writing to file: {}", e);
         }
