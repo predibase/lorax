@@ -34,10 +34,10 @@ use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
 use tracing::{info_span, instrument, Instrument};
+use utoipa::openapi::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-static MODEL_ID: OnceCell<String> = OnceCell::new();
 pub static DEFAULT_ADAPTER_SOURCE: OnceCell<String> = OnceCell::new();
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
@@ -67,6 +67,7 @@ async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     req: Json<CompatGenerateRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -79,9 +80,15 @@ async fn compat_generate(
 
     // switch on stream
     if req.stream {
-        Ok(generate_stream(infer, req_headers, Json(req.into()))
-            .await
-            .into_response())
+        Ok(generate_stream(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(req.into()),
+        )
+        .await
+        .into_response())
     } else {
         let (headers, generation) = generate(infer, info, req_headers, Json(req.into())).await?;
         // wrap generation inside a Vec to match api-inference
@@ -116,6 +123,7 @@ async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -141,8 +149,15 @@ async fn completions_v1(
                 )
         };
 
-        let (headers, stream) =
-            generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
+        let (headers, stream) = generate_stream_with_callback(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+            callback,
+        )
+        .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
         let (headers, generation) =
@@ -179,6 +194,7 @@ async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -204,8 +220,15 @@ async fn chat_completions_v1(
                 )
         };
 
-        let (headers, stream) =
-            generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
+        let (headers, stream) = generate_stream_with_callback(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+            callback,
+        )
+        .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
         let (headers, generation) =
@@ -518,6 +541,8 @@ seed,
 )]
 async fn generate_stream(
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
 ) -> (
@@ -525,12 +550,22 @@ async fn generate_stream(
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
     let callback = |resp: StreamResponse| Event::default().json_data(resp).unwrap();
-    let (headers, stream) = generate_stream_with_callback(infer, req_headers, req, callback).await;
+    let (headers, stream) = generate_stream_with_callback(
+        infer,
+        info,
+        request_logger_sender,
+        req_headers,
+        req,
+        callback,
+    )
+    .await;
     (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn generate_stream_with_callback(
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
     callback: impl Fn(StreamResponse) -> Event,
@@ -582,7 +617,7 @@ async fn generate_stream_with_callback(
         headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
     }
 
-    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+    headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let stream = async_stream::stream! {
         // Inference
@@ -681,6 +716,7 @@ async fn generate_stream_with_callback(
 
 
                                         // Call a thread function that writes to a file with tenant UUID / generated number of tokens / gpu sku
+                                        request_logger_sender.send((generated_text.generated_tokens as i64, info.model_id.clone(), info.model_device_type.clone())).await;
 
 
                                         // StreamResponse
@@ -745,9 +781,13 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
     prom_handle.render()
 }
 
-async fn request_logger(mut rx: mpsc::Receiver<String>) {
+async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
     let mut file = tokio::fs::File::create("log.txt").await.unwrap();
-    while let Some(msg) = rx.recv().await {
+    while let Some((tokens, metadata, gpu_type)) = rx.recv().await {
+        let msg = format!(
+            "Tokens: {}, Metadata: {}, GPU Type: {}\n",
+            tokens, metadata, gpu_type
+        );
         if let Err(e) = file.write_all(msg.as_bytes()).await {
             eprintln!("Error writing to file: {}", e);
         }
@@ -948,9 +988,6 @@ pub async fn run(
         docker_label: option_env!("DOCKER_LABEL"),
     };
 
-    MODEL_ID.set(model_id.clone()).unwrap_or_else(|_| {
-        panic!("MODEL_ID was already set!");
-    });
     DEFAULT_ADAPTER_SOURCE
         .set(adapter_source.clone())
         .unwrap_or_else(|_| {
@@ -960,7 +997,7 @@ pub async fn run(
     // Kick off thread here that writes to the log file
     let (tx, rx) = mpsc::channel(32);
     tokio::spawn(request_logger(rx));
-    let tx_data = Arc::new(tx);
+    let request_logger_sender = Arc::new(tx);
 
     // Create router
     let app = Router::new()
@@ -983,7 +1020,7 @@ pub async fn run(
         // Prometheus metrics route
         .route("/metrics", get(metrics))
         .layer(Extension(info))
-        .layer(Extension(tx_data.clone()))
+        .layer(Extension(request_logger_sender.clone()))
         .layer(Extension(health_ext.clone()))
         .layer(Extension(compat_return_full_text))
         .layer(Extension(infer))
