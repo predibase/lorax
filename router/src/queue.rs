@@ -432,7 +432,10 @@ impl AdapterQueuesState {
         while self.active_adapters.len() < self.max_active_adapters
             && self.pending_adapters.len() > 0
         {
-            let queue = self.queue_map.get_mut(self.pending_adapters.front().unwrap()).unwrap();
+            let queue = self
+                .queue_map
+                .get_mut(self.pending_adapters.front().unwrap())
+                .unwrap();
             if queue.cost().is_none() {
                 // Adapter has not been downloaded yet
                 break;
