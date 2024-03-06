@@ -1,5 +1,5 @@
 /// Multi shard Client
-use crate::{AdapterParameters, Batch, CachedBatch, Client, Generation, HealthResponse, ShardInfo};
+use crate::{AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation, HealthResponse, ShardInfo};
 use crate::{ClientError, Result};
 use futures::future::join_all;
 use tonic::transport::Uri;
@@ -155,7 +155,7 @@ impl ShardedClient {
         adapter_parameters: AdapterParameters,
         adapter_source: String,
         api_token: Option<String>,
-    ) -> Result<bool> {
+    ) -> Result<DownloadAdapterResponse> {
         // Only download the adapter with one client, since they share a single disk
         self.clients[0]
             .download_adapter(adapter_parameters, adapter_source, api_token)

@@ -264,7 +264,7 @@ struct Args {
     max_waiting_tokens: usize,
 
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
-    #[clap(default_value = "128", long, env)]
+    #[clap(default_value = "1024", long, env)]
     max_active_adapters: usize,
 
     /// The time in seconds between adapter exchanges.
