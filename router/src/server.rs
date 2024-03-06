@@ -995,7 +995,6 @@ pub async fn run(
 
     // Kick off thread here that writes to the log file
     let (tx, rx) = mpsc::channel(32);
-    tracing::info!("!!!! ABOUT TO SPAWN THE REQUEST LOGGER THREAD <<<<<<<<<<<<");
     tokio::spawn(request_logger(rx));
     let request_logger_sender = Arc::new(tx);
 
