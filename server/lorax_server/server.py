@@ -176,12 +176,17 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                                        f"download error: {e}\nIgnoring.")
                 raise
         
-        adapter_memory_fraction = adapter_bytes / self.model.adapter_memory_size()
-        if adapter_memory_fraction > 1:
-            raise ValueError(
-                f"Adapter {adapter_id} is larger than adapter memory reservation: "
-                f"{adapter_bytes} / {self.model.adapter_memory_size()} bytes"
-            )
+        adapter_memory_size = self.model.adapter_memory_size()
+        if adapter_memory_size > 0:
+            adapter_memory_fraction = adapter_bytes / adapter_memory_size
+            if adapter_memory_fraction > 1:
+                raise ValueError(
+                    f"Adapter {adapter_id} is larger than adapter memory reservation: "
+                    f"{adapter_bytes} / {adapter_memory_size} bytes"
+                )
+        else:
+            # Assume 0.0 memory fraction if adapter memory size is not set
+            adapter_memory_fraction = 0.0
         
         return generate_pb2.DownloadAdapterResponse(
             downloaded=True,
