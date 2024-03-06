@@ -275,7 +275,7 @@ struct Args {
     /// Increasing this value will reduce the size of the KV cache in exchange for allowing more
     /// adapters to be loaded onto the GPU at once.
     /// This value is NOT scaled relative to `cuda_memory_fraction`, but is expressed in absolute terms.
-    #[clap(default_value = "0.0", long, env)]
+    #[clap(default_value = "0.1", long, env)]
     adapter_memory_fraction: f32,
 
     /// The IP address to listen on
