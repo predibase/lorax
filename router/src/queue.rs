@@ -415,6 +415,19 @@ impl AdapterQueuesState {
             }
         }
 
+        // Add back cost for all offload adapters
+        for adapter in offload_adapters.iter() {
+            let queue = self.queue_map.get(adapter).unwrap().clone();
+            let cost = queue.cost().unwrap();
+            self.memory_budget_remaining += cost;
+            tracing::info!(
+                "offloading adapter {} with cost {} (memory budget remaining: {})",
+                adapter.as_string(),
+                cost,
+                self.memory_budget_remaining
+            );
+        }
+
         // Add pending adapters to the active set until we reach the max
         while self.active_adapters.len() < self.max_active_adapters
             && self.pending_adapters.len() > 0
@@ -443,6 +456,13 @@ impl AdapterQueuesState {
             load_adapters.push(adapter.clone());
 
             self.active_adapters.push_back(adapter.clone());
+
+            tracing::info!(
+                "loading adapter {} with cost {} (memory budget remaining: {})",
+                adapter.as_string(),
+                cost,
+                self.memory_budget_remaining
+            );
         }
 
         (offload_adapters, load_adapters)
