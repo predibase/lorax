@@ -722,6 +722,10 @@ class FlashCausalLM(Model):
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
         return FlashCausalLMBatch
+    
+    def adapter_memory_size(self) -> int:
+        total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
+        return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
         torch.cuda.empty_cache()

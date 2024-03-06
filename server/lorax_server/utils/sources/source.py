@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Optional, List
 from pathlib import Path
@@ -41,7 +42,7 @@ class BaseModelSource:
     def remote_weight_files(self, extension: str = None):
         raise NotImplementedError
 
-    def weight_files(self, extension: str = None):
+    def weight_files(self, extension: str = None) -> List[Path]:
         raise NotImplementedError
     
     def download_weights(self, filenames: List[str]):
@@ -55,3 +56,31 @@ class BaseModelSource:
         So this function will take the necessary steps to download
         the needed files for any source """
         raise NotImplementedError
+    
+    def get_weight_bytes(self) -> int:
+        total_size = 0
+        for path in self.weight_files():
+            fname = str(path)
+
+            # safetensor format explained here: https://huggingface.co/docs/safetensors/en/index
+            # parsing taken from: https://github.com/by321/safetensors_util/blob/main/safetensors_file.py
+            st = os.stat(fname)
+            if st.st_size < 8:
+                raise RuntimeError(f"Length of safetensor file less than 8 bytes: {fname}")
+            
+            with open(fname, "rb") as f:
+                # read header size
+                b8 = f.read(8) 
+                if len(b8) != 8:
+                    raise RuntimeError(f"Failed to read first 8 bytes of safetensor file: {fname}")
+                
+                headerlen = int.from_bytes(b8, 'little', signed=False)
+                if 8 + headerlen > st.st_size:
+                    raise RuntimeError(f"Header extends past end of file: {fname}")
+                
+                hdrbuf = f.read(headerlen)
+                header = json.loads(hdrbuf)
+                metadata = header.get('__metadata__', {})
+                total_size += metadata.get('total_size', 0)
+        
+        return total_size
