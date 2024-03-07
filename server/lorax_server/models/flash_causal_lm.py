@@ -1036,7 +1036,7 @@ class FlashCausalLM(Model):
                 request_alternative_token_logprobs = alternative_token_logprobs[i][:num_alternatives]
 
                 # Decode tokens
-                request_alternative_token_texts = list()
+                request_alternative_token_texts = []
                 for alternative_token_id in request_alternative_token_ids:
                     all_input_ids.append(alternative_token_id)
                     alternative_token_text, _, _ = self.decode_token(
