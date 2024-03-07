@@ -795,7 +795,7 @@ async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
     while let Some((tokens, api_token, model_id)) = rx.recv().await {
         // Make a request out to localhost:8899 with the tokens, api_token, and model_id
         let res = client
-            .post("http://host.docker.internal:8899")
+            .post("http://localhost:8899")
             .json(&json!({"tokens": tokens, "api_token": api_token, "model_id": model_id}))
             .send()
             .await;
