@@ -147,7 +147,7 @@ Options:
           Maximum number of adapters that can be placed on the GPU and accept requests at a time
           
           [env: MAX_ACTIVE_ADAPTERS=]
-          [default: 128]
+          [default: 1024]
 
       --adapter-cycle-time-s <ADAPTER_CYCLE_TIME_S>
           The time in seconds between adapter exchanges

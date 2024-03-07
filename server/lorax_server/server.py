@@ -13,13 +13,14 @@ from pathlib import Path
 from typing import List, Optional
 
 from lorax_server.cache import Cache
-from lorax_server.cli import download_weights
+from lorax_server.cli import _download_weights
 from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
 from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
+from lorax_server.utils.sources import get_model_source
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
@@ -132,6 +133,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             logger.info("No adapter to download for base model. Skipping.")
             return generate_pb2.DownloadAdapterResponse(downloaded=False)
 
+        adapter_bytes = 0
         api_token = request.api_token
         adapter_source = _adapter_source_enum_to_string(request.adapter_source)
         for adapter_id in adapter_parameters.adapter_ids:
@@ -153,7 +155,13 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                     config_path = get_config_path(adapter_id, adapter_source)
                     PeftConfig.from_pretrained(config_path, token=api_token)
 
-                download_weights(adapter_id, source=adapter_source, api_token=api_token)
+                _download_weights(
+                    adapter_id, source=adapter_source, api_token=api_token
+                )
+
+                # Calculate size of adapter to be loaded
+                source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
+                adapter_bytes += source.get_weight_bytes()
             except Exception:
                 logger.exception("Error when downloading adapter")
 
@@ -168,7 +176,26 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                                        f"download error: {e}\nIgnoring.")
                 raise
         
-        return generate_pb2.DownloadAdapterResponse(downloaded=True)
+        adapter_memory_size = self.model.adapter_memory_size()
+        if adapter_memory_size > 0:
+            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                        f"(reservation: {adapter_memory_size} bytes)")
+            adapter_memory_fraction = adapter_bytes / adapter_memory_size
+            if adapter_memory_fraction > 1:
+                raise ValueError(
+                    f"Adapter {adapter_id} is larger than adapter memory reservation: "
+                    f"{adapter_bytes} / {adapter_memory_size} bytes"
+                )
+        else:
+            # Assume 0.0 memory fraction if adapter memory size is not set
+            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                        f"(no reservation limit)")
+            adapter_memory_fraction = 0.0
+        
+        return generate_pb2.DownloadAdapterResponse(
+            downloaded=True,
+            memory_fraction=adapter_memory_fraction
+        )
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
@@ -206,6 +233,10 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
             self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
+
+            # Ensure there is enough memory for the next adapter
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize(self.model.device)
             
             return generate_pb2.OffloadAdapterResponse(offloaded=True)
         except Exception:
