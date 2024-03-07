@@ -785,9 +785,15 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
 }
 
 async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
-    // TODO: configure whether this is enabled and make it non-blocking if it fails
-    // TODO: make url configurable
-    // log the function is getting called
+    let url = std::env::var("REQUEST_LOGGER_URL").ok();
+    if Some(&url) == None {
+        tracing::warn!("REQUEST_LOGGER_URL not set, request logging is disabled");
+        return;
+    }
+
+    let url_string = url.unwrap();
+    tracing::info!("Request logging enabled, sending logs to {url_string}");
+
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
     let client = ClientBuilder::new(reqwest::Client::new())
         .with(RetryTransientMiddleware::new_with_policy(retry_policy))
@@ -795,10 +801,14 @@ async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
     while let Some((tokens, api_token, model_id)) = rx.recv().await {
         // Make a request out to localhost:8899 with the tokens, api_token, and model_id
         let res = client
-            .post("http://localhost:8899")
+            .post(&url_string)
             .json(&json!({"tokens": tokens, "api_token": api_token, "model_id": model_id}))
             .send()
             .await;
+
+        if let Err(e) = res {
+            tracing::error!("Failed to log request: {e}");
+        }
     }
 }
 
