@@ -288,6 +288,13 @@ message DownloadAdapterRequest {
 message DownloadAdapterResponse {
     /// True if download occurred, false if skipped
     bool downloaded = 1;
+
+    /// Fraction of the adapter memory limit consumed by the adapter.
+    /// If no limit is set, will return 0.
+    /// When the total across all loaded adapters exceeds 
+    /// the adapter_memory_fraction limit, no more adapters
+    /// will be loaded to GPU and LoRAX will begin swapping.
+    float memory_fraction = 2;
 }
 
 message LoadAdapterRequest {

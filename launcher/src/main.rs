@@ -264,7 +264,7 @@ struct Args {
     max_waiting_tokens: usize,
 
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
-    #[clap(default_value = "128", long, env)]
+    #[clap(default_value = "1024", long, env)]
     max_active_adapters: usize,
 
     /// The time in seconds between adapter exchanges.
@@ -275,7 +275,7 @@ struct Args {
     /// Increasing this value will reduce the size of the KV cache in exchange for allowing more
     /// adapters to be loaded onto the GPU at once.
     /// This value is NOT scaled relative to `cuda_memory_fraction`, but is expressed in absolute terms.
-    #[clap(default_value = "0.0", long, env)]
+    #[clap(default_value = "0.1", long, env)]
     adapter_memory_fraction: f32,
 
     /// The IP address to listen on

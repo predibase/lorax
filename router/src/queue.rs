@@ -66,6 +66,9 @@ pub(crate) struct QueueState {
     /// Adapter status
     status: AdapterStatus,
 
+    /// Cost as a fraction of the adapter memory budget
+    cost: Option<f32>,
+
     /// Timestamp when the adapter was last activated
     activation_ts: Option<Instant>,
 
@@ -80,6 +83,7 @@ impl QueueState {
             entries: VecDeque::with_capacity(128),
             adapter,
             status,
+            cost: None,
             activation_ts: None,
             event,
         }
@@ -143,6 +147,14 @@ impl QueueState {
         &self.status
     }
 
+    pub(crate) fn set_cost(&mut self, cost: f32) {
+        self.cost = Some(cost);
+    }
+
+    pub(crate) fn cost(&self) -> Option<f32> {
+        self.cost
+    }
+
     pub(crate) fn set_activation_ts(&mut self, ts: Instant) {
         self.activation_ts = Some(ts);
     }
@@ -169,6 +181,9 @@ pub(crate) struct AdapterQueuesState {
     /// Number of adapters that can be active at a time
     max_active_adapters: usize,
 
+    /// Fraction of adapter memory budget remaining to allocate to new adapters
+    memory_budget_remaining: f32,
+
     /// Maximum time an adapter is allowed to be active before exchanging out
     max_active_time: Duration,
 
@@ -189,6 +204,7 @@ impl AdapterQueuesState {
             active_adapters,
             tracked_adapters,
             max_active_adapters: max_active_adapters,
+            memory_budget_remaining: 1.0,
             max_active_time: Duration::from_secs(adapter_cycle_time_s),
             next_id: 0,
         }
@@ -253,6 +269,17 @@ impl AdapterQueuesState {
             }
         }
         errored_adapters
+    }
+
+    pub(crate) fn set_cost(&mut self, adapter: &Adapter, cost: f32) {
+        let q = self.queue_map.get_mut(adapter);
+        if q.is_none() {
+            // TODO(travis): remove this
+            tracing::error!("adapter {} not found in queue_map", adapter.as_string());
+            println!("{:?}", Backtrace::force_capture());
+        }
+        let queue = q.unwrap();
+        queue.set_cost(cost);
     }
 
     pub(crate) fn set_status(&mut self, adapter: &Adapter, status: AdapterStatus) {
@@ -388,20 +415,57 @@ impl AdapterQueuesState {
             }
         }
 
+        // Add back cost for all offload adapters
+        for adapter in offload_adapters.iter() {
+            let queue = self.queue_map.get(adapter).unwrap().clone();
+            let cost = queue.cost().unwrap();
+            self.memory_budget_remaining += cost;
+            tracing::info!(
+                "offloading adapter {} with cost {} (memory budget remaining: {})",
+                adapter.as_string(),
+                cost,
+                self.memory_budget_remaining
+            );
+        }
+
         // Add pending adapters to the active set until we reach the max
         while self.active_adapters.len() < self.max_active_adapters
             && self.pending_adapters.len() > 0
         {
-            let adapter = self.pending_adapters.pop_front().unwrap();
+            let queue = self
+                .queue_map
+                .get_mut(self.pending_adapters.front().unwrap())
+                .unwrap();
+            if queue.cost().is_none() {
+                // Adapter has not been downloaded yet
+                break;
+            }
+
+            // Check to see that we have enough memory budget remaining to load the adapter
+            let cost = queue.cost().unwrap();
+            if cost > self.memory_budget_remaining {
+                // Adapter is too expensive to load
+                break;
+            }
 
             // Update activation timestamp
-            let queue = self.queue_map.get_mut(&adapter).unwrap();
+            let adapter = self.pending_adapters.pop_front().unwrap();
             queue.set_activation_ts(now);
+
+            // Calculate remaining memory budget
+            self.memory_budget_remaining -= cost;
 
             // Start async loading process
             load_adapters.push(adapter.clone());
 
             self.active_adapters.push_back(adapter.clone());
+
+            tracing::info!(
+                "loading adapter {} with cost {} (memory budget remaining: {})",
+                adapter.as_string(),
+                cost,
+                self.memory_budget_remaining
+            );
         }
 
         (offload_adapters, load_adapters)

@@ -146,12 +146,13 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                     )
                     .await
                 {
-                    Ok(_) => {
+                    Ok(resp) => {
                         tracing::info!("adapter {} downloaded", adapter.as_string());
                         let mut locked_state = queues_state.lock().unwrap();
                         if locked_state.has_adapter(&adapter) {
                             // Above check guards against the case where the adapter was terminated between the initial
                             // time of request and the time of adapter download
+                            locked_state.set_cost(&adapter, resp.memory_fraction);
                             locked_state.set_status(&adapter, AdapterStatus::Downloaded);
                         }
                     }

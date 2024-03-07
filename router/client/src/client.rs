@@ -193,7 +193,7 @@ impl Client {
         adapter_parameters: AdapterParameters,
         adapter_source: String,
         api_token: Option<String>,
-    ) -> Result<bool> {
+    ) -> Result<DownloadAdapterResponse> {
         if let Some(adapter_source_enum) =
             AdapterSource::from_str_name(adapter_source.to_uppercase().as_str())
         {
@@ -204,7 +204,7 @@ impl Client {
             })
             .inject_context();
             let response = self.stub.download_adapter(request).await?.into_inner();
-            Ok(response.downloaded)
+            Ok(response)
         } else {
             let err_string = format!(
                 "Invalid source '{}' when downloading adapter '{}'",
