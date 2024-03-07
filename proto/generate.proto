@@ -77,6 +77,8 @@ message NextTokenChooserParameters {
     string adapter_id = 9;
     /// JSON schema used for constrained decoding (Outlines)
     optional string schema = 10;
+    /// returning the k highest probability alternatives
+    uint32 return_k_alternatives = 11;
 }
 
 message StoppingCriteriaParameters {
@@ -156,23 +158,34 @@ message PrefillTokens {
     repeated string texts = 3;
 }
 
+message AlternativeTokens {
+    /// Alternative Token IDs
+    repeated uint32 ids = 1;
+    /// Alternative Logprobs
+    repeated float logprobs = 2;
+    /// Alternative tokens
+    repeated string texts = 3;
+}
+
 message Generation {
     /// Request ID
     uint64 request_id = 1;
     /// Prefill tokens (optional)
     PrefillTokens prefill_tokens = 2;
+    /// Alternative tokens (optional)
+    AlternativeTokens alternative_tokens = 3;
     /// Token ID
-    uint32 token_id = 3;
+    uint32 token_id = 4;
     /// Logprob
-    float token_logprob = 4;
+    float token_logprob = 5;
     /// Text
-    string token_text = 5;
+    string token_text = 6;
     /// Is it a special token
-    bool token_is_special = 6;
+    bool token_is_special = 7;
     /// Complete generated text
-    optional GeneratedText generated_text = 7;
+    optional GeneratedText generated_text = 8;
     /// Prefill tokens length
-    uint32 prefill_tokens_length = 8;
+    uint32 prefill_tokens_length = 9;
 }
 
 message FilterBatchRequest {
@@ -233,7 +246,7 @@ enum AdapterSource {
     S3 = 1;
     /// Adapters loaded via local filesystem path
     LOCAL = 2;
-    /// Adapters loaded via predibase    
+    /// Adapters loaded via predibase
     PBASE = 3;
 }
 
@@ -262,7 +275,7 @@ enum MajoritySignMethod {
 message AdapterParameters {
     /// Adapter IDs
     repeated string adapter_ids = 1;
-    
+
     /// Adapter weights for merging
     repeated float weights = 2;
 

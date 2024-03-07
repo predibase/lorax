@@ -126,6 +126,8 @@ class Parameters:
     watermark: bool
     # Get decoder input token logprobs and ids
     decoder_input_details: bool
+    # The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
+    return_k_alternatives: Optional[int]
 
 # Decoder input tokens
 class InputToken:

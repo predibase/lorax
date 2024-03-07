@@ -7,7 +7,7 @@ mod queue;
 mod scheduler;
 pub mod server;
 mod validation;
-use lorax_client::AdapterParameters as AdapterParametersMessage;
+use lorax_client::{AdapterParameters as AdapterParametersMessage, AlternativeTokens};
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use infer::Infer;
@@ -240,6 +240,9 @@ pub(crate) struct GenerateParameters {
     #[schema(default = "true")]
     pub decoder_input_details: bool,
     #[serde(default)]
+    #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 10)]
+    pub return_k_alternatives: Option<i32>,
+    #[serde(default)]
     #[schema(default = "false")]
     pub apply_chat_template: bool,
     #[serde(default)]
@@ -283,6 +286,7 @@ fn default_parameters() -> GenerateParameters {
         watermark: false,
         details: false,
         decoder_input_details: false,
+        return_k_alternatives: None,
         apply_chat_template: false,
         seed: None,
         response_format: None,
@@ -328,6 +332,16 @@ pub struct PrefillToken {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct AlternativeToken {
+    #[schema(example = 0)]
+    id: u32,
+    #[schema(example = "test")]
+    text: String,
+    #[schema(nullable = true, example = - 0.34)]
+    logprob: f32,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct Token {
     #[schema(example = 0)]
     id: u32,
@@ -337,6 +351,9 @@ pub struct Token {
     logprob: f32,
     #[schema(example = "false")]
     special: bool,
+    #[schema(nullable = true)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alternative_tokens: Option<Vec<AlternativeToken>>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -606,6 +623,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 watermark: false,
                 details: true,
                 decoder_input_details: req.logprobs.is_some(),
+                return_k_alternatives: None,
                 apply_chat_template: false,
                 seed: None,
                 response_format: None,
@@ -641,6 +659,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 watermark: false,
                 details: true,
                 decoder_input_details: false,
+                return_k_alternatives: None,
                 apply_chat_template: true,
                 seed: None,
                 response_format: req.response_format,

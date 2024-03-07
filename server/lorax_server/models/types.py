@@ -72,12 +72,26 @@ class PrefillTokens:
     def __len__(self):
         return len(self.token_ids)
 
+@dataclass
+class AlternativeTokens:
+    token_ids: List[int]
+    logprobs: List[float]
+    texts: List[str]
+
+    def to_pb(self) -> generate_pb2.AlternativeTokens:
+        return generate_pb2.AlternativeTokens(
+            ids=self.token_ids, logprobs=self.logprobs, texts=self.texts
+        )
+
+    def __len__(self):
+        return len(self.token_ids)
 
 @dataclass
 class Generation:
     request_id: int
     prefill_tokens: Optional[PrefillTokens]
     prefill_tokens_length: int
+    alternative_tokens: Optional[AlternativeTokens]
     token_id: int
     token_logprob: float
     token_text: str
@@ -91,6 +105,9 @@ class Generation:
             if self.prefill_tokens is not None
             else None,
             prefill_tokens_length=self.prefill_tokens_length,
+            alternative_tokens=self.alternative_tokens.to_pb()
+            if self.alternative_tokens is not None
+            else None,
             token_id=self.token_id,
             token_logprob=self.token_logprob,
             token_text=self.token_text,

@@ -9,6 +9,7 @@ from lorax_server.models import Model
 from lorax_server.models.types import (
     Batch,
     PrefillTokens,
+    AlternativeTokens,
     Generation,
     GeneratedText,
 )
@@ -732,6 +733,7 @@ class CausalLM(Model):
                     request.id,
                     prefill_tokens,
                     prefill_tokens_length,
+                    None,
                     next_token_id_squeezed,
                     next_token_logprob,
                     next_token_text,
