@@ -1028,24 +1028,24 @@ class FlashCausalLM(Model):
                 num_alternatives = min(request.parameters.return_k_alternatives, len(alternative_token_ids[i]))
 
                 # Select top-k logprobs
-                batch_alternative_token_ids = alternative_token_ids[i][:num_alternatives]
-                batch_alternative_token_logprobs = alternative_token_logprobs[i][:num_alternatives]
+                request_alternative_token_ids = alternative_token_ids[i][:num_alternatives]
+                request_alternative_token_logprobs = alternative_token_logprobs[i][:num_alternatives]
 
                 # Decode tokens
-                alternative_token_texts = list()
-                for alternative_token_id in batch_alternative_token_ids:
+                request_alternative_token_texts = list()
+                for alternative_token_id in request_alternative_token_ids:
                     all_input_ids.append(alternative_token_id)
                     alternative_token_text, _, _ = self.decode_token(
                         all_input_ids,
                         prefix_offset,
                         read_offset,
                     )
-                    alternative_token_texts.append(alternative_token_text)
+                    request_alternative_token_texts.append(alternative_token_text)
                     all_input_ids.pop()
                 alternative_tokens = AlternativeTokens(
-                    batch_alternative_token_ids,
-                    batch_alternative_token_logprobs,
-                    alternative_token_texts
+                    request_alternative_token_ids,
+                    request_alternative_token_logprobs,
+                    request_alternative_token_texts
                 )
             else:
                 alternative_tokens = None
