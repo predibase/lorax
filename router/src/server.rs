@@ -2,6 +2,7 @@
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
+use crate::json;
 use crate::validation::ValidationError;
 use crate::{
     BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
@@ -21,12 +22,13 @@ use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
-use tokio::io::AsyncWriteExt;
 use tokio::signal;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -783,13 +785,20 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
 }
 
 async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
+    // TODO: configure whether this is enabled and make it non-blocking if it fails
+    // TODO: make url configurable
     // log the function is getting called
-    let mut file = tokio::fs::File::create("/data/log.txt").await.unwrap();
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .build();
     while let Some((tokens, api_token, model_id)) = rx.recv().await {
-        let msg = format!("{},{},{}\n", tokens, api_token, model_id);
-        if let Err(e) = file.write_all(msg.as_bytes()).await {
-            eprintln!("Error writing to file: {}", e);
-        }
+        // Make a request out to localhost:8899 with the tokens, api_token, and model_id
+        let res = client
+            .post("http://localhost:8899")
+            .json(&json!({"tokens": tokens, "api_token": api_token, "model_id": model_id}))
+            .send()
+            .await;
     }
 }
 
