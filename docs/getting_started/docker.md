@@ -15,6 +15,10 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
 ```
 !!! note
     
+    The LoRAX server in the pre-built Docker image is configured to listen on port 80 (instead of on the default port number, which is 3000).
+
+!!! note
+    
     To use GPUs, you need to install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). We also recommend using NVIDIA drivers with CUDA version 11.8 or higher.
 
 See the references docs for the [Launcher](../reference/launcher.md) to view all available options, or run the following from within your container:

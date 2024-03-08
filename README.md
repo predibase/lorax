@@ -82,8 +82,6 @@ docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
     ghcr.io/predibase/lorax:latest --model-id $model
 ```
 
-Please note that the LoRAX server in our pre-built Docker image is configured to listen on port 80 (instead of on the default port number, which is 3000).
-
 For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](https://predibase.github.io/lorax/getting_started/docker).
 
 ### Prompt via REST API
