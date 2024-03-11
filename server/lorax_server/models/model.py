@@ -81,6 +81,9 @@ class Model(ABC):
     @abstractmethod
     def batch_type(self) -> Type[B]:
         raise NotImplementedError
+    
+    def adapter_memory_size(self) -> int:
+        return 0
 
     @abstractmethod
     def generate_token(self, batch: B) -> Tuple[List[GeneratedText], Optional[B]]:

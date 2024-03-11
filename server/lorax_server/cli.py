@@ -90,6 +90,7 @@ def serve(
         model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, uds_path, source, adapter_source
     )
 
+
 def _download_weights(
     model_id: str,
     revision: Optional[str] = None,
