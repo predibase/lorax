@@ -220,8 +220,10 @@ struct Args {
     /// Limits the number of tokens for the prefill operation.
     /// Since this operation take the most memory and is compute bound, it is interesting
     /// to limit the number of requests that can be sent.
-    #[clap(default_value = "4096", long, env)]
-    max_batch_prefill_tokens: u32,
+    /// The default value will be set based on the max_input_length, since it cannot be less than 
+    /// that value.
+    #[clap(long, env)]
+    max_batch_prefill_tokens: Option<u32>,
 
     /// **IMPORTANT** This is one critical control to allow maximum usage
     /// of the available hardware.
@@ -1211,7 +1213,7 @@ fn main() -> Result<(), LauncherError> {
         tracing::info!("Sharding model on {num_shard} processes");
     }
 
-    if let Some(ref max_batch_total_tokens) = args.max_batch_total_tokens {
+    if let Some(ref max_batch_total_tokens) = args.max_batch_total_tokens.unwrap_or_else(args.max_batch_prefill_tokens) {
         if args.max_batch_prefill_tokens > *max_batch_total_tokens {
             return Err(LauncherError::ArgumentValidation(format!(
                 "`max_batch_prefill_tokens` must be <= `max_batch_total_tokens`. Given: {} and {}",
