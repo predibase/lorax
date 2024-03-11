@@ -1183,6 +1183,13 @@ fn main() -> Result<(), LauncherError> {
 
     tracing::info!("{:?}", args);
 
+    // Set default values dervided from other args
+
+    // If the value of max_batch_prefill_tokens is not specified, default to max_input_length
+    if args.max_batch_prefill_tokens.is_none() {
+        args.max_batch_prefill_tokens = Option<u32>(args.max_input_length as u32)
+    }
+
     // Validate args
     if args.max_input_length >= args.max_total_tokens {
         return Err(LauncherError::ArgumentValidation(
@@ -1213,8 +1220,8 @@ fn main() -> Result<(), LauncherError> {
         tracing::info!("Sharding model on {num_shard} processes");
     }
 
-    if let Some(ref max_batch_total_tokens) = args.max_batch_total_tokens.unwrap_or_else(args.max_batch_prefill_tokens) {
-        if args.max_batch_prefill_tokens > *max_batch_total_tokens {
+    if let Some(ref max_batch_total_tokens) = args.max_batch_total_tokens {
+        if args.max_batch_prefill_tokens.unwrap() > *max_batch_total_tokens {
             return Err(LauncherError::ArgumentValidation(format!(
                 "`max_batch_prefill_tokens` must be <= `max_batch_total_tokens`. Given: {} and {}",
                 args.max_batch_prefill_tokens, max_batch_total_tokens
