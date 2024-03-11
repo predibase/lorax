@@ -786,7 +786,7 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
 
 async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
     let url = std::env::var("REQUEST_LOGGER_URL").ok();
-    if Some(&url) == None {
+    if url.is_none() {
         tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");
         return;
     }
@@ -1016,7 +1016,7 @@ pub async fn run(
     let (tx, rx) = mpsc::channel(32);
     let request_logger_sender = Arc::new(tx);
     let url = std::env::var("REQUEST_LOGGER_URL").ok();
-    if Some(&url) != None {
+    if url.is_some() {
         tokio::spawn(request_logger(rx));
     } else {
         tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'stream-log-dump' # XXX
     tags:
       - 'v*'
 
@@ -61,11 +62,12 @@ jobs:
         with:
           images: |
             ghcr.io/predibase/lorax
+          # XXX
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=,suffix=,format=short
-            type=raw,value=latest
+            type=sha,prefix=magdy-test-,suffix=,format=short
+            
+            
+
       
       - name: Create a hash from tags
         env:
