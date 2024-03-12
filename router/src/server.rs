@@ -92,7 +92,14 @@ async fn compat_generate(
         .await
         .into_response())
     } else {
-        let (headers, generation) = generate(infer, info, req_headers, Json(req.into())).await?;
+        let (headers, generation) = generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(req.into()),
+        )
+        .await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
     }
@@ -162,8 +169,14 @@ async fn completions_v1(
         .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) =
-            generate(infer, info, req_headers, Json(gen_req.into())).await?;
+        let (headers, generation) = generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+        )
+        .await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(CompletionResponse::from(generation.0))).into_response())
     }
@@ -233,8 +246,14 @@ async fn chat_completions_v1(
         .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) =
-            generate(infer, info, req_headers, Json(gen_req.into())).await?;
+        let (headers, generation) = generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+        )
+        .await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
     }
@@ -310,6 +329,7 @@ seed,
 async fn generate(
     infer: Extension<Infer>,
     info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -342,6 +362,8 @@ async fn generate(
             })
         });
     }
+
+    let api_token = req.parameters.api_token.clone();
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -489,6 +511,16 @@ async fn generate(
         "lorax_request_generated_tokens",
         response.generated_text.generated_tokens as f64
     );
+
+    if std::env::var("REQUEST_LOGGER_URL").ok().is_some() {
+        let _ = request_logger_sender
+            .send((
+                response.generated_text.generated_tokens as i64,
+                api_token.unwrap_or("".to_string()),
+                info.model_id.clone(),
+            ))
+            .await;
+    }
 
     // Send response
     let mut output_text = response.generated_text.text;
@@ -731,7 +763,9 @@ async fn generate_stream_with_callback(
                                         tracing::debug!(parent: &span, "Output: {}", output_text);
                                         tracing::info!(parent: &span, "Success");
 
-                                        request_logger_sender.send((generated_text.generated_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
+                                        if std::env::var("REQUEST_LOGGER_URL").ok().is_some() {
+                                            let _ = request_logger_sender.send((generated_text.generated_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
+                                        }
 
                                         let stream_token = StreamResponse {
                                             token,
