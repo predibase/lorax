@@ -1,4 +1,5 @@
 from typing import List
+from unittest import mock
 import pytest
 
 import torch
@@ -8,6 +9,7 @@ from lorax_server.utils.lora import AdapterBatchMetadata, BatchedLoraWeights, Me
 from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 
 
+@mock.patch("lorax_server.utils.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0)))
 @pytest.mark.parametrize("lora_ranks", [
     [8, 16],
     [32, 64],
