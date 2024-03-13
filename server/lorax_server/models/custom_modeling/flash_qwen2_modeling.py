@@ -113,7 +113,7 @@ def load_attention_multi(config, prefix, weights):
             prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
             dim=0,
             weights=weights,
-            bias=False,
+            bias=True,
         )
 
 
@@ -139,7 +139,7 @@ def _load_gqa(config, prefix: str, weights):
         ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(
-        get_linear(weight, bias=None, quantize=config.quantize)
+        get_linear(weight, bias=True, quantize=config.quantize)
     )
 
 
