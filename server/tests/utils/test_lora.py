@@ -13,7 +13,6 @@ from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
     [8, 16],
     [32, 64],
 ])
-@mock.patch("lorax_server.utils.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0)))
 def test_batched_lora_weights(lora_ranks: List[int]):
     # batch meta is hardcoded with this assumption below
     assert len(lora_ranks) == 2
@@ -42,7 +41,9 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         adapter_segments=torch.tensor([0, 2, 4, 6, 8], dtype=torch.int64),
         segment_indices=[0, 1, 0, 1],
     )
-    data = batched_weights.get_data(meta)
+
+    with mock.patch("lorax_server.utils.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
+        data = batched_weights.get_data(meta)
 
     assert len(data.lora_a) == 2
     assert data.lora_a.keys() == meta.adapter_set
