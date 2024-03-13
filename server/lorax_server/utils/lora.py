@@ -98,6 +98,9 @@ class MergedLoraWeights:
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
     ):
+        self.lora_a_r = weights_a[0].size(1) if len(weights_a) > 0 else 1
+        self.lora_b_r = weights_b[0].size(0) if len(weights_a) > 0 else 1
+
         # [num_layers, hidden_size, r]
         weights_a = [
             orient_for_rank(w, w.size(1)).contiguous()
@@ -187,8 +190,7 @@ class BatchedLoraWeights:
         for segment_idx, adapter_idx in enumerate(segment_indices):
             if adapter_idx not in self.lora_weights:
                 continue
-            print("rank indices for segment", self.lora_weights[adapter_idx].weights_b.shape)
-            rank_indices[self.lora_weights[adapter_idx].weights_b.size(1)].append(segment_idx)
+            rank_indices[self.lora_weights[adapter_idx].lora_a_r].append(segment_idx)
 
         rank_data = {}
         for rank, indices in rank_indices.items():
