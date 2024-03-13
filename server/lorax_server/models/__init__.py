@@ -337,7 +337,6 @@ def get_model(
         raise NotImplementedError("Mixtral models requires flash attention v2, stk and megablocks")
     
     if model_type == "qwen":
-        print("!!! QWEN")
         if FLASH_ATTENTION:
             return FlashQwen(
                 model_id,
@@ -350,6 +349,20 @@ def get_model(
                 trust_remote_code=trust_remote_code,
             )
         raise NotImplementedError("Qwen model requires flash attention v2")
+
+    if model_type == "qwen2":
+        from lorax_server.models.flash_qwen2 import FlashQwen2
+
+        return FlashQwen2(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
     
     if model_type in ["phi-msft", "phi"]:
         if FLASH_ATTENTION:
