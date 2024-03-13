@@ -507,6 +507,7 @@ class TensorParallelAdapterLinear(nn.Module):
         self.base_layer = base_layer
         self.layer_id = layer_id
         self.process_group = process_group
+        self.use_sgmv = False
 
     def forward_layer_type(
         self,
@@ -520,6 +521,8 @@ class TensorParallelAdapterLinear(nn.Module):
         data = adapter_data.data.get(layer_type)
 
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
+            if not self.use_sgmv:
+                print("!!! USE SGMV")
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
             else:
@@ -536,7 +539,7 @@ class TensorParallelAdapterLinear(nn.Module):
                         rank_segments.segment_starts,
                         rank_segments.segment_ends,
                         self.layer_id,
-                        r // self.process_group.size(),
+                        r,
                     )
 
                     if self.process_group.size() > 1:
@@ -571,13 +574,14 @@ class TensorParallelAdapterLinear(nn.Module):
         adapter_mask: torch.Tensor,
     ) -> torch.Tensor:
         lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
-        lora_a = orient_for_rank(lora_a, data.adapter_index_configs[adapter_index].r)
+        lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
+
+        lora_a = orient_for_rank(lora_a, lora_b.size(0))
         a_out = input @ lora_a
 
         if self.process_group.size() > 1:
             a_out = self.collect_lora_a(a_out)
         
-        lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
         result = (a_out @ lora_b) * adapter_mask
         return result
 
