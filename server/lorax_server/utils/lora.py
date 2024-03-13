@@ -46,7 +46,6 @@ class AdapterWeightData:
         return adapter_index in self.adapter_index_configs
     
     def can_vectorize(self, pg: ProcessGroup) -> bool:
-        # print("Checking if we can vectorize", [(rank_data.rank, pg.size()) for rank_data in self.rank_data.values()])
         return all(
             rank_data.rank // pg.size() <= MAX_RANK_CUSTOM
             for rank_data in self.rank_data.values()
@@ -68,7 +67,6 @@ class AdapterBatchData:
 
     @staticmethod
     def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, "BatchedLoraWeights"]) -> "AdapterBatchData":
-        print("!!! FROM META")
         data = {}
         for k, v in weights.items():
             if v.is_empty():
@@ -111,7 +109,6 @@ class MergedLoraWeights:
         # [num_layers, r, hidden_size]
         self.weights_b = torch.stack(weights_b)
 
-        print("MERGED SHAPE", self.weights_a.shape, self.weights_a.shape)
         self.adapter_config = adapter_config
 
 
@@ -195,7 +192,6 @@ class BatchedLoraWeights:
         rank_data = {}
         for rank, indices in rank_indices.items():
             lora_a_ptr_indices = lora_a_ptr[indices]
-            print("Rank", rank, "Indices", lora_a_ptr_indices.shape)
             tmp_shrink, tmp_expand = get_tmp_tensors(
                 lora_a_ptr_indices.size(0),
                 rank,

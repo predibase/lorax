@@ -520,8 +520,6 @@ class TensorParallelAdapterLinear(nn.Module):
         data = adapter_data.data.get(layer_type)
 
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
-            if self.process_group.rank() == 0 and self.layer_id == 0:
-                print("!!! USE SGMV")
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
             else:
@@ -540,15 +538,10 @@ class TensorParallelAdapterLinear(nn.Module):
                         self.layer_id,
                         r,
                     )
-                    if self.process_group.rank() == 0 and self.layer_id == 0:
-                        print("V", v.shape, v.norm().item())
 
                     if self.process_group.size() > 1:
                         v = self.collect_lora_a(v)
                     
-                    if self.process_group.rank() == 0 and self.layer_id == 0:
-                        print("V collect", v.shape, v.norm().item())
-
                     lora_b_sgmv_cutlass(
                         proj,
                         v,
@@ -558,9 +551,6 @@ class TensorParallelAdapterLinear(nn.Module):
                         rank_segments.segment_ends,
                         self.layer_id,
                     )
-
-                    if self.process_group.rank() == 0 and self.layer_id == 0:
-                        print("proj", proj.shape, proj.norm().item())
             
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
@@ -585,25 +575,11 @@ class TensorParallelAdapterLinear(nn.Module):
 
         lora_a = orient_for_rank(lora_a, lora_b.size(0))
 
-        if self.process_group.rank() == 0 and self.layer_id == 0:
-            print("lora_a", lora_a.shape, lora_a.norm().item())
-            print("lora_b", lora_b.shape, lora_b.norm().item())
-
         a_out = input @ lora_a
-        if self.process_group.rank() == 0 and self.layer_id == 0:
-            print("V", a_out.shape, a_out.norm().item())
-
         if self.process_group.size() > 1:
             a_out = self.collect_lora_a(a_out)
         
-        if self.process_group.rank() == 0 and self.layer_id == 0:
-            print("V collect", a_out.shape, a_out.norm().item())
-        
         result = (a_out @ lora_b) * adapter_mask
-
-        if self.process_group.rank() == 0 and self.layer_id == 0:
-            print("proj", result.shape, result.norm().item())
-
         return result
 
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:

@@ -263,11 +263,9 @@ class Model(ABC):
 
         if lora_a_list:
             # update rank if it was padded
-            print("PADDED RANK", lora_a_list[0].shape, lora_b_list[0].shape)
             padded_rank = lora_a_list[0].size(1)
             adapter_config.r = padded_rank
 
-        print("ADAPTER CONFIG", adapter_config.r)
         q_lora_merged = MergedLoraWeights(
             *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type), adapter_config,
         )

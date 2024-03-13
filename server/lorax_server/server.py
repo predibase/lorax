@@ -128,8 +128,6 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
         
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
-        import time
-        t0 = time.time()
         adapter_parameters = request.adapter_parameters
         if is_base_model(adapter_parameters):
             logger.info("No adapter to download for base model. Skipping.")
@@ -194,15 +192,12 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                         f"(no reservation limit)")
             adapter_memory_fraction = 0.0
         
-        print("!!! DownloadAdapter took", time.time() - t0, "seconds")
         return generate_pb2.DownloadAdapterResponse(
             downloaded=True,
             memory_fraction=adapter_memory_fraction
         )
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
-        import time
-        t0 = time.time()
         adapter_parameters = request.adapter_parameters
         if is_base_model(adapter_parameters):
             logger.info("No adapter to load for base model. Skipping.")
@@ -222,7 +217,6 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             
             self.model.load_adapter(adapter_parameters, adapter_source, adapter_index, api_token)
             
-            print("!!! LoadAdapter took", time.time() - t0, "seconds")
             return generate_pb2.LoadAdapterResponse(loaded=True)
         except Exception:
             logger.exception("Error when loading adapter")
