@@ -54,9 +54,18 @@ class AdapterWeightData:
 
 @dataclass
 class AdapterBatchMetadata:
+    # [batch_size]
     adapter_indices: torch.Tensor
+
+    # [num_adapters]
     adapter_set: Set[int]
+
+    # [num_segments + 1]
     adapter_segments: torch.Tensor
+
+    # [num_segments]
+    # maps from segment index to adapter index, i.e.:
+    # segment_indices[s] == adapter_indices[i]
     segment_indices: List[int]
 
 
