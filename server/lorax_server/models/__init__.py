@@ -337,6 +337,7 @@ def get_model(
         raise NotImplementedError("Mixtral models requires flash attention v2, stk and megablocks")
     
     if model_type == "qwen":
+        print("!!! QWEN")
         if FLASH_ATTENTION:
             return FlashQwen(
                 model_id,
@@ -412,45 +413,5 @@ def get_model(
         raise ValueError(
             "awq quantization is not supported for AutoModel"
         )
-
-    if model_type in modeling_auto.MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
-        return CausalLM(
-            model_id,
-            revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
-        )
-    if model_type in modeling_auto.MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
-        return Seq2SeqLM(
-            model_id,
-            revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
-        )
-
-    auto_map = config_dict.get("auto_map", None)
-    if trust_remote_code and auto_map is not None:
-        if "AutoModelForCausalLM" in auto_map.keys():
-            return CausalLM(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        if "AutoModelForSeq2SeqLM" in auto_map.keys():
-            return Seq2SeqLM(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
 
     raise ValueError(f"Unsupported model type {model_type}")
