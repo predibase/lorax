@@ -11,7 +11,7 @@ use crate::{
     HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{request, HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -512,7 +512,7 @@ async fn generate(
         response.generated_text.generated_tokens as f64
     );
 
-    if std::env::var("REQUEST_LOGGER_URL").ok().is_some() {
+    if info.request_logger_url.is_some() {
         let _ = request_logger_sender
             .send((
                 response.generated_text.generated_tokens as i64,
@@ -763,7 +763,7 @@ async fn generate_stream_with_callback(
                                         tracing::debug!(parent: &span, "Output: {}", output_text);
                                         tracing::info!(parent: &span, "Success");
 
-                                        if std::env::var("REQUEST_LOGGER_URL").ok().is_some() {
+                                        if info.request_logger_url.is_some() {
                                             let _ = request_logger_sender.send((generated_text.generated_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
                                         }
 
@@ -818,14 +818,16 @@ async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
     prom_handle.render()
 }
 
-async fn request_logger(mut rx: mpsc::Receiver<(i64, String, String)>) {
-    let url = std::env::var("REQUEST_LOGGER_URL").ok();
-    if url.is_none() {
+async fn request_logger(
+    request_logger_url: Option<String>,
+    mut rx: mpsc::Receiver<(i64, String, String)>,
+) {
+    if request_logger_url.is_none() {
         tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");
         return;
     }
 
-    let url_string = url.unwrap();
+    let url_string = request_logger_url.unwrap();
     tracing::info!("Request logging enabled, sending logs to {url_string}");
 
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
@@ -1038,6 +1040,7 @@ pub async fn run(
         version: env!("CARGO_PKG_VERSION"),
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
+        request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
     };
 
     DEFAULT_ADAPTER_SOURCE
@@ -1049,9 +1052,8 @@ pub async fn run(
     // Kick off thread here that writes to the log file
     let (tx, rx) = mpsc::channel(32);
     let request_logger_sender = Arc::new(tx);
-    let url = std::env::var("REQUEST_LOGGER_URL").ok();
-    if url.is_some() {
-        tokio::spawn(request_logger(rx));
+    if info.request_logger_url.is_some() {
+        tokio::spawn(request_logger(info.request_logger_url.clone(), rx));
     } else {
         tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");
     }

@@ -15,6 +15,7 @@ use loader::AdapterLoader;
 use queue::Entry;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use utoipa::openapi::schema;
 use utoipa::ToSchema;
 use validation::Validation;
 
@@ -66,6 +67,8 @@ pub struct Info {
     pub sha: Option<&'static str>,
     #[schema(nullable = true, example = "null")]
     pub docker_label: Option<&'static str>,
+    #[schema(nullable = true, example = "http://localhost:8899")]
+    pub request_logger_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
