@@ -206,6 +206,7 @@ class FlashQwen2Attention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        prefill_cache_indices,
         adapter_data,
     ):
         qkv = self.query_key_value(hidden_states, adapter_data)
@@ -222,8 +223,13 @@ class FlashQwen2Attention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
+        if prefill_cache_indices is not None:
+            kv_to_cache = kv[prefill_cache_indices]
+        else:
+            kv_to_cache = kv
+
         paged_attn.reshape_and_cache(
-            kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
+            kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
         )
 
         # output tensor
@@ -335,6 +341,7 @@ class FlashQwen2Layer(nn.Module):
         slots,
         input_lengths,
         max_s,
+        prefill_cache_indices,
         adapter_data,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
@@ -350,6 +357,7 @@ class FlashQwen2Layer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            prefill_cache_indices,
             adapter_data,
         )
 
@@ -403,6 +411,7 @@ class FlashQwen2Model(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        prefill_cache_indices: Optional[torch.Tensor],
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
@@ -426,6 +435,7 @@ class FlashQwen2Model(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                prefill_cache_indices,
                 adapter_data,
             )
 
@@ -481,6 +491,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            prefill_cache_indices,
             adapter_data,
         )
         if lm_head_indices is not None:
