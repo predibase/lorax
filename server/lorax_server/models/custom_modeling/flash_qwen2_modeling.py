@@ -1,22 +1,8 @@
 # coding=utf-8
+# Adapted from
+# https://github.com/huggingface/transformers/blob/v4.28.0/src/transformers/models/qwen2/modeling_qwen2.py
+# Copyright 2024 The Qwen team and the HuggingFace Inc. team.
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
-#
-# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
-# and OPT implementations in this library. It has been modified from its
-# original forms to accommodate minor architectural differences compared
-# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import torch
 import torch.distributed
@@ -41,65 +27,22 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import LM_HEAD, AdapterBatchData
 
 
-class LlamaConfig(PretrainedConfig):
-    def __init__(
-        self,
-        vocab_size=32000,
-        hidden_size=4096,
-        intermediate_size=11008,
-        num_hidden_layers=32,
-        num_attention_heads=32,
-        num_key_value_heads=None,
-        hidden_act="silu",
-        max_position_embeddings=2048,
-        initializer_range=0.02,
-        rms_norm_eps=1e-6,
-        use_cache=True,
-        pad_token_id=0,
-        bos_token_id=1,
-        eos_token_id=2,
-        pretraining_tp=1,
-        tie_word_embeddings=False,
-        rope_scaling=None,
-        rope_theta=10000.0,
-        **kwargs,
-    ):
-        self.vocab_size = vocab_size
-        self.max_position_embeddings = max_position_embeddings
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size
-        self.num_hidden_layers = num_hidden_layers
-        self.num_attention_heads = num_attention_heads
-
-        # for backward compatibility
-        if num_key_value_heads is None:
-            num_key_value_heads = num_attention_heads
-
-        self.num_key_value_heads = num_key_value_heads
-        self.hidden_act = hidden_act
-        self.initializer_range = initializer_range
-        self.rms_norm_eps = rms_norm_eps
-        self.pretraining_tp = pretraining_tp
-        self.use_cache = use_cache
-        self.rope_scaling = rope_scaling
-        self.rope_theta = rope_theta
-
-        super().__init__(
-            pad_token_id=pad_token_id,
-            bos_token_id=bos_token_id,
-            eos_token_id=eos_token_id,
-            tie_word_embeddings=tie_word_embeddings,
-            **kwargs,
-        )
+ATTN_Q_PROJ = "self_attn.q_proj"
+ATTN_K_PROJ = "self_attn.k_proj"
+ATTN_V_PROJ = "self_attn.v_proj"
+ATTN_O_PROJ = "self_attn.o_proj"
+MLP_GATE_PROJ = "mlp.gate_proj"
+MLP_UP_PROJ = "mlp.up_proj"
+MLP_DOWN_PROJ = "mlp.down_proj"
 
 
-class LlamaRMSNorm(nn.Module):
+class Qwen2RMSNorm(nn.Module):
     def __init__(self, prefix, weights, eps=1e-6):
         """
-        LlamaRMSNorm is equivalent to T5LayerNorm
+        QwenRMSNorm is equivalent to LlamaLayerNorm
         """
         super().__init__()
 
@@ -147,19 +90,19 @@ class LlamaRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-        
+
 
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
+        base_layer, layer_id, [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ], sizes=[
             head_size * config.num_attention_heads,
             head_size * config.num_key_value_heads,
             head_size * config.num_key_value_heads,
         ], process_group=weights.process_group
     )
-
+        
 
 def load_attention_multi(config, prefix, weights):
     if config.num_attention_heads != config.num_key_value_heads:
@@ -170,7 +113,7 @@ def load_attention_multi(config, prefix, weights):
             prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
             dim=0,
             weights=weights,
-            bias=False,
+            bias=True,
         )
 
 
@@ -196,11 +139,11 @@ def _load_gqa(config, prefix: str, weights):
         ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(
-        get_linear(weight, bias=None, quantize=config.quantize)
+        get_linear(weight, bias=True, quantize=config.quantize)
     )
 
 
-class FlashLlamaAttention(torch.nn.Module):
+class FlashQwen2Attention(torch.nn.Module):
     def __init__(
         self,
         prefix: str,
@@ -209,9 +152,15 @@ class FlashLlamaAttention(torch.nn.Module):
         layer_id: int,
     ):
         super().__init__()
+
+        self.max_past = (
+            config.sliding_window if config.sliding_window is not None else 0
+        )
+
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
+        self.process_group = weights.process_group
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
@@ -240,32 +189,11 @@ class FlashLlamaAttention(torch.nn.Module):
             prefix=f"{prefix}.o_proj",
             weights=weights,
             bias=False,
-        ), layer_id, O_PROJ, process_group=weights.process_group)
+        ), layer_id, ATTN_O_PROJ, process_group=weights.process_group)
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
-
-    def get_query_key_value_weights(self, clone=True):
-        """Gets the query, key, and value weights from the attention layer.
-        
-        If `clone`, then the weights are cloned before being returned.
-        
-        NOTE: if not `clone`, then the weights are returned as views, meaning
-        that changes to the weights will be reflected in the attention layer.
-        """
-        query, key, value = self.query_key_value.base_layer.linear.weight.split(
-            [
-                self.head_size * self.num_heads,
-                self.head_size * self.num_key_value_heads,
-                self.head_size * self.num_key_value_heads,
-            ],
-            dim=0,
-        )
-
-        if clone:
-            return query.clone(), key.clone(), value.clone()
-        return query, key, value
 
     def forward(
         self,
@@ -278,6 +206,7 @@ class FlashLlamaAttention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
+        prefill_cache_indices,
         adapter_data,
     ):
         qkv = self.query_key_value(hidden_states, adapter_data)
@@ -294,8 +223,13 @@ class FlashLlamaAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
+        if prefill_cache_indices is not None:
+            kv_to_cache = kv[prefill_cache_indices]
+        else:
+            kv_to_cache = kv
+
         paged_attn.reshape_and_cache(
-            kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
+            kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
         )
 
         # output tensor
@@ -312,6 +246,7 @@ class FlashLlamaAttention(torch.nn.Module):
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
+                window_size_left=self.max_past,
             )
         # Decode
         else:
@@ -331,7 +266,7 @@ class FlashLlamaAttention(torch.nn.Module):
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
-class LlamaMLP(nn.Module):
+class Qwen2MLP(nn.Module):
     def __init__(self, prefix, config, weights, layer_id):
         super().__init__()
         act = config.hidden_act
@@ -354,9 +289,9 @@ class LlamaMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [GATE_PROJ, UP_PROJ], sizes=[
-                config.intermediate_size,
-                config.intermediate_size,
+            gate_up_proj, layer_id, [MLP_GATE_PROJ, MLP_UP_PROJ], sizes=[
+                config.intermediate_size // 2,
+                config.intermediate_size // 2,
             ], process_group=weights.process_group
         )
 
@@ -365,7 +300,7 @@ class LlamaMLP(nn.Module):
             prefix=f"{prefix}.down_proj",
             weights=weights,
             bias=False,
-        ), layer_id, DOWN_PROJ, process_group=weights.process_group)
+        ), layer_id, MLP_DOWN_PROJ, process_group=weights.process_group)
         self.intermediate_size = (
             config.intermediate_size // weights.process_group.size()
         )
@@ -376,19 +311,19 @@ class LlamaMLP(nn.Module):
         return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
-class FlashLlamaLayer(nn.Module):
+class FlashQwen2Layer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
-        self.self_attn = FlashLlamaAttention(
+        self.self_attn = FlashQwen2Attention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
         )
-        self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = Qwen2MLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
-        self.input_layernorm = LlamaRMSNorm(
+        self.input_layernorm = Qwen2RMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
         )
-        self.post_attention_layernorm = LlamaRMSNorm(
+        self.post_attention_layernorm = Qwen2RMSNorm(
             prefix=f"{prefix}.post_attention_layernorm",
             weights=weights,
             eps=config.rms_norm_eps,
@@ -406,6 +341,7 @@ class FlashLlamaLayer(nn.Module):
         slots,
         input_lengths,
         max_s,
+        prefill_cache_indices,
         adapter_data,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
@@ -421,6 +357,7 @@ class FlashLlamaLayer(nn.Module):
             slots,
             input_lengths,
             max_s,
+            prefill_cache_indices,
             adapter_data,
         )
 
@@ -434,7 +371,7 @@ class FlashLlamaLayer(nn.Module):
         return mlp_output, attn_res
 
 
-class FlashLlamaModel(torch.nn.Module):
+class FlashQwen2Model(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
@@ -446,7 +383,7 @@ class FlashLlamaModel(torch.nn.Module):
         )
         self.layers = nn.ModuleList(
             [
-                FlashLlamaLayer(
+                FlashQwen2Layer(
                     layer_id,
                     config,
                     weights,
@@ -454,7 +391,7 @@ class FlashLlamaModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(
+        self.norm = Qwen2RMSNorm(
             prefix="model.norm", weights=weights, eps=config.rms_norm_eps
         )
 
@@ -474,6 +411,7 @@ class FlashLlamaModel(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
+        prefill_cache_indices: Optional[torch.Tensor],
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
@@ -497,6 +435,7 @@ class FlashLlamaModel(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
+                prefill_cache_indices,
                 adapter_data,
             )
 
@@ -505,16 +444,20 @@ class FlashLlamaModel(torch.nn.Module):
         return hidden_states
 
 
-class FlashLlamaForCausalLM(torch.nn.Module):
+class FlashQwen2ForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
-        self.model = FlashLlamaModel(config, weights)
+        self.model = FlashQwen2Model(config, weights)
         self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
         ), 0, LM_HEAD, process_group=weights.process_group)
+
+        self.max_past = config.sliding_window
+        if self.max_past is None:
+            raise ValueError("max_past cannot be None")
 
     def forward(
         self,
@@ -530,6 +473,15 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        if prefill_cache_indices is not None:
+            # Slots also need to be sliced as it has the same size as the whole kv tensor
+            slots = slots[prefill_cache_indices]
+        else:
+            # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
+            # kernel requires the true values
+            max_s = min(self.max_past, max_s)
+            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+        
         hidden_states = self.model(
             input_ids,
             position_ids,
@@ -539,6 +491,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
+            prefill_cache_indices,
             adapter_data,
         )
         if lm_head_indices is not None:
