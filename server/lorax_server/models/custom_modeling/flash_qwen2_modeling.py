@@ -240,6 +240,7 @@ class FlashQwen2Attention(torch.nn.Module):
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
+                window_size_left=self.max_past,
             )
         # Decode
         else:
@@ -388,9 +389,9 @@ class FlashQwen2Model(torch.nn.Module):
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.h[0].attn.head_size
-        self.num_heads = self.h[0].attn.num_heads
-        self.num_key_value_heads = self.h[0].attn.num_key_value_heads
+        self.head_size = self.layers[0].attn.head_size
+        self.num_heads = self.layers[0].attn.num_heads
+        self.num_key_value_heads = self.layers[0].attn.num_key_value_heads
 
     def forward(
         self,
@@ -444,6 +445,10 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             weights=weights,
         ), 0, LM_HEAD, process_group=weights.process_group)
 
+        self.max_past = config.sliding_window
+        if self.max_past is None:
+            raise ValueError("max_past cannot be None")
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -455,8 +460,18 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         input_lengths: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
+        prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        if prefill_cache_indices is not None:
+            # Slots also need to be sliced as it has the same size as the whole kv tensor
+            slots = slots[prefill_cache_indices]
+        else:
+            # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
+            # kernel requires the true values
+            max_s = min(self.max_past, max_s)
+            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+        
         hidden_states = self.model(
             input_ids,
             position_ids,

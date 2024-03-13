@@ -98,6 +98,9 @@ class FlashQwen2(FlashCausalLM):
             weights._set_gptq_params(model_id)
 
         model = FlashQwen2ForCausalLM(config, weights)
+
+        if config.sliding_window is None:
+            config.sliding_window = config.max_position_embeddings
         self.config = config
 
         torch.distributed.barrier(group=self.process_group)
@@ -112,6 +115,7 @@ class FlashQwen2(FlashCausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            sliding_window=config.sliding_window,
             compile=compile,
             adapter_id=adapter_id,
             dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
