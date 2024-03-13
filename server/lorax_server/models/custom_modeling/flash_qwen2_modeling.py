@@ -301,7 +301,7 @@ class Qwen2MLP(nn.Module):
 
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
-        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size // 2)
+        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
         return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
@@ -389,9 +389,9 @@ class FlashQwen2Model(torch.nn.Module):
 
         self.gradient_checkpointing = False
 
-        self.head_size = self.layers[0].attn.head_size
-        self.num_heads = self.layers[0].attn.num_heads
-        self.num_key_value_heads = self.layers[0].attn.num_key_value_heads
+        self.head_size = self.layers[0].self_attn.head_size
+        self.num_heads = self.layers[0].self_attn.num_heads
+        self.num_key_value_heads = self.layers[0].self_attn.num_key_value_heads
 
     def forward(
         self,
@@ -409,7 +409,7 @@ class FlashQwen2Model(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].attn.rotary_emb.get_cos_sin(
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
             position_ids, max_s, hidden_states.dtype
         )
 
