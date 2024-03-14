@@ -118,7 +118,7 @@ async fn completions_v1(
     let mut req = req.0;
     if req.model == MODEL_ID.get().unwrap().as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
-        tracing::debug!("Replacing base model {0} with empty adapter_id", req.model);
+        tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
     }
     let mut gen_req = CompatGenerateRequest::from(req);
@@ -184,7 +184,7 @@ async fn chat_completions_v1(
     let mut req = req.0;
     if req.model == MODEL_ID.get().unwrap().as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
-        tracing::debug!("Replacing base model {0} with empty adapter_id", req.model);
+        tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
     }
     let mut gen_req = CompatGenerateRequest::from(req);
