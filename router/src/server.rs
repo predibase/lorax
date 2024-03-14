@@ -137,7 +137,7 @@ async fn completions_v1(
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
-    if req.model == MODEL_ID.get().unwrap().as_str() {
+    if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
@@ -219,7 +219,7 @@ async fn chat_completions_v1(
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
-    if req.model == MODEL_ID.get().unwrap().as_str() {
+    if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
@@ -955,8 +955,6 @@ pub async fn run(
         shard_info.window_size,
         generation_health,
     );
-
-    let model_id = model_info.model_id.clone();
 
     // Duration buckets
     let duration_matcher = Matcher::Suffix(String::from("duration"));
