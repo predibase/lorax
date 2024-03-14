@@ -2,6 +2,7 @@
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
+use crate::json;
 use crate::validation::ValidationError;
 use crate::{
     BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
@@ -10,7 +11,7 @@ use crate::{
     HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
 };
 use axum::extract::Extension;
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{request, HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -21,21 +22,24 @@ use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::signal;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
 use tracing::{info_span, instrument, Instrument};
+use utoipa::openapi::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-static MODEL_ID: OnceCell<String> = OnceCell::new();
 pub static DEFAULT_ADAPTER_SOURCE: OnceCell<String> = OnceCell::new();
 
 /// Generate tokens if `stream == false` or a stream of token if `stream == true`
@@ -64,6 +68,8 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     req: Json<CompatGenerateRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
@@ -76,11 +82,24 @@ async fn compat_generate(
 
     // switch on stream
     if req.stream {
-        Ok(generate_stream(infer, req_headers, Json(req.into()))
-            .await
-            .into_response())
+        Ok(generate_stream(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(req.into()),
+        )
+        .await
+        .into_response())
     } else {
-        let (headers, generation) = generate(infer, req_headers, Json(req.into())).await?;
+        let (headers, generation) = generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(req.into()),
+        )
+        .await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(vec![generation.0])).into_response())
     }
@@ -112,11 +131,13 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
-    if req.model == MODEL_ID.get().unwrap().as_str() {
+    if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
@@ -142,11 +163,25 @@ async fn completions_v1(
                 )
         };
 
-        let (headers, stream) =
-            generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
+        let (headers, stream) = generate_stream_with_callback(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+            callback,
+        )
+        .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
+        let (headers, generation) = generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+        )
+        .await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(CompletionResponse::from(generation.0))).into_response())
     }
@@ -178,11 +213,13 @@ example = json ! ({"error": "Incomplete generation"})),
 async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
-    if req.model == MODEL_ID.get().unwrap().as_str() {
+    if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
@@ -208,11 +245,25 @@ async fn chat_completions_v1(
                 )
         };
 
-        let (headers, stream) =
-            generate_stream_with_callback(infer, req_headers, Json(gen_req.into()), callback).await;
+        let (headers, stream) = generate_stream_with_callback(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+            callback,
+        )
+        .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
     } else {
-        let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
+        let (headers, generation) = generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(gen_req.into()),
+        )
+        .await?;
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
     }
@@ -287,6 +338,8 @@ seed,
 )]
 async fn generate(
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -319,6 +372,8 @@ async fn generate(
             })
         });
     }
+
+    let api_token = req.parameters.api_token.clone();
 
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
@@ -430,7 +485,7 @@ async fn generate(
         time_per_token.as_millis().to_string().parse().unwrap(),
     );
 
-    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+    headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let adapter_id_string = adapter_parameters
         .adapter_ids
@@ -466,6 +521,16 @@ async fn generate(
         "lorax_request_generated_tokens",
         response.generated_text.generated_tokens as f64
     );
+
+    if info.request_logger_url.is_some() {
+        let _ = request_logger_sender
+            .send((
+                response.generated_text.generated_tokens as i64,
+                api_token.unwrap_or("".to_string()),
+                info.model_id.clone(),
+            ))
+            .await;
+    }
 
     // Send response
     let mut output_text = response.generated_text.text;
@@ -520,6 +585,8 @@ seed,
 )]
 async fn generate_stream(
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
 ) -> (
@@ -527,12 +594,22 @@ async fn generate_stream(
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
 ) {
     let callback = |resp: StreamResponse| Event::default().json_data(resp).unwrap();
-    let (headers, stream) = generate_stream_with_callback(infer, req_headers, req, callback).await;
+    let (headers, stream) = generate_stream_with_callback(
+        infer,
+        info,
+        request_logger_sender,
+        req_headers,
+        req,
+        callback,
+    )
+    .await;
     (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn generate_stream_with_callback(
     infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
     callback: impl Fn(StreamResponse) -> Event,
@@ -564,6 +641,8 @@ async fn generate_stream_with_callback(
         });
     }
 
+    let api_token = req.parameters.api_token.clone();
+
     let (adapter_source, adapter_parameters) = extract_adapter_params(
         req.0.parameters.adapter_id.clone(),
         req.0.parameters.adapter_source.clone(),
@@ -584,7 +663,7 @@ async fn generate_stream_with_callback(
         headers.insert("x-adapter-source", adapter_source.unwrap().parse().unwrap());
     }
 
-    headers.insert("x-model-id", MODEL_ID.get().unwrap().parse().unwrap());
+    headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let stream = async_stream::stream! {
         // Inference
@@ -681,6 +760,8 @@ async fn generate_stream_with_callback(
                                         metrics::histogram!("lorax_request_mean_time_per_token_duration", time_per_token.as_secs_f64());
                                         metrics::histogram!("lorax_request_generated_tokens", generated_text.generated_tokens as f64);
 
+
+
                                         // StreamResponse
                                         end_reached = true;
 
@@ -691,6 +772,10 @@ async fn generate_stream_with_callback(
 
                                         tracing::debug!(parent: &span, "Output: {}", output_text);
                                         tracing::info!(parent: &span, "Success");
+
+                                        if info.request_logger_url.is_some() {
+                                            let _ = request_logger_sender.send((generated_text.generated_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
+                                        }
 
                                         let stream_token = StreamResponse {
                                             token,
@@ -741,6 +826,36 @@ responses((status = 200, description = "Prometheus Metrics", body = String))
 )]
 async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
     prom_handle.render()
+}
+
+async fn request_logger(
+    request_logger_url: Option<String>,
+    mut rx: mpsc::Receiver<(i64, String, String)>,
+) {
+    if request_logger_url.is_none() {
+        tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");
+        return;
+    }
+
+    let url_string = request_logger_url.unwrap();
+    tracing::info!("Request logging enabled, sending logs to {url_string}");
+
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .build();
+    while let Some((tokens, api_token, model_id)) = rx.recv().await {
+        // Make a request out to localhost:8899 with the tokens, api_token, and model_id
+        let res = client
+            .post(&url_string)
+            .json(&json!({"tokens": tokens, "api_token": api_token, "model_id": model_id}))
+            .send()
+            .await;
+
+        if let Err(e) = res {
+            tracing::error!("Failed to log request: {e}");
+        }
+    }
 }
 
 /// Serving method
@@ -841,8 +956,6 @@ pub async fn run(
         generation_health,
     );
 
-    let model_id = model_info.model_id.clone();
-
     // Duration buckets
     let duration_matcher = Matcher::Suffix(String::from("duration"));
     let n_duration_buckets = 35;
@@ -935,16 +1048,23 @@ pub async fn run(
         version: env!("CARGO_PKG_VERSION"),
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
+        request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
     };
 
-    MODEL_ID.set(model_id.clone()).unwrap_or_else(|_| {
-        panic!("MODEL_ID was already set!");
-    });
     DEFAULT_ADAPTER_SOURCE
         .set(adapter_source.clone())
         .unwrap_or_else(|_| {
             panic!("DEFAULT_ADAPTER_SOURCE was already set!");
         });
+
+    // Kick off thread here that writes to the log file
+    let (tx, rx) = mpsc::channel(32);
+    let request_logger_sender = Arc::new(tx);
+    if info.request_logger_url.is_some() {
+        tokio::spawn(request_logger(info.request_logger_url.clone(), rx));
+    } else {
+        tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");
+    }
 
     // Create router
     let app = Router::new()
@@ -967,6 +1087,7 @@ pub async fn run(
         // Prometheus metrics route
         .route("/metrics", get(metrics))
         .layer(Extension(info))
+        .layer(Extension(request_logger_sender.clone()))
         .layer(Extension(health_ext.clone()))
         .layer(Extension(compat_return_full_text))
         .layer(Extension(infer))

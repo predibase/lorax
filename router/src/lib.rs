@@ -66,6 +66,8 @@ pub struct Info {
     pub sha: Option<&'static str>,
     #[schema(nullable = true, example = "null")]
     pub docker_label: Option<&'static str>,
+    #[schema(nullable = true, example = "http://localhost:8899")]
+    pub request_logger_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
