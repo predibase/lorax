@@ -59,10 +59,18 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
         )
     )
 
+    S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", None)
     R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", None)
+    
     if R2_ACCOUNT_ID:
         s3 = boto3.resource('s3', 
             endpoint_url = f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
+            config=config
+           )
+        return s3.Bucket(bucket_name)
+    elif S3_ENDPOINT_URL:
+        s3 = boto3.resource('s3', 
+            endpoint_url = f'{S3_ENDPOINT_URL}',
             config=config
            )
         return s3.Bucket(bucket_name)

@@ -43,55 +43,6 @@ __all__ = [
     "get_model",
 ]
 
-FLASH_ATT_ERROR_MESSAGE = "{} requires Flash Attention enabled models."
-
-FLASH_ATTENTION = True
-try:
-    from lorax_server.models.flash_rw import FlashRWSharded
-    from lorax_server.models.flash_neox import FlashNeoXSharded
-    from lorax_server.models.flash_llama import FlashLlama
-    from lorax_server.models.flash_gemma import FlashGemma
-    from lorax_server.models.flash_gpt2 import FlashGPT2
-    from lorax_server.models.flash_qwen import FlashQwen
-    from lorax_server.models.flash_phi import FlashPhi
-    from lorax_server.models.flash_santacoder import (
-        FlashSantacoderSharded,
-    )
-
-except ImportError as e:
-    logger.warning(f"Could not import Flash Attention enabled models: {e}")
-    FLASH_ATTENTION = False
-
-if FLASH_ATTENTION:
-    __all__.append(FlashNeoXSharded)
-    __all__.append(FlashRWSharded)
-    __all__.append(FlashSantacoderSharded)
-    __all__.append(FlashLlama)
-    __all__.append(FlashGemma)
-    __all__.append(FlashGPT2)
-    __all__.append(FlashQwen)
-    __all__.append(FlashPhi)
-    
-MISTRAL = True
-try:
-    from lorax_server.models.flash_mistral import FlashMistral
-except ImportError as e:
-    logger.warning(f"Could not import Mistral model: {e}")
-    MISTRAL = False
-
-MIXTRAL = True
-try:
-    from lorax_server.models.flash_mixtral import FlashMixtral
-except ImportError as e:
-    logger.warning(f"Could not import Mixtral model: {e}")
-    MIXTRAL = False
-
-if MISTRAL:
-    __all__.append(FlashMistral)
-
-if MIXTRAL:
-    __all__.append(FlashMixtral)
-
 
 def get_model(
     model_id: str,
@@ -145,53 +96,17 @@ def get_model(
             dtypetrust_remote_code=trust_remote_code,
         )
 
-    if model_id.startswith("bigcode/"):
-        if FLASH_ATTENTION:
-            return FlashSantacoderSharded(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        elif sharded:
-            raise NotImplementedError(
-                FLASH_ATT_ERROR_MESSAGE.format("Sharded Santacoder")
-            )
-        else:
-            return SantaCoder(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
+    if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
+        from lorax_server.models.flash_santacoder import FlashSantacoderSharded
 
-    if model_type == "gpt_bigcode":
-        if FLASH_ATTENTION:
-            return FlashSantacoderSharded(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        elif sharded:
-            raise NotImplementedError(
-                FLASH_ATT_ERROR_MESSAGE.format("Sharded Santacoder")
-            )
-        else:
-            return SantaCoder(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
+        return FlashSantacoderSharded(
+            model_id,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type == "bloom":
         return BLOOMSharded(
@@ -202,181 +117,147 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
+    
     if model_type == "mpt":
         return MPTSharded(
             model_id, revision, quantize=quantize, compile=compile, trust_remote_code=trust_remote_code
         )
 
     if model_type == "gpt_neox":
-        if FLASH_ATTENTION:
-            return FlashNeoXSharded(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        elif sharded:
-            return GPTNeoxSharded(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        else:
-            return CausalLM(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
+        from lorax_server.models.flash_neox import FlashNeoXSharded
+
+        return FlashNeoXSharded(
+            model_id,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type == "llama":
-        if FLASH_ATTENTION:
-            return FlashLlama(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        elif sharded:
-            raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format("Sharded Llama"))
-        else:
-            return CausalLM(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
+        from lorax_server.models.flash_llama import FlashLlama
+
+        return FlashLlama(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type == "gpt2":
-        if FLASH_ATTENTION:
-            return FlashGPT2(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format("GPT-2"))
+        from lorax_server.models.flash_gpt2 import FlashGPT2
+
+        return FlashGPT2(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type in ["RefinedWeb", "RefinedWebModel", "falcon"]:
-        if sharded:
-            if FLASH_ATTENTION:
-                if config_dict.get("alibi", False):
-                    raise NotImplementedError("sharded is not supported for this model")
-                return FlashRWSharded(
-                    model_id,
-                    revision,
-                    quantize=quantize,
-                    compile=compile,
-                    dtype=dtype,
-                    trust_remote_code=trust_remote_code,
-                )
-            raise NotImplementedError(FLASH_ATT_ERROR_MESSAGE.format(f"Sharded Falcon"))
-        else:
-            if FLASH_ATTENTION and not config_dict.get("alibi", False):
-                return FlashRWSharded(
-                    model_id,
-                    revision,
-                    quantize=quantize,
-                    compile=compile,
-                    dtype=dtype,
-                    trust_remote_code=trust_remote_code,
-                )
-            else:
-                return RW(
-                    model_id,
-                    revision,
-                    quantize=quantize,
-                    compile=compile,
-                    dtype=dtype,
-                    trust_remote_code=trust_remote_code,
-                )
+        from lorax_server.models.flash_rw import FlashRWSharded
+
+        return FlashRWSharded(
+            model_id,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type == "mistral":
-        if MISTRAL:
-            return FlashMistral(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        raise NotImplementedError("Mistral model requires flash attention v2")
+        from lorax_server.models.flash_mistral import FlashMistral
+
+        return FlashMistral(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
     
     if model_type == "mixtral":
-        if MIXTRAL:
-            return FlashMixtral(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        raise NotImplementedError("Mixtral models requires flash attention v2, stk and megablocks")
+        from lorax_server.models.flash_mixtral import FlashMixtral
+
+        return FlashMixtral(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
     
     if model_type == "qwen":
-        if FLASH_ATTENTION:
-            return FlashQwen(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        raise NotImplementedError("Qwen model requires flash attention v2")
+        from lorax_server.models.flash_qwen import FlashQwen
+
+        return FlashQwen(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
+    if model_type == "qwen2":
+        from lorax_server.models.flash_qwen2 import FlashQwen2
+
+        return FlashQwen2(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
     
     if model_type in ["phi-msft", "phi"]:
-        if FLASH_ATTENTION:
-            return FlashPhi(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        raise NotImplementedError("Phi model requires flash attention v2")
+        from lorax_server.models.flash_phi import FlashPhi
+
+        return FlashPhi(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
     
     if model_type == "gemma":
-        if FLASH_ATTENTION:
-            return FlashGemma(
-                model_id,
-                adapter_id,
-                adapter_source,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        raise NotImplementedError("Gemma model requires flash attention v2")
+        from lorax_server.models.flash_gemma import FlashGemma
+
+        return FlashGemma(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type == "opt":
         return OPTSharded(
@@ -397,60 +278,5 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-
-    if sharded:
-        raise ValueError("sharded is not supported for AutoModel")
-    if quantize == "gptq":
-        raise ValueError(
-            "gptq quantization is not supported for AutoModel, you can try to quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
-        )
-    elif (quantize == "bitsandbytes-fp4") or (quantize == "bitsandbytes-nf4"):
-        raise ValueError(
-            "4bit quantization is not supported for AutoModel"
-        )
-    if quantize == "awq":
-        raise ValueError(
-            "awq quantization is not supported for AutoModel"
-        )
-
-    if model_type in modeling_auto.MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
-        return CausalLM(
-            model_id,
-            revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
-        )
-    if model_type in modeling_auto.MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES:
-        return Seq2SeqLM(
-            model_id,
-            revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
-        )
-
-    auto_map = config_dict.get("auto_map", None)
-    if trust_remote_code and auto_map is not None:
-        if "AutoModelForCausalLM" in auto_map.keys():
-            return CausalLM(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
-        if "AutoModelForSeq2SeqLM" in auto_map.keys():
-            return Seq2SeqLM(
-                model_id,
-                revision,
-                quantize=quantize,
-                compile=compile,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-            )
 
     raise ValueError(f"Unsupported model type {model_type}")

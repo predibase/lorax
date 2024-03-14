@@ -54,9 +54,18 @@ class AdapterWeightData:
 
 @dataclass
 class AdapterBatchMetadata:
+    # [batch_size]
     adapter_indices: torch.Tensor
+
+    # [num_adapters]
     adapter_set: Set[int]
+
+    # [num_segments + 1]
     adapter_segments: torch.Tensor
+
+    # [num_segments]
+    # maps from segment index to adapter index, i.e.:
+    # segment_indices[s] == adapter_indices[i]
     segment_indices: List[int]
 
 
@@ -96,9 +105,12 @@ class MergedLoraWeights:
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
     ):
+        self.lora_a_r = weights_a[0].size(1) if len(weights_a) > 0 else 1
+        self.lora_b_r = weights_b[0].size(0) if len(weights_a) > 0 else 1
+
         # [num_layers, hidden_size, r]
         weights_a = [
-            orient_for_rank(w, adapter_config.r).contiguous()
+            orient_for_rank(w, w.size(1)).contiguous()
             for w in weights_a
         ]
         self.weights_a = torch.stack(weights_a)
@@ -184,7 +196,7 @@ class BatchedLoraWeights:
         for segment_idx, adapter_idx in enumerate(segment_indices):
             if adapter_idx not in self.lora_weights:
                 continue
-            rank_indices[self.lora_weights[adapter_idx].weights_a.size(2)].append(segment_idx)
+            rank_indices[self.lora_weights[adapter_idx].lora_a_r].append(segment_idx)
 
         rank_data = {}
         for rank, indices in rank_indices.items():

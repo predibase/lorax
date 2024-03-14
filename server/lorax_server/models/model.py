@@ -261,9 +261,9 @@ class Model(ABC):
         lora_a_list = [pad_rank(w, dim=1, world_size=self.world_size) for w in lora_a_list]
         lora_b_list = [pad_rank(w, dim=0, world_size=self.world_size) for w in lora_b_list]
 
-        if lora_b_list:
+        if lora_a_list:
             # update rank if it was padded
-            padded_rank = lora_b_list[0].size(0)
+            padded_rank = lora_a_list[0].size(1)
             adapter_config.r = padded_rank
 
         q_lora_merged = MergedLoraWeights(
