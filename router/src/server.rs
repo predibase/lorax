@@ -115,7 +115,12 @@ async fn completions_v1(
     req_headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let req = req.0;
+    let mut req = req.0;
+    if req.model == MODEL_ID.get().unwrap().as_str() {
+        // Allow user to specify the base model, but treat it as an empty adapter_id
+        tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
+        req.model = "".to_string();
+    }
     let mut gen_req = CompatGenerateRequest::from(req);
 
     // default return_full_text given the pipeline_tag
@@ -176,7 +181,12 @@ async fn chat_completions_v1(
     req_headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let req = req.0;
+    let mut req = req.0;
+    if req.model == MODEL_ID.get().unwrap().as_str() {
+        // Allow user to specify the base model, but treat it as an empty adapter_id
+        tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
+        req.model = "".to_string();
+    }
     let mut gen_req = CompatGenerateRequest::from(req);
 
     // default return_full_text given the pipeline_tag

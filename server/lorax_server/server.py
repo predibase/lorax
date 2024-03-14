@@ -144,37 +144,24 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             if adapter_source == PBASE:
                 adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                 adapter_source = S3
-            try:
-                if adapter_source == HUB:
-                    # Quick auth check on the repo against the token
-                    HfApi(token=api_token).model_info(adapter_id, revision=None)
-                    
-                    # fail fast if ID is not an adapter (i.e. it is a full model)
-                    # TODO(geoffrey): do this for S3– can't do it this way because the
-                    # files are not yet downloaded locally at this point.
-                    config_path = get_config_path(adapter_id, adapter_source)
-                    PeftConfig.from_pretrained(config_path, token=api_token)
+            
+            if adapter_source == HUB:
+                # Quick auth check on the repo against the token
+                HfApi(token=api_token).model_info(adapter_id, revision=None)
+                
+                # fail fast if ID is not an adapter (i.e. it is a full model)
+                # TODO(geoffrey): do this for S3– can't do it this way because the
+                # files are not yet downloaded locally at this point.
+                config_path = get_config_path(adapter_id, adapter_source)
+                PeftConfig.from_pretrained(config_path, token=api_token)
 
-                _download_weights(
-                    adapter_id, source=adapter_source, api_token=api_token
-                )
+            _download_weights(
+                adapter_id, source=adapter_source, api_token=api_token
+            )
 
-                # Calculate size of adapter to be loaded
-                source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
-                adapter_bytes += source.get_weight_bytes()
-            except Exception:
-                logger.exception("Error when downloading adapter")
-
-                if adapter_source != LOCAL:
-                    # delete safetensors files if there is an issue downloading or converting 
-                    # the weights to prevent cache hits by subsequent calls
-                    try:
-                        local_path = get_local_dir(adapter_id, adapter_source)
-                        shutil.rmtree(local_path)
-                    except Exception as e:
-                        logger.warning(f"Error cleaning up safetensors files after "
-                                       f"download error: {e}\nIgnoring.")
-                raise
+            # Calculate size of adapter to be loaded
+            source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
+            adapter_bytes += source.get_weight_bytes()
         
         adapter_memory_size = self.model.adapter_memory_size()
         if adapter_memory_size > 0:
