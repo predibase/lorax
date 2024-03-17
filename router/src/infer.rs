@@ -593,6 +593,77 @@ fn send_responses(
     }
 
     // Create last Token
+    let next_tokens = generation.next_tokens.unwrap_or_default();
+    let ntokens = next_tokens.ids.len();
+    metrics::histogram!("lorax_request_skipped_tokens", (ntokens - 1) as f64);
+    let mut iterator = next_tokens
+        .ids
+        .into_iter()
+        .zip(next_tokens.logprobs.into_iter())
+        .zip(next_tokens.texts.into_iter())
+        .zip(next_tokens.is_special.into_iter())
+        .zip(next_tokens.alternative_tokens.into_iter())
+        .enumerate()
+        .peekable();
+
+    while let Some((i, (((id, logprob), text), special, alternative_tokens))) = iterator.next() {
+        let token = Token {
+            id,
+            text,
+            logprob,
+            special,
+            alternative_tokens: generation.alternative_tokens.and_then(|at| {
+                Some(
+                    at.ids
+                        .into_iter()
+                        .zip(at.logprobs.into_iter())
+                        .zip(at.texts.into_iter())
+                        .map(|((id, logprob), text)| AlternativeToken { id, text, logprob })
+                        .collect(),
+                )
+            }),
+        };
+        let top_tokens = if let Some(top_tokens_) = generation.top_tokens.get(i) {
+            top_tokens_
+                .ids
+                .iter()
+                .zip(top_tokens_.logprobs.iter())
+                .zip(top_tokens_.texts.iter())
+                .zip(top_tokens_.is_special.iter())
+                .zip(top_tokens_.is_special.iter())
+                .map(|(((&id, &logprob), text), &special)| Token {
+                    id,
+                    text: text.to_string(),
+                    logprob,
+                    special,
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        match (&generation.generated_text, iterator.peek()) {
+            (Some(generated_text), None) => {
+                // Generation has ended
+                stopped = true;
+                // Send message
+                entry.response_tx.send(Ok(InferStreamResponse::End {
+                    token,
+                    top_tokens,
+                    generated_text: generated_text.clone(),
+                    queued: entry.queue_time,
+                    start: entry.batch_time.unwrap(),
+                }))?;
+            }
+            _ => {
+                // Send message
+                entry
+                    .response_tx
+                    .send(Ok(InferStreamResponse::Intermediate { token, top_tokens }))?;
+            }
+        }
+    }
+
     let token = Token {
         id: generation.token_id,
         text: generation.token_text,
