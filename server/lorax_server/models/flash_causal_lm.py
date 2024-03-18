@@ -924,6 +924,8 @@ class FlashCausalLM(Model):
             slots=slots,
             input_lengths=input_lengths,
             max_s=max_s,
+            adapter_data=adapter_data,
+            prefill_cache_indices=batch.prefill_cache_indices,
             lm_head_indices=batch.prefill_head_indices,
         )
         if batch.prefill_cache_indices is not None:
@@ -1129,7 +1131,7 @@ class FlashCausalLM(Model):
                 seed,
                 num_accepted_ids,
         ) in enumerate(iterator):
-            all_alternative_tokens = [] request.parameters.return_k_alternatives > 0 else None
+            all_alternative_tokens = [] if request.parameters.return_k_alternatives > 0 else None
             next_token_texts = []
             left = 0
             current_stopped = False
