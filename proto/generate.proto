@@ -177,7 +177,7 @@ message NextTokens {
     /// is special for each token
     repeated bool is_special = 4;
     /// Alternative tokens (optional)
-    AlternativeTokens alternative_tokens = 5;
+    repeated AlternativeTokens alternative_tokens = 5;
 }
 
 message Generation {

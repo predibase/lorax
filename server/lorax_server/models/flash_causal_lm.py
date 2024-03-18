@@ -1129,7 +1129,7 @@ class FlashCausalLM(Model):
                 seed,
                 num_accepted_ids,
         ) in enumerate(iterator):
-            all_alternative_tokens = []
+            all_alternative_tokens = [] request.parameters.return_k_alternatives > 0 else None
             next_token_texts = []
             left = 0
             current_stopped = False
@@ -1170,9 +1170,7 @@ class FlashCausalLM(Model):
                         request_alternative_token_logprobs,
                         request_alternative_token_texts
                     )
-                else:
-                    alternative_tokens = None
-                all_alternative_tokens.append(alternative_tokens)
+                    all_alternative_tokens.append(alternative_tokens)
 
                 stop, reason = stopping_criteria(
                     next_token_id,

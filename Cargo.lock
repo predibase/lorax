@@ -1277,6 +1277,7 @@ dependencies = [
  "flume",
  "futures",
  "hf-hub",
+ "itertools 0.12.1",
  "lorax-client",
  "metrics",
  "metrics-exporter-prometheus",

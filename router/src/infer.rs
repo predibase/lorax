@@ -23,6 +23,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
+use itertools::multizip;
 
 /// Inference struct
 #[derive(Clone)]
@@ -594,25 +595,31 @@ fn send_responses(
 
     // Create last Token
     let next_tokens = generation.next_tokens.unwrap_or_default();
+    let alternative_tokens = if next_tokens.alternative_tokens.is_empty() {
+        // Pad with Nones the same length as the IDs so it zips correctly
+        vec![None; next_tokens.ids.len()]
+    } else {
+        // Convertion from AlternativeToken to Option<AlternativeToken>
+        next_tokens.alternative_tokens.into_iter().map(Some).collect()
+    };
+    
     let ntokens = next_tokens.ids.len();
     metrics::histogram!("lorax_request_skipped_tokens", (ntokens - 1) as f64);
-    let mut iterator = next_tokens
-        .ids
-        .into_iter()
-        .zip(next_tokens.logprobs.into_iter())
-        .zip(next_tokens.texts.into_iter())
-        .zip(next_tokens.is_special.into_iter())
-        .zip(next_tokens.alternative_tokens.into_iter())
-        .enumerate()
-        .peekable();
-
-    while let Some((i, (((id, logprob), text), special, alternative_tokens))) = iterator.next() {
+    let mut iterator = multizip((
+        next_tokens.ids,
+        next_tokens.logprobs, 
+        next_tokens.texts, 
+        next_tokens.is_special,
+        alternative_tokens,
+    )).enumerate().peekable();
+    
+    while let Some((i, (id, logprob, text, special, alternative_tokens))) = iterator.next() {
         let token = Token {
             id,
             text,
             logprob,
             special,
-            alternative_tokens: generation.alternative_tokens.and_then(|at| {
+            alternative_tokens: alternative_tokens.and_then(|at| {
                 Some(
                     at.ids
                         .into_iter()
@@ -629,7 +636,6 @@ fn send_responses(
                 .iter()
                 .zip(top_tokens_.logprobs.iter())
                 .zip(top_tokens_.texts.iter())
-                .zip(top_tokens_.is_special.iter())
                 .zip(top_tokens_.is_special.iter())
                 .map(|(((&id, &logprob), text), &special)| Token {
                     id,

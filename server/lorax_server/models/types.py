@@ -93,7 +93,7 @@ class NextTokens:
     logprobs: List[float]
     texts: List[str]
     is_special: List[bool]
-    alternative_tokens: Optional[AlternativeTokens]
+    alternative_tokens: Optional[List[AlternativeTokens]]
 
     def to_pb(self) -> generate_pb2.PrefillTokens:
         return generate_pb2.NextTokens(
@@ -101,11 +101,9 @@ class NextTokens:
             logprobs=self.logprobs,
             texts=self.texts,
             is_special=self.is_special,
-            alternative_tokens=(
-                self.alternative_tokens.to_pb()
-                if self.alternative_tokens is not None
-                else None,
-            ),
+            alternative_tokens=[
+                alt_tokens.to_pb() for alt_tokens in self.alternative_tokens
+            ] if self.alternative_tokens is not None else None,
         )
 
     def __len__(self):
