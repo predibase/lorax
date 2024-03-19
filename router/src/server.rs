@@ -977,6 +977,7 @@ pub async fn run(
         .route("/generate", post(generate))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
+        .route("/snowflake/generate", post(snowflake_generate))
         .route("/v1/chat/completions", post(chat_completions_v1))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate))
