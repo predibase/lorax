@@ -68,6 +68,7 @@ class Client:
         api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
+        ignore_eos_token: bool = False,
         best_of: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
         return_full_text: bool = False,
@@ -102,6 +103,8 @@ class Client:
                 Activate logits sampling
             max_new_tokens (`int`):
                 Maximum number of generated tokens
+            ignore_eos_token (`bool`):
+                Whether to ignore EOS tokens during generation
             best_of (`int`):
                 Generate best_of sequences and return the one if the highest token logprobs
             repetition_penalty (`float`):
@@ -158,6 +161,7 @@ class Client:
             details=details,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
+            ignore_eos_token=ignore_eos_token,
             repetition_penalty=repetition_penalty,
             return_full_text=return_full_text,
             seed=seed,
@@ -198,6 +202,7 @@ class Client:
         api_token: Optional[str] = None,
         do_sample: bool = False,
         max_new_tokens: int = 20,
+        ignore_eos_token: bool = False,
         repetition_penalty: Optional[float] = None,
         return_full_text: bool = False,
         seed: Optional[int] = None,
@@ -229,6 +234,8 @@ class Client:
                 Activate logits sampling
             max_new_tokens (`int`):
                 Maximum number of generated tokens
+            ignore_eos_token (`bool`):
+                Whether to ignore EOS tokens during generation
             repetition_penalty (`float`):
                 The parameter for repetition penalty. 1.0 means no penalty. See [this
                 paper](https://arxiv.org/pdf/1909.05858.pdf) for more details.
@@ -280,6 +287,7 @@ class Client:
             decoder_input_details=False,
             do_sample=do_sample,
             max_new_tokens=max_new_tokens,
+            ignore_eos_token=ignore_eos_token,
             repetition_penalty=repetition_penalty,
             return_full_text=return_full_text,
             seed=seed,

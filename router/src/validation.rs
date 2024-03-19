@@ -139,6 +139,7 @@ impl Validation {
             typical_p,
             do_sample,
             max_new_tokens,
+            ignore_eos_token,
             stop: stop_sequences,
             truncate,
             seed,
@@ -296,7 +297,7 @@ impl Validation {
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens,
             stop_sequences,
-            ignore_eos_token: false,
+            ignore_eos_token,
         };
 
         metrics::histogram!("lorax_request_max_new_tokens", max_new_tokens as f64);
