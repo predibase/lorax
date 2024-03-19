@@ -20,6 +20,7 @@ from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
 from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
+from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.sources import get_model_source
 
 
@@ -305,6 +306,12 @@ def serve(
         server.add_insecure_port(local_url)
 
         await server.start()
+
+        # Log SGMV kernel status
+        if has_sgmv():
+            logger.info("SGMV kernel is enabled, multi-LoRA inference will be fast!")
+        else:
+            logger.info("SGMV kernel is disabled, multi-LoRA inference may be slow")
 
         logger.info("Server started at {}".format(local_url))
 
