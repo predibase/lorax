@@ -224,6 +224,9 @@ pub(crate) struct GenerateParameters {
     #[schema(exclusive_minimum = 0, exclusive_maximum = 512, default = "20")]
     pub max_new_tokens: u32,
     #[serde(default)]
+    #[schema(default = "false", example = true)]
+    pub ignore_eos_token: bool,
+    #[serde(default)]
     #[schema(nullable = true, default = "null", example = false)]
     pub return_full_text: Option<bool>,
     #[serde(default)]
