@@ -750,6 +750,11 @@
             "exclusiveMaximum": 512.0,
             "exclusiveMinimum": 0.0
           },
+          "ignore_eos_token": {
+            "type": "boolean",
+            "default": "false",
+            "example": true
+          },
           "repetition_penalty": {
             "type": "number",
             "format": "float",
