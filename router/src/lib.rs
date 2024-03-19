@@ -302,6 +302,12 @@ pub(crate) struct GenerateRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+pub(crate) struct SnowflakeGenerateRequest {
+    #[schema(example = "data: [[row_index, value]]")]
+    pub data: Vec<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct CompatGenerateRequest {
     #[schema(example = "My name is Olivier and I")]
     pub inputs: String,
@@ -320,6 +326,16 @@ impl From<CompatGenerateRequest> for GenerateRequest {
         }
     }
 }
+
+impl From<SnowflakeGenerateRequest> for GenerateRequest {
+    fn from(req: SnowflakeGenerateRequest) -> Self {
+        Self {
+            inputs: req.data.into_iter().nth(0).unwrap().into_iter().nth(1).unwrap(),
+            parameters: default_parameters()
+        }
+    }
+}
+
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PrefillToken {
