@@ -147,7 +147,6 @@ class FlashCausalLMBatch(Batch):
         )["input_ids"]
 
         position_ids = []
-        speculative_ids = []
         cu_seqlen_prefill = [0]
         needed_blocks_slots = []
         start_slots = []
@@ -219,8 +218,8 @@ class FlashCausalLMBatch(Batch):
 
             # Paged attention
             # Remove one as the first token des not have a past
-            max_speculative_tokens = 3  # TODO(travis): make this a parameter
-            total_tokens = input_length + max_new_tokens + max_speculative_tokens - 1
+            speculative_tokens = 3  # TODO(travis): make this a parameter
+            total_tokens = input_length + max_new_tokens + speculative_tokens - 1
 
             needed_blocks = math.ceil(total_tokens / BLOCK_SIZE)
             if SLIDING_WINDOW is not None:
@@ -272,7 +271,7 @@ class FlashCausalLMBatch(Batch):
             cumulative_max_length += total_tokens
             max_seqlen = max(max_seqlen, input_length)
             max_blocks = max(max_blocks, needed_blocks)
-            max_length = max(max_length, input_length + max_new_tokens + max_speculative_tokens)
+            max_length = max(max_length, input_length + max_new_tokens + speculative_tokens)
 
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
@@ -977,11 +976,11 @@ class FlashCausalLM(Model):
         else:
             next_token_logits = out
 
-        max_speculative_tokens = 3  # TODO(travis): make this a parameter
+        speculative_tokens = 3  # TODO(travis): make this a parameter
         next_input_ids, next_token_logprobs, accepted_ids, speculative_ids = batch.next_token_chooser(
             batch.all_input_ids_tensor[:, : batch.max_seqlen],
             next_token_logits, 
-            max_speculative_tokens, 
+            speculative_tokens, 
             batch.speculative_ids, 
             speculative_logits,
         )
