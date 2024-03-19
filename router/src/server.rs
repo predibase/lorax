@@ -111,7 +111,13 @@ async fn snowflake_generate(
     req: Json<SnowflakeGenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
+    tracing::info!(
+        "GENERATE SNOWFLAKE INPUT REQ: {req:?}",
+    );
     let gen_req = GenerateRequest::from(req);
+    tracing::info!(
+        "GENERATE SNOWFLAKE PARSED REQ: {gen_req:?}",
+    );
 
     let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
     Ok((headers, generation))
