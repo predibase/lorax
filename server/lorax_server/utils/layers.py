@@ -807,9 +807,9 @@ class SpeculativeHead(nn.Module):
         return SpeculativeHead(lm_head, medusa)
 
     def forward(
-        self, input: torch.Tensor
+        self, input: torch.Tensor, adapter_data: AdapterBatchData,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        logits = self.lm_head(input)
+        logits = self.lm_head(input, adapter_data)
         speculative_logits = self.medusa(input) if self.medusa is not None else None
         return logits, speculative_logits
 

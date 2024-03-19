@@ -1252,7 +1252,6 @@ class FlashCausalLM(Model):
                     request.id,
                     prefill_tokens,
                     len(all_input_ids[:-1]) if prefill else 0,
-                    alternative_tokens,
                     NextTokens(
                         accepted_token_ids,
                         accepted_token_logprobs,
