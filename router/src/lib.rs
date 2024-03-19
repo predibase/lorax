@@ -285,6 +285,7 @@ fn default_parameters() -> GenerateParameters {
         typical_p: None,
         do_sample: false,
         max_new_tokens: default_max_new_tokens(),
+        ignore_eos_token: false,
         return_full_text: None,
         stop: Vec::new(),
         truncate: None,
@@ -622,6 +623,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                     .max_tokens
                     .map(|x| x as u32)
                     .unwrap_or(default_max_new_tokens()),
+                ignore_eos_token: false,
                 return_full_text: req.echo,
                 stop: req.stop,
                 truncate: None,
@@ -658,6 +660,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                     .max_tokens
                     .map(|x| x as u32)
                     .unwrap_or(default_max_new_tokens()),
+                ignore_eos_token: false,
                 return_full_text: None,
                 stop: req.stop,
                 truncate: None,
