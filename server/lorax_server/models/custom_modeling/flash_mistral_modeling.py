@@ -33,6 +33,7 @@ from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
+    SpeculativeHead,
     TensorParallelAdapterRowLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
@@ -535,6 +536,11 @@ class FlashMistralForCausalLM(torch.nn.Module):
             prefix="lm_head",
             weights=weights,
         ), 0, LM_HEAD, process_group=weights.process_group)
+
+        # TODO(travis): medusa test
+        adapter_id = "joaogante/Mistral-7B-Instruct-v0.2-medusa-wikitext"
+        self.lm_head = SpeculativeHead.load(self.lm_head, weights, adapter_id)
+
         self.max_past = config.sliding_window
         if self.max_past is None:
             raise ValueError("max_past cannot be None")

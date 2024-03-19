@@ -764,16 +764,31 @@ class SpeculativeHead(nn.Module):
         self.medusa = medusa
 
     @staticmethod
-    def load(config, prefix: str, weights):
-        lm_head = TensorParallelHead.load(config, prefix, weights)
-        use_medusa = config.use_medusa
-        if use_medusa:
+    def load(lm_head: nn.Module, weights, adapter_id):
+        from huggingface_hub import hf_hub_download
+        from pathlib import Path
+
+        is_local = Path(adapter_id).exists()
+        if not is_local:
+            medusa_config = hf_hub_download(
+                adapter_id, revision=None, filename="config.json"
+            )
+            hf_hub_download(
+                adapter_id,
+                revision=None,
+                filename="medusa_lm_head.safetensors",
+            )
+            medusa_path = Path(medusa_config).parent
+        else:
+            medusa_path = Path(adapter_id)
+
+        if medusa_path:
             from pathlib import Path
             from safetensors import safe_open
             import json
 
-            medusa_config = str(Path(use_medusa) / "config.json")
-            filename = str(Path(use_medusa) / "medusa_lm_head.safetensors")
+            medusa_config = str(medusa_path / "config.json")
+            filename = str(medusa_path / "medusa_lm_head.safetensors")
 
             with open(medusa_config, "r") as f:
                 config = json.load(f)
