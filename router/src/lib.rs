@@ -14,9 +14,9 @@ use infer::Infer;
 use loader::AdapterLoader;
 use queue::Entry;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use utoipa::ToSchema;
 use validation::Validation;
+use std::collections::HashMap;
 
 /// Hub type
 #[derive(Clone, Debug, Deserialize)]
@@ -304,9 +304,9 @@ pub(crate) struct GenerateRequest {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct SnowflakeGenerateRequest {
     #[schema(example = "data: [[row_index, value]]")]
-    pub data: Vec<Vec<String>>,
+    #[serde(flatten)]
+    pub data: Vec<HashMap<u32, String>>,
 }
-
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct CompatGenerateRequest {
     #[schema(example = "My name is Olivier and I")]
@@ -330,7 +330,7 @@ impl From<CompatGenerateRequest> for GenerateRequest {
 impl From<SnowflakeGenerateRequest> for GenerateRequest {
     fn from(req: SnowflakeGenerateRequest) -> Self {
         Self {
-            inputs: req.data.into_iter().nth(0).unwrap().into_iter().nth(1).unwrap(),
+            inputs: req.data.into_iter().nth(0).unwrap().get(&0).unwrap().to_string(),
             parameters: default_parameters()
         }
     }
