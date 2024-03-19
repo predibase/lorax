@@ -80,6 +80,8 @@ class Parameters(BaseModel):
     do_sample: bool = False
     # Maximum number of generated tokens
     max_new_tokens: int = 20
+    # Whether to ignore the EOS token during generation
+    ignore_eos_token: bool = False
     # The parameter for repetition penalty. 1.0 means no penalty.
     # See [this paper](https://arxiv.org/pdf/1909.05858.pdf) for more details.
     repetition_penalty: Optional[float] = None
