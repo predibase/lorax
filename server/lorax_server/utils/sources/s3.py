@@ -241,3 +241,13 @@ class S3ModelSource(BaseModelSource):
     def get_local_path(self, model_id: str):
         _, model_id = _get_bucket_and_model_id(model_id)
         return get_s3_model_local_dir(model_id)
+    
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
+        filenames = [filename]
+        try:
+            paths = download_files_from_s3(self.bucket, filenames, self.model_id, self.revision)
+            return paths[0]
+        except FileNotFoundError as e:
+            if ignore_errors:
+                return None
+            raise e

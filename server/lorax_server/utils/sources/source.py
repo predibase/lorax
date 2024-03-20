@@ -3,6 +3,8 @@ import os
 from typing import Optional, List
 from pathlib import Path
 
+from lorax_server.adapters.config import AdapterConfig, load_adapter_config
+
 
 def try_to_load_from_cache(
     repo_cache: Path, revision: Optional[str], filename: str
@@ -55,6 +57,9 @@ class BaseModelSource:
         for other future sources  we might need something different. 
         So this function will take the necessary steps to download
         the needed files for any source """
+        raise NotImplementedError
+    
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         raise NotImplementedError
     
     def get_weight_bytes(self) -> int:
@@ -113,3 +118,9 @@ class BaseModelSource:
                 total_size += total_size_bytes
         
         return total_size
+    
+    def load_config(self) -> AdapterConfig:
+        config_path = self.download_file("config.json", ignore_errors=True)
+        adapter_config_path = self.download_file("adapter_config.json", ignore_errors=True)
+        return load_adapter_config(config_path, adapter_config_path, self.api_token)
+        

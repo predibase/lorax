@@ -178,3 +178,11 @@ class HubModelSource(BaseModelSource):
     def download_model_assets(self):
         filenames = self.remote_weight_files()
         return self.download_weights(filenames)
+    
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
+        try:
+            return Path(hf_hub_download(self.model_id, revision=None, filename="config.json"))
+        except Exception as e:
+            if ignore_errors:
+                return None
+            raise e

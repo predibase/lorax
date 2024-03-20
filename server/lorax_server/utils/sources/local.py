@@ -19,7 +19,7 @@ from .s3 import get_s3_model_local_dir
 from .source import BaseModelSource, try_to_load_from_cache
 
 
-def get_model_local_dir(model_id: str):
+def get_model_local_dir(model_id: str) -> Path:
     if os.path.isabs(model_id):
         return Path(model_id)
     
@@ -63,5 +63,14 @@ class LocalModelSource(BaseModelSource):
     def download_model_assets(self):
         return []
 
-    def get_local_path(self, model_id: str):
+    def get_local_path(self, model_id: str) -> Path:
         return get_model_local_dir(model_id)
+    
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
+        path = get_model_local_dir(self.model_id)
+        if not path.exists():
+            if ignore_errors:
+                return None
+            raise FileNotFoundError(
+                f"File {filename} of model {self.model_id} not found in {path}"
+            )
