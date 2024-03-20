@@ -1,10 +1,14 @@
 import json
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
+import torch
 from peft import LoraConfig as _LoraConfig
+
+
+ModuleMap = Dict[str, Dict[str, Tuple[torch.Tensor, str]]]
 
 
 def load_adapter_config(
@@ -28,6 +32,12 @@ def load_adapter_config(
 class AdapterConfig(ABC):
     base_model_name_or_path: str
 
+    @abstractmethod
+    def map_weights_for_model(
+        self, adapter_weights: Dict, weight_names: Tuple[str],
+    ) -> Tuple[ModuleMap, Set[str]]:
+        pass
+
 
 @dataclass
 class LoraConfig(AdapterConfig):
@@ -36,6 +46,25 @@ class LoraConfig(AdapterConfig):
     fan_in_fan_out: bool
     lora_alpha: int
     use_rslora: bool
+
+    def map_weights_for_model(
+        self, adapter_weights: Dict, weight_names: Tuple[str],
+    ) -> Tuple[ModuleMap, Set[str]]:
+        adapter_weight_names = set()
+        module_map = {}
+        for weight_name in weight_names:
+            lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
+            lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
+            if lora_a_name not in adapter_weights or lora_b_name not in adapter_weights:
+                continue
+            
+            module_map[weight_name] = {
+                "lora_A": (adapter_weights[lora_a_name], lora_a_name),
+                "lora_B": (adapter_weights[lora_b_name], lora_b_name),
+            }
+            adapter_weight_names.add(lora_a_name)
+            adapter_weight_names.add(lora_b_name)
+        return module_map, adapter_weight_names
     
     @classmethod
     def load(cls, adapter_id: str, api_token: str) -> "LoraConfig":
@@ -54,6 +83,20 @@ class LoraConfig(AdapterConfig):
 class MedusaConfig(AdapterConfig):
     medusa_num_heads: int
     medusa_num_layers: int
+
+    def map_weights_for_model(
+        self, adapter_weights: Dict, weight_names: Tuple[str],
+    ) -> Tuple[ModuleMap, Set[str]]:
+        adapter_weight_names = set()
+        module_map = {}
+        for weight_name in weight_names:
+            medusa_name = f"base_model.model.{weight_name}.medusa.weight"
+            if medusa_name not in adapter_weights:
+                continue
+            
+            module_map[weight_name] = {"medusa": (adapter_weights[medusa_name], medusa_name)}
+            adapter_weight_names.add(medusa_name)
+        return module_map, adapter_weight_names
 
     @classmethod
     def load(cls, config: dict) -> "MedusaConfig":

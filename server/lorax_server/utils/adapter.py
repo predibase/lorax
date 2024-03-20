@@ -15,16 +15,13 @@ from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 from tqdm import tqdm
 from filelock import FileLock
 
-from lorax_server.adapters.config import AdapterConfig, LoraConfig    
+from lorax_server.adapters.config import AdapterConfig, LoraConfig, ModuleMap    
 from lorax_server.pb import generate_pb2
 from lorax_server.utils.sources import get_model_source, get_config_path, weight_files
 from lorax_server.utils.merges.strategies import merge_adapters
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
-
-
-ModuleMap = Dict[str, Dict[str, Tuple[torch.Tensor, str]]]
 
 
 @dataclass
@@ -143,20 +140,7 @@ def load_module_map(
         adapter_weights.update(load_file(filename))
         
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
-    adapter_weight_names = set()
-    module_map = {}
-    for weight_name in weight_names:
-        lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
-        lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
-        if lora_a_name not in adapter_weights or lora_b_name not in adapter_weights:
-            continue
-        
-        module_map[weight_name] = {
-            "lora_A": (adapter_weights[lora_a_name], lora_a_name),
-            "lora_B": (adapter_weights[lora_b_name], lora_b_name),
-        }
-        adapter_weight_names.add(lora_a_name)
-        adapter_weight_names.add(lora_b_name)
+    module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
 
 
