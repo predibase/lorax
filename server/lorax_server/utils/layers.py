@@ -721,21 +721,6 @@ class ResBlock(torch.nn.Module):
         return x + self.act(self.linear(x))
 
 
-class MedusaModel(torch.nn.Module):
-    def __init__(self, config, weights):
-        super().__init__()
-        self.heads = torch.nn.ModuleList(
-            [
-                MedusaHead(config, prefix=f"{i}", weights=weights)
-                for i in range(config["medusa_num_heads"])
-            ]
-        )
-
-    def forward(self, x):
-        speculative_logits = torch.stack([head(x) for head in self.heads], dim=1)
-        return speculative_logits
-
-
 class MedusaHead(torch.nn.Module):
     def __init__(self, config, prefix, weights):
         super().__init__()
@@ -755,6 +740,21 @@ class MedusaHead(torch.nn.Module):
             x = block(x)
         x = self.out(x)
         return x
+
+
+class MedusaModel(torch.nn.Module):
+    def __init__(self, config, weights):
+        super().__init__()
+        self.heads = torch.nn.ModuleList(
+            [
+                MedusaHead(config, prefix=f"{i}", weights=weights)
+                for i in range(config["medusa_num_heads"])
+            ]
+        )
+
+    def forward(self, x):
+        speculative_logits = torch.stack([head(x) for head in self.heads], dim=1)
+        return speculative_logits
 
 
 class SpeculativeHead(nn.Module):

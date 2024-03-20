@@ -32,7 +32,7 @@ class AdapterConfig(ABC):
 @dataclass
 class LoraConfig(AdapterConfig):
     r: int
-    target_modules: Optional[Union[List[str], str]] 
+    target_modules: Optional[Union[List[str], str]]
     lora_alpha: int
     
     @classmethod
