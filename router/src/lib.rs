@@ -480,6 +480,7 @@ struct ChatCompletionRequest {
     response_format: Option<ResponseFormat>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
+    ignore_eos_token: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -505,6 +506,7 @@ struct CompletionRequest {
     // TODO(travis): add other LoRAX params here
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
+    ignore_eos_token: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -623,7 +625,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                     .max_tokens
                     .map(|x| x as u32)
                     .unwrap_or(default_max_new_tokens()),
-                ignore_eos_token: false,
+                ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
                 return_full_text: req.echo,
                 stop: req.stop,
                 truncate: None,
@@ -660,7 +662,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                     .max_tokens
                     .map(|x| x as u32)
                     .unwrap_or(default_max_new_tokens()),
-                ignore_eos_token: false,
+                ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
                 return_full_text: None,
                 stop: req.stop,
                 truncate: None,

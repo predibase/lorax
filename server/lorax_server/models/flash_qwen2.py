@@ -147,7 +147,7 @@ class FlashQwen2(FlashCausalLM):
         return ADAPTER_LAYERS
     
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
+        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
     
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
