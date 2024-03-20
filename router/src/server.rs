@@ -4,10 +4,7 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
-    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
-    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation, SnowflakeGenerateRequest,
+    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse, CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, SnowflakeGenerateRequest, SnowflakeGenerateResponse, StreamDetails, StreamResponse, Token, Validation
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -92,7 +89,7 @@ tag = "LoRAX",
 path = "/snowflake/generate",
 request_body = SnowflakeGenerateRequest,
 responses(
-(status = 200, description = "Generated Text", body = GenerateResponse),
+(status = 200, description = "Generated Text", body = SnowflakeGenerateResponse),
 (status = 424, description = "Generation Error", body = ErrorResponse,
 example = json ! ({"error": "Request failed during generation"})),
 (status = 429, description = "Model is overloaded", body = ErrorResponse,
@@ -109,18 +106,14 @@ async fn snowflake_generate(
     infer: Extension<Infer>,
     req_headers: HeaderMap,
     req: Json<SnowflakeGenerateRequest>,
-) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<SnowflakeGenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let req = req.0;
-    tracing::info!(
-        "GENERATE SNOWFLAKE INPUT REQ: {req:?}",
-    );
     let gen_req = GenerateRequest::from(req);
-    tracing::info!(
-        "GENERATE SNOWFLAKE PARSED REQ: {gen_req:?}",
-    );
-
     let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
-    Ok((headers, generation))
+    let details = generation.details.clone();
+    let generated_text = generation.generated_text.clone();
+    let response = SnowflakeGenerateResponse::from(GenerateResponse{generated_text, details});
+    Ok((headers, Json(response)))
 }
 
 
