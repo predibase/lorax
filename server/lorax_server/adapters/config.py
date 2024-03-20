@@ -33,7 +33,9 @@ class AdapterConfig(ABC):
 class LoraConfig(AdapterConfig):
     r: int
     target_modules: Optional[Union[List[str], str]]
+    fan_in_fan_out: bool
     lora_alpha: int
+    use_rslora: bool
     
     @classmethod
     def load(cls, adapter_id: str, api_token: str) -> "LoraConfig":
@@ -42,7 +44,9 @@ class LoraConfig(AdapterConfig):
             base_model_name_or_path=hf_config.base_model_name_or_path,
             r=hf_config.r,
             target_modules=hf_config.target_modules,
+            fan_in_fan_out=hf_config.fan_in_fan_out,
             lora_alpha=hf_config.lora_alpha,
+            use_rslora=hf_config.use_rslora if hasattr(hf_config, "use_rslora") else False,
         )
 
 
