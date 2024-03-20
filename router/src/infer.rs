@@ -160,7 +160,7 @@ impl Infer {
                 tracing::error!("{err}");
                 err
             })?;
-
+        
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = flume::unbounded();
 
