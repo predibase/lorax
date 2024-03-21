@@ -497,6 +497,9 @@ fn shard_manager(
     // Safetensors load fast
     envs.push(("SAFETENSORS_FAST_GPU".into(), "1".into()));
 
+    // Disable progress bars to prevent hanging in containers
+    envs.push(("HF_HUB_DISABLE_PROGRESS_BARS".into(), "1".into()));
+
     // Enable hf transfer for insane download speeds
     let enable_hf_transfer = env::var("HF_HUB_ENABLE_HF_TRANSFER").unwrap_or("1".to_string());
     envs.push((
@@ -815,6 +818,9 @@ fn download_convert_model(
     if let Some(ref huggingface_hub_cache) = args.huggingface_hub_cache {
         envs.push(("HUGGINGFACE_HUB_CACHE".into(), huggingface_hub_cache.into()));
     };
+
+    // Disable progress bars to prevent hanging in containers
+    envs.push(("HF_HUB_DISABLE_PROGRESS_BARS".into(), "1".into()));
 
     // Enable hf transfer for insane download speeds
     let enable_hf_transfer = env::var("HF_HUB_ENABLE_HF_TRANSFER").unwrap_or("1".to_string());
