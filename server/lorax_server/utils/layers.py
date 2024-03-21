@@ -44,6 +44,7 @@ from accelerate import init_empty_weights
 
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
+from lorax_server.utils.state import is_warmup
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -924,7 +925,8 @@ try:
             # cache during warmup.
             # This should never result in a change after warmup, otherwise we break
             # cuda graphs.
-            self._update_cos_sin_cache(dtype, position_ids.device, max_s)
+            if is_warmup():
+                self._update_cos_sin_cache(dtype, position_ids.device, max_s)
 
             cos = torch.index_select(self._cos_cached, 0, position_ids)
             sin = torch.index_select(self._sin_cached, 0, position_ids)
