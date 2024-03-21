@@ -772,7 +772,7 @@ async fn generate_stream_with_callback(
 
                                         tracing::debug!(parent: &span, "Output: {}", output_text);
                                         tracing::info!(parent: &span, "Success");
-                                        
+
                                         let total_tokens = generated_text.generated_tokens + prefill_tokens_length;
                                         if info.request_logger_url.is_some() {
                                             let _ = request_logger_sender.send((total_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
