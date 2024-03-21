@@ -1023,6 +1023,14 @@ try:
             """
             Return cos and sin for the asked position ids
             """
+
+            # When using dynamic position embeddings, the max sequence length might exceed
+            # the max position embeddings of the base model, so we need to update our
+            # cache during warmup.
+            # This should never result in a change after warmup, otherwise we break
+            # cuda graphs.
+            self._update_cos_sin_cache(dtype, position_ids.device, max_s)
+
             cos = torch.index_select(self._cos_cached, 0, position_ids)
             sin = torch.index_select(self._sin_cached, 0, position_ids)
             return cos.unsqueeze(1), sin.unsqueeze(1)
