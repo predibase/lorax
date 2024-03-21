@@ -583,15 +583,6 @@ fn shard_manager(
         }
     });
 
-    // // Redirect STDOUT to the console
-    // let shard_stdout_reader = BufReader::new(p.stdout.take().unwrap());
-    // let shard_stderr_reader = BufReader::new(p.stderr.take().unwrap());
-
-    // //stdout tracing thread
-    // thread::spawn(move || {
-    //     log_lines(shard_stdout_reader.lines());
-    // });
-
     let mut ready = false;
     let start_time = Instant::now();
     let mut wait_time = Instant::now();
@@ -602,17 +593,6 @@ fn shard_manager(
             while let Ok(line) = err_receiver.recv_timeout(Duration::from_millis(10)) {
                 err = err + "\n" + &line;
             }
-            // // We read stderr in another thread as it seems that lines() can block in some cases
-            // let (err_sender, err_receiver) = mpsc::channel();
-            // thread::spawn(move || {
-            //     for line in shard_stderr_reader.lines().flatten() {
-            //         err_sender.send(line).unwrap_or(());
-            //     }
-            // });
-            // let mut err = String::new();
-            // while let Ok(line) = err_receiver.recv_timeout(Duration::from_millis(10)) {
-            //     err = err + "\n" + &line;
-            // }
 
             tracing::error!("Shard complete standard error output:\n{err}");
 
