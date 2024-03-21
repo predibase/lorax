@@ -784,10 +784,12 @@ class FlashCausalLM(Model):
             )
 
             with warmup_mode():
+                logger.info("Warming up to max_total_tokens: {}", max_new_tokens)
                 with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
                     for _ in range(max_new_tokens):
                         _, batch = self.generate_token(batch, is_warmup=True)
                         pbar.update(1)
+                logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
                 raise RuntimeError(
