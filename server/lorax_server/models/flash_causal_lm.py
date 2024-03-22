@@ -33,6 +33,7 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
+from lorax_server.utils.state import warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -799,10 +800,13 @@ class FlashCausalLM(Model):
                 self.device,
             )
 
-            with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
-                for _ in range(max_new_tokens):
-                    _, batch = self.generate_token(batch, is_warmup=True)
-                    pbar.update(1)
+            with warmup_mode():
+                logger.info("Warming up to max_total_tokens: {}", max_new_tokens)
+                with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
+                    for _ in range(max_new_tokens):
+                        _, batch = self.generate_token(batch, is_warmup=True)
+                        pbar.update(1)
+                logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
                 raise RuntimeError(
