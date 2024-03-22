@@ -617,9 +617,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 top_p: req.top_p,
                 typical_p: None,
                 do_sample: !req.n.is_none(),
-                max_new_tokens: req
-                    .max_tokens
-                    .map(|x| x as u32),
+                max_new_tokens: req.max_tokens.map(|x| x as u32),
                 ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
                 return_full_text: req.echo,
                 stop: req.stop,
@@ -653,9 +651,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 top_p: req.top_p,
                 typical_p: None,
                 do_sample: !req.n.is_none(),
-                max_new_tokens: req
-                    .max_tokens
-                    .map(|x| x as u32),
+                max_new_tokens: req.max_tokens.map(|x| x as u32),
                 ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
                 return_full_text: None,
                 stop: req.stop,

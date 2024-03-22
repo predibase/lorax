@@ -298,14 +298,18 @@ impl Validation {
             return_k_alternatives,
         };
 
-        let effective_max_new_tokens = max_new_tokens.unwrap_or((self.max_total_tokens - input_length) as u32);
+        let effective_max_new_tokens =
+            max_new_tokens.unwrap_or((self.max_total_tokens - input_length) as u32);
         let stopping_parameters = StoppingCriteriaParameters {
             max_new_tokens: effective_max_new_tokens,
             stop_sequences,
             ignore_eos_token,
         };
 
-        metrics::histogram!("lorax_request_max_new_tokens", effective_max_new_tokens as f64);
+        metrics::histogram!(
+            "lorax_request_max_new_tokens",
+            effective_max_new_tokens as f64
+        );
 
         Ok(ValidGenerateRequest {
             inputs,
