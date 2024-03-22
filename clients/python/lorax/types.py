@@ -79,7 +79,7 @@ class Parameters(BaseModel):
     # Activate logits sampling
     do_sample: bool = False
     # Maximum number of generated tokens
-    max_new_tokens: int = 20
+    max_new_tokens: Optional[int] = None
     # Whether to ignore the EOS token during generation
     ignore_eos_token: bool = False
     # The parameter for repetition penalty. 1.0 means no penalty.

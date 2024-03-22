@@ -67,7 +67,7 @@ class Client:
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
-        max_new_tokens: int = 20,
+        max_new_tokens: Optional[int] = None,
         ignore_eos_token: bool = False,
         best_of: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
@@ -101,7 +101,7 @@ class Client:
                 API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
-            max_new_tokens (`int`):
+            max_new_tokens (`Optional[int]`):
                 Maximum number of generated tokens
             ignore_eos_token (`bool`):
                 Whether to ignore EOS tokens during generation
@@ -201,7 +201,7 @@ class Client:
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
-        max_new_tokens: int = 20,
+        max_new_tokens: Optional[int] = None,
         ignore_eos_token: bool = False,
         repetition_penalty: Optional[float] = None,
         return_full_text: bool = False,
@@ -232,7 +232,7 @@ class Client:
                 API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
-            max_new_tokens (`int`):
+            max_new_tokens (`Optional[int]`):
                 Maximum number of generated tokens
             ignore_eos_token (`bool`):
                 Whether to ignore EOS tokens during generation
@@ -388,7 +388,7 @@ class AsyncClient:
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
-        max_new_tokens: int = 20,
+        max_new_tokens: Optional[int] = None,
         ignore_eos_token: bool = False,
         best_of: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
@@ -422,7 +422,7 @@ class AsyncClient:
                 API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
-            max_new_tokens (`int`):
+            max_new_tokens (`Optional[int]`):
                 Maximum number of generated tokens
             ignore_eos_token (`bool`):
                 Whether to ignore EOS tokens during generation
@@ -517,7 +517,7 @@ class AsyncClient:
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
         do_sample: bool = False,
-        max_new_tokens: int = 20,
+        max_new_tokens: Optional[int] = None,
         ignore_eos_token: bool = False,
         repetition_penalty: Optional[float] = None,
         return_full_text: bool = False,
@@ -550,7 +550,7 @@ class AsyncClient:
                 API token for accessing private adapters
             do_sample (`bool`):
                 Activate logits sampling
-            max_new_tokens (`int`):
+            max_new_tokens (`Optional[int]`):
                 Maximum number of generated tokens
             ignore_eos_token (`bool`):
                 Whether to ignore EOS tokens during generation
