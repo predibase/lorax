@@ -65,7 +65,7 @@ impl Validation {
         &self,
         inputs: String,
         truncate: Option<usize>,
-        max_new_tokens: u32,
+        max_new_tokens: Option<u32>,
     ) -> Result<(String, usize), ValidationError> {
         // If we have a fast tokenizer
         if let Some(sender) = &self.sender {
@@ -81,16 +81,18 @@ impl Validation {
             // Unwrap is safe here
             let (inputs, input_length) = response_receiver.await.unwrap()?;
 
-            // Get total tokens
-            let total_tokens = input_length + max_new_tokens as usize;
+            if let Some(max_new_tokens) = max_new_tokens {
+                // Get total tokens
+                let total_tokens = input_length + max_new_tokens as usize;
 
-            // Validate MaxTotalTokens
-            if total_tokens > self.max_total_tokens {
-                return Err(ValidationError::MaxTotalTokens(
-                    self.max_total_tokens,
-                    input_length,
-                    max_new_tokens,
-                ));
+                // Validate MaxTotalTokens
+                if total_tokens > self.max_total_tokens {
+                    return Err(ValidationError::MaxTotalTokens(
+                        self.max_total_tokens,
+                        input_length,
+                        max_new_tokens,
+                    ));
+                }
             }
 
             // Validate InputLength
@@ -111,12 +113,13 @@ impl Validation {
             // We make sure that truncate + max_new_tokens <= self.max_total_tokens
             let input_length = truncate.unwrap_or(self.max_input_length);
 
-            // Validate MaxNewTokens
-            if (input_length as u32 + max_new_tokens) > self.max_total_tokens as u32 {
-                return Err(ValidationError::MaxNewTokens(
-                    self.max_total_tokens - self.max_input_length,
-                    max_new_tokens,
-                ));
+            if let Some(max_new_tokens) = max_new_tokens {
+                if (input_length as u32 + max_new_tokens) > self.max_total_tokens as u32 {
+                    return Err(ValidationError::MaxNewTokens(
+                        self.max_total_tokens - self.max_input_length,
+                        max_new_tokens,
+                    ));
+                }
             }
 
             Ok((inputs, input_length))
@@ -231,7 +234,7 @@ impl Validation {
             })
             .unwrap_or(Ok(0))?;
 
-        if max_new_tokens == 0 {
+        if max_new_tokens.is_some() && max_new_tokens.unwrap() == 0 {
             return Err(ValidationError::NegativeMaxNewTokens);
         }
 
@@ -294,13 +297,15 @@ impl Validation {
             schema,
             return_k_alternatives,
         };
+
+        let effective_max_new_tokens = max_new_tokens.unwrap_or((self.max_total_tokens - input_length) as u32);
         let stopping_parameters = StoppingCriteriaParameters {
-            max_new_tokens,
+            max_new_tokens: effective_max_new_tokens,
             stop_sequences,
             ignore_eos_token,
         };
 
-        metrics::histogram!("lorax_request_max_new_tokens", max_new_tokens as f64);
+        metrics::histogram!("lorax_request_max_new_tokens", effective_max_new_tokens as f64);
 
         Ok(ValidGenerateRequest {
             inputs,
@@ -461,7 +466,7 @@ mod tests {
             max_total_tokens,
         );
 
-        let max_new_tokens = 10;
+        let max_new_tokens = Some(10);
         match validation
             .validate_input("Hello".to_string(), None, max_new_tokens)
             .await
@@ -488,7 +493,7 @@ mod tests {
             max_total_tokens,
         );
 
-        let max_new_tokens = 10;
+        let max_new_tokens = Some(10);
         match validation
             .validate_input("Hello".to_string(), None, max_new_tokens)
             .await
@@ -588,7 +593,7 @@ mod tests {
                     inputs: "Hello".to_string(),
                     parameters: GenerateParameters {
                         top_p: Some(0.99),
-                        max_new_tokens: 1,
+                        max_new_tokens: Some(1),
                         ..default_parameters()
                     },
                 },
@@ -614,7 +619,7 @@ mod tests {
                     inputs: "Hello".to_string(),
                     parameters: GenerateParameters {
                         top_p: None,
-                        max_new_tokens: 1,
+                        max_new_tokens: Some(1),
                         ..default_parameters()
                     },
                 },

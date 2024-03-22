@@ -220,9 +220,9 @@ pub(crate) struct GenerateParameters {
     #[serde(default)]
     #[schema(default = "false", example = true)]
     pub do_sample: bool,
-    #[serde(default = "default_max_new_tokens")]
-    #[schema(exclusive_minimum = 0, exclusive_maximum = 512, default = "20")]
-    pub max_new_tokens: u32,
+    #[serde(default)]
+    #[schema(exclusive_minimum = 0, default = "null")]
+    pub max_new_tokens: Option<u32>,
     #[serde(default)]
     #[schema(default = "false", example = true)]
     pub ignore_eos_token: bool,
@@ -267,10 +267,6 @@ pub(crate) struct GenerateParameters {
     pub response_format: Option<ResponseFormat>,
 }
 
-fn default_max_new_tokens() -> u32 {
-    20
-}
-
 fn default_parameters() -> GenerateParameters {
     GenerateParameters {
         adapter_id: None,
@@ -284,7 +280,7 @@ fn default_parameters() -> GenerateParameters {
         top_p: None,
         typical_p: None,
         do_sample: false,
-        max_new_tokens: default_max_new_tokens(),
+        max_new_tokens: None,
         ignore_eos_token: false,
         return_full_text: None,
         stop: Vec::new(),
@@ -623,8 +619,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 do_sample: !req.n.is_none(),
                 max_new_tokens: req
                     .max_tokens
-                    .map(|x| x as u32)
-                    .unwrap_or(default_max_new_tokens()),
+                    .map(|x| x as u32),
                 ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
                 return_full_text: req.echo,
                 stop: req.stop,
@@ -660,8 +655,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 do_sample: !req.n.is_none(),
                 max_new_tokens: req
                     .max_tokens
-                    .map(|x| x as u32)
-                    .unwrap_or(default_max_new_tokens()),
+                    .map(|x| x as u32),
                 ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
                 return_full_text: None,
                 stop: req.stop,

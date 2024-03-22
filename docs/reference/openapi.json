@@ -745,9 +745,9 @@
           "max_new_tokens": {
             "type": "integer",
             "format": "int32",
-            "default": "20",
+            "default": "null",
+            "nullable": true,
             "minimum": 0.0,
-            "exclusiveMaximum": 512.0,
             "exclusiveMinimum": 0.0
           },
           "ignore_eos_token": {
