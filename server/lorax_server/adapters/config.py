@@ -87,16 +87,7 @@ class MedusaConfig(AdapterConfig):
     def map_weights_for_model(
         self, adapter_weights: Dict, weight_names: Tuple[str],
     ) -> Tuple[ModuleMap, Set[str]]:
-        adapter_weight_names = set()
-        module_map = {}
-        for weight_name in weight_names:
-            medusa_name = f"base_model.model.{weight_name}.medusa.weight"
-            if medusa_name not in adapter_weights:
-                continue
-            
-            module_map[weight_name] = {"medusa": (adapter_weights[medusa_name], medusa_name)}
-            adapter_weight_names.add(medusa_name)
-        return module_map, adapter_weight_names
+        return adapter_weights, set(weight_names)
 
     @classmethod
     def load(cls, config: dict) -> "MedusaConfig":
