@@ -5,10 +5,7 @@ use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::json;
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
-    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
-    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
+    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse, CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse, Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, PrefillToken, SnowflakeGenerateRequest, SnowflakeGenerateResponse, StreamDetails, StreamResponse, Token, Validation
 };
 use axum::extract::Extension;
 use axum::http::{request, HeaderMap, Method, StatusCode};
@@ -104,6 +101,40 @@ async fn compat_generate(
         Ok((headers, Json(vec![generation.0])).into_response())
     }
 }
+/// Snowflake compatible generation endpoint
+#[utoipa::path(
+post,
+tag = "LoRAX",
+path = "/snowflake/generate",
+request_body = SnowflakeGenerateRequest,
+responses(
+(status = 200, description = "Generated Text", body = SnowflakeGenerateResponse),
+(status = 424, description = "Generation Error", body = ErrorResponse,
+example = json ! ({"error": "Request failed during generation"})),
+(status = 429, description = "Model is overloaded", body = ErrorResponse,
+example = json ! ({"error": "Model is overloaded"})),
+(status = 422, description = "Input validation error", body = ErrorResponse,
+example = json ! ({"error": "Input validation error"})),
+(status = 500, description = "Incomplete generation", body = ErrorResponse,
+example = json ! ({"error": "Incomplete generation"})),
+)
+)]
+#[instrument(skip(infer, req))]
+async fn snowflake_generate(
+    default_return_full_text: Extension<bool>,
+    infer: Extension<Infer>,
+    req_headers: HeaderMap,
+    req: Json<SnowflakeGenerateRequest>,
+) -> Result<(HeaderMap, Json<SnowflakeGenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
+    let req = req.0;
+    let gen_req = GenerateRequest::from(req);
+    let (headers, generation) = generate(infer, req_headers, Json(gen_req.into())).await?;
+    let details = generation.details.clone();
+    let generated_text = generation.generated_text.clone();
+    let response = SnowflakeGenerateResponse::from(GenerateResponse{generated_text, details});
+    Ok((headers, Json(response)))
+}
+
 
 /// OpenAI compatible completions endpoint
 #[utoipa::path(
@@ -1076,6 +1107,7 @@ pub async fn run(
         .route("/generate", post(generate))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
+        .route("/snowflake/generate", post(snowflake_generate))
         .route("/v1/chat/completions", post(chat_completions_v1))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate))

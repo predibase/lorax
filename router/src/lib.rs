@@ -14,9 +14,9 @@ use infer::Infer;
 use loader::AdapterLoader;
 use queue::Entry;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use utoipa::ToSchema;
 use validation::Validation;
+use std::collections::HashMap;
 
 /// Hub type
 #[derive(Clone, Debug, Deserialize)]
@@ -304,6 +304,19 @@ pub(crate) struct GenerateRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+pub(crate) struct SnowflakeGenerateRequest {
+    #[schema(example = "data: [[row_index, value]]")]
+    pub data: Vec<(i32, String, GenerateParameters)>,
+    // 'data: [[0, "'{inputs: "blah"}'"], [1, "next row data" ]]
+}
+
+#[derive(Serialize, ToSchema, Clone, Debug, Deserialize)]
+pub(crate) struct SnowflakeGenerateResponse {
+    #[schema(example = "data: [[row_index, value]]")]
+    pub data: Vec<(i32, GenerateResponse)>,
+    // 'data: [[0, "'{inputs: "blah"}'"], [1, "next row data" ]]
+}
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 pub(crate) struct CompatGenerateRequest {
     #[schema(example = "My name is Olivier and I")]
     pub inputs: String,
@@ -323,7 +336,28 @@ impl From<CompatGenerateRequest> for GenerateRequest {
     }
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+impl From<SnowflakeGenerateRequest> for GenerateRequest {
+    fn from(req: SnowflakeGenerateRequest) -> Self {
+        let input_row = req.data.into_iter().nth(0).unwrap();
+        Self {
+            inputs: input_row.1,
+            parameters: input_row.2
+        }
+    }
+}
+
+impl From<GenerateResponse> for SnowflakeGenerateResponse {
+    fn from(req: GenerateResponse) -> Self {
+        let mut vec: Vec<(i32, GenerateResponse)> = Vec::new();
+        let data_tuple: (i32, GenerateResponse) = (0, req);
+        vec.push(data_tuple);
+        Self {
+            data: vec,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema, Clone, Deserialize)]
 pub struct PrefillToken {
     #[schema(example = 0)]
     id: u32,
@@ -333,7 +367,7 @@ pub struct PrefillToken {
     logprob: f32,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema, Clone, Deserialize)]
 pub struct AlternativeToken {
     #[schema(example = 0)]
     id: u32,
@@ -343,7 +377,7 @@ pub struct AlternativeToken {
     logprob: f32,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema, Clone, Deserialize)]
 pub struct Token {
     #[schema(example = 0)]
     id: u32,
@@ -358,7 +392,7 @@ pub struct Token {
     alternative_tokens: Option<Vec<AlternativeToken>>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Debug, Clone, Deserialize)]
 #[serde(rename_all(serialize = "snake_case"))]
 pub(crate) enum FinishReason {
     #[schema(rename = "length")]
@@ -370,7 +404,7 @@ pub(crate) enum FinishReason {
     StopSequence,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Debug, Clone, Deserialize)]
 pub(crate) struct BestOfSequence {
     #[schema(example = "test")]
     pub generated_text: String,
@@ -384,7 +418,7 @@ pub(crate) struct BestOfSequence {
     pub tokens: Vec<Token>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Clone, Debug, Deserialize)]
 pub(crate) struct Details {
     #[schema(example = "length")]
     pub finish_reason: FinishReason,
@@ -400,7 +434,7 @@ pub(crate) struct Details {
     pub best_of_sequences: Option<Vec<BestOfSequence>>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Clone, Debug, Deserialize)]
 pub(crate) struct GenerateResponse {
     #[schema(example = "test")]
     pub generated_text: String,
