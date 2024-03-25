@@ -573,7 +573,9 @@ struct CompletionStreamResponse {
 
 #[derive(Serialize, ToSchema)]
 struct ChatMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
 }
 
