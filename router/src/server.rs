@@ -5,10 +5,14 @@ use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::json;
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
-    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
-    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
+    AdapterParameters, AlternativeToken, BestOfSequence, ChatCompletionRequest,
+    ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
+    ChatCompletionStreamResponseChoice, ChatMessage, CompatGenerateRequest, CompletionFinishReason,
+    CompletionRequest, CompletionResponse, CompletionResponseChoice,
+    CompletionResponseStreamChoice, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
+    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs,
+    PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse,
+    Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{request, HeaderMap, Method, StatusCode};
@@ -109,7 +113,7 @@ async fn compat_generate(
 /// OpenAI compatible completions endpoint
 #[utoipa::path(
 post,
-tag = "LoRAX",
+tag = "OpenAI Compatible",
 path = "/v1/completions",
 request_body = CompletionRequest,
 responses(
@@ -191,7 +195,7 @@ async fn completions_v1(
 /// OpenAI compatible chat completions endpoint
 #[utoipa::path(
 post,
-tag = "LoRAX",
+tag = "OpenAI Compatible",
 path = "/v1/chat/completions",
 request_body = ChatCompletionRequest,
 responses(
@@ -900,16 +904,27 @@ pub async fn run(
     compat_generate,
     generate,
     generate_stream,
+    completions_v1,
+    chat_completions_v1,
+    tokenize,
     metrics,
     ),
     components(
     schemas(
     Info,
+    UsageInfo,
+    ResponseFormat,
+    ResponseFormatType,
     CompatGenerateRequest,
     GenerateRequest,
     GenerateParameters,
+    AdapterParameters,
+    AlternativeToken,
     PrefillToken,
     Token,
+    SimpleToken,
+    TokenizeRequest,
+    TokenizeResponse,
     GenerateResponse,
     BestOfSequence,
     Details,
@@ -917,10 +932,25 @@ pub async fn run(
     StreamResponse,
     StreamDetails,
     ErrorResponse,
+    ChatMessage,
+    LogProbs,
+    CompletionRequest,
+    CompletionResponse,
+    CompletionResponseChoice,
+    CompletionStreamResponse,
+    CompletionResponseStreamChoice,
+    CompletionFinishReason,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionResponseChoice,
+    ChatCompletionStreamResponse,
+    ChatCompletionStreamResponseChoice,
     )
     ),
     tags(
-    (name = "LoRAX", description = "LoRAX API")
+    (name = "LoRAX", description = "LoRAX API"),
+    (name = "OpenAI Compatible", description = "OpenAI compatible API"),
+    (name = "Tokenization", description = "Tokenizer API"),
     ),
     info(
     title = "LoRAX",
