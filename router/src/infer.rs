@@ -181,6 +181,27 @@ impl Infer {
         Ok((permit, response_rx.into_stream()))
     }
 
+    /// Tokenizer the input
+    #[instrument(skip_all)]
+    pub(crate) async fn tokenize(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<Option<tokenizers::Encoding>, InferError> {
+        // Tokenize request
+        let inputs = request.inputs;
+        let truncate = request.parameters.truncate;
+        let encoding = self
+            .validation
+            .tokenize(inputs, truncate)
+            .await
+            .map_err(|err| {
+                tracing::error!("Error occured during tokenization. {err}");
+                err
+            })?;
+
+        // Return Encoding
+        Ok(encoding.map(|(encoding, _)| encoding))
+    }
     /// Add a new request to the queue and return a InferResponse
     #[instrument(skip(self))]
     pub(crate) async fn generate(

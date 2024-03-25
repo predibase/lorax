@@ -28,6 +28,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::sync::mpsc;
@@ -931,6 +932,8 @@ pub async fn run(
     )]
     struct ApiDoc;
 
+    let cloned_tokenizer = tokenizer.clone().map(|t| Arc::new(Mutex::new(t)));
+
     // Create state
     let validation = Validation::new(
         validation_workers,
@@ -1087,6 +1090,7 @@ pub async fn run(
         .route("/ping", get(health))
         // Prometheus metrics route
         .route("/metrics", get(metrics))
+        .route("/tokenize", post(tokenize))
         .layer(Extension(info))
         .layer(Extension(request_logger_sender.clone()))
         .layer(Extension(health_ext.clone()))
@@ -1094,7 +1098,8 @@ pub async fn run(
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
         .layer(opentelemetry_tracing_layer())
-        .layer(cors_layer);
+        .layer(cors_layer)
+        .layer(Extension(cloned_tokenizer));
 
     if ngrok {
         #[cfg(feature = "ngrok")]
@@ -1227,5 +1232,52 @@ impl From<InferError> for Event {
                 error_type: err.error_type().to_string(),
             })
             .unwrap()
+    }
+}
+
+/// Tokenize inputs
+#[utoipa::path(
+    post,
+    tag = "Tokenization",
+    path = "/tokenize",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Tokenized ids", body = TokenizeResponse),
+    (status = 404, description = "No tokenizer found", body = ErrorResponse,
+    example = json ! ({"error": "No fast tokenizer available"})),
+    )
+    )]
+#[instrument(skip_all)]
+async fn tokenize(
+    Extension(cloned_tokenizer): Extension<Option<Arc<Mutex<Tokenizer>>>>,
+    Json(req): Json<TokenizeRequest>,
+) -> Result<Json<TokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if let Some(tokenizer) = cloned_tokenizer {
+        let input = req.inputs.clone();
+        let tokenizer = tokenizer.lock().unwrap();
+        let char_offset = tokenizer.encode_char_offsets(&input[..], false).unwrap();
+        let tokens: Vec<SimpleToken> = char_offset
+            .get_ids()
+            .iter()
+            .zip(char_offset.get_offsets().iter())
+            .map(|(&id, &(start, stop))| {
+                let text: String = input.chars().skip(start).take(stop - start).collect();
+                SimpleToken {
+                    id,
+                    text,
+                    start,
+                    stop,
+                }
+            })
+            .collect();
+        Ok(Json(TokenizeResponse(tokens)))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "No fast tokenizer or tokenizer.json for this model".to_string(),
+                error_type: "no fast tokenizer".to_string(),
+            }),
+        ))
     }
 }
