@@ -3,7 +3,8 @@ import os
 from typing import Optional, List
 from pathlib import Path
 
-from lorax_server.adapters.config import AdapterConfig, load_adapter_config
+from lorax_server.adapters import load_adapter_config
+from lorax_server.adapters.config import AdapterConfig
 
 
 def try_to_load_from_cache(

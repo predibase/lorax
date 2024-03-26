@@ -8,7 +8,6 @@ from torch.distributed import ProcessGroup
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.weights import AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.adapter import get_scaling_factor
 from lorax_server.adapters.weights import AdapterBatchMetadata
 from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank
 
@@ -262,3 +261,14 @@ class BatchLoraWeights:
             adapter_index_configs=adapter_index_configs,
             rank_data=rank_data,
         )
+
+
+def get_scaling_factor(
+    lora_alpha: int,
+    r: int,
+    uses_rslora: bool = False,
+) -> float:
+    """Computes the scaling factor for the lora weights."""
+    if uses_rslora:
+        return lora_alpha / (r ** 0.5)
+    return lora_alpha / r

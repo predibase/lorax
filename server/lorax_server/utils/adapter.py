@@ -3,7 +3,7 @@ import os
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Dict, Set, Tuple
+from typing import TYPE_CHECKING, List, Dict, Set, Tuple
 import warnings
 
 import torch
@@ -15,10 +15,13 @@ from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 from tqdm import tqdm
 from filelock import FileLock
 
-from lorax_server.adapters.config import AdapterConfig, LoraConfig, ModuleMap    
 from lorax_server.pb import generate_pb2
 from lorax_server.utils.sources import get_model_source, get_config_path, weight_files
 from lorax_server.utils.merges.strategies import merge_adapters
+from lorax_server.adapters.lora import get_scaling_factor
+
+if TYPE_CHECKING:
+    from lorax_server.adapters.config import AdapterConfig, ModuleMap    
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
@@ -47,7 +50,7 @@ def load_and_merge_adapters(
     adapter_index: int,
     weight_names: Tuple[str],
     api_token: str,
-) -> Tuple[ModuleMap, AdapterConfig, Set[str], PreTrainedTokenizer]:
+) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     if len(adapter_parameters.adapter_ids) == 1:
         return load_module_map(
             model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token
@@ -63,7 +66,7 @@ def _load_and_merge(
     adapter_params: AdapterParametersContainer,
     weight_names: Tuple[str],
     api_token: str,
-) -> Tuple[ModuleMap, AdapterConfig, Set[str], PreTrainedTokenizer]:
+) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     params = adapter_params.adapter_parameters
     
     adapters_to_merge = []
@@ -89,7 +92,7 @@ def _load_and_merge(
     return module_map, adapter_config, merged_weight_names, tokenizer
 
 
-def check_architectures(model_id: str, adapter_id: str, adapter_config: AdapterConfig, api_token: str):
+def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig", api_token: str):
     try:
         expected_config = AutoConfig.from_pretrained(model_id, token=api_token)
         model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, token=api_token)
@@ -118,7 +121,7 @@ def load_module_map(
     adapter_source: str,
     weight_names: Tuple[str],
     api_token: str,
-) -> Tuple[ModuleMap, AdapterConfig, Set[str], PreTrainedTokenizer]:
+) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     # TODO(geoffrey): refactor this and merge parts of this function with
     # lorax_server/utils/adapter.py::create_merged_weight_files       
     source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
@@ -166,7 +169,7 @@ def compute_delta_weight(
 def merge_adapter_weights(
     model_weights: Dict[str, torch.Tensor], 
     adapter_weights: Dict[str, torch.Tensor], 
-    adapter_config: AdapterConfig
+    adapter_config: "AdapterConfig"
 ) -> Tuple[Dict[str, torch.Tensor], Set[str]]:
     """
     Merges the adapter weights into the model weights.
@@ -179,6 +182,8 @@ def merge_adapter_weights(
     Returns:
         Tuple[Dict[str, torch.Tensor], Set[str]]: A tuple containing the merged weights and the set of processed adapter weight names.
     """
+    from lorax_server.adapters.config import LoraConfig
+
     if not isinstance(adapter_config, LoraConfig):
         raise ValueError(f"Unsupported adapter config type: {type(adapter_config)}")
     
@@ -294,14 +299,3 @@ def create_merged_weight_files(
         logger.info(
             f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}")
         return merged_weight_filenames
-
-
-def get_scaling_factor(
-    lora_alpha: int,
-    r: int,
-    uses_rslora: bool = False,
-) -> float:
-    """Computes the scaling factor for the lora weights."""
-    if uses_rslora:
-        return lora_alpha / (r ** 0.5)
-    return lora_alpha / r

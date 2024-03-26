@@ -14,7 +14,7 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.lora import LayerAdapterWeights
+from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.utils.weights import shard_on_dim
 
 B = TypeVar("B", bound=Batch)
