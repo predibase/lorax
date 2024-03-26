@@ -182,7 +182,7 @@ def merge_adapter_weights(
     Returns:
         Tuple[Dict[str, torch.Tensor], Set[str]]: A tuple containing the merged weights and the set of processed adapter weight names.
     """
-    from lorax_server.adapters.config import LoraConfig
+    from lorax_server.adapters.lora import LoraConfig
 
     if not isinstance(adapter_config, LoraConfig):
         raise ValueError(f"Unsupported adapter config type: {type(adapter_config)}")

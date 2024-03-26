@@ -34,7 +34,7 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         batched_weights.add_adapter(idx, weights)
     
     assert not batched_weights.is_empty()
-    assert len(batched_weights.lora_weights) == 2
+    assert len(batched_weights.adapter_weights) == 2
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int64),
