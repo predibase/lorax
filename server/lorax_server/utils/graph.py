@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
+from lorax_server.adapters.types import LORA
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
 from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
 
@@ -167,22 +168,24 @@ class GraphWrapper:
                 # cutlass shrink uses a custom temp buffer per rank
                 tmp_shrink = tmp_shrink[:tmp_expand_size]
 
-            adapter_weight_data[layer_name] = BatchLoraWeights(
-                lora_a={},
-                lora_b={},
-                adapter_index_configs={},
-                rank_data={
-                    max_rank: RankSegments(
-                        rank=max_rank,
-                        tmp_shrink=tmp_shrink,
-                        tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
-                        lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
-                        lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
-                        segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
-                        segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
-                    ),
-                } if max_rank > 0 else {},
-            )
+            adapter_weight_data[layer_name] = {
+                LORA: BatchLoraWeights(
+                    lora_a={},
+                    lora_b={},
+                    adapter_index_configs={},
+                    rank_data={
+                        max_rank: RankSegments(
+                            rank=max_rank,
+                            tmp_shrink=tmp_shrink,
+                            tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
+                            lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
+                            lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
+                            segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
+                            segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
+                        ),
+                    } if max_rank > 0 else {},
+                )
+            }
 
         input_state = GraphState(
             input_ids=max_input_state.input_ids[:batch_size],
@@ -292,6 +295,9 @@ class GraphCache:
         batch_size = batch.input_ids.shape[0]
         max_s = batch.max_seqlen
 
+        # Only allow LoRA adapters for now
+        adapter_keys = set(adapter_data.data.keys())
+
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
             torch.cuda.is_available()
@@ -300,6 +306,7 @@ class GraphCache:
             and max_rank <= MAX_RANK
             and nranks <= 1
             and max_rank in _allowed_ranks
+            and all(k == LORA for k in adapter_keys)
         )
     
     def get_estimated_cache_memory(self) -> int:
