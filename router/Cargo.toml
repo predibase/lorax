@@ -45,7 +45,6 @@ utoipa = { version = "3.0.1", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "3.0.2", features = ["axum"] }
 ngrok = { version = "0.12.3", features = ["axum"], optional = true }
 once_cell = "1.19.0"
-itertools = "0.12.1"
 
 [build-dependencies]
 vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
