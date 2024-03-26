@@ -43,7 +43,7 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         segment_indices=[0, 1, 0, 1],
     )
 
-    with mock.patch("lorax_server.utils.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
+    with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
         data = batched_weights.get_data(meta)
 
     assert len(data.lora_a) == 2
