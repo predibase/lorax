@@ -249,15 +249,16 @@ class GraphWrapper:
         self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
+            lora_data = weight_data[LORA]
             if layer_name not in adapter_data.data:
                 # zero out all the segments
-                for rank_data in weight_data.rank_data.values():
+                for rank_data in lora_data.rank_data.values():
                     rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
                     rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                 continue
             
             source_data = adapter_data.data[layer_name]
-            dest_data = weight_data
+            dest_data = lora_data
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
 
