@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Set, Tuple
 
 import torch
 
@@ -30,7 +30,7 @@ class AdapterConfig(ABC):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
-    ) -> AdapterWeights:
+    ) -> Optional[AdapterWeights]:
         pass
 
 

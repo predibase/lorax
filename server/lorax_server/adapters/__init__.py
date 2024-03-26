@@ -14,7 +14,7 @@ def load_adapter_config(
     api_token: str,
 ) -> AdapterConfig:
     if adapter_config_path is not None and adapter_config_path.exists():
-        return LoraConfig.load(str(adapter_config_path), api_token)
+        return LoraConfig.load(str(adapter_config_path.parent), api_token)
     
     if config_path is not None and config_path.exists():
         config = json.load(config_path.open())

@@ -183,6 +183,10 @@ class Model(ABC):
                 layer_name, 
                 unused_weight_names
             )
+
+            if adapter_weights is None:
+                continue
+            
             batched_weights = self.batched_lora_weights[layer_name]
             batched_weights.add_adapter(adapter_index, adapter_weights)
         

@@ -48,6 +48,7 @@ class LayerAdapterWeights:
         self.adapter_weights: Dict[int, AdapterWeights] = {}
 
     def add_adapter(self, adapter_idx: int, weights: AdapterWeights):
+        print("!!! ADD ADAPTER", adapter_idx, weights)
         self.adapter_weights[adapter_idx] = weights
 
     def remove_adapter(self, adapter_idx: int):

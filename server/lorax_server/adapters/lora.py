@@ -7,8 +7,8 @@ from peft import LoraConfig as _LoraConfig
 from torch.distributed import ProcessGroup
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
-from lorax_server.adapters.weights import AdapterWeights, BatchAdapterWeights
-from lorax_server.adapters.weights import AdapterBatchMetadata
+from lorax_server.adapters.types import LORA
+from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank
 
 if TYPE_CHECKING:
@@ -50,7 +50,7 @@ class LoraConfig(AdapterConfig):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
-    ) -> AdapterWeights:
+    ) -> Optional[AdapterWeights]:
         return LoraWeights.load(
             self,
             model,
@@ -108,7 +108,7 @@ class LoraWeights(AdapterWeights):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
-    ) -> AdapterWeights:
+    ) -> Optional[AdapterWeights]:
         nlayers = model.get_num_layers_for_type(layer_type)
         lora_a_list = [None] * nlayers
         lora_b_list = [None] * nlayers
@@ -122,7 +122,7 @@ class LoraWeights(AdapterWeights):
 
             if weight_name not in module_map:
                 # There is no LoRA weight for this layer type in the adapter
-                return
+                return None
 
             lora_a, lora_a_name = module_map[weight_name]["lora_A"]
             lora_a = lora_a.to(base_device, model.dtype)
@@ -170,7 +170,7 @@ class RankSegments:
 
 
 @dataclass
-class BatchLoraWeights:
+class BatchLoraWeights(BatchAdapterWeights):
     lora_a: Dict[int, torch.Tensor]
     lora_b: Dict[int, torch.Tensor]
     adapter_index_configs: Dict[int, LoraConfig]
@@ -184,6 +184,10 @@ class BatchLoraWeights:
             rank_data.rank // pg.size() <= MAX_RANK_CUSTOM
             for rank_data in self.rank_data.values()
         )
+    
+    @classmethod
+    def key(cls) -> str:
+        return LORA
 
     @classmethod
     def load(self, adapter_weights: Dict[int, LoraWeights], meta: AdapterBatchMetadata) -> "BatchLoraWeights":

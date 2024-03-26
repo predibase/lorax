@@ -29,6 +29,7 @@ from typing import Optional, List, Set, Tuple
 # Flash attention imports
 import dropout_layer_norm
 
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
@@ -43,7 +44,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mistral model requires flash attn v2")
@@ -582,5 +583,8 @@ class FlashMistralForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
+        # TODO(travis): test
+        # logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
+        logits = self.lm_head(hidden_states, adapter_data)
+        speculative_logits = None
         return logits, speculative_logits
