@@ -1080,6 +1080,7 @@ class FlashCausalLM(Model):
         # Set values in batch
         batch.input_ids = next_input_ids[accepted_ids.cumsum(dim=-1) - 1]
         batch.position_ids = next_position_ids + accepted_ids
+        batch.adapter_meta.adapter_indices = next_adapter_indices
         batch.speculative_ids = speculative_ids
         batch.input_lengths_tensor += accepted_ids
         batch.slot_indices += accepted_ids
