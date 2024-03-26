@@ -1,2 +1,2 @@
 LORA = "lora"
-MEDUSA = "medusa"
+# MEDUSA = "medusa"
