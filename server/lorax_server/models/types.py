@@ -86,36 +86,16 @@ class AlternativeTokens:
     def __len__(self):
         return len(self.token_ids)
 
-
-@dataclass
-class NextTokens:
-    token_ids: List[int]
-    logprobs: List[float]
-    texts: List[str]
-    is_special: List[bool]
-    alternative_tokens: Optional[List[AlternativeTokens]]
-
-    def to_pb(self) -> generate_pb2.PrefillTokens:
-        return generate_pb2.NextTokens(
-            ids=self.token_ids,
-            logprobs=self.logprobs,
-            texts=self.texts,
-            is_special=self.is_special,
-            alternative_tokens=[
-                alt_tokens.to_pb() for alt_tokens in self.alternative_tokens
-            ] if self.alternative_tokens is not None else None,
-        )
-
-    def __len__(self):
-        return len(self.token_ids)
-
-
 @dataclass
 class Generation:
     request_id: int
     prefill_tokens: Optional[PrefillTokens]
     prefill_tokens_length: int
-    next_tokens: NextTokens
+    alternative_tokens: Optional[AlternativeTokens]
+    token_id: int
+    token_logprob: float
+    token_text: str
+    token_is_special: bool
     generated_text: Optional[GeneratedText]
 
     def to_pb(self) -> generate_pb2.Generation:
@@ -125,7 +105,13 @@ class Generation:
             if self.prefill_tokens is not None
             else None,
             prefill_tokens_length=self.prefill_tokens_length,
-            next_tokens=self.next_tokens.to_pb(),
+            alternative_tokens=self.alternative_tokens.to_pb()
+            if self.alternative_tokens is not None
+            else None,
+            token_id=self.token_id,
+            token_logprob=self.token_logprob,
+            token_text=self.token_text,
+            token_is_special=self.token_is_special,
             generated_text=self.generated_text.to_pb()
             if self.generated_text is not None
             else None,
