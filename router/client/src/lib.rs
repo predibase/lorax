@@ -12,7 +12,6 @@ pub use pb::generate::v1::{
     AdapterParameters, AlternativeTokens, Batch, CachedBatch, DownloadAdapterResponse,
     FinishReason, GeneratedText, Generation, MajoritySignMethod, MergeStrategy,
     NextTokenChooserParameters, PrefillTokens, Request, StoppingCriteriaParameters,
-    NextTokens
 };
 pub use sharded_client::ShardedClient;
 use thiserror::Error;
