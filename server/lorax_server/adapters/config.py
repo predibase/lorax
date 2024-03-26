@@ -2,10 +2,15 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Optional, Set, Tuple
 
 import torch
-from peft import LoraConfig as _LoraConfig
+
+from lorax_server.adapters.weights import AdapterWeights
+from lorax_server.adapters.lora import LoraConfig
+
+if TYPE_CHECKING:
+    from server.lorax_server.models.model import Model
 
 
 ModuleMap = Dict[str, Dict[str, Tuple[torch.Tensor, str]]]
@@ -38,45 +43,15 @@ class AdapterConfig(ABC):
     ) -> Tuple[ModuleMap, Set[str]]:
         pass
 
-
-@dataclass
-class LoraConfig(AdapterConfig):
-    r: int
-    target_modules: Optional[Union[List[str], str]]
-    fan_in_fan_out: bool
-    lora_alpha: int
-    use_rslora: bool
-
-    def map_weights_for_model(
-        self, adapter_weights: Dict, weight_names: Tuple[str],
-    ) -> Tuple[ModuleMap, Set[str]]:
-        adapter_weight_names = set()
-        module_map = {}
-        for weight_name in weight_names:
-            lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
-            lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
-            if lora_a_name not in adapter_weights or lora_b_name not in adapter_weights:
-                continue
-            
-            module_map[weight_name] = {
-                "lora_A": (adapter_weights[lora_a_name], lora_a_name),
-                "lora_B": (adapter_weights[lora_b_name], lora_b_name),
-            }
-            adapter_weight_names.add(lora_a_name)
-            adapter_weight_names.add(lora_b_name)
-        return module_map, adapter_weight_names
-    
-    @classmethod
-    def load(cls, adapter_id: str, api_token: str) -> "LoraConfig":
-        hf_config = _LoraConfig.from_pretrained(adapter_id, token=api_token)
-        return cls(
-            base_model_name_or_path=hf_config.base_model_name_or_path,
-            r=hf_config.r,
-            target_modules=hf_config.target_modules,
-            fan_in_fan_out=hf_config.fan_in_fan_out,
-            lora_alpha=hf_config.lora_alpha,
-            use_rslora=hf_config.use_rslora if hasattr(hf_config, "use_rslora") else False,
-        )
+    @abstractmethod
+    def load_batched_adapter_weights(
+        self, 
+        model: "Model",
+        module_map: Dict[str, Dict], 
+        layer_type: str,
+        unused_weight_names: Set[str],
+    ) -> AdapterWeights:
+        pass
 
 
 @dataclass

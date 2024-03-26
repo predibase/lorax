@@ -1,0 +1,2 @@
+LORA = "lora"
+MEDUSA = "medusa"

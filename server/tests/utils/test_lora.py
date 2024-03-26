@@ -5,7 +5,8 @@ import pytest
 import torch
 from peft import LoraConfig
 
-from lorax_server.utils.lora import AdapterBatchMetadata, BatchedLoraWeights, MergedLoraWeights
+from lorax_server.adapters.lora import LoraWeights
+from lorax_server.utils.lora import AdapterBatchMetadata, LayerAdapterWeights
 from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 
 
@@ -17,12 +18,12 @@ def test_batched_lora_weights(lora_ranks: List[int]):
     # batch meta is hardcoded with this assumption below
     assert len(lora_ranks) == 2
 
-    batched_weights = BatchedLoraWeights()
+    batched_weights = LayerAdapterWeights()
     assert batched_weights.is_empty()
     
     h = 1024
     for idx, lora_rank in enumerate(lora_ranks):
-        weights = MergedLoraWeights(
+        weights = LoraWeights(
             weights_a=[torch.randn((h, lora_rank), dtype=torch.float16)],
             weights_b=[torch.randn((lora_rank, h), dtype=torch.float16)],
             adapter_config=LoraConfig(r=lora_rank),
