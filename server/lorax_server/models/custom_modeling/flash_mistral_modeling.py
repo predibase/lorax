@@ -537,9 +537,9 @@ class FlashMistralForCausalLM(torch.nn.Module):
             weights=weights,
         ), 0, LM_HEAD, process_group=weights.process_group)
 
-        # TODO(travis): medusa test
-        adapter_id = "text-generation-inference/Mistral-7B-Instruct-v0.2-medusa"
-        self.lm_head = SpeculativeHead.load(self.lm_head, weights, adapter_id)
+        # # TODO(travis): medusa test
+        # adapter_id = "text-generation-inference/Mistral-7B-Instruct-v0.2-medusa"
+        # self.lm_head = SpeculativeHead.load(self.lm_head, weights, adapter_id)
 
         self.max_past = config.sliding_window
         if self.max_past is None:
