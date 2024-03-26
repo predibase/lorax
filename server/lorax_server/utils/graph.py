@@ -11,7 +11,8 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata, AdapterWeightData, RankSegments
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
 from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
 
@@ -89,7 +90,7 @@ def get_max_graph_state(device: torch.device, adapter_layers: Tuple[str]) -> Gra
 
     adapter_weight_data = {}
     for layer_name in adapter_layers:
-        adapter_weight_data[layer_name] = AdapterWeightData(
+        adapter_weight_data[layer_name] = BatchLoraWeights(
             lora_a={},
             lora_b={},
             adapter_index_configs={},
@@ -166,7 +167,7 @@ class GraphWrapper:
                 # cutlass shrink uses a custom temp buffer per rank
                 tmp_shrink = tmp_shrink[:tmp_expand_size]
 
-            adapter_weight_data[layer_name] = AdapterWeightData(
+            adapter_weight_data[layer_name] = BatchLoraWeights(
                 lora_a={},
                 lora_b={},
                 adapter_index_configs={},

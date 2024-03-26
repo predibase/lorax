@@ -45,7 +45,8 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import AdapterBatchData, LM_HEAD
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils.lora import LM_HEAD
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mixtral model requires flash attn v2")

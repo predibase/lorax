@@ -9,7 +9,7 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.weights import AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.adapter import get_scaling_factor
-from lorax_server.utils.lora import AdapterBatchMetadata
+from lorax_server.adapters.weights import AdapterBatchMetadata
 from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank
 
 if TYPE_CHECKING:

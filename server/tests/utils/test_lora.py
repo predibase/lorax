@@ -6,7 +6,7 @@ import torch
 from peft import LoraConfig
 
 from lorax_server.adapters.lora import LoraWeights
-from lorax_server.utils.lora import AdapterBatchMetadata, LayerAdapterWeights
+from lorax_server.adapters.weights import AdapterBatchMetadata, LayerAdapterWeights
 from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 
 

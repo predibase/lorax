@@ -40,7 +40,7 @@ from lorax_server.utils.layers import (
     TensorParallelRowLinear,
     TensorParallelHead,
 )
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.adapters import AdapterBatchData
 
 CUSTOM_KERNELS_ENABLED = False
 if not os.environ.get("DISABLE_CUSTOM_KERNELS", "False") == "True":

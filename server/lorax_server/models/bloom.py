@@ -26,7 +26,7 @@ from lorax_server.utils import (
     Weights,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.adapters import AdapterBatchData
 
 ADAPTER_LAYERS = [ATTN_QKV, ATTN_DENSE, MLP_DENSE_H_TO_4H, MLP_DENSE_4H_TO_H]
 ROW_PARALLEL = {ATTN_DENSE, MLP_DENSE_4H_TO_H}

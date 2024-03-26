@@ -46,7 +46,7 @@ from accelerate import init_empty_weights
 from lorax_server.adapters.lora import BatchLoraWeights
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.sgmv import lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
 from lorax_server.utils.state import is_warmup
 

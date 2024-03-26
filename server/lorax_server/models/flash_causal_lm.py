@@ -31,7 +31,7 @@ from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
-from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.state import warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
