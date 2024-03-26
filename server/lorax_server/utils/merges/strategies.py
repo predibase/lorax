@@ -4,7 +4,6 @@ import copy
 from typing import TYPE_CHECKING, Dict, List, Tuple, Type, Union
 
 import torch
-from peft import LoraConfig
 
 from lorax_server.pb.generate_pb2 import (
     AdapterParameters, 
@@ -14,6 +13,7 @@ from lorax_server.pb.generate_pb2 import (
 from lorax_server.utils.merges.utils import calculate_majority_sign_mask, disjoint_merge, prune
 
 if TYPE_CHECKING:
+    from lorax_server.adapters.lora import LoraConfig
     from lorax_server.utils.adapter import ModuleMap
 
 
@@ -102,9 +102,9 @@ strategy_registry: Dict[str, Type[MergeStrategy]] = {
 
 
 def merge_adapters(
-    adapters: List[Tuple["ModuleMap", LoraConfig]],
+    adapters: List[Tuple["ModuleMap", "LoraConfig"]],
     merge_params: AdapterParameters,
-) -> Tuple["ModuleMap", LoraConfig]:
+) -> Tuple["ModuleMap", "LoraConfig"]:
     strategy_name = MergeStrategyEnum.Name(merge_params.merge_strategy).lower()
 
     weights = merge_params.weights
@@ -154,7 +154,7 @@ def merge_adapters(
     return merged_module_map, merged_lora_config
 
 
-def _validate_lora_configs(lora_configs: List[LoraConfig]):
+def _validate_lora_configs(lora_configs: List["LoraConfig"]):
     # check that all configs have the same rank
     ranks = set(lora_config.r for lora_config in lora_configs)
     if len(ranks) > 1:
@@ -164,7 +164,7 @@ def _validate_lora_configs(lora_configs: List[LoraConfig]):
         raise ValueError("unable to merge adapters, lora configs have no target modules")
 
 
-def _merge_lora_configs(lora_configs: List[LoraConfig]) -> LoraConfig:
+def _merge_lora_configs(lora_configs: List["LoraConfig"]) -> "LoraConfig":
     merged_lora_config = copy.copy(lora_configs[0])
 
     # merge target modules as a union operation
