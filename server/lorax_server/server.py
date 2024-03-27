@@ -150,18 +150,15 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 # Quick auth check on the repo against the token
                 HfApi(token=api_token).model_info(adapter_id, revision=None)
                 
-                # fail fast if ID is not an adapter (i.e. it is a full model)
-                # TODO(geoffrey): do this for S3– can't do it this way because the
-                # files are not yet downloaded locally at this point.
-                config_path = get_config_path(adapter_id, adapter_source)
-                PeftConfig.from_pretrained(config_path, token=api_token)
+            # fail fast if ID is not an adapter (i.e. it is a full model)
+            source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
+            source.load_config()
 
             _download_weights(
                 adapter_id, source=adapter_source, api_token=api_token
             )
 
             # Calculate size of adapter to be loaded
-            source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
             adapter_bytes += source.get_weight_bytes()
         
         adapter_memory_size = self.model.adapter_memory_size()

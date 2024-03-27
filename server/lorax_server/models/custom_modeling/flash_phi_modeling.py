@@ -17,6 +17,7 @@ from transformers.activations import ACT2FN
 from transformers.models.phi import PhiConfig
 from typing import Optional, List, Tuple
 
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
@@ -29,7 +30,7 @@ from lorax_server.utils.layers import (
     PositionRotaryEmbedding,
     TensorParallelHead,
 )
-from lorax_server.utils.lora import LM_HEAD, AdapterBatchData
+from lorax_server.utils.lora import LM_HEAD
 
 
 ATTN_Q_PROJ = "self_attn.q_proj"

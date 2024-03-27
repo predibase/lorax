@@ -13,6 +13,7 @@ from transformers.models.llama import LlamaTokenizerFast
 from typing import Dict, List, Optional, Tuple, Type
 
 from lorax_server.pb import generate_pb2
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.flash_causal_lm import FlashCausalLMBatch, BLOCK_SIZE
 from lorax_server.models.cache_manager import (
@@ -38,7 +39,7 @@ from lorax_server.utils import (
     StoppingCriteria,
 )
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.lora import LM_HEAD, AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.segments import find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
 

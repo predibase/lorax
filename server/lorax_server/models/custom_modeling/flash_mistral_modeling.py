@@ -29,6 +29,7 @@ from typing import Optional, List, Set, Tuple
 # Flash attention imports
 import dropout_layer_norm
 
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
@@ -42,7 +43,7 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ, AdapterBatchData
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mistral model requires flash attn v2")
@@ -535,6 +536,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
             prefix="lm_head",
             weights=weights,
         ), 0, LM_HEAD, process_group=weights.process_group)
+
         self.max_past = config.sliding_window
         if self.max_past is None:
             raise ValueError("max_past cannot be None")
@@ -552,7 +554,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         if prefill_cache_indices is not None:
             # Slots also need to be sliced as it has the same size as the whole kv tensor
             slots = slots[prefill_cache_indices]

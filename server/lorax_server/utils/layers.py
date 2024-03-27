@@ -5,7 +5,8 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
+
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -42,8 +43,11 @@ except ImportError:
 
 from accelerate import init_empty_weights
 
+from lorax_server.adapters.lora import BatchLoraWeights
+from lorax_server.adapters.types import LORA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import add_lora_sgmv_cutlass, lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils.sgmv import lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
 from lorax_server.utils.state import is_warmup
 
 HAS_EXLLAMA = True
@@ -53,8 +57,6 @@ try:
     from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
 except ImportError:
     HAS_EXLLAMA = False
-
-from lorax_server.utils.lora import AdapterBatchData, AdapterWeightData
 
 
 # Monkey patching
@@ -502,7 +504,7 @@ class TensorParallelColumnLinear(SuperLayer):
         return cls(linear)
     
 
-class TensorParallelAdapterLinear(nn.Module):
+class LoraLinear(nn.Module):
     def __init__(self, base_layer, layer_id, process_group):
         super().__init__()
         self.base_layer = base_layer
@@ -519,6 +521,7 @@ class TensorParallelAdapterLinear(nn.Module):
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
+        data: BatchLoraWeights = data.get(LORA) if data is not None else None
 
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
@@ -567,7 +570,7 @@ class TensorParallelAdapterLinear(nn.Module):
     def forward_lora(
         self,
         input: torch.Tensor,
-        data: AdapterWeightData,
+        data: BatchLoraWeights,
         adapter_index: int,
         adapter_mask: torch.Tensor,
     ) -> torch.Tensor:
@@ -587,7 +590,7 @@ class TensorParallelAdapterLinear(nn.Module):
         raise NotImplementedError("Implemented in subclasses")
     
 
-class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
+class TensorParallelMultiAdapterLinear(LoraLinear):
     def __init__(self, base_layer, layer_id, layer_names, sizes, process_group):
         super().__init__(base_layer, layer_id, process_group)
         self.layer_names = layer_names
@@ -642,7 +645,7 @@ class TensorParallelMultiAdapterLinear(TensorParallelAdapterLinear):
         return torch.cat(gathered_tensors, dim=1)
 
 
-class TensorParallelAdapterRowLinear(TensorParallelAdapterLinear):
+class TensorParallelAdapterRowLinear(LoraLinear):
     def __init__(self, base_layer, layer_id, layer_name, process_group):
         super().__init__(base_layer, layer_id, process_group)
         self.layer_name = layer_name

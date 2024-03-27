@@ -41,7 +41,7 @@ from lorax_server.utils.layers import (
     PositionRotaryEmbedding,
     get_linear,
 )
-from lorax_server.utils.lora import AdapterBatchData
+from lorax_server.adapters import AdapterBatchData
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"

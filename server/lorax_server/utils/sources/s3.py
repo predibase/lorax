@@ -223,6 +223,10 @@ class S3ModelSource(BaseModelSource):
         self.revision = revision
         self.extension = extension
         self.bucket = _get_bucket_resource(bucket)
+    
+    @property
+    def api_token(self) -> Optional[str]:
+        return None
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
@@ -241,3 +245,13 @@ class S3ModelSource(BaseModelSource):
     def get_local_path(self, model_id: str):
         _, model_id = _get_bucket_and_model_id(model_id)
         return get_s3_model_local_dir(model_id)
+    
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
+        filenames = [filename]
+        try:
+            paths = download_files_from_s3(self.bucket, filenames, self.model_id, self.revision)
+            return paths[0]
+        except FileNotFoundError as e:
+            if ignore_errors:
+                return None
+            raise e

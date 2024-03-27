@@ -4,21 +4,17 @@ import torch
 
 from abc import ABC, abstractmethod
 from loguru import logger
-from peft import LoraConfig
-from typing import Dict, List, Set, Tuple, Optional, TypeVar, Type
+from typing import Dict, List, Tuple, Optional, TypeVar, Type
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
-    get_scaling_factor,
     load_and_merge_adapters,
-    uses_rslora,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.lora import BatchedLoraWeights, MergedLoraWeights
-from lorax_server.utils.sgmv import pad_rank
+from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.utils.weights import shard_on_dim
 
 B = TypeVar("B", bound=Batch)
@@ -53,7 +49,7 @@ class Model(ABC):
 
         # This may be set to False in the subclass constructor
         self.dynamic_adapter_loading_enabled = dynamic_adapter_loading_enabled
-        self.batched_lora_weights: Dict[str, BatchedLoraWeights] = defaultdict(BatchedLoraWeights)
+        self.batched_lora_weights: Dict[str, LayerAdapterWeights] = defaultdict(LayerAdapterWeights)
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
@@ -181,9 +177,18 @@ class Model(ABC):
 
         unused_weight_names = adapter_weight_names.copy()
         for layer_name in self.adapter_layers:
-            self.load_batched_adapter_weights(
-                module_map, adapter_config, adapter_index, layer_name, unused_weight_names
+            adapter_weights = adapter_config.load_batched_adapter_weights(
+                self, 
+                module_map,
+                layer_name, 
+                unused_weight_names
             )
+
+            if adapter_weights is None:
+                continue
+            
+            batched_weights = self.batched_lora_weights[layer_name]
+            batched_weights.add_adapter(adapter_index, adapter_weights)
         
         if len(unused_weight_names) > 0:
             logger.warning(f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}")
@@ -213,64 +218,6 @@ class Model(ABC):
         ]
 
         return weights_a, weights_b
-
-    def load_batched_adapter_weights(
-        self, 
-        module_map: Dict[str, Dict], 
-        adapter_config: LoraConfig, 
-        adapter_index: int, 
-        layer_type: str,
-        unused_weight_names: Set[str],
-    ):
-        nlayers = self.get_num_layers_for_type(layer_type)
-        lora_a_list = [None] * nlayers
-        lora_b_list = [None] * nlayers
-
-        for layer_id in range(nlayers):
-            key = (layer_id, layer_type)
-            weight_name, layer = self.target_to_layer[key]
-
-            base_weight = layer.base_layer.linear.weight
-            base_device = base_weight.device
-
-            if weight_name not in module_map:
-                # There is no LoRA weight for this layer type in the adapter
-                return
-
-            lora_a, lora_a_name = module_map[weight_name]["lora_A"]
-            lora_a = lora_a.to(base_device, self.dtype)
-
-            lora_b, lora_b_name = module_map[weight_name]["lora_B"]
-            lora_b = lora_b.to(base_device, self.dtype)
-
-            scale = get_scaling_factor(
-                adapter_config.lora_alpha,
-                adapter_config.r,
-                uses_rslora=uses_rslora(adapter_config),
-            )
-
-            unused_weight_names.discard(lora_a_name)
-            unused_weight_names.discard(lora_b_name)
-
-            # Merge scaling factor into lora_b due to associativity of matrix multiplication:
-            # (A * B) * C = A * (B * C)
-            lora_a_list[layer_id] = lora_a.transpose(0, 1)
-            lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
-
-        # pad lora ranks to be compatible with sgmv
-        lora_a_list = [pad_rank(w, dim=1, world_size=self.world_size) for w in lora_a_list]
-        lora_b_list = [pad_rank(w, dim=0, world_size=self.world_size) for w in lora_b_list]
-
-        if lora_a_list:
-            # update rank if it was padded
-            padded_rank = lora_a_list[0].size(1)
-            adapter_config.r = padded_rank
-
-        q_lora_merged = MergedLoraWeights(
-            *self.shard_lora_weights(lora_a_list, lora_b_list, layer_type), adapter_config,
-        )
-        q_lora_weights = self.batched_lora_weights[layer_type]
-        q_lora_weights.add_adapter(adapter_index, q_lora_merged)
     
     def offload_adapter(
         self,

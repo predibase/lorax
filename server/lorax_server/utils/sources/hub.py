@@ -162,7 +162,11 @@ class HubModelSource(BaseModelSource):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
-        self.api_token = api_token
+        self._api_token = api_token
+
+    @property
+    def api_token(self) -> Optional[str]:
+        return self._api_token
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
@@ -178,3 +182,11 @@ class HubModelSource(BaseModelSource):
     def download_model_assets(self):
         filenames = self.remote_weight_files()
         return self.download_weights(filenames)
+    
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
+        try:
+            return Path(hf_hub_download(self.model_id, revision=None, filename=filename))
+        except Exception as e:
+            if ignore_errors:
+                return None
+            raise e

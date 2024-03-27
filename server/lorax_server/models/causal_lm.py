@@ -15,7 +15,7 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
-from lorax_server.utils.lora import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
 

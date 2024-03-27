@@ -1,6 +1,6 @@
 import torch
-from peft import LoraConfig
 
+from lorax_server.adapters.lora import LoraConfig
 from lorax_server.utils.adapter import merge_adapter_weights
 
 
@@ -33,7 +33,7 @@ def test_merge_adapter_weights():
         [13.5000, 18.0000, 22.5000],
         [21.5000, 28.0000, 34.5000]
     ])
-    adapter_config = LoraConfig(r=2, lora_alpha=1, fan_in_fan_out=False)
+    adapter_config = LoraConfig(base_model_name_or_path="", r=2, target_modules=None, lora_alpha=1, fan_in_fan_out=False, use_rslora=False)
     merged_weights, processed_adapter_weight_names = merge_adapter_weights(model_weights, adapter_weights, adapter_config)
 
     assert len(merged_weights) == 1
