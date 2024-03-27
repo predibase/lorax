@@ -1291,7 +1291,7 @@ async fn tokenize(
             .iter()
             .zip(char_offset.get_offsets().iter())
             .map(|(&id, &(start, stop))| {
-                let text: String = input.chars().skip(start).take(stop - start).collect();
+                let text: String = tokenizer.id_to_token(id).unwrap();
                 SimpleToken {
                     id,
                     text,
