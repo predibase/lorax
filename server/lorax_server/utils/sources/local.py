@@ -71,10 +71,11 @@ class LocalModelSource(BaseModelSource):
         return get_model_local_dir(model_id)
     
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
-        path = get_model_local_dir(self.model_id)
+        path = get_model_local_dir(self.model_id) / filename
         if not path.exists():
             if ignore_errors:
                 return None
             raise FileNotFoundError(
                 f"File {filename} of model {self.model_id} not found in {path}"
             )
+        return path
