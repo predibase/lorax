@@ -162,7 +162,11 @@ class HubModelSource(BaseModelSource):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
-        self.api_token = api_token
+        self._api_token = api_token
+
+    @property
+    def api_token(self) -> Optional[str]:
+        return self._api_token
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension

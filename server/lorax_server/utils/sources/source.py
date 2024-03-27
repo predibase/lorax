@@ -1,3 +1,4 @@
+from abc import abstractmethod
 import json
 import os
 from typing import Optional, List
@@ -42,15 +43,24 @@ def try_to_load_from_cache(
 
 
 class BaseModelSource:
-    def remote_weight_files(self, extension: str = None):
-        raise NotImplementedError
+    @property
+    @abstractmethod
+    def api_token(self) -> Optional[str]:
+        pass
 
+    @abstractmethod
+    def remote_weight_files(self, extension: str = None):
+        pass
+
+    @abstractmethod
     def weight_files(self, extension: str = None) -> List[Path]:
-        raise NotImplementedError
+        pass
     
+    @abstractmethod
     def download_weights(self, filenames: List[str]):
-        raise NotImplementedError
+        pass
     
+    @abstractmethod
     def download_model_assets(self):
         """ The reason we need this function is that for s3 
         we need to download all the model files whereas for 
@@ -58,10 +68,11 @@ class BaseModelSource:
         for other future sources  we might need something different. 
         So this function will take the necessary steps to download
         the needed files for any source """
-        raise NotImplementedError
+        pass
     
+    @abstractmethod
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
-        raise NotImplementedError
+        pass
     
     def get_weight_bytes(self) -> int:
         total_size = 0

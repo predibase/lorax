@@ -37,6 +37,10 @@ class LocalModelSource(BaseModelSource):
         self.revision = revision
         self.extension = extension
 
+    @property
+    def api_token(self) -> Optional[str]:
+        return None
+
     def remote_weight_files(self, extension: str = None):
         return []
 
