@@ -1284,8 +1284,14 @@ async fn tokenize(
 ) -> Result<Json<TokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
     if let Some(tokenizer) = cloned_tokenizer {
         let input = req.inputs.clone();
+        let add_special_tokens = match req.add_special_tokens {
+            None => true,
+            _ => req.add_special_tokens.unwrap(),
+        };
         let tokenizer = tokenizer.lock().unwrap();
-        let char_offset = tokenizer.encode_char_offsets(&input[..], false).unwrap();
+        let char_offset = tokenizer
+            .encode_char_offsets(&input[..], add_special_tokens)
+            .unwrap();
         let tokens: Vec<SimpleToken> = char_offset
             .get_ids()
             .iter()

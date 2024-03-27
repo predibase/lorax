@@ -327,6 +327,8 @@ impl From<CompatGenerateRequest> for GenerateRequest {
 pub(crate) struct TokenizeRequest {
     #[schema(example = "My name is Olivier and I")]
     pub inputs: String,
+    #[schema(nullable = true, example = true)]
+    pub add_special_tokens: Option<bool>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
