@@ -323,6 +323,14 @@ impl From<CompatGenerateRequest> for GenerateRequest {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub(crate) struct TokenizeRequest {
+    #[schema(example = "My name is Olivier and I")]
+    pub inputs: String,
+    #[schema(nullable = true, example = true)]
+    pub add_special_tokens: Option<bool>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PrefillToken {
     #[schema(example = 0)]
@@ -356,6 +364,18 @@ pub struct Token {
     #[schema(nullable = true)]
     #[serde(skip_serializing_if = "Option::is_none")]
     alternative_tokens: Option<Vec<AlternativeToken>>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SimpleToken {
+    #[schema(example = 0)]
+    id: u32,
+    #[schema(example = "test")]
+    text: String,
+    #[schema(example = 0)]
+    start: usize,
+    #[schema(example = 2)]
+    stop: usize,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -407,6 +427,10 @@ pub(crate) struct GenerateResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Details>,
 }
+
+#[derive(Serialize, ToSchema)]
+#[serde(transparent)]
+pub(crate) struct TokenizeResponse(Vec<SimpleToken>);
 
 #[derive(Serialize, ToSchema)]
 pub(crate) struct StreamDetails {
@@ -551,7 +575,9 @@ struct CompletionStreamResponse {
 
 #[derive(Serialize, ToSchema)]
 struct ChatMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
 }
 
