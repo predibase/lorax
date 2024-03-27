@@ -223,6 +223,10 @@ class S3ModelSource(BaseModelSource):
         self.revision = revision
         self.extension = extension
         self.bucket = _get_bucket_resource(bucket)
+    
+    @property
+    def api_token(self) -> Optional[str]:
+        return None
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension

@@ -6,6 +6,7 @@ import torch
 from peft import LoraConfig
 
 from lorax_server.adapters.lora import LoraWeights
+from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, LayerAdapterWeights
 from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 
@@ -34,7 +35,7 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         batched_weights.add_adapter(idx, weights)
     
     assert not batched_weights.is_empty()
-    assert len(batched_weights.lora_weights) == 2
+    assert len(batched_weights.adapter_weights) == 2
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int64),
@@ -43,8 +44,8 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         segment_indices=[0, 1, 0, 1],
     )
 
-    with mock.patch("lorax_server.utils.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
-        data = batched_weights.get_data(meta)
+    with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
+        data = batched_weights.get_data(meta).get(LORA)
 
     assert len(data.lora_a) == 2
     assert data.lora_a.keys() == meta.adapter_set
