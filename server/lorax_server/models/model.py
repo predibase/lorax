@@ -154,11 +154,11 @@ class Model(ABC):
         adapter_index: int,
         api_token: str,
     ):
-        """Physically loads the adapter weights into the model.
+        """Loads adapter weights from disk / host memory on the GPU.
 
         adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded 
-        into model. Otherwise, the adapter weights are merged into the model 
-        weights on the fly.
+        into model. Otherwise, the adapter weights are applied during the forward
+        pass and stored separately from the base model parameters.
         """
         if adapter_index in self.loaded_adapters:
             # Adapter already loaded
