@@ -72,6 +72,10 @@ class Model(ABC):
             device_type=self.device.type,
             window_size=self.sliding_window,
         )
+    
+    @property
+    def sliding_window_blocks(self) -> Optional[int]:
+        return None
 
     @property
     @abstractmethod

@@ -3,6 +3,7 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
+import math
 from statistics import median
 from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
@@ -19,11 +20,11 @@ from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cu
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
+    from lorax_server.models.model import Model
 
 
 # TODO(travis): make this configurable by model / user
 MAX_BATCH_SIZE = 256
-MAX_CONTEXT_LENGTH = 8192
 MAX_RANK = 64
 
 SLOT_PAD_VALUE = -1
@@ -77,8 +78,18 @@ class GraphState:
 
 
 @lru_cache(maxsize=1)
-def get_max_graph_state(device: torch.device, adapter_layers: Tuple[str]) -> GraphState:
-    max_num_blocks = (MAX_CONTEXT_LENGTH + BLOCK_SIZE - 1) // BLOCK_SIZE
+def get_max_graph_state(
+    device: torch.device, 
+    adapter_layers: Tuple[str], 
+    max_total_tokens: int,
+    sliding_window_blocks: Optional[int] = None,
+) -> GraphState:
+    # max_num_blocks = (max_total_tokens + BLOCK_SIZE - 1) // BLOCK_SIZE
+    max_num_blocks = math.ceil((max_total_tokens - 1) / BLOCK_SIZE)
+    if sliding_window_blocks is not None:
+        # Needed blocks can not go over SLIDING_WINDOW_BLOCKS
+        max_num_blocks = max(max_num_blocks, sliding_window_blocks)
+
     block_tables_arr = np.zeros((MAX_BATCH_SIZE, max_num_blocks), dtype=np.int32)
     block_tables = torch.from_numpy(block_tables_arr).to(device=device)
 
@@ -133,7 +144,7 @@ class GraphWrapper:
         memory_pool: Tuple[int, int],
         input_state: GraphState,
         output_states: torch.Tensor,
-        model,
+        model: "Model",
     ):
         self.graph = graph
         self.memory_pool = memory_pool
@@ -143,14 +154,16 @@ class GraphWrapper:
         
     @staticmethod
     def trace(
-        model: nn.Module,
+        model: "Model",
         device: torch.device,
         adapter_layers: Tuple[str],
         batch_size: int,
         max_rank: int,
         memory_pool: Tuple[int, int],
+        max_total_tokens: int,
+        sliding_window_blocks: Optional[int] = None,
     ) -> "GraphWrapper":
-        max_input_state = get_max_graph_state(device, adapter_layers)
+        max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
         # WARNING: for some reason the SGMV kernel can hang if we don't use a power of 2
         # as the segment size. This is a workaround until we can figure out why.
@@ -216,7 +229,7 @@ class GraphWrapper:
                 block_tables=input_state.block_tables,
                 slots=input_state.slots,
                 input_lengths=input_state.input_lengths,
-                max_s=MAX_CONTEXT_LENGTH,
+                max_s=max_total_tokens,
                 adapter_data=input_state.adapter_data,
                 lm_head_indices=None,
             )
@@ -277,12 +290,21 @@ class GraphWrapper:
 
 
 class GraphCache:
-    def __init__(self, model: nn.Module, device: torch.device, adapter_layers: List[str]):
+    def __init__(
+        self, 
+        model: nn.Module, 
+        device: torch.device, 
+        adapter_layers: List[str],
+        max_total_tokens: int,
+        sliding_window_blocks: Optional[int] = None,
+    ):
         self.model = model
         self.device = device
         self.adapter_layers = tuple(adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache = {}
+        self.max_total_tokens = max_total_tokens
+        self.sliding_window_blocks = sliding_window_blocks
 
     def can_use_graph(
         self,
@@ -303,7 +325,7 @@ class GraphCache:
         return (
             torch.cuda.is_available()
             and batch_size <= MAX_BATCH_SIZE
-            and max_s <= MAX_CONTEXT_LENGTH
+            and max_s <= self.max_total_tokens
             and max_rank <= MAX_RANK
             and nranks <= 1
             and max_rank in _allowed_ranks
@@ -331,6 +353,8 @@ class GraphCache:
                 batch_size,
                 max_rank,
                 pool,
+                self.max_total_tokens,
+                self.sliding_window_blocks,
             )
             tmp_cache[key] = graph
             pool = graph.memory_pool
@@ -368,6 +392,8 @@ class GraphCache:
                         batch_size,
                         max_rank,
                         pool,
+                        self.max_total_tokens,
+                        self.sliding_window_blocks,
                     )
                     self.cache[key] = graph
                     pool = graph.memory_pool
