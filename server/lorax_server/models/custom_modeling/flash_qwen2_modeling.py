@@ -155,7 +155,7 @@ class FlashQwen2Attention(torch.nn.Module):
         super().__init__()
 
         self.max_past = (
-            config.sliding_window if config.sliding_window is not None else 0
+            config.sliding_window if config.sliding_window is not None else -1
         )
 
         self.num_heads = config.num_attention_heads
@@ -457,8 +457,6 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         ), 0, LM_HEAD, process_group=weights.process_group)
 
         self.max_past = config.sliding_window
-        if self.max_past is None:
-            raise ValueError("max_past cannot be None")
 
     def forward(
         self,
@@ -477,7 +475,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         if prefill_cache_indices is not None:
             # Slots also need to be sliced as it has the same size as the whole kv tensor
             slots = slots[prefill_cache_indices]
-        else:
+        elif self.max_past is not None:
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)

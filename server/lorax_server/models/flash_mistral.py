@@ -58,9 +58,6 @@ class FlashMistral(FlashCausalLM):
         )
         config.quantize = quantize
 
-        if config.sliding_window is None:
-            config.sliding_window = config.max_position_embeddings
-
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
