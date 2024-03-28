@@ -20,7 +20,6 @@ from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cu
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
-    from lorax_server.models.model import Model
 
 
 # TODO(travis): make this configurable by model / user
@@ -144,7 +143,7 @@ class GraphWrapper:
         memory_pool: Tuple[int, int],
         input_state: GraphState,
         output_states: torch.Tensor,
-        model: "Model",
+        model: nn.Module,
     ):
         self.graph = graph
         self.memory_pool = memory_pool
@@ -154,7 +153,7 @@ class GraphWrapper:
         
     @staticmethod
     def trace(
-        model: "Model",
+        model: nn.Module,
         device: torch.device,
         adapter_layers: Tuple[str],
         batch_size: int,
