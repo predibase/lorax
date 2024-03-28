@@ -912,9 +912,6 @@ class FlashCausalLM(Model):
         prefill_logprobs = batch.prefill_next_token_indices is not None
         return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
 
-        # Debugging for LoRAX
-        # print("!!! adapter_indices", batch.adapter_indices)
-
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
             block_tables, block_tables_tensor, slots = get_cache_manager().allocate(
