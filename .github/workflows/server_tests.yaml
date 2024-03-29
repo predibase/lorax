@@ -29,8 +29,7 @@ jobs:
         id: changed_files
         run: |
           echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')"
-          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')" >> $GITHUB_ENV
-
+          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
 
       - name: Run flake8 on changed files
         if: steps.changed_files.outputs.files != ''
