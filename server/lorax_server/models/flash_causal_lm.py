@@ -219,7 +219,7 @@ class FlashCausalLMBatch(Batch):
 
             # Paged attention
             # Remove one as the first token des not have a past
-            speculative_tokens = 0  # TODO(travis): make this a parameter
+            speculative_tokens = 3  # TODO(travis): make this a parameter
             total_tokens = input_length + max_new_tokens + speculative_tokens - 1
 
             needed_blocks = math.ceil(total_tokens / BLOCK_SIZE)
@@ -989,7 +989,7 @@ class FlashCausalLM(Model):
         else:
             next_token_logits = out
 
-        speculative_tokens = 0  # TODO(travis): make this a parameter
+        speculative_tokens = 3  # TODO(travis): make this a parameter
         next_input_ids, next_token_logprobs, accepted_ids, speculative_ids = batch.next_token_chooser(
             batch.all_input_ids_tensor[:, : batch.max_seqlen],
             next_token_logits, 
