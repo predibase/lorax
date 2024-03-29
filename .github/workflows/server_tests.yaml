@@ -38,18 +38,18 @@ jobs:
           echo running linter on: ${{ steps.changed_files.outputs.files }}
           flake8 ${{ steps.changed_files.outputs.files }}
 
-      # - name: Install Protoc
-      #   uses: arduino/setup-protoc@v1
-      # - name: Filter test dependencies
-      #   run: |
-      #     # remove stanford-stk from test requirements as it cannot install correctly without GPUs
-      #     sed -i '/stanford-stk/d' server/requirements.txt
-      #     sed -i '/stanford-stk/d' server/pyproject.toml
-      # - name: Install
-      #   run: |
-      #     make install-server install-custom-kernels
-      # - name: Run server tests
-      #   run: |
-      #     pip install pytest
-      #     export HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}
-      #     pytest -s -vv server/tests
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+      - name: Filter test dependencies
+        run: |
+          # remove stanford-stk from test requirements as it cannot install correctly without GPUs
+          sed -i '/stanford-stk/d' server/requirements.txt
+          sed -i '/stanford-stk/d' server/pyproject.toml
+      - name: Install
+        run: |
+          make install-server install-custom-kernels
+      - name: Run server tests
+        run: |
+          pip install pytest
+          export HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+          pytest -s -vv server/tests
