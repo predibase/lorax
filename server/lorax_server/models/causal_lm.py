@@ -21,13 +21,11 @@ from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
-# hello
-
 
 @dataclass
 class CausalLMBatch(Batch):
     batch_id: int
-    requests : List[generate_pb2.Request]
+    requests: List[generate_pb2.Request]
     requests_idx_mapping: Dict[int, int]
 
     # Decoder values
