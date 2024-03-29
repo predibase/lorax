@@ -24,14 +24,13 @@ jobs:
       - name: Get changed files
         id: changed_files
         run: |
-          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.py$' || echo ""
-          echo "EOF" >> $GITHUB_ENV
+          echo "::set-output name=files::$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '\.py$' | tr '\n' ' ')"
+
       - name: Run flake8 on changed files
-        if: env.CHANGED_FILES != ''
+        if: steps.changed_files.outputs.files != ''
         run: |
           pip install flake8
-          flake8 ${{ env.CHANGED_FILES }}
+          flake8 ${{ steps.changed_files.outputs.files }}
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
