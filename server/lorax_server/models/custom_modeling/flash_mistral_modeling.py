@@ -34,7 +34,6 @@ from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
-    SpeculativeHead,
     TensorParallelAdapterRowLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
