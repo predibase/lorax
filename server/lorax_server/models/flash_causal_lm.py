@@ -1204,25 +1204,6 @@ class FlashCausalLM(Model):
             accepted_token_logprobs = next_token_logprobs[idx: idx + num_accepted_ids - left]
             idx += num_accepted_ids
 
-            # Append next token to all tokens
-            all_input_ids.append(next_token_id)
-
-            # Generated token
-            next_token_text, prefix_offset, read_offset = self.decode_token(
-                all_input_ids,
-                prefix_offset,
-                read_offset,
-            )
-
-            # Evaluate stopping criteria
-            stop, reason = stopping_criteria(
-                next_token_id,
-                next_token_text,
-            )
-
-            if not stop:
-                stopped = False
-
             # Shard generations
             # All generations will be appended in the rust sharded client
             if i % self.world_size == self.rank:
