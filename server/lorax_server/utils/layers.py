@@ -5,7 +5,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 
 HAS_BITS_AND_BYTES = True
@@ -44,7 +44,8 @@ except ImportError:
 from accelerate import init_empty_weights
 
 from lorax_server.adapters.lora import BatchLoraWeights
-from lorax_server.adapters.types import LORA
+from lorax_server.adapters.medusa import BatchMedusaWeights
+from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.sgmv import lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
@@ -663,7 +664,20 @@ class TensorParallelAdapterRowLinear(LoraLinear):
         end_idx = (self.process_group.rank() + 1) * stride
 
         self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
-        return result
+
+        # Medusa
+        data = adapter_data.data.get(self.layer_name)
+        data: Optional[BatchMedusaWeights] = data.get(MEDUSA) if data is not None else None
+
+        speculative_logits = None
+        if data is not None:
+            for adapter_index in adapter_data.meta.adapter_set:
+                if data.has_adapter(adapter_index):
+                    speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
+                    # adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    # result += self.forward_medusa(input, data, adapter_index, adapter_mask)
+
+        return result, speculative_logits
     
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.

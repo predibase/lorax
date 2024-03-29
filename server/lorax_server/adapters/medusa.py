@@ -120,6 +120,9 @@ class MedusaWeights(AdapterWeights):
 class BatchMedusaWeights(BatchAdapterWeights):
     adapter_to_medusa: Dict[int, MedusaWeights]
 
+    def has_adapter(self, adapter_index: int) -> bool:
+        return adapter_index in self.adapter_to_medusa
+
     def key(self) -> str:
         return MEDUSA
 

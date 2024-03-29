@@ -33,6 +33,10 @@ class AdapterWeights(ABC):
 
 class BatchAdapterWeights(ABC):
     @abstractclassmethod
+    def has_adapter(self, adapter_index: int) -> bool:
+        pass
+
+    @abstractclassmethod
     def key(self) -> str:
         pass
 
