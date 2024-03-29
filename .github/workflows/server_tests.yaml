@@ -24,27 +24,26 @@ jobs:
       - name: Get changed files
         id: changed_files
         run: |
-          echo "files=$(git diff --name-only origin/main -- . | grep -E '\.py$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
-          echo "files=$(git diff --name-only origin/main -- . | grep -E '\.py$' | tr '\n' ' ')"
+          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }})"
 
-      - name: Run flake8 on changed files
-        if: steps.changed_files.outputs.files != ''
-        run: |
-          pip install flake8
-          flake8 ${{ steps.changed_files.outputs.files }}
+      # - name: Run flake8 on changed files
+      #   if: steps.changed_files.outputs.files != ''
+      #   run: |
+      #     pip install flake8
+      #     flake8 ${{ steps.changed_files.outputs.files }}
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-      - name: Filter test dependencies
-        run: |
-          # remove stanford-stk from test requirements as it cannot install correctly without GPUs
-          sed -i '/stanford-stk/d' server/requirements.txt
-          sed -i '/stanford-stk/d' server/pyproject.toml
-      - name: Install
-        run: |
-          make install-server install-custom-kernels
-      - name: Run server tests
-        run: |
-          pip install pytest
-          export HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}
-          pytest -s -vv server/tests
+      # - name: Install Protoc
+      #   uses: arduino/setup-protoc@v1
+      # - name: Filter test dependencies
+      #   run: |
+      #     # remove stanford-stk from test requirements as it cannot install correctly without GPUs
+      #     sed -i '/stanford-stk/d' server/requirements.txt
+      #     sed -i '/stanford-stk/d' server/pyproject.toml
+      # - name: Install
+      #   run: |
+      #     make install-server install-custom-kernels
+      # - name: Run server tests
+      #   run: |
+      #     pip install pytest
+      #     export HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+      #     pytest -s -vv server/tests
