@@ -24,7 +24,8 @@ jobs:
       - name: Get changed files
         id: changed_files
         run: |
-          echo "::set-output name=files::$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '\.py$' | tr '\n' ' ')"
+          echo "files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '\.py$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          echo "files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '\.py$' | tr '\n' ' ')"
 
       - name: Run flake8 on changed files
         if: steps.changed_files.outputs.files != ''
