@@ -28,13 +28,16 @@ jobs:
       - name: Get changed files
         id: changed_files
         run: |
-          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }})"
+          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')"
+          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')" >> $GITHUB_ENV
 
-      # - name: Run flake8 on changed files
-      #   if: steps.changed_files.outputs.files != ''
-      #   run: |
-      #     pip install flake8
-      #     flake8 ${{ steps.changed_files.outputs.files }}
+
+      - name: Run flake8 on changed files
+        if: steps.changed_files.outputs.files != ''
+        run: |
+          pip install flake8
+          echo running linter on: ${{ steps.changed_files.outputs.files }}
+          flake8 ${{ steps.changed_files.outputs.files }}
 
       # - name: Install Protoc
       #   uses: arduino/setup-protoc@v1
