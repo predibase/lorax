@@ -906,8 +906,6 @@ class FlashCausalLM(Model):
         input_ids = batch.input_ids
         position_ids = batch.position_ids
         block_tables = batch.block_tables_tensor
-        print(f"batch.slot_indices: {batch.slot_indices}")
-        print(f"batch.slots: {batch.slots}")
         slots = batch.slots[batch.slot_indices]
         input_lengths = batch.input_lengths_tensor
         max_s = batch.max_seqlen
