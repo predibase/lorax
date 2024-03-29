@@ -1,7 +1,7 @@
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union
 from safetensors import safe_open, SafetensorError
-import torch
 from loguru import logger
 from huggingface_hub import hf_hub_download
 import json
@@ -9,7 +9,34 @@ import torch
 import torch.distributed
 import os
 
-class Weights:
+
+class AbstractWeights(ABC):
+    @abstractmethod
+    def get_tensor(self, tensor_name: str) -> torch.Tensor:
+        pass
+
+    @abstractmethod
+    def get_shape(self, tensor_name: str) -> torch.Size:
+        pass
+
+
+class InMemoryWeights(AbstractWeights):
+    def __init__(self, weights: Dict[str, torch.Tensor], device: torch.device, dtype: torch.dtype):
+        self.weights = weights
+        self.device = device
+        self.dtype = dtype
+
+    def get_tensor(self, tensor_name: str) -> torch.Tensor:
+        tensor = self.weights[tensor_name]
+        tensor = tensor.to(dtype=self.dtype)
+        tensor = tensor.to(device=self.device)
+        return tensor
+
+    def get_shape(self, tensor_name: str) -> torch.Size:
+        return self.weights[tensor_name].shape
+
+
+class Weights(AbstractWeights):
     """
     A class representing weights for a model.
 
