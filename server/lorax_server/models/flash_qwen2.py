@@ -99,8 +99,6 @@ class FlashQwen2(FlashCausalLM):
 
         model = FlashQwen2ForCausalLM(config, weights)
 
-        if config.sliding_window is None:
-            config.sliding_window = config.max_position_embeddings
         self.config = config
 
         torch.distributed.barrier(group=self.process_group)

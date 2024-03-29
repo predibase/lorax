@@ -5,10 +5,14 @@ use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::json;
 use crate::validation::ValidationError;
 use crate::{
-    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionStreamResponse,
-    CompatGenerateRequest, CompletionRequest, CompletionResponse, CompletionStreamResponse,
-    Details, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, PrefillToken, StreamDetails, StreamResponse, Token, Validation,
+    AdapterParameters, AlternativeToken, BestOfSequence, ChatCompletionRequest,
+    ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
+    ChatCompletionStreamResponseChoice, ChatMessage, CompatGenerateRequest, CompletionFinishReason,
+    CompletionRequest, CompletionResponse, CompletionResponseChoice,
+    CompletionResponseStreamChoice, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
+    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs,
+    PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse,
+    Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{request, HeaderMap, Method, StatusCode};
@@ -28,6 +32,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::sync::mpsc;
@@ -108,7 +113,7 @@ async fn compat_generate(
 /// OpenAI compatible completions endpoint
 #[utoipa::path(
 post,
-tag = "LoRAX",
+tag = "OpenAI Compatible",
 path = "/v1/completions",
 request_body = CompletionRequest,
 responses(
@@ -190,7 +195,7 @@ async fn completions_v1(
 /// OpenAI compatible chat completions endpoint
 #[utoipa::path(
 post,
-tag = "LoRAX",
+tag = "OpenAI Compatible",
 path = "/v1/chat/completions",
 request_body = ChatCompletionRequest,
 responses(
@@ -899,16 +904,27 @@ pub async fn run(
     compat_generate,
     generate,
     generate_stream,
+    completions_v1,
+    chat_completions_v1,
+    tokenize,
     metrics,
     ),
     components(
     schemas(
     Info,
+    UsageInfo,
+    ResponseFormat,
+    ResponseFormatType,
     CompatGenerateRequest,
     GenerateRequest,
     GenerateParameters,
+    AdapterParameters,
+    AlternativeToken,
     PrefillToken,
     Token,
+    SimpleToken,
+    TokenizeRequest,
+    TokenizeResponse,
     GenerateResponse,
     BestOfSequence,
     Details,
@@ -916,10 +932,25 @@ pub async fn run(
     StreamResponse,
     StreamDetails,
     ErrorResponse,
+    ChatMessage,
+    LogProbs,
+    CompletionRequest,
+    CompletionResponse,
+    CompletionResponseChoice,
+    CompletionStreamResponse,
+    CompletionResponseStreamChoice,
+    CompletionFinishReason,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionResponseChoice,
+    ChatCompletionStreamResponse,
+    ChatCompletionStreamResponseChoice,
     )
     ),
     tags(
-    (name = "LoRAX", description = "LoRAX API")
+    (name = "LoRAX", description = "LoRAX API"),
+    (name = "OpenAI Compatible", description = "OpenAI compatible API"),
+    (name = "Tokenization", description = "Tokenizer API"),
     ),
     info(
     title = "LoRAX",
@@ -930,6 +961,8 @@ pub async fn run(
     )
     )]
     struct ApiDoc;
+
+    let cloned_tokenizer = tokenizer.clone().map(|t| Arc::new(Mutex::new(t)));
 
     // Create state
     let validation = Validation::new(
@@ -1087,6 +1120,7 @@ pub async fn run(
         .route("/ping", get(health))
         // Prometheus metrics route
         .route("/metrics", get(metrics))
+        .route("/tokenize", post(tokenize))
         .layer(Extension(info))
         .layer(Extension(request_logger_sender.clone()))
         .layer(Extension(health_ext.clone()))
@@ -1094,7 +1128,8 @@ pub async fn run(
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
         .layer(opentelemetry_tracing_layer())
-        .layer(cors_layer);
+        .layer(cors_layer)
+        .layer(Extension(cloned_tokenizer));
 
     if ngrok {
         #[cfg(feature = "ngrok")]
@@ -1227,5 +1262,58 @@ impl From<InferError> for Event {
                 error_type: err.error_type().to_string(),
             })
             .unwrap()
+    }
+}
+
+/// Tokenize inputs
+#[utoipa::path(
+    post,
+    tag = "Tokenization",
+    path = "/tokenize",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Tokenized ids", body = TokenizeResponse),
+    (status = 404, description = "No tokenizer found", body = ErrorResponse,
+    example = json ! ({"error": "No fast tokenizer available"})),
+    )
+    )]
+#[instrument(skip_all)]
+async fn tokenize(
+    Extension(cloned_tokenizer): Extension<Option<Arc<Mutex<Tokenizer>>>>,
+    Json(req): Json<TokenizeRequest>,
+) -> Result<Json<TokenizeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if let Some(tokenizer) = cloned_tokenizer {
+        let input = req.inputs.clone();
+        let add_special_tokens = match req.add_special_tokens {
+            None => true,
+            _ => req.add_special_tokens.unwrap(),
+        };
+        let tokenizer = tokenizer.lock().unwrap();
+        let char_offset = tokenizer
+            .encode_char_offsets(&input[..], add_special_tokens)
+            .unwrap();
+        let tokens: Vec<SimpleToken> = char_offset
+            .get_ids()
+            .iter()
+            .zip(char_offset.get_offsets().iter())
+            .map(|(&id, &(start, stop))| {
+                let text: String = tokenizer.id_to_token(id).unwrap();
+                SimpleToken {
+                    id,
+                    text,
+                    start,
+                    stop,
+                }
+            })
+            .collect();
+        Ok(Json(TokenizeResponse(tokens)))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "No fast tokenizer or tokenizer.json for this model".to_string(),
+                error_type: "no fast tokenizer".to_string(),
+            }),
+        ))
     }
 }

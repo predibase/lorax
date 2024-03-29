@@ -778,6 +778,10 @@ class FlashCausalLM(Model):
 
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
+    
+    @property
+    def sliding_window_blocks(self) -> Optional[int]:
+        return SLIDING_WINDOW_BLOCKS
 
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
@@ -788,6 +792,8 @@ class FlashCausalLM(Model):
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
+        max_total_tokens = batch.max_seqlen + max_new_tokens
+
         torch.cuda.empty_cache()
         try:
             cache_manager = set_cache_manager(
@@ -826,7 +832,13 @@ class FlashCausalLM(Model):
             # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
             # Needs to be estimated here rather than fully initialized as the graph cache relies on the
             # cache manager being set.
-            self.model_graph_wrapper = GraphCache(self.model, self.device, self.adapter_layers)
+            self.model_graph_wrapper = GraphCache(
+                self.model, 
+                self.device, 
+                self.adapter_layers, 
+                max_total_tokens, 
+                self.sliding_window_blocks
+            )
             graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
             logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
             torch.cuda.synchronize(self.device)
@@ -944,9 +956,6 @@ class FlashCausalLM(Model):
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
         return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
-
-        # Debugging for LoRAX
-        # print("!!! adapter_indices", batch.adapter_indices)
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
