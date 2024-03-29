@@ -21,6 +21,18 @@ jobs:
         uses: actions/setup-python@v1
         with:
           python-version: "3.10"
+      - name: Get changed files
+        id: changed_files
+        run: |
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.py$' || echo ""
+          echo "EOF" >> $GITHUB_ENV
+      - name: Run flake8 on changed files
+        if: env.CHANGED_FILES != ''
+        run: |
+          pip install flake8
+          flake8 ${{ env.CHANGED_FILES }}
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
       - name: Filter test dependencies
