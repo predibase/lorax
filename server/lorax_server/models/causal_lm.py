@@ -21,6 +21,7 @@ from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
+# test
 
 @dataclass
 class CausalLMBatch(Batch):
