@@ -35,6 +35,7 @@ from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     TensorParallelAdapterRowLinear,
+    TensorParallelLMHead,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
@@ -531,7 +532,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = MistralModel(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
+        self.lm_head = TensorParallelLMHead.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,

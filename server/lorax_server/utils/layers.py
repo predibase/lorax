@@ -667,6 +667,24 @@ class TensorParallelAdapterRowLinear(LoraLinear):
 
         self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
 
+        return result
+    
+    def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
+        # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
+        # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
+        #
+        # TODO(travis): this is not very efficient as we do an all-reduce for every adapter,
+        #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
+        #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
+        #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
+        torch.distributed.all_reduce(a_out, group=self.process_group)
+        return a_out
+
+
+class TensorParallelLMHead(TensorParallelAdapterRowLinear):
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        result = super().forward(input, adapter_data)
+
         # Medusa
         data = adapter_data.data.get(self.layer_name)
         data: Optional["BatchMedusaWeights"] = data.get(MEDUSA) if data is not None else None
@@ -680,18 +698,7 @@ class TensorParallelAdapterRowLinear(LoraLinear):
                     # result += self.forward_medusa(input, data, adapter_index, adapter_mask)
 
         return result, speculative_logits
-    
-    def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
-        # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
-        # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
-        #
-        # TODO(travis): this is not very efficient as we do an all-reduce for every adapter,
-        #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
-        #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
-        #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
-        torch.distributed.all_reduce(a_out, group=self.process_group)
-        return a_out
-    
+
 
 class TensorParallelRowLinear(SuperLayer):
     def __init__(self, linear, process_group, all_reduce: bool = True):
