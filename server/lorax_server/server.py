@@ -14,7 +14,6 @@ from typing import List, Optional
 
 from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
-from lorax_server.cli import _download_weights
 from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2

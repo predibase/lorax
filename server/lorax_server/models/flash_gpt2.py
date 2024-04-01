@@ -19,10 +19,7 @@ from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
     LM_HEAD,
 )
 from lorax_server.utils import (
-    compute_delta_weight,
-    get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
-    load_module_map,
     weight_files,
     Weights,
 )
