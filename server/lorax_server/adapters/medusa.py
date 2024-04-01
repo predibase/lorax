@@ -113,7 +113,7 @@ class MedusaWeights(AdapterWeights):
         layer_type: str,
         unused_weight_names: Set[str],
     ) -> Optional[AdapterWeights]:
-        return MedusaWeights(config, module_map)
+        return MedusaWeights(config, module_map, model)
 
 
 @dataclass
@@ -123,7 +123,8 @@ class BatchMedusaWeights(BatchAdapterWeights):
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_to_medusa
 
-    def key(self) -> str:
+    @classmethod
+    def key(cls) -> str:
         return MEDUSA
 
     @classmethod

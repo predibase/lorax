@@ -655,7 +655,7 @@ class TensorParallelAdapterRowLinear(LoraLinear):
 
     @classmethod
     def load(cls, base_layer, layer_id, layer_name, process_group):
-        return TensorParallelAdapterRowLinear(base_layer, layer_id, layer_name, process_group)
+        return cls(base_layer, layer_id, layer_name, process_group)
     
     def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
         result = self.base_layer(input)

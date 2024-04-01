@@ -406,7 +406,7 @@ class HeterogeneousNextTokenChooser:
             torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)
         ).view(-1)
 
-        if speculate > 0:
+        if speculate > 0 and speculative_scores is not None:
             # Only use greedy sampling for speculative tokens
             speculative_ids = Greedy()(speculative_scores)
         else:

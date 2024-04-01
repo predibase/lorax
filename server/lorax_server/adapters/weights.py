@@ -37,11 +37,11 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def key(self) -> str:
+    def key(cls) -> str:
         pass
 
     @abstractclassmethod
-    def load(self, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
+    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
         pass
 
 
