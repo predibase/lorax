@@ -146,6 +146,13 @@ class Model(ABC):
     
     def is_row_parallel(self, layer_type: str) -> bool:
         return False
+    
+    @property
+    def max_speculative_tokens(self) -> int:
+        return max([
+            layer_weights.max_speculative_tokens for 
+            layer_weights in self.batched_lora_weights.values()
+        ])
 
     def load_adapter(
         self,

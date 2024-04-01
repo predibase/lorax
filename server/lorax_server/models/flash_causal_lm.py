@@ -33,7 +33,7 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
-from lorax_server.utils.state import warmup_mode
+from lorax_server.utils.state import get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -219,7 +219,7 @@ class FlashCausalLMBatch(Batch):
 
             # Paged attention
             # Remove one as the first token des not have a past
-            speculative_tokens = 3  # TODO(travis): make this a parameter
+            speculative_tokens = get_speculative_tokens()
             total_tokens = input_length + max_new_tokens + speculative_tokens - 1
 
             needed_blocks = math.ceil(total_tokens / BLOCK_SIZE)
@@ -922,8 +922,7 @@ class FlashCausalLM(Model):
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
 
-            # Add Copy the block tables for all members
-            block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B* new_length, -1).contiguous()
+            block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
             max_s = max_s + speculative_length
 
             input_ids = new_input_ids
@@ -989,7 +988,7 @@ class FlashCausalLM(Model):
         else:
             next_token_logits = out
 
-        speculative_tokens = 3  # TODO(travis): make this a parameter
+        speculative_tokens = get_speculative_tokens()
         next_input_ids, next_token_logprobs, accepted_ids, speculative_ids = batch.next_token_chooser(
             batch.all_input_ids_tensor[:, : batch.max_seqlen],
             next_token_logits, 

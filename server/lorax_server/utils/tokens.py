@@ -345,11 +345,10 @@ class HeterogeneousNextTokenChooser:
         if speculated_ids is not None:
             B = scores.shape[0] // (speculated_ids.shape[1] + 1)
             S = speculated_ids.shape[1] + 1
-            scores = scores.view(B, S, -1)
         else:
             B = scores.shape[0]
             S = 1
-            scores = scores.view(B, S, -1)
+        scores = scores.view(B, S, -1)
         
         next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
         for j in range(S):
@@ -377,9 +376,9 @@ class HeterogeneousNextTokenChooser:
             S = speculated_ids.shape[1] + 1
             indices = []
             for i in range(B):
-                _next_ids = next_ids[i*S: (i + 1)*S]
-                _speculated_ids = speculated_ids[i]
-                validate_speculative = _next_ids[:-1] == _speculated_ids
+                next_ids_i = next_ids[i*S: (i + 1)*S]
+                speculated_ids_i = speculated_ids[i]
+                validate_speculative = next_ids_i[:-1] == speculated_ids_i
                 index = i * S
                 accepted = 1
                 # First is always valid

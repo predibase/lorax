@@ -30,6 +30,10 @@ class AdapterWeights(ABC):
     def get_batch_type(cls) -> "BatchAdapterWeights":
         pass
 
+    @property
+    def speculative_tokens(self) -> int:
+        return 0
+
 
 class BatchAdapterWeights(ABC):
     @abstractclassmethod
@@ -58,6 +62,13 @@ class LayerAdapterWeights:
         if adapter_idx not in self.adapter_weights:
             return
         del self.adapter_weights[adapter_idx]
+    
+    @property
+    def max_speculative_tokens(self) -> int:
+        return max(
+            adapter_weights.speculative_tokens
+            for adapter_weights in self.adapter_weights.values()
+        )
 
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0

@@ -5,7 +5,7 @@ import torch
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import MEDUSA
-from lorax_server.adapters.weights import AdapterBatchData, AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
+from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.layers import FastLinear
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 
@@ -21,7 +21,7 @@ class MedusaConfig(AdapterConfig):
     def map_weights_for_model(
         self, adapter_weights: Dict, weight_names: Tuple[str],
     ) -> Tuple[ModuleMap, Set[str]]:
-        print("Mapping weights for Medusa", adapter_weights.keys(), weight_names)
+        # TODO(travis): this isn't technically the ModuleMap structure, make this more generic
         return adapter_weights, set(weight_names)
     
     def load_batched_adapter_weights(
@@ -98,11 +98,16 @@ class MedusaModel(torch.nn.Module):
 
 class MedusaWeights(AdapterWeights):
     def __init__(self, config: MedusaConfig, module_map: ModuleMap, model: "Model"):
+        self.config = config
         self.model = MedusaModel(config, InMemoryWeights(module_map, model.device, model.dtype))
     
     @classmethod
     def get_batch_type(cls) -> BatchAdapterWeights:
         return BatchMedusaWeights
+    
+    @property
+    def speculative_tokens(self) -> int:
+        return self.config.medusa_num_heads
 
     @classmethod
     def load(
@@ -146,60 +151,3 @@ class BatchMedusaWeights(BatchAdapterWeights):
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_to_medusa
         )
-
-
-class SpeculativeHead(torch.nn.Module):
-    def __init__(self, lm_head, medusa):
-        super().__init__()
-        self.lm_head = lm_head
-        self.medusa = medusa
-
-    @staticmethod
-    def load(lm_head: torch.nn.Module, weights, adapter_id):
-        from huggingface_hub import hf_hub_download
-        from pathlib import Path
-
-        is_local = Path(adapter_id).exists()
-        if not is_local:
-            medusa_config = hf_hub_download(
-                adapter_id, revision=None, filename="config.json"
-            )
-            hf_hub_download(
-                adapter_id,
-                revision=None,
-                filename="medusa_lm_head.safetensors",
-            )
-            medusa_path = Path(medusa_config).parent
-        else:
-            medusa_path = Path(adapter_id)
-
-        if medusa_path:
-            from pathlib import Path
-            from safetensors import safe_open
-            import json
-
-            medusa_config = str(medusa_path / "config.json")
-            filename = str(medusa_path / "medusa_lm_head.safetensors")
-
-            with open(medusa_config, "r") as f:
-                config = json.load(f)
-            routing = weights.routing
-            with safe_open(filename, framework="pytorch") as f:
-                for k in f.keys():
-                    if k in routing:
-                        raise RuntimeError(
-                            f"Key {k} was found in multiple files: {filename} and {routing[k]}"
-                        )
-                    weights.routing[k] = filename
-
-            medusa = MedusaModel(config, weights)
-        else:
-            medusa = None
-        return SpeculativeHead(lm_head, medusa)
-
-    def forward(
-        self, input: torch.Tensor, adapter_data: AdapterBatchData,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        logits = self.lm_head(input, adapter_data)
-        speculative_logits = self.medusa(input) if self.medusa is not None else None
-        return logits, speculative_logits
