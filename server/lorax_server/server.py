@@ -12,6 +12,7 @@ from grpc_reflection.v1alpha import reflection
 from pathlib import Path
 from typing import List, Optional
 
+from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
 from lorax_server.cli import _download_weights
 from lorax_server.interceptor import ExceptionInterceptor
@@ -142,24 +143,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 logger.info("No adapter to download for base model. Skipping.")
                 continue
             
-            if adapter_source == PBASE:
-                adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
-                adapter_source = S3
-            
-            if adapter_source == HUB:
-                # Quick auth check on the repo against the token
-                HfApi(token=api_token).model_info(adapter_id, revision=None)
-                
-            # fail fast if ID is not an adapter (i.e. it is a full model)
-            source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
-            source.load_config()
-
-            _download_weights(
-                adapter_id, source=adapter_source, api_token=api_token
-            )
-
-            # Calculate size of adapter to be loaded
-            adapter_bytes += source.get_weight_bytes()
+            adapter_bytes += download_adapter(adapter_id, adapter_source, api_token)
         
         adapter_memory_size = self.model.adapter_memory_size()
         if adapter_memory_size > 0:

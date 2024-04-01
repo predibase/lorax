@@ -20,7 +20,6 @@ from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
 )
 from lorax_server.utils import (
     compute_delta_weight,
-    create_merged_weight_files,
     get_start_stop_idxs_for_rank,
     initialize_torch_distributed,
     load_module_map,
@@ -70,23 +69,6 @@ class FlashGPT2(FlashCausalLM):
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-
-        # if adapter_id passed in as part of model instantiation, then we merge 
-        # the adapter weights with the model weights. This also disables dynamic
-        # adapter loading, since the model is now itself initialized with an adapter.
-        merged_weight_filenames = None
-        dynamic_adapter_loading_enabled = True
-        if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
-            # Need to pass the adapter source here
-            merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
-            )
-            dynamic_adapter_loading_enabled = False
-            adapter_id = adapter_id
-        else:
-            adapter_id = BASE_MODEL_ADAPTER_ID
-
         weights = Weights(
             filenames, 
             device, 
@@ -114,7 +96,7 @@ class FlashGPT2(FlashCausalLM):
             world_size=world_size,
             compile=compile,
             adapter_id=adapter_id,
-            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
+            adapter_source=adapter_source,
         )
 
     @property
