@@ -681,7 +681,7 @@ class TensorParallelAdapterRowLinear(LoraLinear):
         return a_out
 
 
-class TensorParallelLMHead(TensorParallelAdapterRowLinear):
+class MultiAdapterHead(TensorParallelAdapterRowLinear):
     def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         result = super().forward(input, adapter_data)
 

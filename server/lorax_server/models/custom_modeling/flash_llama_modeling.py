@@ -33,6 +33,7 @@ from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
+    MultiAdapterHead,
     TensorParallelAdapterRowLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
@@ -511,7 +512,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = FlashLlamaModel(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
+        self.lm_head = MultiAdapterHead.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
@@ -530,7 +531,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.model(
             input_ids,
             position_ids,
@@ -544,5 +545,5 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.lm_head(hidden_states, adapter_data)
-        return logits
+        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
+        return logits, speculative_logits

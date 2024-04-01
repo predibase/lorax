@@ -382,7 +382,7 @@ class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.gpt_neox(
             input_ids,
             position_ids,
@@ -396,4 +396,4 @@ class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
         logits = self.embed_out(hidden_states)
-        return logits
+        return logits, None
