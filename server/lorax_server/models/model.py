@@ -164,7 +164,7 @@ class Model(ABC):
         return max([
             layer_weights.max_speculative_tokens for 
             layer_weights in self.batched_lora_weights.values()
-        ])
+        ], default=0)
 
     def load_adapter(
         self,
