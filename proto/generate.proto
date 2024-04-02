@@ -225,6 +225,19 @@ message DecodeResponse {
     optional CachedBatch batch = 2;
 }
 
+message EmbedRequest {
+    /// Cached batches
+    repeated CachedBatch batches = 1;
+}
+
+message Embedding {
+    repeated float embedding = 1;
+}
+
+message EmbedResponse {
+    repeated Embedding embeddings = 1;
+}
+
 message WarmupRequest {
     /// Batch to warmup on
     Batch batch = 1;
@@ -304,7 +317,7 @@ message DownloadAdapterResponse {
 
     /// Fraction of the adapter memory limit consumed by the adapter.
     /// If no limit is set, will return 0.
-    /// When the total across all loaded adapters exceeds 
+    /// When the total across all loaded adapters exceeds
     /// the adapter_memory_fraction limit, no more adapters
     /// will be loaded to GPU and LoRAX will begin swapping.
     float memory_fraction = 2;

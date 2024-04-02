@@ -1,9 +1,7 @@
 import asyncio
 import os
-import shutil
 import torch
 from huggingface_hub import HfApi
-from peft import PeftConfig
 
 from grpc import aio
 from loguru import logger
@@ -18,7 +16,7 @@ from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
+from lorax_server.utils import HUB, LOCAL, S3, PBASE, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.sources import get_model_source
@@ -80,9 +78,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
         max_supported_total_tokens = self.model.warmup(batch, request.max_new_tokens)
 
-        return generate_pb2.WarmupResponse(
-            max_supported_total_tokens=max_supported_total_tokens
-        )
+        return generate_pb2.WarmupResponse(max_supported_total_tokens=max_supported_total_tokens)
 
     async def Prefill(self, request: generate_pb2.PrefillRequest, context):
         batch = self.model.batch_type.from_pb(
@@ -99,6 +95,32 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return generate_pb2.PrefillResponse(
             generations=[generation.to_pb() for generation in generations],
             batch=next_batch.to_pb() if next_batch else None,
+        )
+
+    async def Embed(self, request, context):
+        if len(request.batches) == 0:
+            raise ValueError("Must provide at least one batch")
+
+        batches = []
+        for batch_pb in request.batches:
+            batch = self.cache.pop(batch_pb.id)
+            if batch is None:
+                raise ValueError(f"Batch ID {batch_pb.id} not found in cache.")
+            batches.append(batch)
+
+        if len(batches) == 0:
+            raise ValueError("All batches are empty")
+
+        if len(batches) > 1:
+            batch = self.model.batch_type.concatenate(batches)
+        else:
+            batch = batches[0]
+
+        embeddings = self.model.embed(batch)
+        logger.info("Embedding shape: {}".format(embeddings.shape))
+
+        return generate_pb2.EmbedResponse(
+            embeddings=[generate_pb2.Embedding(embedding=embedding.tolist()) for embedding in embeddings]
         )
 
     async def Decode(self, request: generate_pb2.DecodeRequest, context):
@@ -127,7 +149,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             generations=[generation.to_pb() for generation in generations],
             batch=next_batch.to_pb() if next_batch else None,
         )
-        
+
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
         if is_base_model(adapter_parameters):
@@ -141,30 +163,30 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 logger.info("No adapter to download for base model. Skipping.")
                 continue
-            
+
             if adapter_source == PBASE:
                 adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                 adapter_source = S3
-            
+
             if adapter_source == HUB:
                 # Quick auth check on the repo against the token
                 HfApi(token=api_token).model_info(adapter_id, revision=None)
-                
+
             # fail fast if ID is not an adapter (i.e. it is a full model)
             source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
             source.load_config()
 
-            _download_weights(
-                adapter_id, source=adapter_source, api_token=api_token
-            )
+            _download_weights(adapter_id, source=adapter_source, api_token=api_token)
 
             # Calculate size of adapter to be loaded
             adapter_bytes += source.get_weight_bytes()
-        
+
         adapter_memory_size = self.model.adapter_memory_size()
         if adapter_memory_size > 0:
-            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                        f"(reservation: {adapter_memory_size} bytes)")
+            logger.info(
+                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                f"(reservation: {adapter_memory_size} bytes)"
+            )
             adapter_memory_fraction = adapter_bytes / adapter_memory_size
             if adapter_memory_fraction > 1:
                 raise ValueError(
@@ -173,21 +195,19 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 )
         else:
             # Assume 0.0 memory fraction if adapter memory size is not set
-            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                        f"(no reservation limit)")
+            logger.info(
+                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)"
+            )
             adapter_memory_fraction = 0.0
-        
-        return generate_pb2.DownloadAdapterResponse(
-            downloaded=True,
-            memory_fraction=adapter_memory_fraction
-        )
+
+        return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
         if is_base_model(adapter_parameters):
             logger.info("No adapter to load for base model. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=False)
-        
+
         try:
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
@@ -199,9 +219,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                     adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                     adapter_parameters.adapter_ids[i] = adapter_id
                 adapter_source = S3
-            
+
             self.model.load_adapter(adapter_parameters, adapter_source, adapter_index, api_token)
-            
+
             return generate_pb2.LoadAdapterResponse(loaded=True)
         except Exception:
             logger.exception("Error when loading adapter")
@@ -212,7 +232,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if is_base_model(adapter_parameters):
             logger.info("No adapter to offload for base model. Skipping.")
             return generate_pb2.OffloadAdapterResponse(offloaded=False)
-        
+
         try:
             adapter_idx = request.adapter_index
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
@@ -222,7 +242,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             # Ensure there is enough memory for the next adapter
             torch.cuda.empty_cache()
             torch.cuda.synchronize(self.model.device)
-            
+
             return generate_pb2.OffloadAdapterResponse(offloaded=True)
         except Exception:
             logger.exception("Error when offloading adapter")
@@ -254,10 +274,7 @@ def serve(
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
-            server_urls = [
-                unix_socket_template.format(uds_path, rank)
-                for rank in range(int(os.environ["WORLD_SIZE"]))
-            ]
+            server_urls = [unix_socket_template.format(uds_path, rank) for rank in range(int(os.environ["WORLD_SIZE"]))]
             local_url = server_urls[int(os.environ["RANK"])]
         else:
             local_url = unix_socket_template.format(uds_path, 0)
@@ -265,7 +282,16 @@ def serve(
 
         try:
             model = get_model(
-                model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, source, adapter_source
+                model_id,
+                adapter_id,
+                revision,
+                sharded,
+                quantize,
+                compile,
+                dtype,
+                trust_remote_code,
+                source,
+                adapter_source,
             )
         except Exception:
             logger.exception("Error when initializing model")
@@ -292,9 +318,7 @@ def serve(
                 UDSOpenTelemetryAioServerInterceptor(),
             ]
         )
-        generate_pb2_grpc.add_LoraxServiceServicer_to_server(
-            LoraxService(model, Cache(), server_urls), server
-        )
+        generate_pb2_grpc.add_LoraxServiceServicer_to_server(LoraxService(model, Cache(), server_urls), server)
         SERVICE_NAMES = (
             generate_pb2.DESCRIPTOR.services_by_name["LoraxService"].full_name,
             reflection.SERVICE_NAME,
@@ -318,9 +342,7 @@ def serve(
             logger.info("Signal received. Shutting down")
             await server.stop(0)
 
-    asyncio.run(
-        serve_inner(model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code)
-    )
+    asyncio.run(serve_inner(model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code))
 
 
 def _adapter_source_enum_to_string(adapter_source: int) -> str:
