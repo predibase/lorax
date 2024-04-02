@@ -558,7 +558,7 @@ class LoraLinear(nn.Module):
                         rank_segments.segment_ends,
                         self.layer_id,
                     )
-            
+
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:

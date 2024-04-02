@@ -969,9 +969,23 @@ class FlashCausalLM(Model):
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
 
-        # Assign pointers to LoRA weights
+        # Update adapter indices for speculative tokens (if present)
+        adapter_meta = batch.adapter_meta
+        if batch.speculative_ids is not None:
+            B, speculative_length = batch.speculative_ids.shape
+            new_length = speculative_length + 1
+            adapter_indices = adapter_meta.adapter_indices.unsqueeze(-1).expand(B, new_length).reshape(-1)
+            adapter_segments = adapter_meta.adapter_segments * new_length
+            adapter_meta = AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_meta.adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_meta.segment_indices,
+            )
+
+        # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
+        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
 
         try:
             out, speculative_logits = self.forward(batch, adapter_data)
@@ -1084,7 +1098,7 @@ class FlashCausalLM(Model):
                 idx += 1
 
             cumulative_length += input_length
-
+        
         # Set values in batch
         batch.input_ids = next_input_ids[accepted_ids.cumsum(dim=-1) - 1]
         batch.position_ids = next_position_ids + accepted_ids
