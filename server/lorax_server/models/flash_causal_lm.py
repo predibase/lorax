@@ -271,7 +271,6 @@ class FlashCausalLMBatch(Batch):
             max_length = max(max_length, input_length + max_new_tokens)
 
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
-        print("!!! ADAPTER INDICES", adapter_indices)
 
         request_tokenizers = [
             tokenizers.get_tokenizer(r.adapter_index, tokenizer)
