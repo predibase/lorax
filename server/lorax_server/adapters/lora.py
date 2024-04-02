@@ -50,6 +50,7 @@ class LoraConfig(AdapterConfig):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
+        dynamic: bool,
     ) -> Optional[AdapterWeights]:
         return LoraWeights.load(
             self,

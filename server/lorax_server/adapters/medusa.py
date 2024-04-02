@@ -30,7 +30,14 @@ class MedusaConfig(AdapterConfig):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
+        dynamic: bool,
     ) -> Optional[AdapterWeights]:
+        if dynamic:
+            raise ValueError(
+                "Dynamic adapter loading is not supported for Medusa at this time. "
+                "Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every request."
+            )
+        
         return MedusaWeights.load(
             self,
             model,

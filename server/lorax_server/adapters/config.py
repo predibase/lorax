@@ -30,5 +30,6 @@ class AdapterConfig(ABC):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
+        dynamic: bool,
     ) -> Optional[AdapterWeights]:
         pass
