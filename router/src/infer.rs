@@ -9,6 +9,7 @@ use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
+use itertools::multizip;
 use lorax_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
@@ -23,7 +24,6 @@ use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
-use itertools::multizip;
 
 /// Inference struct
 #[derive(Clone)]
@@ -621,19 +621,24 @@ fn send_responses(
         vec![None; next_tokens.ids.len()]
     } else {
         // Convertion from AlternativeToken to Option<AlternativeToken>
-        next_tokens.alternative_tokens.into_iter().map(Some).collect()
+        next_tokens
+            .alternative_tokens
+            .into_iter()
+            .map(Some)
+            .collect()
     };
-    
+
     let ntokens = next_tokens.ids.len();
     metrics::histogram!("lorax_request_skipped_tokens", (ntokens - 1) as f64);
     let mut iterator = multizip((
         next_tokens.ids,
-        next_tokens.logprobs, 
-        next_tokens.texts, 
+        next_tokens.logprobs,
+        next_tokens.texts,
         next_tokens.is_special,
         alternative_tokens,
-    )).peekable();
-    
+    ))
+    .peekable();
+
     while let Some((id, logprob, text, special, alternative_tokens)) = iterator.next() {
         let token = Token {
             id,
