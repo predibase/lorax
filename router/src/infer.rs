@@ -1,5 +1,5 @@
 /// Batching and inference logic
-use crate::adapter::{extract_adapter_params, Adapter};
+use crate::adapter::{extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
@@ -72,7 +72,7 @@ impl Infer {
         // Initialize with base model adapter (empty) mapping to index 0
         let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
             AdapterParameters {
-                adapter_ids: vec!["".to_string()],
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
                 ..Default::default()
             },
             0,

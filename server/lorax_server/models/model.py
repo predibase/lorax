@@ -7,12 +7,14 @@ from loguru import logger
 from typing import Dict, List, Tuple, Optional, TypeVar, Type
 from transformers import PreTrainedTokenizerBase
 
+from lorax_server.adapters.utils import download_adapter
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
     load_and_merge_adapters,
 )
+from lorax_server.utils.sources import HUB
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.utils.weights import shard_on_dim
@@ -33,6 +35,7 @@ class Model(ABC):
         world_size: int = 1,
         sliding_window: Optional[int] = None,
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
+        adapter_source: str = HUB,
         dynamic_adapter_loading_enabled: bool = True,
     ):
         self.model_id = model_id
@@ -58,6 +61,15 @@ class Model(ABC):
             inspect.signature(model.forward).parameters.get("position_ids", None)
             is not None
         )
+
+        if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
+            download_adapter(adapter_id, adapter_source, api_token=None)
+            self.load_adapter(
+                AdapterParameters(adapter_ids=[adapter_id]),
+                adapter_source,
+                adapter_index=0,
+                api_token=None,
+            )
 
         self.check_initialized()
 

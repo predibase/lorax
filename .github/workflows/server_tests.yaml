@@ -16,11 +16,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Adding actions/checkout@v2
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v1
         with:
           python-version: "3.10"
+      - name: Get changed files
+        id: changed_files
+        run: |
+          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')"
+          echo "files=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -E '*.py$' | tr '\n' ' ')" >> $GITHUB_OUTPUT
+
+      # TODO(travis): reenable after running this on the entire codebase
+      # - name: Run flake8 on changed files
+      #   if: steps.changed_files.outputs.files != ''
+      #   run: |
+      #     pip install flake8
+      #     echo running linter on: ${{ steps.changed_files.outputs.files }}
+      #     flake8 ${{ steps.changed_files.outputs.files }}
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
       - name: Filter test dependencies

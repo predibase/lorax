@@ -33,6 +33,7 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
+from lorax_server.utils.sources import HUB
 from lorax_server.utils.state import get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
@@ -748,7 +749,7 @@ class FlashCausalLM(Model):
         sliding_window: Optional[int] = None,
         compile: bool = False,
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
-        dynamic_adapter_loading_enabled: bool = True,
+        adapter_source: str = HUB,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -768,7 +769,8 @@ class FlashCausalLM(Model):
             world_size=world_size,
             sliding_window=sliding_window,
             adapter_id=adapter_id,
-            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
+            adapter_source=adapter_source,
+            dynamic_adapter_loading_enabled=True,
         )
 
         if sliding_window is not None:
