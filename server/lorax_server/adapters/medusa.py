@@ -118,12 +118,15 @@ class MedusaWeights(AdapterWeights):
         layer_type: str,
         unused_weight_names: Set[str],
     ) -> Optional[AdapterWeights]:
+        # Unused weights not needed for Medusa
+        unused_weight_names.clear()
         return MedusaWeights(config, module_map, model)
 
 
 @dataclass
 class BatchMedusaWeights(BatchAdapterWeights):
     adapter_to_medusa: Dict[int, MedusaWeights]
+    default_medusa: Optional[MedusaWeights] = None
 
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_to_medusa
@@ -149,5 +152,6 @@ class BatchMedusaWeights(BatchAdapterWeights):
         }
 
         return BatchMedusaWeights(
-            adapter_to_medusa=adapter_to_medusa
+            adapter_to_medusa=adapter_to_medusa,
+            default_medusa=adapter_weights.get(0),
         )

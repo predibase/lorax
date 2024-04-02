@@ -690,12 +690,15 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
         data: Optional["BatchMedusaWeights"] = data.get(MEDUSA) if data is not None else None
 
         speculative_logits = None
-        if data is not None:
-            for adapter_index in adapter_data.meta.adapter_set:
-                if data.has_adapter(adapter_index):
-                    speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
-                    # adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
-                    # result += self.forward_medusa(input, data, adapter_index, adapter_mask)
+        if data is not None and data.default_medusa is not None:
+            speculative_logits = data.default_medusa.model(input)
+            
+            # TODO(travis): support multiple medusa adapters with masking:
+            # for adapter_index in adapter_data.meta.adapter_set:
+            #     if data.has_adapter(adapter_index):
+            #         adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+            #         speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
+            #         ...
 
         return result, speculative_logits
 
