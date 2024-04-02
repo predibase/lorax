@@ -1,6 +1,4 @@
 from lorax_server.utils.adapter import (
-    compute_delta_weight, 
-    create_merged_weight_files,
     load_module_map,
 )
 from lorax_server.utils.convert import convert_file, convert_files
@@ -33,8 +31,6 @@ from lorax_server.utils.tokens import (
 )
 
 __all__ = [
-    "compute_delta_weight",
-    "create_merged_weight_files",
     "load_module_map",
     "convert_file",
     "convert_files",

@@ -31,7 +31,6 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     MixtralConfig,
 )
 from lorax_server.utils import (
-    create_merged_weight_files,
     initialize_torch_distributed,
     weight_files,
     Weights,
@@ -212,6 +211,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
             max_length = max(max_length, input_length + max_new_tokens)
 
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
+        print("!!! ADAPTER INDICES", adapter_indices)
 
         request_tokenizers = [
             tokenizers.get_tokenizer(r.adapter_index, tokenizer)
@@ -361,29 +361,11 @@ class FlashMixtral(FlashCausalLM):
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-
-        # if adapter_id passed in as part of model instantiation, then we merge 
-        # the adapter weights with the model weights. This also disables dynamic
-        # adapter loading, since the model is now itself initialized with an adapter.
-        merged_weight_filenames = None
-        dynamic_adapter_loading_enabled = True
-        if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
-            # Need to pass the adapter source here
-            merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
-            )
-            dynamic_adapter_loading_enabled = False
-            adapter_id = adapter_id
-        else:
-            adapter_id = BASE_MODEL_ADAPTER_ID
-
         weights = Weights(
             filenames, 
             device, 
             dtype, 
             process_group=self.process_group, 
-            merged_weight_filenames=merged_weight_filenames
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -406,7 +388,7 @@ class FlashMixtral(FlashCausalLM):
             sliding_window=config.sliding_window,
             compile=compile,
             adapter_id=adapter_id,
-            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
+            adapter_source=adapter_source,
         )
 
     @property

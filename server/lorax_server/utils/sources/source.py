@@ -4,7 +4,6 @@ import os
 from typing import Optional, List
 from pathlib import Path
 
-from lorax_server.adapters import load_adapter_config
 from lorax_server.adapters.config import AdapterConfig
 
 
@@ -132,7 +131,8 @@ class BaseModelSource:
         return total_size
     
     def load_config(self) -> AdapterConfig:
+        from lorax_server.adapters import load_adapter_config
+
         config_path = self.download_file("config.json", ignore_errors=True)
         adapter_config_path = self.download_file("adapter_config.json", ignore_errors=True)
         return load_adapter_config(config_path, adapter_config_path, self.api_token)
-        
