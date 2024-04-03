@@ -187,23 +187,31 @@ class GraphWrapper:
                     lora_a={},
                     lora_b={},
                     adapter_index_configs={},
-                    rank_data={
-                        max_rank: RankSegments(
-                            rank=max_rank,
-                            tmp_shrink=tmp_shrink,
-                            tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
-                            lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
-                            lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
-                            segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[
-                                :segment_size
-                            ],
-                            segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[
-                                :segment_size
-                            ],
-                        ),
-                    }
-                    if max_rank > 0
-                    else {},
+                    rank_data=(
+                        {
+                            max_rank: RankSegments(
+                                rank=max_rank,
+                                tmp_shrink=tmp_shrink,
+                                tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[
+                                    :tmp_expand_size
+                                ],
+                                lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[
+                                    :segment_size
+                                ],
+                                lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[
+                                    :segment_size
+                                ],
+                                segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[
+                                    :segment_size
+                                ],
+                                segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[
+                                    :segment_size
+                                ],
+                            ),
+                        }
+                        if max_rank > 0
+                        else {}
+                    ),
                 )
             }
 
@@ -266,9 +274,9 @@ class GraphWrapper:
         pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
 
         self.input_state.block_tables.zero_()
-        self.input_state.block_tables[
-            : block_tables.shape[0], : block_tables.shape[1]
-        ] = block_tables
+        self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = (
+            block_tables
+        )
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             lora_data = weight_data[LORA]

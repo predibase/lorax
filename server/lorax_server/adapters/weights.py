@@ -76,9 +76,9 @@ class LayerAdapterWeights:
 
     def get_data(self, meta: AdapterBatchMetadata) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
-        adapter_batch_types: Dict[
-            Type[BatchAdapterWeights], Dict[int, AdapterWeights]
-        ] = defaultdict(dict)
+        adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = (
+            defaultdict(dict)
+        )
         for adapter_index, adapter_weights in self.adapter_weights.items():
             adapter_batch_types[adapter_weights.get_batch_type()][adapter_index] = adapter_weights
 

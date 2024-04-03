@@ -609,9 +609,9 @@ class FlashCausalLMBatch(Batch):
             adapter_end_index = (
                 cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
             )
-            adapter_indices[
-                adapter_start_index:adapter_end_index
-            ] = batch.adapter_meta.adapter_indices
+            adapter_indices[adapter_start_index:adapter_end_index] = (
+                batch.adapter_meta.adapter_indices
+            )
             cumulative_adapter_indices_size = adapter_end_index
             adapter_set.update(batch.adapter_meta.adapter_set)
 
@@ -620,13 +620,13 @@ class FlashCausalLMBatch(Batch):
                 batch.adapter_meta.adapter_segments, batch.adapter_meta.segment_indices
             )
 
-            all_input_ids_tensor[
-                start_index:end_index, : batch.all_input_ids_tensor.shape[1]
-            ] = batch.all_input_ids_tensor[:, :max_length]
+            all_input_ids_tensor[start_index:end_index, : batch.all_input_ids_tensor.shape[1]] = (
+                batch.all_input_ids_tensor[:, :max_length]
+            )
 
-            block_tables_tensor[
-                start_index:end_index, : batch.block_tables_tensor.shape[1]
-            ] = batch.block_tables_tensor[:, :max_blocks]
+            block_tables_tensor[start_index:end_index, : batch.block_tables_tensor.shape[1]] = (
+                batch.block_tables_tensor[:, :max_blocks]
+            )
 
             start_slots.append(batch.start_slots + cumulative_slots)
 
@@ -1089,9 +1089,9 @@ class FlashCausalLM(Model):
                 # Copy batch.input_ids to prefill_token_indices
                 if prefill_logprobs:
                     if len(batch) > 1:
-                        prefill_tokens_indices[
-                            out_start_index : out_end_index - 1
-                        ] = batch.input_ids[start_index + 1 : start_index + out_length]
+                        prefill_tokens_indices[out_start_index : out_end_index - 1] = (
+                            batch.input_ids[start_index + 1 : start_index + out_length]
+                        )
                     else:
                         # Set prefill_tokens_indices to the correct slice
                         prefill_tokens_indices = batch.input_ids[

@@ -347,9 +347,9 @@ class CausalLMBatch(Batch):
             adapter_end_index = (
                 cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
             )
-            adapter_indices[
-                adapter_start_index:adapter_end_index
-            ] = batch.adapter_meta.adapter_indices
+            adapter_indices[adapter_start_index:adapter_end_index] = (
+                batch.adapter_meta.adapter_indices
+            )
             cumulative_adapter_indices_size = adapter_end_index
             adapter_set.update(batch.adapter_meta.adapter_set)
 
@@ -540,9 +540,9 @@ class CausalLM(Model):
             model_id,
             revision=revision,
             torch_dtype=dtype,
-            device_map="auto"
-            if torch.cuda.is_available() and torch.cuda.device_count() > 1
-            else None,
+            device_map=(
+                "auto" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else None
+            ),
             load_in_8bit=quantize == "bitsandbytes",
             trust_remote_code=trust_remote_code,
         )
