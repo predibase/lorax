@@ -81,9 +81,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
         max_supported_total_tokens = self.model.warmup(batch, request.max_new_tokens)
 
-        return generate_pb2.WarmupResponse(
-            max_supported_total_tokens=max_supported_total_tokens
-        )
+        return generate_pb2.WarmupResponse(max_supported_total_tokens=max_supported_total_tokens)
 
     async def Prefill(self, request: generate_pb2.PrefillRequest, context):
         batch = self.model.batch_type.from_pb(
@@ -128,7 +126,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             generations=[generation.to_pb() for generation in generations],
             batch=next_batch.to_pb() if next_batch else None,
         )
-        
+
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
         if is_base_model(adapter_parameters):
@@ -142,13 +140,15 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             if adapter_id == BASE_MODEL_ADAPTER_ID:
                 logger.info("No adapter to download for base model. Skipping.")
                 continue
-            
+
             adapter_bytes += download_adapter(adapter_id, adapter_source, api_token)
-        
+
         adapter_memory_size = self.model.adapter_memory_size()
         if adapter_memory_size > 0:
-            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                        f"(reservation: {adapter_memory_size} bytes)")
+            logger.info(
+                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                f"(reservation: {adapter_memory_size} bytes)"
+            )
             adapter_memory_fraction = adapter_bytes / adapter_memory_size
             if adapter_memory_fraction > 1:
                 raise ValueError(
@@ -157,13 +157,14 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 )
         else:
             # Assume 0.0 memory fraction if adapter memory size is not set
-            logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                        f"(no reservation limit)")
+            logger.info(
+                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+                f"(no reservation limit)"
+            )
             adapter_memory_fraction = 0.0
-        
+
         return generate_pb2.DownloadAdapterResponse(
-            downloaded=True,
-            memory_fraction=adapter_memory_fraction
+            downloaded=True, memory_fraction=adapter_memory_fraction
         )
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
@@ -171,7 +172,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if is_base_model(adapter_parameters):
             logger.info("No adapter to load for base model. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=False)
-        
+
         try:
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
@@ -183,9 +184,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                     adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
                     adapter_parameters.adapter_ids[i] = adapter_id
                 adapter_source = S3
-            
+
             self.model.load_adapter(adapter_parameters, adapter_source, adapter_index, api_token)
-            
+
             return generate_pb2.LoadAdapterResponse(loaded=True)
         except Exception:
             logger.exception("Error when loading adapter")
@@ -196,7 +197,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if is_base_model(adapter_parameters):
             logger.info("No adapter to offload for base model. Skipping.")
             return generate_pb2.OffloadAdapterResponse(offloaded=False)
-        
+
         try:
             adapter_idx = request.adapter_index
             adapter_source = _adapter_source_enum_to_string(request.adapter_source)
@@ -206,7 +207,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             # Ensure there is enough memory for the next adapter
             torch.cuda.empty_cache()
             torch.cuda.synchronize(self.model.device)
-            
+
             return generate_pb2.OffloadAdapterResponse(offloaded=True)
         except Exception:
             logger.exception("Error when offloading adapter")
@@ -251,7 +252,16 @@ def serve(
 
         try:
             model = get_model(
-                model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, source, adapter_source
+                model_id,
+                adapter_id,
+                revision,
+                sharded,
+                quantize,
+                compile,
+                dtype,
+                trust_remote_code,
+                source,
+                adapter_source,
             )
         except Exception:
             logger.exception("Error when initializing model")
@@ -271,7 +281,7 @@ def serve(
                 create_exllama_buffers()
             except ImportError:
                 pass
-        
+
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
         if speculative_tokens > 0:
@@ -311,14 +321,14 @@ def serve(
 
     asyncio.run(
         serve_inner(
-            model_id, 
-            adapter_id, 
-            revision, 
-            sharded, 
-            quantize, 
-            compile, 
-            dtype, 
-            trust_remote_code, 
+            model_id,
+            adapter_id,
+            revision,
+            sharded,
+            quantize,
+            compile,
+            dtype,
+            trust_remote_code,
             speculative_tokens,
         )
     )

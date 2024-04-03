@@ -42,7 +42,9 @@ class BloomCausalLMBatch(CausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
-        batch = super().from_pb(pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device)
+        batch = super().from_pb(
+            pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device
+        )
         batch.keys_head_dim_last = False
         return batch
 
@@ -59,7 +61,7 @@ class BLOOMSharded(CausalLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with Bloom")
-        
+
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")
@@ -88,9 +90,7 @@ class BLOOMSharded(CausalLM):
 
         torch.distributed.barrier(group=self.process_group)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        weights = Weights(
-            filenames, device=device, dtype=dtype, process_group=self.process_group
-        )
+        weights = Weights(filenames, device=device, dtype=dtype, process_group=self.process_group)
         if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
@@ -110,22 +110,21 @@ class BLOOMSharded(CausalLM):
 
         self.dynamic_adapter_loading_enabled = True
 
-
     @property
     def batch_type(self) -> Type[CausalLMBatch]:
         return BloomCausalLMBatch
-    
+
     @property
     def has_adapter_data(self) -> bool:
         return True
 
     def forward(
-        self, 
-        input_ids, 
-        attention_mask, 
-        position_ids, 
-        past_key_values: Optional = None, 
-        adapter_data: Optional[AdapterBatchData] = None
+        self,
+        input_ids,
+        attention_mask,
+        position_ids,
+        past_key_values: Optional = None,
+        adapter_data: Optional[AdapterBatchData] = None,
     ):
         outputs = self.model.forward(
             input_ids=input_ids,
@@ -138,32 +137,44 @@ class BLOOMSharded(CausalLM):
 
         logits = outputs.logits
         return logits, outputs.past_key_values
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "transformer.h"
         for i, layer in enumerate(self.model.transformer.h):
-            layer_weights[(i, ATTN_QKV)] = (f"{prefix}.{i}.self_attention.query_key_value", layer.self_attention.query_key_value)
-            layer_weights[(i, ATTN_DENSE)] = (f"{prefix}.{i}.self_attention.dense", layer.self_attention.dense)
+            layer_weights[(i, ATTN_QKV)] = (
+                f"{prefix}.{i}.self_attention.query_key_value",
+                layer.self_attention.query_key_value,
+            )
+            layer_weights[(i, ATTN_DENSE)] = (
+                f"{prefix}.{i}.self_attention.dense",
+                layer.self_attention.dense,
+            )
 
-            layer_weights[(i, MLP_DENSE_H_TO_4H)] = (f"{prefix}.{i}.mlp.dense_h_to_4h", layer.mlp.dense_h_to_4h)
-            layer_weights[(i, MLP_DENSE_4H_TO_H)] = (f"{prefix}.{i}.mlp.dense_4h_to_h", layer.mlp.dense_4h_to_h)
+            layer_weights[(i, MLP_DENSE_H_TO_4H)] = (
+                f"{prefix}.{i}.mlp.dense_h_to_4h",
+                layer.mlp.dense_h_to_4h,
+            )
+            layer_weights[(i, MLP_DENSE_4H_TO_H)] = (
+                f"{prefix}.{i}.mlp.dense_4h_to_h",
+                layer.mlp.dense_4h_to_h,
+            )
 
         # TODO: make Embedding layers adapter-compatible
         # layer_weights[(0, LM_HEAD)] = ("transformer.wte", self.model.transformer.wte)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

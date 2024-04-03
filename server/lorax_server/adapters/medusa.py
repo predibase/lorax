@@ -19,15 +19,17 @@ class MedusaConfig(AdapterConfig):
     medusa_num_layers: int
 
     def map_weights_for_model(
-        self, adapter_weights: Dict, weight_names: Tuple[str],
+        self,
+        adapter_weights: Dict,
+        weight_names: Tuple[str],
     ) -> Tuple[ModuleMap, Set[str]]:
         # TODO(travis): this isn't technically the ModuleMap structure, make this more generic
         return adapter_weights, set(weight_names)
-    
+
     def load_batched_adapter_weights(
-        self, 
+        self,
         model: "Model",
-        module_map: Dict[str, Dict], 
+        module_map: Dict[str, Dict],
         layer_type: str,
         unused_weight_names: Set[str],
         dynamic: bool,
@@ -37,7 +39,7 @@ class MedusaConfig(AdapterConfig):
                 "Dynamic adapter loading is not supported for Medusa at this time. "
                 "Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every request."
             )
-        
+
         return MedusaWeights.load(
             self,
             model,
@@ -58,9 +60,7 @@ class MedusaConfig(AdapterConfig):
 class ResBlock(torch.nn.Module):
     def __init__(self, config: MedusaConfig, prefix: str, weights: AbstractWeights):
         super().__init__()
-        self.linear = FastLinear.load(
-            config, prefix=f"{prefix}.linear", weights=weights, bias=True
-        )
+        self.linear = FastLinear.load(config, prefix=f"{prefix}.linear", weights=weights, bias=True)
         self.act = torch.nn.SiLU()
 
     def forward(self, x):
@@ -77,9 +77,7 @@ class MedusaHead(torch.nn.Module):
             ]
         )
         n = len(self.blocks)
-        self.out = FastLinear.load(
-            config, prefix=f"{prefix}.{n}", weights=weights, bias=False
-        )
+        self.out = FastLinear.load(config, prefix=f"{prefix}.{n}", weights=weights, bias=False)
 
     def forward(self, x):
         for block in self.blocks:
@@ -107,21 +105,21 @@ class MedusaWeights(AdapterWeights):
     def __init__(self, config: MedusaConfig, module_map: ModuleMap, model: "Model"):
         self.config = config
         self.model = MedusaModel(config, InMemoryWeights(module_map, model.device, model.dtype))
-    
+
     @classmethod
     def get_batch_type(cls) -> BatchAdapterWeights:
         return BatchMedusaWeights
-    
+
     @property
     def speculative_tokens(self) -> int:
         return self.config.medusa_num_heads
 
     @classmethod
     def load(
-        cls, 
+        cls,
         config: MedusaConfig,
         model: "Model",
-        module_map: Dict[str, Dict], 
+        module_map: Dict[str, Dict],
         layer_type: str,
         unused_weight_names: Set[str],
     ) -> Optional[AdapterWeights]:
@@ -146,16 +144,10 @@ class BatchMedusaWeights(BatchAdapterWeights):
     def load(
         cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata"
     ) -> "BatchMedusaWeights":
-        adapter_weights = {
-            k: v
-            for k, v in adapter_weights.items()
-            if isinstance(v, MedusaWeights)
-        }
+        adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
 
         adapter_to_medusa = {
-            idx: adapter_weights[idx]
-            for idx in meta.segment_indices
-            if idx in adapter_weights
+            idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights
         }
 
         return BatchMedusaWeights(

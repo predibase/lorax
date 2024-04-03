@@ -69,10 +69,10 @@ class FlashPhi(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -97,33 +97,45 @@ class FlashPhi(FlashCausalLM):
             adapter_id=adapter_id,
             adapter_source=adapter_source,
         )
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, ATTN_Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.qkv_proj)
-            layer_weights[(i, ATTN_K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.qkv_proj)
-            layer_weights[(i, ATTN_V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.qkv_proj)
-            layer_weights[(i, ATTN_DENSE)] = (f"{prefix}.{i}.self_attn.dense", layer.self_attn.dense)
+            layer_weights[(i, ATTN_Q_PROJ)] = (
+                f"{prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.qkv_proj,
+            )
+            layer_weights[(i, ATTN_K_PROJ)] = (
+                f"{prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.qkv_proj,
+            )
+            layer_weights[(i, ATTN_V_PROJ)] = (
+                f"{prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.qkv_proj,
+            )
+            layer_weights[(i, ATTN_DENSE)] = (
+                f"{prefix}.{i}.self_attn.dense",
+                layer.self_attn.dense,
+            )
 
             layer_weights[(i, MLP_FC1)] = (f"{prefix}.{i}.mlp.fc1", layer.mlp.fc1)
             layer_weights[(i, MLP_FC2)] = (f"{prefix}.{i}.mlp.fc2", layer.mlp.fc2)
-        
+
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

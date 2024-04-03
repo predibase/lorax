@@ -25,7 +25,7 @@ class SantaCoder(CausalLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with SantaCoder")
-        
+
         if torch.cuda.is_available():
             device = torch.device("cuda")
             dtype = torch.float16 if dtype is None else dtype

@@ -30,7 +30,7 @@ class GPTNeoxSharded(CausalLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with GPT-NeoX")
-        
+
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")
@@ -57,9 +57,7 @@ class GPTNeoxSharded(CausalLM):
 
         torch.distributed.barrier(group=self.process_group)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        weights = Weights(
-            filenames, device=device, dtype=dtype, process_group=self.process_group
-        )
+        weights = Weights(filenames, device=device, dtype=dtype, process_group=self.process_group)
         if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
@@ -77,9 +75,7 @@ class GPTNeoxSharded(CausalLM):
             world_size=world_size,
         )
 
-    def forward(
-        self, input_ids, attention_mask, position_ids, past_key_values: Optional = None
-    ):
+    def forward(self, input_ids, attention_mask, position_ids, past_key_values: Optional = None):
         outputs = self.model.forward(
             input_ids=input_ids,
             attention_mask=attention_mask,

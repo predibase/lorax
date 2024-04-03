@@ -34,7 +34,9 @@ class MPTCausalLMBatch(CausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
-        batch = super().from_pb(pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device)
+        batch = super().from_pb(
+            pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device
+        )
         batch.keys_head_dim_last = False
         return batch
 
@@ -50,7 +52,7 @@ class MPTSharded(CausalLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with MPT")
-        
+
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")
@@ -72,9 +74,7 @@ class MPTSharded(CausalLM):
         if local_path.exists():
             filename = str(local_path.resolve())
         else:
-            filename = hf_hub_download(
-                model_id, revision=revision, filename="config.json"
-            )
+            filename = hf_hub_download(model_id, revision=revision, filename="config.json")
         with open(filename, "r") as f:
             config = json.load(f)
         config = PretrainedConfig(**config)

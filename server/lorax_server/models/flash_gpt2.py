@@ -67,11 +67,11 @@ class FlashGPT2(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
-            merged_weight_filenames=merged_weight_filenames
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
+            merged_weight_filenames=merged_weight_filenames,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -99,7 +99,7 @@ class FlashGPT2(FlashCausalLM):
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
@@ -114,13 +114,13 @@ class FlashGPT2(FlashCausalLM):
         # TODO: make Embedding layers adapter-compatible
         # layer_weights[(0, LM_HEAD)] = ("transformer.wte", self.model.transformer.wte)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
