@@ -495,6 +495,7 @@ struct ChatCompletionRequest {
     frequency_penalty: Option<f32>,
     logit_bias: Option<std::collections::HashMap<String, f32>>,
     user: Option<String>,
+    seed: Option<u64>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     response_format: Option<ResponseFormat>,
@@ -522,6 +523,7 @@ struct CompletionRequest {
     best_of: Option<i32>,
     logit_bias: Option<std::collections::HashMap<String, f32>>,
     user: Option<String>,
+    seed: Option<u64>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     repetition_penalty: Option<f32>,
@@ -653,7 +655,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: req.logprobs.is_some(),
                 return_k_alternatives: None,
                 apply_chat_template: false,
-                seed: None,
+                seed: req.seed,
                 response_format: None,
             },
             stream: req.stream.unwrap_or(false),
@@ -687,7 +689,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 decoder_input_details: false,
                 return_k_alternatives: None,
                 apply_chat_template: true,
-                seed: None,
+                seed: req.seed,
                 response_format: req.response_format,
             },
             stream: req.stream.unwrap_or(false),
