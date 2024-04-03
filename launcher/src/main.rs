@@ -156,6 +156,11 @@ struct Args {
     #[clap(long, env, value_enum)]
     compile: bool,
 
+    /// The number of speculative tokens to generate in the model per step.
+    /// Defaults to 0, meaning no speculative decoding.
+    #[clap(long, env)]
+    speculative_tokens: Option<usize>,
+
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
     dtype: Option<Dtype>,
@@ -384,6 +389,7 @@ fn shard_manager(
     adapter_source: String,
     quantize: Option<Quantization>,
     compile: bool,
+    speculative_tokens: Option<usize>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -453,6 +459,12 @@ fn shard_manager(
     // CUDA graph compilation
     if compile {
         shard_args.push("--compile".to_string());
+    }
+
+    // Speculative decoding
+    if let Some(speculative_tokens) = speculative_tokens {
+        shard_args.push("--speculative-tokens".to_string());
+        shard_args.push(speculative_tokens.to_string())
     }
 
     if let Some(dtype) = dtype {
@@ -920,6 +932,7 @@ fn spawn_shards(
         let otlp_endpoint = args.otlp_endpoint.clone();
         let quantize = args.quantize;
         let compile = args.compile;
+        let speculative_tokens = args.speculative_tokens;
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -937,6 +950,7 @@ fn spawn_shards(
                 adapter_source,
                 quantize,
                 compile,
+                speculative_tokens,
                 dtype,
                 trust_remote_code,
                 uds_path,

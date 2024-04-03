@@ -225,16 +225,18 @@ def serve(
     uds_path: Path,
     source: str,
     adapter_source: str,
+    speculative_tokens: int,
 ):
     async def serve_inner(
         model_id: str,
         adapter_id: str,
         revision: Optional[str],
-        sharded: bool = False,
-        quantize: Optional[str] = None,
-        compile: bool = False,
-        dtype: Optional[str] = None,
-        trust_remote_code: bool = False,
+        sharded: bool,
+        quantize: Optional[str],
+        compile: bool,
+        dtype: Optional[str],
+        trust_remote_code: bool,
+        speculative_tokens: int,
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
@@ -271,7 +273,7 @@ def serve(
                 pass
         
         # set speculative decoding tokens
-        speculative_tokens = model.max_speculative_tokens
+        speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
         if speculative_tokens > 0:
             set_speculative_tokens(speculative_tokens)
 
@@ -308,7 +310,17 @@ def serve(
             await server.stop(0)
 
     asyncio.run(
-        serve_inner(model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code)
+        serve_inner(
+            model_id, 
+            adapter_id, 
+            revision, 
+            sharded, 
+            quantize, 
+            compile, 
+            dtype, 
+            trust_remote_code, 
+            speculative_tokens,
+        )
     )
 
 
