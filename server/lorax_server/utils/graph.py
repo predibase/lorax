@@ -142,7 +142,7 @@ class GraphWrapper:
         graph: torch.cuda.CUDAGraph,
         memory_pool: Tuple[int, int],
         input_state: GraphState,
-        output_states: torch.Tensor,
+        output_states: Tuple[torch.Tensor, Optional[torch.Tensor]],
         model: nn.Module,
     ):
         self.graph = graph
@@ -306,7 +306,10 @@ class GraphWrapper:
 
         self.graph.replay()
 
-        return self.output_states[: input_ids.shape[0]]
+        return tuple(
+            state[: input_ids.shape[0]] if state is not None else None
+            for state in self.output_states
+        )
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
