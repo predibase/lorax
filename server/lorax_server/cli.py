@@ -46,6 +46,7 @@ def serve(
     otlp_endpoint: Optional[str] = None,
     source: str = "hub",
     adapter_source: str = "hub",
+    speculative_tokens: int = 0,
 ):
     if sharded:
         assert (
@@ -89,7 +90,18 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, uds_path, source, adapter_source
+        model_id, 
+        adapter_id, 
+        revision, 
+        sharded, 
+        quantize, 
+        compile, 
+        dtype, 
+        trust_remote_code, 
+        uds_path, 
+        source, 
+        adapter_source,
+        speculative_tokens,
     )
 
 
