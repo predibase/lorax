@@ -944,7 +944,9 @@ class FlashCausalLM(Model):
             batch.prefill_cache_indices = None
         return logits
 
-    def _try_generate_token(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def _try_generate_token(
+        self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         try:
             return self.forward(batch, adapter_data)
         except Exception as e:

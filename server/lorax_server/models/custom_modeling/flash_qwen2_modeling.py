@@ -136,10 +136,13 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert list(weight.shape) == [
-            (num_heads + 2 * num_key_value_heads) * head_size,
-            config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert (
+            list(weight.shape)
+            == [
+                (num_heads + 2 * num_key_value_heads) * head_size,
+                config.hidden_size,
+            ]
+        ), f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=True, quantize=config.quantize))
 

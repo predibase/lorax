@@ -33,5 +33,5 @@ export-requirements:
 	poetry export -o requirements.txt -E bnb --without-hashes
 
 format:
-	pip install black
-	python -m black lorax_server
+	pip install ruff
+	python -m ruff format server/lorax_server

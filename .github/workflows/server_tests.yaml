@@ -26,10 +26,10 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Run black fmt
+      - name: Run ruff
         run: |
-          pip install black
-          python -m black --check server/lorax_server
+          pip install ruff
+          python -m ruff check server/lorax_server
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1

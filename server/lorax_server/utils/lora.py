@@ -1,7 +1,3 @@
-
-
-
-
 # Constants
 Q_PROJ = "q_proj"
 K_PROJ = "k_proj"
