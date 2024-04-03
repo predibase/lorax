@@ -22,7 +22,6 @@ from transformers.configuration_utils import PretrainedConfig
 from typing import Optional, List, Tuple
 
 # Flash attention imports
-import dropout_layer_norm
 
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn
@@ -34,14 +33,12 @@ from lorax_server.utils.layers import (
     TensorParallelEmbedding,
     TensorParallelMultiAdapterLinear,
     PositionRotaryEmbedding,
-    TensorParallelHead,
     get_linear,
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,
     K_PROJ,
-    LM_HEAD,
     O_PROJ,
     Q_PROJ,
     UP_PROJ,
@@ -162,10 +159,13 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.head_dim
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert list(weight.shape) == [
-            (num_heads + 2 * num_key_value_heads) * head_size,
-            config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert (
+            list(weight.shape)
+            == [
+                (num_heads + 2 * num_key_value_heads) * head_size,
+                config.hidden_size,
+            ]
+        ), f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 

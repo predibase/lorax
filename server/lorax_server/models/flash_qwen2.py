@@ -1,7 +1,6 @@
 import torch
 import torch.distributed
 
-from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
@@ -23,7 +22,6 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)

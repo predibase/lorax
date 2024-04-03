@@ -1,11 +1,8 @@
-from collections import defaultdict
 import torch
 import torch.distributed
 
-from loguru import logger
 from opentelemetry import trace
-from transformers import AutoTokenizer, GPT2Model
-from tqdm import tqdm
+from transformers import AutoTokenizer
 from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
@@ -23,7 +20,6 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 
 tracer = trace.get_tracer(__name__)
 
@@ -71,7 +67,6 @@ class FlashGPT2(FlashCausalLM):
             device,
             dtype,
             process_group=self.process_group,
-            merged_weight_filenames=merged_weight_filenames,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:

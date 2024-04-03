@@ -1,10 +1,8 @@
 import torch
 import torch.distributed
 
-from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from tqdm import tqdm
 from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
@@ -17,7 +15,6 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,

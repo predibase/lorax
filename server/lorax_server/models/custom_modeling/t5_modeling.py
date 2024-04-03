@@ -12,11 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch T5 model."""
+"""PyTorch T5 model."""
 
 import copy
 import math
-import warnings
 from typing import Optional, Tuple, Union
 
 from loguru import logger
@@ -993,7 +992,6 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
         if head_mask is not None and decoder_head_mask is None:
             if self.config.num_layers == self.config.num_decoder_layers:
-                warnings.warn(__HEAD_MASK_WARNING_MSG, FutureWarning)
                 decoder_head_mask = head_mask
 
         # Encode if needed (training, first prediction pass)

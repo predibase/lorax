@@ -434,7 +434,7 @@ class GraphCache:
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         batch_size = get_cached_batch_size(input_ids.shape[0])
         max_rank = adapter_data.max_rank

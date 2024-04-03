@@ -10,7 +10,6 @@ from lorax_server.models.types import (
     Batch,
     NextTokens,
     PrefillTokens,
-    AlternativeTokens,
     Generation,
     GeneratedText,
 )

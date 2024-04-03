@@ -7,6 +7,18 @@ from torch import nn
 from torch.nn import functional as F
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
+from accelerate import init_empty_weights
+
+from lorax_server.adapters.types import LORA, MEDUSA
+from lorax_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.utils.sgmv import (
+    lora_a_sgmv_cutlass,
+    lora_b_sgmv_cutlass,
+    has_sgmv,
+    orient_for_rank,
+)
+from lorax_server.utils.state import is_warmup
+
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -41,18 +53,6 @@ try:
 
 except ImportError:
     HAS_HQQ = False
-
-from accelerate import init_empty_weights
-
-from lorax_server.adapters.types import LORA, MEDUSA
-from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import (
-    lora_a_sgmv_cutlass,
-    lora_b_sgmv_cutlass,
-    has_sgmv,
-    orient_for_rank,
-)
-from lorax_server.utils.state import is_warmup
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -231,9 +231,7 @@ class Linear8bitLt(nn.Module):
         index=None,
     ):
         super().__init__()
-        assert (
-            not memory_efficient_backward
-        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
+        assert not memory_efficient_backward, "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
         self.state = bnb.MatmulLtState()
         self.index = index
 
@@ -359,7 +357,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
         except Exception:
             raise NotImplementedError(
-                f"The passed weight is not `gptq` compatible, loader needs to be updated."
+                "The passed weight is not `gptq` compatible, loader needs to be updated."
             )
 
         if use_exllama:
@@ -378,7 +376,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         try:
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
-            raise NotImplementedError(f"The passed weight is not compatible with `awq`")
+            raise NotImplementedError("The passed weight is not compatible with `awq`")
         linear = AWQLinear(
             w_bit=bits,
             group_size=groupsize,
@@ -838,7 +836,7 @@ except ImportError:
 
 
 try:
-    from flash_attn.layers.rotary import RotaryEmbedding
+    from flash_attn.layers.rotary import RotaryEmbedding  # noqa: F401
     import rotary_emb
 
     def _create_inv_freq(dim, base, device):

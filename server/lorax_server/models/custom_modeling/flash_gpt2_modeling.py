@@ -30,16 +30,12 @@ from typing import Optional, List, Tuple
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
-    FastLinear,
     TensorParallelAdapterRowLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelHead,
     FastLayerNorm,
-    PositionRotaryEmbedding,
-    get_linear,
 )
 from lorax_server.adapters import AdapterBatchData
 

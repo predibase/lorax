@@ -944,6 +944,15 @@ class FlashCausalLM(Model):
             batch.prefill_cache_indices = None
         return logits
 
+    def _try_generate_token(
+        self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        try:
+            return self.forward(batch, adapter_data)
+        except Exception as e:
+            del batch
+            raise e
+
     @tracer.start_as_current_span("generate_token")
     def generate_token(
         self, batch: FlashCausalLMBatch, is_warmup: bool = False
@@ -987,11 +996,7 @@ class FlashCausalLM(Model):
         # TODO(travis): don't update this if indices haven't changed
         adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
 
-        try:
-            out, speculative_logits = self.forward(batch, adapter_data)
-        except Exception as e:
-            del batch
-            raise e
+        out, speculative_logits = self._try_generate_token(batch, adapter_data)
 
         if prefill:
             next_token_logits = out[batch.prefill_next_token_indices] if prefill_logprobs else out

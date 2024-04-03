@@ -4,7 +4,6 @@ Inspired by https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
 """
 
 import math
-import os
 import warnings
 from typing import List, Optional, Tuple, Union
 import torch
@@ -29,7 +28,7 @@ EPS = 1e-5
 
 
 def load_col(config, prefix, weights, bias):
-    assert bias == False, NotImplementedError
+    assert not bias, NotImplementedError
     assert config.quantize != "gptq", NotImplementedError
     slice_ = weights._get_slice(f"{prefix}.weight")
     rank = weights.process_group.rank()
@@ -160,7 +159,7 @@ def flash_attn_fn(
 ):
     try:
         from flash_attn import bert_padding, flash_attn_interface
-    except:
+    except Exception:
         raise RuntimeError("Please install flash-attn==1.0.3.post0")
     check_valid_inputs(query, key, value)
     if past_key_value is not None:
@@ -173,7 +172,7 @@ def flash_attn_fn(
         _s_k = max(0, attn_bias.size(3) - key.size(1))
         attn_bias = attn_bias[:, :, _s_q:, _s_k:]
     if attn_bias is not None:
-        raise NotImplementedError(f"attn_bias not implemented for flash attn.")
+        raise NotImplementedError("attn_bias not implemented for flash attn.")
     (batch_size, seqlen) = query.shape[:2]
     if key_padding_mask is None:
         key_padding_mask = torch.ones_like(key[:, :, 0], dtype=torch.bool)
@@ -227,13 +226,13 @@ def triton_flash_attn_fn(
 ):
     try:
         from .flash_attn_triton import flash_attn_func
-    except:
+    except Exception:
         _installed = False
         if version.parse(torch.__version__) < version.parse("2.0.0"):
             _installed = True
             try:
                 from flash_attn.flash_attn_triton import flash_attn_func
-            except:
+            except Exception:
                 _installed = False
         if not _installed:
             raise RuntimeError(
@@ -250,9 +249,9 @@ def triton_flash_attn_fn(
         _s_k = max(0, attn_bias.size(3) - key.size(1))
         attn_bias = attn_bias[:, :, _s_q:, _s_k:]
     if dropout_p:
-        raise NotImplementedError(f"Dropout not implemented for attn_impl: triton.")
+        raise NotImplementedError("Dropout not implemented for attn_impl: triton.")
     if needs_weights:
-        raise NotImplementedError(f"attn_impl: triton cannot return attn weights.")
+        raise NotImplementedError("attn_impl: triton cannot return attn weights.")
     if key_padding_mask is not None:
         warnings.warn(
             "Propagating key_padding_mask to the attention module "
@@ -298,7 +297,6 @@ class MultiheadAttention(nn.Module):
         self.clip_qkv = config.attn_config["clip_qkv"]
         self.qk_ln = config.attn_config["qk_ln"]
         self.d_model = config.d_model
-        d_model = config.d_model
         self.n_heads = config.n_heads
         self.softmax_scale = config.attn_config["softmax_scale"]
         if self.softmax_scale is None:
@@ -382,7 +380,6 @@ class MultiQueryAttention(nn.Module):
         self.clip_qkv = config.attn_config["clip_qkv"]
         self.qk_ln = config.attn_config["qk_ln"]
         self.d_model = config.d_model
-        d_model = config.d_model
         self.n_heads = config.n_heads
         self.softmax_scale = config.attn_config["softmax_scale"]
         if self.softmax_scale is None:
@@ -392,28 +389,14 @@ class MultiQueryAttention(nn.Module):
         self.Wqkv = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.Wqkv", weights=weights, bias=not config.no_bias
         )
-        fuse_splits = (d_model, d_model + self.head_dim)
         if self.qk_ln:
             raise NotImplementedError("qk_ln not supported")
         if self.attn_impl == "flash":
             self.attn_fn = flash_attn_fn
         elif self.attn_impl == "triton":
             self.attn_fn = triton_flash_attn_fn
-            if verbose:
-                warnings.warn(
-                    "While `attn_impl: triton` can be faster than `attn_impl: flash` "
-                    + "it uses more memory. When training larger models this can trigger "
-                    + "alloc retries which hurts performance. If encountered, we recommend "
-                    + "using `attn_impl: flash` if your model does not use `alibi` or `prefix_lm`."
-                )
         elif self.attn_impl == "torch":
             self.attn_fn = scaled_multihead_dot_product_attention
-            if torch.cuda.is_available() and verbose:
-                warnings.warn(
-                    "Using `attn_impl: torch`. If your model does not use `alibi` or "
-                    + "`prefix_lm` we recommend using `attn_impl: flash` otherwise "
-                    + "we recommend using `attn_impl: triton`."
-                )
         else:
             raise ValueError(f"attn_impl={attn_impl!r} is an invalid setting.")
         self.out_proj = TensorParallelRowLinear.load(
@@ -702,11 +685,6 @@ class MPTModel(MPTPreTrainedModel):
         self.attn_uses_sequence_id = config.attn_config["attn_uses_sequence_id"]
         self.alibi = config.attn_config["alibi"]
         self.alibi_bias_max = config.attn_config["alibi_bias_max"]
-        if config.init_device == "mixed":
-            if dist.get_local_rank() == 0:
-                config.init_device = "cpu"
-            else:
-                config.init_device = "meta"
         if config.norm_type.lower() not in NORM_CLASS_REGISTRY.keys():
             norm_options = " | ".join(NORM_CLASS_REGISTRY.keys())
             raise NotImplementedError(
@@ -908,7 +886,7 @@ class MPTModel(MPTPreTrainedModel):
             if past_key_values is not None:
                 if len(past_key_values) != self.config.n_layers:
                     raise ValueError(
-                        f"past_key_values must provide a past_key_value for each attention "
+                        "past_key_values must provide a past_key_value for each attention "
                         + f"layer in the network (len(past_key_values)={len(past_key_values)!r}; self.config.n_layers={self.config.n_layers!r})."
                     )
                 past_position = past_key_values[0][0].size(1)
@@ -1054,7 +1032,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
             input_ids = input_ids[:, -1].unsqueeze(-1)
         if self.transformer.prefix_lm:
             prefix_mask = torch.ones_like(attention_mask)
-            if kwargs.get("use_cache") == False:
+            if not kwargs.get("use_cache"):
                 raise NotImplementedError(
                     "MPT with prefix_lm=True does not support use_cache=False."
                 )

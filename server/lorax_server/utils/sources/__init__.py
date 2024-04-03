@@ -5,9 +5,6 @@ from functools import lru_cache
 import requests
 
 from .hub import (
-    EntryNotFoundError,
-    LocalEntryNotFoundError,
-    RevisionNotFoundError,
     get_hub_model_local_dir,
     weight_files,
     download_weights,
@@ -96,9 +93,6 @@ __all__ = [
     "weight_hub_files",
     "weight_files",
     "get_model_source",
-    "EntryNotFoundError",
-    "LocalEntryNotFoundError",
-    "RevisionNotFoundError",
     "get_hub_model_local_dir",
     "get_s3_model_local_dir",
     "map_pbase_model_id_to_s3",

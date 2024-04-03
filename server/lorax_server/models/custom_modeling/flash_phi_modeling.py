@@ -14,7 +14,6 @@ import torch.distributed
 
 from torch import nn
 from transformers.activations import ACT2FN
-from transformers.models.phi import PhiConfig
 from typing import Optional, List, Tuple
 
 from lorax_server.adapters import AdapterBatchData

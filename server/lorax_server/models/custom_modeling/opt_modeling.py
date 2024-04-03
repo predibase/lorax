@@ -12,7 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch OPT model."""
+"""PyTorch OPT model."""
+
 import random
 from typing import List, Optional, Tuple, Union
 
@@ -28,6 +29,7 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers import OPTConfig
 from lorax_server.utils.layers import (
+    FastLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelRowLinear,

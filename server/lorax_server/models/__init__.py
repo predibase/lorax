@@ -1,9 +1,7 @@
-import os
 import torch
 
 from loguru import logger
 from transformers.configuration_utils import PretrainedConfig
-from transformers.models.auto import modeling_auto
 from typing import Optional
 
 from lorax_server.models.model import Model
@@ -12,12 +10,10 @@ from lorax_server.models.flash_causal_lm import FlashCausalLM
 from lorax_server.models.bloom import BLOOMSharded
 from lorax_server.models.mpt import MPTSharded
 from lorax_server.models.seq2seq_lm import Seq2SeqLM
-from lorax_server.models.rw import RW
 from lorax_server.models.opt import OPTSharded
 from lorax_server.models.galactica import GalacticaSharded
 from lorax_server.models.santacoder import SantaCoder
 from lorax_server.models.t5 import T5Sharded
-from lorax_server.models.gpt_neox import GPTNeoxSharded
 from lorax_server.utils.sources import get_s3_model_local_dir
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
@@ -60,7 +56,7 @@ def get_model(
     if source == "s3":
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
-        logger.info(f"Using the local files since we are coming from s3")
+        logger.info("Using the local files since we are coming from s3")
         model_path = get_s3_model_local_dir(model_id)
         logger.info(f"model_path: {model_path}")
         config_dict, _ = PretrainedConfig.get_config_dict(
