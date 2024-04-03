@@ -58,8 +58,7 @@ class Model(ABC):
         self.static_adapter_id = adapter_id
 
         self.has_position_ids = (
-            inspect.signature(model.forward).parameters.get("position_ids", None)
-            is not None
+            inspect.signature(model.forward).parameters.get("position_ids", None) is not None
         )
 
         if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
@@ -85,7 +84,7 @@ class Model(ABC):
             device_type=self.device.type,
             window_size=self.sliding_window,
         )
-    
+
     @property
     def sliding_window_blocks(self) -> Optional[int]:
         return None
@@ -94,7 +93,7 @@ class Model(ABC):
     @abstractmethod
     def batch_type(self) -> Type[B]:
         raise NotImplementedError
-    
+
     def adapter_memory_size(self) -> int:
         return 0
 
@@ -119,9 +118,7 @@ class Model(ABC):
         prefix_text = self.tokenizer.decode(
             all_input_ids[prefix_offset:read_offset], skip_special_tokens=False
         )
-        new_text = self.tokenizer.decode(
-            all_input_ids[prefix_offset:], skip_special_tokens=False
-        )
+        new_text = self.tokenizer.decode(all_input_ids[prefix_offset:], skip_special_tokens=False)
 
         if len(new_text) > len(prefix_text) and not new_text.endswith("�"):
             # utf-8 char at the end means it's a potential unfinished byte sequence
@@ -142,30 +139,33 @@ class Model(ABC):
             raise RuntimeError(
                 f"found uninitialized parameters in model {self.__class__.__name__}: {uninitialized_parameters}"
             )
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return False
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         return {}
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return []
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 0
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return False
-    
+
     @property
     def max_speculative_tokens(self) -> int:
-        return max([
-            layer_weights.max_speculative_tokens for 
-            layer_weights in self.batched_lora_weights.values()
-        ], default=0)
+        return max(
+            [
+                layer_weights.max_speculative_tokens
+                for layer_weights in self.batched_lora_weights.values()
+            ],
+            default=0,
+        )
 
     def load_adapter(
         self,
@@ -177,48 +177,64 @@ class Model(ABC):
     ):
         """Loads adapter weights from disk / host memory on the GPU.
 
-        adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded 
+        adapter_id must be `BASE_MODEL_ADAPTER_ID` if adapter statically loaded
         into model. Otherwise, the adapter weights are applied during the forward
         pass and stored separately from the base model parameters.
         """
         if adapter_index in self.loaded_adapters:
             # Adapter already loaded
             return
-        
+
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
-        
-        if dynamic and not self.dynamic_adapter_loading_enabled:
-            raise ValueError(f"This model was initialized with the adapter {self.static_adapter_id} "
-                             f"and therefore does not support dynamic adapter loading. "
-                             f"Please initialize a new model instance from the base model in "
-                             f"order to use the dynamic adapter loading feature.")
 
-        logger.info(f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}")
+        if dynamic and not self.dynamic_adapter_loading_enabled:
+            raise ValueError(
+                f"This model was initialized with the adapter {self.static_adapter_id} "
+                f"and therefore does not support dynamic adapter loading. "
+                f"Please initialize a new model instance from the base model in "
+                f"order to use the dynamic adapter loading feature."
+            )
+
+        logger.info(
+            f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}"
+        )
         weight_names = tuple([v[0] for v in self.target_to_layer.values()])
-        module_map, adapter_config, adapter_weight_names, adapter_tokenizer = load_and_merge_adapters(
-            self.model_id, adapter_parameters, adapter_source, adapter_index, weight_names, api_token
+        (
+            module_map,
+            adapter_config,
+            adapter_weight_names,
+            adapter_tokenizer,
+        ) = load_and_merge_adapters(
+            self.model_id,
+            adapter_parameters,
+            adapter_source,
+            adapter_index,
+            weight_names,
+            api_token,
         )
 
         unused_weight_names = adapter_weight_names.copy()
         for layer_name in self.adapter_layers:
             adapter_weights = adapter_config.load_batched_adapter_weights(
-                self, 
+                self,
                 module_map,
-                layer_name, 
+                layer_name,
                 unused_weight_names,
                 dynamic,
             )
 
             if adapter_weights is None:
                 continue
-            
+
             batched_weights = self.batched_lora_weights[layer_name]
             batched_weights.add_adapter(adapter_index, adapter_weights)
-        
+
         if len(unused_weight_names) > 0:
-            logger.warning(f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}")
-        
+            logger.warning(
+                f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}"
+            )
+
         if adapter_tokenizer is not None:
             self.tokenizers.add_tokenizer(adapter_index, adapter_tokenizer)
 
@@ -233,18 +249,14 @@ class Model(ABC):
         # [hidden_size, r]
         split_dim = 0 if self.is_row_parallel(layer_type) else 1
         weights_a = [
-            shard_on_dim(w, dim=split_dim, process_group=self.process_group)
-            for w in weights_a
+            shard_on_dim(w, dim=split_dim, process_group=self.process_group) for w in weights_a
         ]
 
         # [r, hidden_size]
-        weights_b = [
-            shard_on_dim(w, dim=1, process_group=self.process_group)
-            for w in weights_b
-        ]
+        weights_b = [shard_on_dim(w, dim=1, process_group=self.process_group) for w in weights_b]
 
         return weights_a, weights_b
-    
+
     def offload_adapter(
         self,
         adapter_parameters: AdapterParameters,
@@ -255,15 +267,17 @@ class Model(ABC):
         if adapter_index not in self.loaded_adapters:
             # Adapter already offloaded
             return
-        
+
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
-        
+
         if not self.dynamic_adapter_loading_enabled:
-            raise ValueError(f"This model was initialized with the adapter {self.static_adapter_id} "
-                             f"and therefore does not support dynamic adapter loading. "
-                             f"Please initialize a new model instance from the base model in "
-                             f"order to use the dynamic adapter loading feature.")
+            raise ValueError(
+                f"This model was initialized with the adapter {self.static_adapter_id} "
+                f"and therefore does not support dynamic adapter loading. "
+                f"Please initialize a new model instance from the base model in "
+                f"order to use the dynamic adapter loading feature."
+            )
 
         for layer_name in self.adapter_layers:
             if layer_name in self.batched_lora_weights:

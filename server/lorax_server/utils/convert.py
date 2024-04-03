@@ -27,9 +27,7 @@ def _remove_duplicate_names(
     shareds = _find_shared_tensors(state_dict)
     to_remove = defaultdict(list)
     for shared in shareds:
-        complete_names = set(
-            [name for name in shared if _is_complete(state_dict[name])]
-        )
+        complete_names = set([name for name in shared if _is_complete(state_dict[name])])
         if not complete_names:
             if len(shared) == 1:
                 # Force contiguous
@@ -93,9 +91,13 @@ def convert_file(pt_file: Path, sf_file: Path, discard_names: List[str]):
         sf_tensor = reloaded[k]
         if not torch.equal(pt_tensor, sf_tensor):
             if torch.any(torch.isnan(pt_tensor)):
-                raise NanWeightsError(f"Weights unusuable as param {k} in file {pt_file} contains NaN values")
+                raise NanWeightsError(
+                    f"Weights unusuable as param {k} in file {pt_file} contains NaN values"
+                )
             if torch.any(torch.isinf(pt_tensor)):
-                raise InfWeightsError(f"Weights unusuable as param {k} in file {pt_file} contains inf values")
+                raise InfWeightsError(
+                    f"Weights unusuable as param {k} in file {pt_file} contains inf values"
+                )
             raise RuntimeError(f"The output tensors do not match for key {k}")
 
 
@@ -107,11 +109,7 @@ def convert_files(pt_files: List[Path], sf_files: List[Path], discard_names: Lis
 
     for i, (pt_file, sf_file) in enumerate(zip(pt_files, sf_files)):
         # Skip blacklisted files
-        if (
-            "arguments" in pt_file.name
-            or "args" in pt_file.name
-            or "training" in pt_file.name
-        ):
+        if "arguments" in pt_file.name or "args" in pt_file.name or "training" in pt_file.name:
             continue
 
         start = datetime.datetime.now()

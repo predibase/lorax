@@ -18,7 +18,8 @@ from lorax_server.utils.logits_process import (
     HeterogeneousTopPLogitsWarper,
     HeterogeneousTypicalLogitsWarper,
     HeterogeneousProcessorWrapper,
-    HeterogeneousSchemaLogitsProcessor, OutlinesLogitsProcessor,
+    HeterogeneousSchemaLogitsProcessor,
+    OutlinesLogitsProcessor,
 )
 
 
@@ -58,9 +59,7 @@ class NextTokenChooser:
         device: str = "cpu",
         tokenizer: Optional[PreTrainedTokenizerBase] = None,
     ):
-        self.watermark_processor = (
-            WatermarkLogitsProcessor(device=device) if watermark else None
-        )
+        self.watermark_processor = WatermarkLogitsProcessor(device=device) if watermark else None
         self.repetition_processor = (
             RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty)
             if repetition_penalty
@@ -68,9 +67,7 @@ class NextTokenChooser:
         )
 
         self.schema_processor = (
-            OutlinesLogitsProcessor(schema, tokenizer)
-            if schema and tokenizer
-            else None
+            OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
         )
 
         has_warpers = (
@@ -196,9 +193,7 @@ class StoppingCriteria:
         pb: generate_pb2.StoppingCriteriaParameters,
         tokenizer: PreTrainedTokenizerBase,
     ) -> "StoppingCriteria":
-        stop_sequence_criterias = [
-            StopSequenceCriteria(sequence) for sequence in pb.stop_sequences
-        ]
+        stop_sequence_criterias = [StopSequenceCriteria(sequence) for sequence in pb.stop_sequences]
         return StoppingCriteria(
             tokenizer.eos_token_id,
             stop_sequence_criterias,
@@ -268,9 +263,7 @@ class HeterogeneousNextTokenChooser:
         )
 
         self.repetition_processor = (
-            HeterogeneousRepetitionPenaltyLogitsProcessor(
-                repetition_penalty, dtype, device
-            )
+            HeterogeneousRepetitionPenaltyLogitsProcessor(repetition_penalty, dtype, device)
             if any([x != 1.0 for x in repetition_penalty])
             else None
         )
@@ -290,12 +283,8 @@ class HeterogeneousNextTokenChooser:
             )
 
         if any([x != 1.0 for x in temperature]):
-            do_sample = [
-                sample or x != 1.0 for x, sample in zip(temperature, do_sample)
-            ]
-            warpers.append(
-                HeterogeneousTemperatureLogitsWarper(temperature, dtype, device)
-            )
+            do_sample = [sample or x != 1.0 for x, sample in zip(temperature, do_sample)]
+            warpers.append(HeterogeneousTemperatureLogitsWarper(temperature, dtype, device))
 
         if any([x != 0 for x in top_k]):
             do_sample = [sample or x != 0 for x, sample in zip(top_k, do_sample)]
@@ -323,10 +312,10 @@ class HeterogeneousNextTokenChooser:
 
     def __call__(
         self,
-        input_ids: torch.Tensor, 
-        scores: torch.Tensor, 
-        speculate: int, 
-        speculated_ids: Optional[torch.Tensor] = None, 
+        input_ids: torch.Tensor,
+        scores: torch.Tensor,
+        speculate: int,
+        speculated_ids: Optional[torch.Tensor] = None,
         speculative_scores: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -349,7 +338,7 @@ class HeterogeneousNextTokenChooser:
             B = scores.shape[0]
             S = 1
         scores = scores.view(B, S, -1)
-        
+
         next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
         for j in range(S):
             scores_j = scores[:, j]
@@ -366,8 +355,8 @@ class HeterogeneousNextTokenChooser:
             next_ids_j = self.choice(scores_j)
             scores[:, j] = scores_j
             next_ids[:, j] = next_ids_j
-        
-        next_ids = next_ids.view(B*S)
+
+        next_ids = next_ids.view(B * S)
         scores = scores.view(B * S, -1)
 
         if speculated_ids is not None:
@@ -376,7 +365,7 @@ class HeterogeneousNextTokenChooser:
             S = speculated_ids.shape[1] + 1
             indices = []
             for i in range(B):
-                next_ids_i = next_ids[i*S: (i + 1)*S]
+                next_ids_i = next_ids[i * S : (i + 1) * S]
                 speculated_ids_i = speculated_ids[i]
                 validate_speculative = next_ids_i[:-1] == speculated_ids_i
                 index = i * S
@@ -392,7 +381,9 @@ class HeterogeneousNextTokenChooser:
                         break
                 accepted_ids.append(accepted)
 
-            accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
+            accepted_ids = torch.tensor(
+                accepted_ids, device=input_ids.device, dtype=input_ids.dtype
+            )
             next_ids = next_ids[indices]
             scores = scores[indices]
             indices = torch.arange(B, device=input_ids.device) * S
@@ -401,9 +392,9 @@ class HeterogeneousNextTokenChooser:
         else:
             accepted_ids = torch.ones_like(next_ids)
 
-        next_logprobs = torch.gather(
-            torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)
-        ).view(-1)
+        next_logprobs = torch.gather(torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)).view(
+            -1
+        )
 
         speculative_ids = None
         if speculate > 0:
@@ -430,7 +421,7 @@ class HeterogeneousNextTokenChooser:
 
         if self.repetition_processor is not None:
             self.repetition_processor = self.repetition_processor.filter(indices)
-        
+
         if self.schema_processor is not None:
             self.schema_processor = self.schema_processor.filter(indices)
 
@@ -552,10 +543,10 @@ class HeterogeneousSampling:
 
 
 def ngram_speculate(
-    input_ids: torch.Tensor, 
-    next_ids: torch.Tensor, 
-    accepted_ids: torch.Tensor, 
-    speculate: int, 
+    input_ids: torch.Tensor,
+    next_ids: torch.Tensor,
+    accepted_ids: torch.Tensor,
+    speculate: int,
 ) -> torch.Tensor:
     # Inspired by TGI implementation of:
     # https://github.com/apoorvumang/prompt-lookup-decoding
@@ -567,7 +558,9 @@ def ngram_speculate(
 
     # Speculate out from the last match by the number of speculative tokens `speculate`
     # Clamp the indices to the maximum length of the input_ids to prevent out-of-bound errors
-    all_indices = indices.unsqueeze(-1).expand(B, speculate) + torch.arange(speculate, device=input_ids.device)
+    all_indices = indices.unsqueeze(-1).expand(B, speculate) + torch.arange(
+        speculate, device=input_ids.device
+    )
     all_indices = torch.clamp(all_indices, max=input_ids.shape[1] - 1)
 
     # Gather the speculative tokens from the input_ids to form a [B, S] tensor

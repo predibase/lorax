@@ -18,7 +18,7 @@ class RW(CausalLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with RW")
-        
+
         if torch.cuda.is_available():
             device = torch.device("cuda")
             dtype = torch.float16 if dtype is None else dtype

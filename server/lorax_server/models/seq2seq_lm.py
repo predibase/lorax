@@ -98,15 +98,11 @@ class Seq2SeqLMBatch(Batch):
             requests_idx_mapping[r.id] = i
             decoder_input_lengths.append(1)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device, tokenizer))
-            stopping_criteria = StoppingCriteria.from_pb(
-                r.stopping_parameters, tokenizer
-            )
+            stopping_criteria = StoppingCriteria.from_pb(r.stopping_parameters, tokenizer)
             stopping_criterias.append(stopping_criteria)
             max_truncation = max(max_truncation, r.truncate)
             max_decode_tokens += stopping_criteria.max_new_tokens
-            padding_right_offset = max(
-                padding_right_offset, stopping_criteria.max_new_tokens
-            )
+            padding_right_offset = max(padding_right_offset, stopping_criteria.max_new_tokens)
 
         # Tokenize batch
         tokenized_inputs = tokenizer(
@@ -123,9 +119,7 @@ class Seq2SeqLMBatch(Batch):
 
         # Decoder sequence only contains the bos_token
         decoder_input_ids = (
-            torch.tensor(tokenizer.bos_token_id, device=device)
-            .repeat(len(pb.requests))
-            .view(-1, 1)
+            torch.tensor(tokenizer.bos_token_id, device=device).repeat(len(pb.requests)).view(-1, 1)
         )
         for _ in pb.requests:
             prefix_offsets.append(0)
@@ -202,9 +196,7 @@ class Seq2SeqLMBatch(Batch):
 
             request_decoder_input_length = self.decoder_input_lengths[idx]
             decoder_input_lengths.append(request_decoder_input_length)
-            max_decoder_input_length = max(
-                max_decoder_input_length, request_decoder_input_length
-            )
+            max_decoder_input_length = max(max_decoder_input_length, request_decoder_input_length)
 
             next_token_choosers.append(self.next_token_choosers[idx])
             stopping_criteria = self.stopping_criterias[idx]
@@ -233,9 +225,7 @@ class Seq2SeqLMBatch(Batch):
 
         # Ensure that past_key_values tensors can be updated in-place
         if type(self.past_key_values[0]) == tuple:
-            self.past_key_values = [
-                [t for t in layer] for layer in self.past_key_values
-            ]
+            self.past_key_values = [[t for t in layer] for layer in self.past_key_values]
 
         decoder_past_seq_len = max_decoder_input_length - 1
         for layer in self.past_key_values:
@@ -283,9 +273,7 @@ class Seq2SeqLMBatch(Batch):
         for batch in batches:
             total_batch_size += len(batch)
             max_input_length = max(max_input_length, batch.max_input_length)
-            max_decoder_input_length = max(
-                max_decoder_input_length, batch.max_decoder_input_length
-            )
+            max_decoder_input_length = max(max_decoder_input_length, batch.max_decoder_input_length)
             padding_right_offset = max(padding_right_offset, batch.padding_right_offset)
 
         # Batch attributes
@@ -342,9 +330,9 @@ class Seq2SeqLMBatch(Batch):
                     (total_batch_size, max_input_length),
                 )
             # Copy to correct indices
-            attention_mask[
-                start_index:end_index, -batch.max_input_length :
-            ] = batch.attention_mask[:, -batch.max_input_length :]
+            attention_mask[start_index:end_index, -batch.max_input_length :] = batch.attention_mask[
+                :, -batch.max_input_length :
+            ]
 
             # Create padded tensor
             if decoder_input_ids is None:
@@ -401,9 +389,7 @@ class Seq2SeqLMBatch(Batch):
 
             # Ensure that we can update tensors in-place
             if type(batch.past_key_values[0]) == tuple:
-                batch.past_key_values = [
-                    [t for t in layer] for layer in batch.past_key_values
-                ]
+                batch.past_key_values = [[t for t in layer] for layer in batch.past_key_values]
 
             # Add eventual padding tokens that were added while concatenating
             max_tokens += batch.max_tokens + (
@@ -473,9 +459,9 @@ class Seq2SeqLMBatch(Batch):
                     # Slicing end index for this batch
                     end_index = start_index + len(batch)
                     # We slice the past keys and values to remove the padding from previous batches
-                    padded_past_values[
-                        start_index:end_index, :, -batch.max_input_length :, :
-                    ] = t[:, :, -batch.max_input_length :, :]
+                    padded_past_values[start_index:end_index, :, -batch.max_input_length :, :] = t[
+                        :, :, -batch.max_input_length :, :
+                    ]
                     del t
 
                     start_index = end_index
@@ -605,9 +591,7 @@ class Seq2SeqLM(Model):
     ) -> Tuple[List[Generation], Optional[Seq2SeqLMBatch]]:
         if batch.decoder_attention_mask is not None:
             # slice to the correct shape
-            decoder_attention_mask = batch.decoder_attention_mask[
-                :, : -batch.padding_right_offset
-            ]
+            decoder_attention_mask = batch.decoder_attention_mask[:, : -batch.padding_right_offset]
         else:
             decoder_attention_mask = None
 
@@ -662,9 +646,7 @@ class Seq2SeqLM(Model):
             )
 
             # Append next token to decoder tokens
-            all_decoder_input_ids = torch.cat(
-                [all_decoder_input_ids, next_token_id.squeeze(1)]
-            )
+            all_decoder_input_ids = torch.cat([all_decoder_input_ids, next_token_id.squeeze(1)])
             new_decoder_input_length = decoder_input_length + 1
 
             # Generated token
@@ -686,9 +668,7 @@ class Seq2SeqLM(Model):
                 if stop:
                     # Slice with decoder_input_length to remove padding
                     # Decode all tokens
-                    output_text = self.decode(
-                        all_decoder_input_ids[-decoder_input_length:]
-                    )
+                    output_text = self.decode(all_decoder_input_ids[-decoder_input_length:])
 
                     # Get seed
                     if isinstance(next_token_chooser.choice, Sampling):

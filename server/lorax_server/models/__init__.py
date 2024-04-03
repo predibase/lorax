@@ -72,9 +72,9 @@ def get_model(
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
         )
-    else: 
+    else:
         raise ValueError(f"Unknown source {source}")
-    
+
     model_type = config_dict["model_type"]
 
     if dtype is None:
@@ -117,10 +117,14 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "mpt":
         return MPTSharded(
-            model_id, revision, quantize=quantize, compile=compile, trust_remote_code=trust_remote_code
+            model_id,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            trust_remote_code=trust_remote_code,
         )
 
     if model_type == "gpt_neox":
@@ -188,7 +192,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "mixtral":
         from lorax_server.models.flash_mixtral import FlashMixtral
 
@@ -202,7 +206,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "qwen":
         from lorax_server.models.flash_qwen import FlashQwen
 
@@ -230,7 +234,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type in ["phi-msft", "phi"]:
         from lorax_server.models.flash_phi import FlashPhi
 
@@ -244,7 +248,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "gemma":
         from lorax_server.models.flash_gemma import FlashGemma
 
