@@ -28,7 +28,7 @@ EPS = 1e-5
 
 
 def load_col(config, prefix, weights, bias):
-    assert bias == False, NotImplementedError
+    assert not bias, NotImplementedError
     assert config.quantize != "gptq", NotImplementedError
     slice_ = weights._get_slice(f"{prefix}.weight")
     rank = weights.process_group.rank()
@@ -159,7 +159,7 @@ def flash_attn_fn(
 ):
     try:
         from flash_attn import bert_padding, flash_attn_interface
-    except:
+    except Exception:
         raise RuntimeError("Please install flash-attn==1.0.3.post0")
     check_valid_inputs(query, key, value)
     if past_key_value is not None:
@@ -226,7 +226,7 @@ def triton_flash_attn_fn(
 ):
     try:
         from .flash_attn_triton import flash_attn_func
-    except:
+    except Exception:
         _installed = False
         if version.parse(torch.__version__) < version.parse("2.0.0"):
             _installed = True
@@ -297,7 +297,6 @@ class MultiheadAttention(nn.Module):
         self.clip_qkv = config.attn_config["clip_qkv"]
         self.qk_ln = config.attn_config["qk_ln"]
         self.d_model = config.d_model
-        d_model = config.d_model
         self.n_heads = config.n_heads
         self.softmax_scale = config.attn_config["softmax_scale"]
         if self.softmax_scale is None:
@@ -381,7 +380,6 @@ class MultiQueryAttention(nn.Module):
         self.clip_qkv = config.attn_config["clip_qkv"]
         self.qk_ln = config.attn_config["qk_ln"]
         self.d_model = config.d_model
-        d_model = config.d_model
         self.n_heads = config.n_heads
         self.softmax_scale = config.attn_config["softmax_scale"]
         if self.softmax_scale is None:
@@ -391,28 +389,14 @@ class MultiQueryAttention(nn.Module):
         self.Wqkv = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.Wqkv", weights=weights, bias=not config.no_bias
         )
-        fuse_splits = (d_model, d_model + self.head_dim)
         if self.qk_ln:
             raise NotImplementedError("qk_ln not supported")
         if self.attn_impl == "flash":
             self.attn_fn = flash_attn_fn
         elif self.attn_impl == "triton":
             self.attn_fn = triton_flash_attn_fn
-            if verbose:
-                warnings.warn(
-                    "While `attn_impl: triton` can be faster than `attn_impl: flash` "
-                    + "it uses more memory. When training larger models this can trigger "
-                    + "alloc retries which hurts performance. If encountered, we recommend "
-                    + "using `attn_impl: flash` if your model does not use `alibi` or `prefix_lm`."
-                )
         elif self.attn_impl == "torch":
             self.attn_fn = scaled_multihead_dot_product_attention
-            if torch.cuda.is_available() and verbose:
-                warnings.warn(
-                    "Using `attn_impl: torch`. If your model does not use `alibi` or "
-                    + "`prefix_lm` we recommend using `attn_impl: flash` otherwise "
-                    + "we recommend using `attn_impl: triton`."
-                )
         else:
             raise ValueError(f"attn_impl={attn_impl!r} is an invalid setting.")
         self.out_proj = TensorParallelRowLinear.load(
