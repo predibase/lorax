@@ -103,11 +103,14 @@ class AdapterBatchData:
     
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation
-        return set(
-            rank_data.rank
-            for layer_data in self.data.values()
-            for rank_data in layer_data.get(LORA).rank_data.values() if LORA in layer_data
-        )
+        rank_set = set()
+        for layer_data in self.data.values():
+            if LORA not in layer_data:
+                continue 
+            for rank_data in layer_data.get(LORA).rank_data.values():
+                rank_set.add(rank_data.rank)
+
+        return rank_set
     
     @property
     def max_rank(self) -> int:
