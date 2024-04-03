@@ -405,11 +405,13 @@ class HeterogeneousNextTokenChooser:
             torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)
         ).view(-1)
 
-        if speculate > 0 and speculative_scores is not None:
-            # Only use greedy sampling for speculative tokens
-            speculative_ids = Greedy()(speculative_scores)
-        else:
-            speculative_ids = None
+        speculative_ids = None
+        if speculate > 0:
+            if speculative_scores is not None:
+                # Only use greedy sampling for speculative tokens
+                speculative_ids = Greedy()(speculative_scores)
+            else:
+                speculative_ids = ngram_speculate(input_ids, next_ids, accepted_ids, speculate)
 
         return next_ids, next_logprobs, accepted_ids, speculative_ids
 
@@ -547,3 +549,27 @@ class HeterogeneousSampling:
         self.greedy_indices = new_greedy_indices
         self.sampling_mapping = new_sampling_mapping
         return self
+
+
+def ngram_speculate(
+    input_ids: torch.Tensor, 
+    next_ids: torch.Tensor, 
+    accepted_ids: torch.Tensor, 
+    speculate: int, 
+) -> torch.Tensor:
+    # Inspired by TGI implementation of:
+    # https://github.com/apoorvumang/prompt-lookup-decoding
+    B = accepted_ids.shape[0]
+
+    # Find the last match of the seed tokens in the input_ids
+    seeds = next_ids[accepted_ids.cumsum(dim=-1) - 1]
+    indices = (input_ids == seeds.unsqueeze(-1)).max(dim=1).indices + 1
+
+    # Speculate out from the last match by the number of speculative tokens `speculate`
+    # Clamp the indices to the maximum length of the input_ids to prevent out-of-bound errors
+    all_indices = indices.unsqueeze(-1).expand(B, speculate) + torch.arange(speculate, device=input_ids.device)
+    all_indices = torch.clamp(all_indices, max=input_ids.shape[1] - 1)
+
+    # Gather the speculative tokens from the input_ids to form a [B, S] tensor
+    speculative_ids = input_ids.gather(dim=-1, index=all_indices)
+    return speculative_ids

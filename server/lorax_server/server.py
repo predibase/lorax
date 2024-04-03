@@ -275,6 +275,8 @@ def serve(
         if speculative_tokens > 0:
             set_speculative_tokens(speculative_tokens)
 
+        set_speculative_tokens(3)
+
         server = aio.server(
             interceptors=[
                 ExceptionInterceptor(),
