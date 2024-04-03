@@ -30,14 +30,22 @@ class AdapterWeights(ABC):
     def get_batch_type(cls) -> "BatchAdapterWeights":
         pass
 
+    @property
+    def speculative_tokens(self) -> int:
+        return 0
+
 
 class BatchAdapterWeights(ABC):
     @abstractclassmethod
-    def key(self) -> str:
+    def has_adapter(self, adapter_index: int) -> bool:
         pass
 
     @abstractclassmethod
-    def load(self, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
+    def key(cls) -> str:
+        pass
+
+    @abstractclassmethod
+    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
         pass
 
 
@@ -54,6 +62,13 @@ class LayerAdapterWeights:
         if adapter_idx not in self.adapter_weights:
             return
         del self.adapter_weights[adapter_idx]
+    
+    @property
+    def max_speculative_tokens(self) -> int:
+        return max(
+            adapter_weights.speculative_tokens
+            for adapter_weights in self.adapter_weights.values()
+        )
 
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0

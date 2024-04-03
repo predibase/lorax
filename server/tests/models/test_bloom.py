@@ -134,8 +134,8 @@ def test_causal_lm_generate_token(default_bloom, default_bloom_batch):
     )
     assert all([generation.generated_text is None for generation in generations])
     assert all([len(generation.prefill_tokens) == 1 for generation in generations])
-    assert all([generation.token_id.item() == 10264 for generation in generations])
-    assert all([generation.token_text == "Test" for generation in generations])
+    assert all([generation.next_tokens.token_ids[0] == 10264 for generation in generations])
+    assert all([generation.next_tokens.texts[0] == "Test" for generation in generations])
     assert generations[0].request_id == 0
 
 

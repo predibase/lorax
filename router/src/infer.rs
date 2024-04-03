@@ -9,6 +9,7 @@ use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
+use itertools::multizip;
 use lorax_client::{
     Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
 };
@@ -614,43 +615,73 @@ fn send_responses(
     }
 
     // Create last Token
-    let token = Token {
-        id: generation.token_id,
-        text: generation.token_text,
-        logprob: generation.token_logprob,
-        special: generation.token_is_special,
-        alternative_tokens: generation.alternative_tokens.and_then(|at| {
-            Some(
-                at.ids
-                    .into_iter()
-                    .zip(at.logprobs.into_iter())
-                    .zip(at.texts.into_iter())
-                    .map(|((id, logprob), text)| AlternativeToken { id, text, logprob })
-                    .collect(),
-            )
-        }),
+    let next_tokens = generation.next_tokens.unwrap_or_default();
+    let alternative_tokens = if next_tokens.alternative_tokens.is_empty() {
+        // Pad with Nones the same length as the IDs so it zips correctly
+        vec![None; next_tokens.ids.len()]
+    } else {
+        // Convertion from AlternativeToken to Option<AlternativeToken>
+        next_tokens
+            .alternative_tokens
+            .into_iter()
+            .map(Some)
+            .collect()
     };
 
-    if let Some(generated_text) = generation.generated_text {
-        // Generation has ended
-        stopped = true;
-        // Send message
-        entry.response_tx.send_timeout(
-            Ok(InferStreamResponse::End {
-                token,
-                generated_text,
-                queued: entry.queue_time,
-                start: entry.batch_time.unwrap(),
+    let ntokens = next_tokens.ids.len();
+    metrics::histogram!("lorax_request_skipped_tokens", (ntokens - 1) as f64);
+    let mut iterator = multizip((
+        next_tokens.ids,
+        next_tokens.logprobs,
+        next_tokens.texts,
+        next_tokens.is_special,
+        alternative_tokens,
+    ))
+    .peekable();
+
+    while let Some((id, logprob, text, special, alternative_tokens)) = iterator.next() {
+        let token = Token {
+            id,
+            text,
+            logprob,
+            special,
+            alternative_tokens: alternative_tokens.and_then(|at| {
+                Some(
+                    at.ids
+                        .into_iter()
+                        .zip(at.logprobs.into_iter())
+                        .zip(at.texts.into_iter())
+                        .map(|((id, logprob), text)| AlternativeToken { id, text, logprob })
+                        .collect(),
+                )
             }),
-            Duration::from_millis(10),
-        )?;
-    } else {
-        // Send message
-        entry.response_tx.send_timeout(
-            Ok(InferStreamResponse::Token(token)),
-            Duration::from_millis(10),
-        )?;
+        };
+
+        match (&generation.generated_text, iterator.peek()) {
+            (Some(generated_text), None) => {
+                // Generation has ended
+                stopped = true;
+                // Send message
+                entry.response_tx.send_timeout(
+                    Ok(InferStreamResponse::End {
+                        token,
+                        generated_text: generated_text.clone(),
+                        queued: entry.queue_time,
+                        start: entry.batch_time.unwrap(),
+                    }),
+                    Duration::from_millis(10),
+                )?;
+            }
+            _ => {
+                // Send message
+                entry.response_tx.send_timeout(
+                    Ok(InferStreamResponse::Token(token)),
+                    Duration::from_millis(10),
+                )?;
+            }
+        }
     }
+
     Ok(stopped)
 }
 

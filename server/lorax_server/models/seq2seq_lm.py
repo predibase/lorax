@@ -11,6 +11,7 @@ from lorax_server.models.types import (
     GeneratedText,
     Batch,
     Generation,
+    NextTokens,
     PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
@@ -717,11 +718,13 @@ class Seq2SeqLM(Model):
                     request.id,
                     prefill_tokens,
                     prefill_tokens_length,
-                    None,
-                    next_token_id_squeezed,
-                    next_token_logprob,
-                    next_token_text,
-                    next_token_id_squeezed.item() in self.all_special_ids,
+                    NextTokens(
+                        [next_token_id_squeezed],
+                        [next_token_logprob],
+                        [next_token_text],
+                        [next_token_id_squeezed.item() in self.all_special_ids],
+                        None,
+                    ),
                     generated_text,
                 )
 

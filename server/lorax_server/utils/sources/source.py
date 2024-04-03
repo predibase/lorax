@@ -73,6 +73,9 @@ class BaseModelSource:
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         pass
     
+    def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
+        raise NotImplementedError
+    
     def get_weight_bytes(self) -> int:
         total_size = 0
         for path in self.weight_files():

@@ -18,10 +18,11 @@ from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, PBASE, get_config_path, get_local_dir, map_pbase_model_id_to_s3
+from lorax_server.utils import HUB, LOCAL, S3, PBASE, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.sources import get_model_source
+from lorax_server.utils.state import set_speculative_tokens
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
@@ -268,6 +269,11 @@ def serve(
                 create_exllama_buffers()
             except ImportError:
                 pass
+        
+        # set speculative decoding tokens
+        speculative_tokens = model.max_speculative_tokens
+        if speculative_tokens > 0:
+            set_speculative_tokens(speculative_tokens)
 
         server = aio.server(
             interceptors=[

@@ -503,7 +503,7 @@ class GemmaForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.model(
             input_ids,
             position_ids,
@@ -521,4 +521,4 @@ class GemmaForCausalLM(torch.nn.Module):
         # lm_head reuses the weights of the embedding layer
         logits = hidden_states @ self.embed_t
         logits = logits[:, :self.vocab_size]
-        return logits
+        return logits, None

@@ -5,7 +5,7 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 
 HAS_BITS_AND_BYTES = True
@@ -43,10 +43,8 @@ except ImportError:
 
 from accelerate import init_empty_weights
 
-from lorax_server.adapters.lora import BatchLoraWeights
-from lorax_server.adapters.types import LORA
+from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.sgmv import lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
 from lorax_server.utils.state import is_warmup
 
@@ -57,6 +55,11 @@ try:
     from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
 except ImportError:
     HAS_EXLLAMA = False
+
+if TYPE_CHECKING:
+    from lorax_server.adapters import AdapterBatchData
+    from lorax_server.adapters.lora import BatchLoraWeights
+    from lorax_server.adapters.medusa import BatchMedusaWeights
 
 
 # Monkey patching
@@ -515,13 +518,13 @@ class LoraLinear(nn.Module):
         self,
         result: torch.Tensor,
         input: torch.Tensor,
-        adapter_data: AdapterBatchData,
+        adapter_data: "AdapterBatchData",
         layer_type: str,
         start_idx: int,
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-        data: BatchLoraWeights = data.get(LORA) if data is not None else None
+        data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
 
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
@@ -555,7 +558,7 @@ class LoraLinear(nn.Module):
                         rank_segments.segment_ends,
                         self.layer_id,
                     )
-            
+
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:
@@ -570,7 +573,7 @@ class LoraLinear(nn.Module):
     def forward_lora(
         self,
         input: torch.Tensor,
-        data: BatchLoraWeights,
+        data: "BatchLoraWeights",
         adapter_index: int,
         adapter_mask: torch.Tensor,
     ) -> torch.Tensor:
@@ -602,7 +605,7 @@ class TensorParallelMultiAdapterLinear(LoraLinear):
             base_layer, layer_id, layer_names, sizes, process_group
         )
     
-    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
         result = self.base_layer(input)
         
         # handle models like Bloom that have inputs of shape
@@ -652,9 +655,9 @@ class TensorParallelAdapterRowLinear(LoraLinear):
 
     @classmethod
     def load(cls, base_layer, layer_id, layer_name, process_group):
-        return TensorParallelAdapterRowLinear(base_layer, layer_id, layer_name, process_group)
+        return cls(base_layer, layer_id, layer_name, process_group)
     
-    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
         result = self.base_layer(input)
         
         # Fused all-gather + all-reduce from S-LoRA paper: https://arxiv.org/abs/2311.03285
@@ -663,6 +666,7 @@ class TensorParallelAdapterRowLinear(LoraLinear):
         end_idx = (self.process_group.rank() + 1) * stride
 
         self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
+
         return result
     
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
@@ -675,7 +679,29 @@ class TensorParallelAdapterRowLinear(LoraLinear):
         #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
         torch.distributed.all_reduce(a_out, group=self.process_group)
         return a_out
-    
+
+
+class MultiAdapterHead(TensorParallelAdapterRowLinear):
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        result = super().forward(input, adapter_data)
+
+        # Medusa
+        data = adapter_data.data.get(self.layer_name)
+        data: Optional["BatchMedusaWeights"] = data.get(MEDUSA) if data is not None else None
+
+        speculative_logits = None
+        if data is not None and data.default_medusa is not None:
+            speculative_logits = data.default_medusa.model(input)
+            
+            # TODO(travis): support multiple medusa adapters with masking:
+            # for adapter_index in adapter_data.meta.adapter_set:
+            #     if data.has_adapter(adapter_index):
+            #         adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+            #         speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
+            #         ...
+
+        return result, speculative_logits
+
 
 class TensorParallelRowLinear(SuperLayer):
     def __init__(self, linear, process_group, all_reduce: bool = True):

@@ -69,6 +69,7 @@ class Model(ABC):
                 adapter_source,
                 adapter_index=0,
                 api_token=None,
+                dynamic=False,
             )
 
         self.check_initialized()
@@ -158,6 +159,13 @@ class Model(ABC):
     
     def is_row_parallel(self, layer_type: str) -> bool:
         return False
+    
+    @property
+    def max_speculative_tokens(self) -> int:
+        return max([
+            layer_weights.max_speculative_tokens for 
+            layer_weights in self.batched_lora_weights.values()
+        ], default=0)
 
     def load_adapter(
         self,
@@ -165,6 +173,7 @@ class Model(ABC):
         adapter_source: AdapterSource,
         adapter_index: int,
         api_token: str,
+        dynamic: bool = True,
     ):
         """Loads adapter weights from disk / host memory on the GPU.
 
@@ -179,7 +188,7 @@ class Model(ABC):
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
         
-        if not self.dynamic_adapter_loading_enabled:
+        if dynamic and not self.dynamic_adapter_loading_enabled:
             raise ValueError(f"This model was initialized with the adapter {self.static_adapter_id} "
                              f"and therefore does not support dynamic adapter loading. "
                              f"Please initialize a new model instance from the base model in "
@@ -197,7 +206,8 @@ class Model(ABC):
                 self, 
                 module_map,
                 layer_name, 
-                unused_weight_names
+                unused_weight_names,
+                dynamic,
             )
 
             if adapter_weights is None:

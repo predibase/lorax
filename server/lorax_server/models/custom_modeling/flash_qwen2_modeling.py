@@ -19,6 +19,7 @@ from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn
 from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
+    MultiAdapterHead,
     TensorParallelAdapterRowLinear,
     TensorParallelRowLinear,
     TensorParallelColumnLinear,
@@ -450,7 +451,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = FlashQwen2Model(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
+        self.lm_head = MultiAdapterHead.load(TensorParallelHead.load(
             config,
             prefix="lm_head",
             weights=weights,
@@ -471,7 +472,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         if prefill_cache_indices is not None:
             # Slots also need to be sliced as it has the same size as the whole kv tensor
             slots = slots[prefill_cache_indices]
@@ -495,5 +496,5 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.lm_head(hidden_states, adapter_data)
-        return logits
+        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
+        return logits, speculative_logits

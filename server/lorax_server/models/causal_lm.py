@@ -8,6 +8,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenize
 from lorax_server.models import Model
 from lorax_server.models.types import (
     Batch,
+    NextTokens,
     PrefillTokens,
     AlternativeTokens,
     Generation,
@@ -733,11 +734,13 @@ class CausalLM(Model):
                     request.id,
                     prefill_tokens,
                     prefill_tokens_length,
-                    None,
-                    next_token_id_squeezed,
-                    next_token_logprob,
-                    next_token_text,
-                    next_token_id_squeezed.item() in self.all_special_ids,
+                    NextTokens(
+                        [next_token_id_squeezed],
+                        [next_token_logprob],
+                        [next_token_text],
+                        [next_token_id_squeezed.item() in self.all_special_ids],
+                        None,
+                    ),
                     generated_text,
                 )
 

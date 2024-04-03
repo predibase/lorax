@@ -50,6 +50,7 @@ class LoraConfig(AdapterConfig):
         module_map: Dict[str, Dict], 
         layer_type: str,
         unused_weight_names: Set[str],
+        dynamic: bool,
     ) -> Optional[AdapterWeights]:
         return LoraWeights.load(
             self,
@@ -190,7 +191,13 @@ class BatchLoraWeights(BatchAdapterWeights):
         return LORA
 
     @classmethod
-    def load(self, adapter_weights: Dict[int, LoraWeights], meta: AdapterBatchMetadata) -> "BatchLoraWeights":
+    def load(self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata) -> "BatchLoraWeights":
+        adapter_weights = {
+            k: v
+            for k, v in adapter_weights.items()
+            if isinstance(v, LoraWeights)
+        }
+
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device
         segment_indices = meta.segment_indices

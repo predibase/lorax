@@ -321,7 +321,14 @@ class HeterogeneousNextTokenChooser:
         self.dtype = dtype
         self.device = device
 
-    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor):
+    def __call__(
+        self,
+        input_ids: torch.Tensor, 
+        scores: torch.Tensor, 
+        speculate: int, 
+        speculated_ids: Optional[torch.Tensor] = None, 
+        speculative_scores: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """
         Chooses the next tokens based on the input IDs and scores.
 
@@ -332,23 +339,79 @@ class HeterogeneousNextTokenChooser:
         Returns:
             torch.Tensor: The tensor containing the next token IDs.
             torch.Tensor: The tensor containing the log probabilities of the next tokens.
+            torch.Tensor: The tensor containing the accepted next tokens for this step.
+            Optional[torch.Tensor]: The tensor containing the speculative token IDs for the next step.
         """
-        if self.watermark_processor is not None:
-            scores = self.watermark_processor(input_ids, scores)
-        if self.repetition_processor is not None:
-            scores = self.repetition_processor(input_ids, scores)
-        if self.schema_processor is not None:
-            scores = self.schema_processor(input_ids, scores)
+        if speculated_ids is not None:
+            B = scores.shape[0] // (speculated_ids.shape[1] + 1)
+            S = speculated_ids.shape[1] + 1
+        else:
+            B = scores.shape[0]
+            S = 1
+        scores = scores.view(B, S, -1)
+        
+        next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
+        for j in range(S):
+            scores_j = scores[:, j]
+            if self.watermark_processor is not None:
+                scores_j = self.watermark_processor(input_ids, scores_j)
+            if self.repetition_processor is not None:
+                scores_j = self.repetition_processor(input_ids, scores_j)
+            if self.schema_processor is not None:
+                scores_j = self.schema_processor(input_ids, scores_j)
 
-        for warper in self.warpers:
-            scores = warper(input_ids, scores)
+            for warper in self.warpers:
+                scores_j = warper(input_ids, scores_j)
 
-        next_ids = self.choice(scores)
+            next_ids_j = self.choice(scores_j)
+            scores[:, j] = scores_j
+            next_ids[:, j] = next_ids_j
+        
+        next_ids = next_ids.view(B*S)
+        scores = scores.view(B * S, -1)
+
+        if speculated_ids is not None:
+            accepted_ids = []
+            B = next_ids.shape[0] // (speculated_ids.shape[1] + 1)
+            S = speculated_ids.shape[1] + 1
+            indices = []
+            for i in range(B):
+                next_ids_i = next_ids[i*S: (i + 1)*S]
+                speculated_ids_i = speculated_ids[i]
+                validate_speculative = next_ids_i[:-1] == speculated_ids_i
+                index = i * S
+                accepted = 1
+                # First is always valid
+                indices.append(index)
+                for valid in validate_speculative.tolist():
+                    if valid:
+                        index += 1
+                        accepted += 1
+                        indices.append(index)
+                    else:
+                        break
+                accepted_ids.append(accepted)
+
+            accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
+            next_ids = next_ids[indices]
+            scores = scores[indices]
+            indices = torch.arange(B, device=input_ids.device) * S
+            if speculative_scores is not None:
+                speculative_scores = speculative_scores[indices + accepted_ids - 1]
+        else:
+            accepted_ids = torch.ones_like(next_ids)
+
         next_logprobs = torch.gather(
             torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)
         ).view(-1)
 
-        return next_ids, next_logprobs
+        if speculate > 0 and speculative_scores is not None:
+            # Only use greedy sampling for speculative tokens
+            speculative_ids = Greedy()(speculative_scores)
+        else:
+            speculative_ids = None
+
+        return next_ids, next_logprobs, accepted_ids, speculative_ids
 
     def filter(self, indices):
         """

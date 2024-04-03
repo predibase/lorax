@@ -378,7 +378,7 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.transformer(
             input_ids,
             position_ids,
@@ -397,4 +397,4 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         # https://github.com/huggingface/transformers/issues/6291
         logits = hidden_states @ self.wte_t
         logits = logits[:, :self.transformer.config.vocab_size]
-        return logits
+        return logits, None

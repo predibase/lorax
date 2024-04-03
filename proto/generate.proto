@@ -167,25 +167,30 @@ message AlternativeTokens {
     repeated string texts = 3;
 }
 
+message NextTokens {
+    /// Token IDs
+    repeated uint32 ids = 1;
+    /// Logprobs
+    repeated float logprobs = 2;
+    /// decoded text for each token
+    repeated string texts = 3;
+    /// is special for each token
+    repeated bool is_special = 4;
+    /// Alternative tokens (optional)
+    repeated AlternativeTokens alternative_tokens = 5;
+}
+
 message Generation {
     /// Request ID
     uint64 request_id = 1;
     /// Prefill tokens (optional)
     PrefillTokens prefill_tokens = 2;
-    /// Alternative tokens (optional)
-    AlternativeTokens alternative_tokens = 3;
-    /// Token ID
-    uint32 token_id = 4;
-    /// Logprob
-    float token_logprob = 5;
-    /// Text
-    string token_text = 6;
-    /// Is it a special token
-    bool token_is_special = 7;
+    /// Next tokens
+    NextTokens next_tokens = 3;
     /// Complete generated text
-    optional GeneratedText generated_text = 8;
+    optional GeneratedText generated_text = 4;
     /// Prefill tokens length
-    uint32 prefill_tokens_length = 9;
+    uint32 prefill_tokens_length = 5;
 }
 
 message FilterBatchRequest {

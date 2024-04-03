@@ -2,6 +2,7 @@ from contextlib import contextmanager
 
 
 WARMUP = False
+SPECULATIVE_TOKENS = 0
 
 
 def set_warmup(value: bool):
@@ -20,3 +21,12 @@ def warmup_mode():
         yield
     finally:
         set_warmup(False)
+
+
+def set_speculative_tokens(value: int):
+    global SPECULATIVE_TOKENS
+    SPECULATIVE_TOKENS = value
+
+
+def get_speculative_tokens() -> int:
+    return SPECULATIVE_TOKENS
