@@ -67,7 +67,6 @@ class FlashGPT2(FlashCausalLM):
             device,
             dtype,
             process_group=self.process_group,
-            merged_weight_filenames=merged_weight_filenames,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:

@@ -7,6 +7,18 @@ from torch import nn
 from torch.nn import functional as F
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
+from accelerate import init_empty_weights
+
+from lorax_server.adapters.types import LORA, MEDUSA
+from lorax_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.utils.sgmv import (
+    lora_a_sgmv_cutlass,
+    lora_b_sgmv_cutlass,
+    has_sgmv,
+    orient_for_rank,
+)
+from lorax_server.utils.state import is_warmup
+
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -41,18 +53,6 @@ try:
 
 except ImportError:
     HAS_HQQ = False
-
-from accelerate import init_empty_weights
-
-from lorax_server.adapters.types import LORA, MEDUSA
-from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.utils.sgmv import (
-    lora_a_sgmv_cutlass,
-    lora_b_sgmv_cutlass,
-    has_sgmv,
-    orient_for_rank,
-)
-from lorax_server.utils.state import is_warmup
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -838,7 +838,7 @@ except ImportError:
 
 
 try:
-    from flash_attn.layers.rotary import RotaryEmbedding
+    from flash_attn.layers.rotary import RotaryEmbedding  # noqa: F401
     import rotary_emb
 
     def _create_inv_freq(dim, base, device):

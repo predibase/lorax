@@ -220,8 +220,8 @@ class GPTQ:
             q_out = self.layer(q_in)
 
             # get kinds of SNR
-            q_SNR = torch_snr_error(q_out, self.out1).item()
-            fp_SNR = torch_snr_error(self.layer(self.inp1), self.out1).item()
+            q_SNR = torch_snr_error(q_out, self.out1).item()  # noqa: F821
+            fp_SNR = torch_snr_error(self.layer(self.inp1), self.out1).item()  # noqa: F821
         else:
             q_SNR = "-"
             fp_SNR = "-"
@@ -382,7 +382,7 @@ def get_ptb(nsamples, seed, seqlen, model_id):
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=False)
-    except:
+    except Exception:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     trainenc = tokenizer("\n\n".join(traindata["sentence"]), return_tensors="pt")
     testenc = tokenizer("\n\n".join(valdata["sentence"]), return_tensors="pt")
@@ -423,7 +423,7 @@ def get_c4(nsamples, seed, seqlen, model_id):
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=False)
-    except:
+    except Exception:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
 
     import random
@@ -477,7 +477,7 @@ def get_ptb_new(nsamples, seed, seqlen, model_id):
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=False)
-    except:
+    except Exception:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     trainenc = tokenizer(" ".join(traindata["sentence"]), return_tensors="pt")
     testenc = tokenizer(" ".join(testdata["sentence"]), return_tensors="pt")
@@ -516,7 +516,7 @@ def get_c4_new(nsamples, seed, seqlen, model_id):
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=False)
-    except:
+    except Exception:
         tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
 
     import random
@@ -659,7 +659,7 @@ def sequential(
 
             def add_batch(name):
                 def tmp(_, inp, out):
-                    gptq[name].add_batch(inp[0].data, out.data)
+                    gptq[name].add_batch(inp[0].data, out.data)  # noqa: F821
 
                 return tmp
 

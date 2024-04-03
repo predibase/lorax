@@ -232,7 +232,7 @@ def triton_flash_attn_fn(
             _installed = True
             try:
                 from flash_attn.flash_attn_triton import flash_attn_func
-            except:
+            except Exception:
                 _installed = False
         if not _installed:
             raise RuntimeError(
@@ -685,11 +685,6 @@ class MPTModel(MPTPreTrainedModel):
         self.attn_uses_sequence_id = config.attn_config["attn_uses_sequence_id"]
         self.alibi = config.attn_config["alibi"]
         self.alibi_bias_max = config.attn_config["alibi_bias_max"]
-        if config.init_device == "mixed":
-            if dist.get_local_rank() == 0:
-                config.init_device = "cpu"
-            else:
-                config.init_device = "meta"
         if config.norm_type.lower() not in NORM_CLASS_REGISTRY.keys():
             norm_options = " | ".join(NORM_CLASS_REGISTRY.keys())
             raise NotImplementedError(
@@ -1037,7 +1032,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
             input_ids = input_ids[:, -1].unsqueeze(-1)
         if self.transformer.prefix_lm:
             prefix_mask = torch.ones_like(attention_mask)
-            if kwargs.get("use_cache") == False:
+            if not kwargs.get("use_cache"):
                 raise NotImplementedError(
                     "MPT with prefix_lm=True does not support use_cache=False."
                 )

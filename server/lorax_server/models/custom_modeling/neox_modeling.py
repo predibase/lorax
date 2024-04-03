@@ -123,7 +123,6 @@ class GPTNeoXAttention(nn.Module):
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_attention_heads
         self.rotary_ndims = int(self.head_size * config.rotary_pct)
-        max_positions = config.max_position_embeddings
         # ??? TODO
         # self.register_buffer(
         #     "bias",
