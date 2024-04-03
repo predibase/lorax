@@ -12,7 +12,8 @@
         "100"
     ],
     "flake8.args": [
-        "--config=setup.cfg"
+        "--max-line-length=120",
+        "--ignore=E203"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": false,
