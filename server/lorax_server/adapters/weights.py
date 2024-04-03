@@ -106,7 +106,7 @@ class AdapterBatchData:
         return set(
             rank_data.rank
             for layer_data in self.data.values()
-            for rank_data in layer_data.get(LORA, []).rank_data.values() if len(layer_data.get(LORA, [])) > 0
+            for rank_data in layer_data.get(LORA, []).rank_data.values() if LORA in layer_data
         )
     
     @property
