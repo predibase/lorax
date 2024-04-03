@@ -48,7 +48,12 @@ tracer = trace.get_tracer(__name__)
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_O_PROJ]  # TODO(travis): add back LM_HEAD following https://github.com/predibase/lorax/issues/231
+ADAPTER_LAYERS = [
+    ATTN_Q_PROJ,
+    ATTN_K_PROJ,
+    ATTN_V_PROJ,
+    ATTN_O_PROJ,
+]  # TODO(travis): add back LM_HEAD following https://github.com/predibase/lorax/issues/231
 ROW_PARALLEL = {ATTN_O_PROJ, LM_HEAD}
 
 
@@ -120,9 +125,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         max_blocks = 0
 
         # Parse batch
-        for i, (r, tokenized_input) in enumerate(
-            zip(pb.requests, batch_tokenized_inputs)
-        ):
+        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             # request id -> idx in list mapping
             requests_idx_mapping[r.id] = i
 
@@ -145,9 +148,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
 
             next_token_chooser_parameters.append(r.parameters)
 
-            stopping_criteria = StoppingCriteria.from_pb(
-                r.stopping_parameters, tokenizer
-            )
+            stopping_criteria = StoppingCriteria.from_pb(r.stopping_parameters, tokenizer)
             max_new_tokens = stopping_criteria.max_new_tokens
             stopping_criterias.append(stopping_criteria)
             # top_n_tokens.append(r.top_n_tokens)
@@ -160,9 +161,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
             total_tokens = input_length + max_new_tokens - 1
 
             # Needed blocks can not go over SLIDING_WINDOW_BLOCKS
-            needed_blocks = min(
-                math.ceil(total_tokens / BLOCK_SIZE), SLIDING_WINDOW_BLOCKS
-            )
+            needed_blocks = min(math.ceil(total_tokens / BLOCK_SIZE), SLIDING_WINDOW_BLOCKS)
             blocks += needed_blocks
 
             needed_blocks_slots.append((needed_blocks, total_tokens))
@@ -188,16 +187,12 @@ class FlashMixtralBatch(FlashCausalLMBatch):
 
             if r.prefill_logprobs:
                 prefill_head_indices.append(request_position_ids + cumulative_length)
-                prefill_next_token_indices.append(
-                    prefill_out_cumulative_length + input_length - 1
-                )
+                prefill_next_token_indices.append(prefill_out_cumulative_length + input_length - 1)
                 prefill_cu_outlens.append(prefill_out_cumulative_length + input_length)
                 prefill_out_cumulative_length += input_length
             else:
                 prefill_head_indices.append(
-                    torch.tensor(
-                        [cumulative_length + input_length - 1], dtype=torch.int32
-                    )
+                    torch.tensor([cumulative_length + input_length - 1], dtype=torch.int32)
                 )
                 prefill_next_token_indices.append(prefill_out_cumulative_length)
                 prefill_cu_outlens.append(prefill_out_cumulative_length + 1)
@@ -214,8 +209,7 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         print("!!! ADAPTER INDICES", adapter_indices)
 
         request_tokenizers = [
-            tokenizers.get_tokenizer(r.adapter_index, tokenizer)
-            for r in pb.requests
+            tokenizers.get_tokenizer(r.adapter_index, tokenizer) for r in pb.requests
         ]
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, request_tokenizers, dtype, device
@@ -223,16 +217,12 @@ class FlashMixtralBatch(FlashCausalLMBatch):
         start_slots = torch.tensor(start_slots, dtype=torch.int64)
 
         # Padded all_input_ids_tensor
-        all_input_ids_tensor = np.zeros(
-            (len(all_input_ids), max_length), dtype=np.int64
-        )
+        all_input_ids_tensor = np.zeros((len(all_input_ids), max_length), dtype=np.int64)
         for i, input_ids in enumerate(all_input_ids):
             all_input_ids_tensor[i, : len(input_ids)] = input_ids
 
         # Create tensors on device
-        all_input_ids_tensor = torch.tensor(
-            all_input_ids_tensor, dtype=torch.int64, device=device
-        )
+        all_input_ids_tensor = torch.tensor(all_input_ids_tensor, dtype=torch.int64, device=device)
 
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
@@ -245,17 +235,13 @@ class FlashMixtralBatch(FlashCausalLMBatch):
             slot_indices = slot_indices[0]
             prefill_cache_indices = prefill_cache_indices[0]
 
-        cu_seqlen_prefill = torch.tensor(
-            cu_seqlen_prefill, device=device, dtype=torch.int32
-        )
+        cu_seqlen_prefill = torch.tensor(cu_seqlen_prefill, device=device, dtype=torch.int32)
 
         position_ids = position_ids.to(device)
         slot_indices = slot_indices.to(device)
         prefill_cache_indices = prefill_cache_indices.to(device)
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
-        input_lengths_tensor = torch.tensor(
-            input_lengths, dtype=torch.int32, device=device
-        )
+        input_lengths_tensor = torch.tensor(input_lengths, dtype=torch.int32, device=device)
 
         adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
@@ -362,10 +348,10 @@ class FlashMixtral(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -399,16 +385,18 @@ class FlashMixtral(FlashCausalLM):
     def batch_type(self) -> Type[FlashMixtralBatch]:
         return FlashMixtralBatch
 
-    def forward(self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, batch: FlashMixtralBatch, adapter_data: AdapterBatchData
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
         if (
-            self.model_graph_wrapper is not None and
-            not prefill and
-            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+            self.model_graph_wrapper is not None
+            and not prefill
+            and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
             model = self.model_graph_wrapper
-        
+
         # Model Forward
         logits = model.forward(
             input_ids=batch.input_ids,
@@ -426,31 +414,43 @@ class FlashMixtral(FlashCausalLM):
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None
         return logits
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, ATTN_Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, ATTN_K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, ATTN_V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, ATTN_O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+            layer_weights[(i, ATTN_Q_PROJ)] = (
+                f"{prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, ATTN_K_PROJ)] = (
+                f"{prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, ATTN_V_PROJ)] = (
+                f"{prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, ATTN_O_PROJ)] = (
+                f"{prefix}.{i}.self_attn.o_proj",
+                layer.self_attn.o_proj,
+            )
 
             # TODO(travis): requires implementing this for block sparse MoE
             # layer_weights[(i, MOE_W1)] = (f"{prefix}.{i}.moe.w1", layer.moe.w1)
             # layer_weights[(i, MOE_W2)] = (f"{prefix}.{i}.moe.w2", layer.moe.w2)
             # layer_weights[(i, MOE_W3)] = (f"{prefix}.{i}.moe.w3", layer.moe.w3)
-        
+
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

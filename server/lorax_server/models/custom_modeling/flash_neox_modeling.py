@@ -112,9 +112,7 @@ class FlashNeoxAttention(torch.nn.Module):
             head_size=self.head_size,
             hidden_size=self.hidden_size,
         )
-        self.dense = load_row(
-            config, prefix=f"{prefix}.dense", weights=weights, bias=True
-        )
+        self.dense = load_row(config, prefix=f"{prefix}.dense", weights=weights, bias=True)
         self.kv_head_mapping = torch.arange(
             0, self.num_heads, dtype=torch.int32, device=weights.device
         )
@@ -138,9 +136,7 @@ class FlashNeoxAttention(torch.nn.Module):
         self.rotary_emb(qkv[:, 0], cos, sin)
         self.rotary_emb(qkv[:, 1], cos, sin)
 
-        paged_attn.reshape_and_cache(
-            qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(qkv[:, 0])
@@ -184,9 +180,7 @@ class FlashMLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         )
 
@@ -221,9 +215,7 @@ class FlashNeoXLayer(nn.Module):
             weights=weights,
             eps=layer_norm_eps,
         )
-        self.attention = FlashNeoxAttention(
-            config, prefix=f"{prefix}.attention", weights=weights
-        )
+        self.attention = FlashNeoxAttention(config, prefix=f"{prefix}.attention", weights=weights)
 
         self.mlp = FlashMLP(config, prefix=f"{prefix}.mlp", weights=weights)
         self.process_group = weights.process_group
@@ -280,9 +272,7 @@ class FlashNeoXLayer(nn.Module):
                 max_s,
             )
 
-            hidden_states, residual = self.post_attention_layernorm(
-                hidden_states, residual
-            )
+            hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
 
             mlp_output = self.mlp(hidden_states)
 
@@ -301,9 +291,7 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        self.embed_in = TensorParallelEmbedding(
-            prefix="gpt_neox.embed_in", weights=weights
-        )
+        self.embed_in = TensorParallelEmbedding(prefix="gpt_neox.embed_in", weights=weights)
 
         self.layers = nn.ModuleList(
             [
@@ -366,9 +354,7 @@ class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
         super().__init__(config)
         self.gpt_neox = FlashGPTNeoXModel(config, weights)
 
-        self.embed_out = TensorParallelHead.load(
-            config, prefix="embed_out", weights=weights
-        )
+        self.embed_out = TensorParallelHead.load(config, prefix="embed_out", weights=weights)
 
     def forward(
         self,

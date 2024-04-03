@@ -29,7 +29,16 @@ from lorax_server.utils.lora import LM_HEAD
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_O_PROJ, MLP_GATE_PROJ, MLP_UP_PROJ, MLP_DOWN_PROJ, LM_HEAD]
+ADAPTER_LAYERS = [
+    ATTN_Q_PROJ,
+    ATTN_K_PROJ,
+    ATTN_V_PROJ,
+    ATTN_O_PROJ,
+    MLP_GATE_PROJ,
+    MLP_UP_PROJ,
+    MLP_DOWN_PROJ,
+    LM_HEAD,
+]
 ROW_PARALLEL = {ATTN_O_PROJ, MLP_DOWN_PROJ, LM_HEAD}
 
 
@@ -69,10 +78,10 @@ class FlashQwen2(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -99,34 +108,49 @@ class FlashQwen2(FlashCausalLM):
             adapter_id=adapter_id,
             adapter_source=adapter_source,
         )
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, ATTN_Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, ATTN_K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, ATTN_V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, ATTN_O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+            layer_weights[(i, ATTN_Q_PROJ)] = (
+                f"{prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, ATTN_K_PROJ)] = (
+                f"{prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, ATTN_V_PROJ)] = (
+                f"{prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, ATTN_O_PROJ)] = (
+                f"{prefix}.{i}.self_attn.o_proj",
+                layer.self_attn.o_proj,
+            )
 
-            layer_weights[(i, MLP_GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, MLP_GATE_PROJ)] = (
+                f"{prefix}.{i}.mlp.gate_proj",
+                layer.mlp.gate_up_proj,
+            )
             layer_weights[(i, MLP_UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, MLP_DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
-        
+
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

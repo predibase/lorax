@@ -37,7 +37,16 @@ from lorax_server.utils.layers import (
     TensorParallelHead,
     get_linear,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.utils.lora import (
+    DOWN_PROJ,
+    GATE_PROJ,
+    K_PROJ,
+    LM_HEAD,
+    O_PROJ,
+    Q_PROJ,
+    UP_PROJ,
+    V_PROJ,
+)
 
 
 class GemmaConfig(PretrainedConfig):
@@ -106,17 +115,21 @@ class GemmaRMSNorm(nn.Module):
     def forward(self, hidden_states):
         output = self._norm(hidden_states.float()).type_as(hidden_states)
         return output * (1 + self.weight)
-        
+
 
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.head_dim
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [Q_PROJ, K_PROJ, V_PROJ], sizes=[
+        base_layer,
+        layer_id,
+        [Q_PROJ, K_PROJ, V_PROJ],
+        sizes=[
             head_size * config.num_attention_heads,
             head_size * config.num_key_value_heads,
             head_size * config.num_key_value_heads,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
 
 
@@ -154,9 +167,7 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(
-        get_linear(weight, bias=None, quantize=config.quantize)
-    )
+    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
 
 class GemmaAttention(torch.nn.Module):
@@ -188,18 +199,21 @@ class GemmaAttention(torch.nn.Module):
                 f"and `num_shards`: {weights.process_group.size()}"
             )
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = (
-            config.num_key_value_heads // weights.process_group.size()
-        )
+        self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
-        self.o_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.o_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, O_PROJ, process_group=weights.process_group)
+        self.o_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.o_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            O_PROJ,
+            process_group=weights.process_group,
+        )
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -207,9 +221,9 @@ class GemmaAttention(torch.nn.Module):
 
     def get_query_key_value_weights(self, clone=True):
         """Gets the query, key, and value weights from the attention layer.
-        
+
         If `clone`, then the weights are cloned before being returned.
-        
+
         NOTE: if not `clone`, then the weights are returned as views, meaning
         that changes to the weights will be reflected in the attention layer.
         """
@@ -253,9 +267,7 @@ class GemmaAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
-        paged_attn.reshape_and_cache(
-            kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -299,9 +311,7 @@ class GemmaMLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         )
         # Fuse gate and up proj
@@ -313,7 +323,11 @@ class GemmaMLP(nn.Module):
             bias=False,
         )
         self.gate_proj = TensorParallelMultiAdapterLinear.load(
-            gate_proj, layer_id, [GATE_PROJ], sizes=[config.intermediate_size], process_group=weights.process_group
+            gate_proj,
+            layer_id,
+            [GATE_PROJ],
+            sizes=[config.intermediate_size],
+            process_group=weights.process_group,
         )
 
         up_proj = TensorParallelColumnLinear.load_multi(
@@ -324,18 +338,25 @@ class GemmaMLP(nn.Module):
             bias=False,
         )
         self.up_proj = TensorParallelMultiAdapterLinear.load(
-            up_proj, layer_id, [UP_PROJ], sizes=[config.intermediate_size], process_group=weights.process_group
+            up_proj,
+            layer_id,
+            [UP_PROJ],
+            sizes=[config.intermediate_size],
+            process_group=weights.process_group,
         )
 
-        self.down_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.down_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, DOWN_PROJ, process_group=weights.process_group)
-        self.intermediate_size = (
-            config.intermediate_size // weights.process_group.size()
+        self.down_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.down_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            DOWN_PROJ,
+            process_group=weights.process_group,
         )
+        self.intermediate_size = config.intermediate_size // weights.process_group.size()
 
     def forward(self, hidden_states, adapter_data):
         gate_states = self.gate_proj(hidden_states, adapter_data)
@@ -353,9 +374,14 @@ class GemmaDecoderLayer(nn.Module):
 
         prefix = f"model.layers.{layer_id}"
         self.self_attn = GemmaAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.self_attn",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
-        self.mlp = GemmaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = GemmaMLP(
+            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        )
 
         self.input_layernorm = GemmaRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
@@ -414,9 +440,7 @@ class GemmaModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix="model.embed_tokens", weights=weights
-        )
+        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
                 GemmaDecoderLayer(
@@ -427,9 +451,7 @@ class GemmaModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = GemmaRMSNorm(
-            prefix="model.norm", weights=weights, eps=config.rms_norm_eps
-        )
+        self.norm = GemmaRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -520,5 +542,5 @@ class GemmaForCausalLM(torch.nn.Module):
 
         # lm_head reuses the weights of the embedding layer
         logits = hidden_states @ self.embed_t
-        logits = logits[:, :self.vocab_size]
+        logits = logits[:, : self.vocab_size]
         return logits, None

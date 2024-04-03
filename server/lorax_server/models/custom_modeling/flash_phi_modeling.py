@@ -40,16 +40,20 @@ ATTN_V_PROJ = "self_attn.v_proj"
 ATTN_DENSE = "self_attn.dense"
 MLP_FC1 = "mlp.fc1"
 MLP_FC2 = "mlp.fc2"
-        
+
 
 def load_attention(config, prefix, weights, layer_id, head_dim, n_head, n_head_kv):
     base_layer = load_attention_multi(config, prefix, weights, head_dim, n_head, n_head_kv)
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ], sizes=[
+        base_layer,
+        layer_id,
+        [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ],
+        sizes=[
             head_dim * n_head,
             head_dim * n_head_kv,
             head_dim * n_head_kv,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
 
 
@@ -80,7 +84,9 @@ class FlashPhiAttention(torch.nn.Module):
         rope_theta = 10000
         config.max_position_embeddings = getattr(config, "n_positions", 2048)
 
-        rotary_dim = int(config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads))
+        rotary_dim = int(
+            config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads)
+        )
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=rotary_dim,
@@ -98,13 +104,26 @@ class FlashPhiAttention(torch.nn.Module):
             )
         self.num_key_value_heads = getattr(config, "n_head_kv", None) or self.num_heads
 
-        self.qkv_proj = load_attention(config, prefix, weights, layer_id, self.head_size, self.num_heads, self.num_key_value_heads)
-        self.dense = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
+        self.qkv_proj = load_attention(
             config,
-            prefix=f"{prefix}.dense",
-            weights=weights,
-            bias=True,
-        ), layer_id, ATTN_DENSE, process_group=weights.process_group)
+            prefix,
+            weights,
+            layer_id,
+            self.head_size,
+            self.num_heads,
+            self.num_key_value_heads,
+        )
+        self.dense = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.dense",
+                weights=weights,
+                bias=True,
+            ),
+            layer_id,
+            ATTN_DENSE,
+            process_group=weights.process_group,
+        )
 
         # After initializing layers, scale num heads by num shards for use in forward() to split outputs
         self.num_heads = self.num_heads // weights.process_group.size()
@@ -143,9 +162,7 @@ class FlashPhiAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
-        paged_attn.reshape_and_cache(
-            kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -189,9 +206,7 @@ class PhiMLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         )
 
@@ -207,13 +222,18 @@ class PhiMLP(nn.Module):
         self.fc1 = TensorParallelMultiAdapterLinear.load(
             fc1, layer_id, [MLP_FC1], sizes=[out_size], process_group=weights.process_group
         )
-        self.fc2 = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.fc2",
-            weights=weights,
-            bias=True,
-        ), layer_id, MLP_FC2, process_group=weights.process_group)
-        
+        self.fc2 = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.fc2",
+                weights=weights,
+                bias=True,
+            ),
+            layer_id,
+            MLP_FC2,
+            process_group=weights.process_group,
+        )
+
     def forward(self, hidden_states, adapter_data):
         hidden_states = self.fc1(hidden_states, adapter_data)
         hidden_states = self.act(hidden_states)
@@ -225,12 +245,15 @@ class FlashPhiLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
-        
+
         self.input_layernorm = FastLayerNorm.load(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.layer_norm_eps
         )
         self.self_attn = FlashPhiAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.self_attn",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
         self.mlp = PhiMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
         self.process_group = weights.process_group
@@ -280,9 +303,7 @@ class FlashPhiModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix="model.embed_tokens", weights=weights
-        )
+        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashPhiLayer(
@@ -338,7 +359,7 @@ class FlashPhiModel(torch.nn.Module):
                 max_s,
                 adapter_data,
             )
-        
+
         hidden_states, _ = self.final_layernorm(hidden_states)
         return hidden_states
 
@@ -348,11 +369,16 @@ class FlashPhiForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = FlashPhiModel(config, weights)
-        self.lm_head = MultiAdapterHead.load(TensorParallelHead.load(
-            config,
-            prefix="lm_head",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
+        self.lm_head = MultiAdapterHead.load(
+            TensorParallelHead.load(
+                config,
+                prefix="lm_head",
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
 
     def forward(
         self,

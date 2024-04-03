@@ -56,6 +56,7 @@ class Weights(AbstractWeights):
         process_group: The process group for distributed training.
         _handles (Dict[str, Any]): Dictionary of file handles for opened weight files.
     """
+
     def __init__(
         self,
         filenames: List[Path],
@@ -77,7 +78,7 @@ class Weights(AbstractWeights):
                                 f"Key {k} was found in multiple adapter files: {filename} and {routing[k]}"
                             )
                         routing[k] = filename
-        
+
         # set of keys that point to adapter files. Duplicates for these keys found
         # in main model files will be overridden.
         adapter_routes = set(routing.keys())
@@ -86,7 +87,9 @@ class Weights(AbstractWeights):
             with safe_open(filename, framework="pytorch") as f:
                 for k in f.keys():
                     if k in adapter_routes:
-                        logger.debug(f"Overriding main model weights with adapter weights for key: {k}")
+                        logger.debug(
+                            f"Overriding main model weights with adapter weights for key: {k}"
+                        )
                     elif k in routing:
                         raise RuntimeError(
                             f"Key {k} was found in multiple non-adapter files: {filename} and {routing[k]}"
@@ -141,7 +144,9 @@ class Weights(AbstractWeights):
         tensor = tensor.to(device=self.device)
         return tensor
 
-    def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
+    def get_partial_sharded(
+        self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None
+    ):
         """Loads tensor with the given name and shards it along the given dimension.
 
         The optional range argument can be used to load and split on only a subset of the tensor.
@@ -190,7 +195,7 @@ class Weights(AbstractWeights):
             size % world_size == 0
         ), f"The choosen size {size} is not compatible with sharding on {world_size} shards"
         return self.get_partial_sharded(tensor_name, dim, range=range)
-    
+
     def get_sharded_prefix(self, module_name: str, prefix: Union[str, Tuple], dim: int):
         if isinstance(prefix, str):
             return self.get_sharded(f"{prefix}.{module_name}", dim=dim)
@@ -198,27 +203,21 @@ class Weights(AbstractWeights):
             assert isinstance(prefix, tuple)
             assert len(prefix) == 2
             return self.get_sharded(f"{prefix[0]}.{module_name}", dim=dim, range=prefix[1])
-    
+
     def get_sharded_list(self, module_name: str, prefixes: List[Union[str, Tuple]], dim: int):
         return [self.get_sharded_prefix(module_name, p, dim=dim) for p in prefixes]
 
     def get_multi_weights_col(self, prefixes: List[Union[str, Tuple]], quantize: str, dim: int):
         if quantize in ["gptq", "awq"]:
             try:
-                qweight = torch.cat(
-                    self.get_sharded_list("qweight", prefixes, dim=1), dim=1
-                )
+                qweight = torch.cat(self.get_sharded_list("qweight", prefixes, dim=1), dim=1)
             except RuntimeError:
                 raise RuntimeError(
                     "Cannot load `gptq` weight, make sure the model is already quantized, or quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
                 )
 
-            qzeros = torch.cat(
-                self.get_sharded_list("qzeros", prefixes, dim=1), dim=1
-            )
-            scales = torch.cat(
-                self.get_sharded_list("scales", prefixes, dim=1), dim=1
-            )
+            qzeros = torch.cat(self.get_sharded_list("qzeros", prefixes, dim=1), dim=1)
+            scales = torch.cat(self.get_sharded_list("scales", prefixes, dim=1), dim=1)
             if quantize == "gptq":
                 # no tensor parallelism, so remove the range if provided
                 prefixes = [p[0] if isinstance(p, tuple) else p for p in prefixes]
@@ -370,6 +369,7 @@ class Weights(AbstractWeights):
                 except Exception:
                     pass
 
+
 def get_start_stop_idxs_for_rank(offset, size, rank, world_size):
     block_size = size // world_size
     start = offset + rank * block_size
@@ -380,7 +380,7 @@ def get_start_stop_idxs_for_rank(offset, size, rank, world_size):
 def shard_on_dim(t: torch.Tensor, dim: int, process_group: torch.distributed.ProcessGroup):
     world_size = process_group.size()
     rank = process_group.rank()
-    
+
     size = t.shape[dim]
     start, stop = get_start_stop_idxs_for_rank(0, size, rank, world_size)
 
@@ -405,6 +405,7 @@ def download_weights(
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
     from lorax_server.utils import sources
+
     model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
 
     # Test if files were already download
@@ -458,8 +459,7 @@ def download_weights(
 
         # Safetensors final filenames
         local_st_files = [
-            p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors"
-            for p in local_pt_files
+            p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors" for p in local_pt_files
         ]
         try:
             from transformers import AutoConfig

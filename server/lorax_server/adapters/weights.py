@@ -45,7 +45,9 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
+    def load(
+        cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata"
+    ) -> "BatchAdapterWeights":
         pass
 
 
@@ -62,12 +64,11 @@ class LayerAdapterWeights:
         if adapter_idx not in self.adapter_weights:
             return
         del self.adapter_weights[adapter_idx]
-    
+
     @property
     def max_speculative_tokens(self) -> int:
         return max(
-            adapter_weights.speculative_tokens
-            for adapter_weights in self.adapter_weights.values()
+            adapter_weights.speculative_tokens for adapter_weights in self.adapter_weights.values()
         )
 
     def is_empty(self) -> bool:
@@ -75,10 +76,12 @@ class LayerAdapterWeights:
 
     def get_data(self, meta: AdapterBatchMetadata) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
-        adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
+        adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = (
+            defaultdict(dict)
+        )
         for adapter_index, adapter_weights in self.adapter_weights.items():
             adapter_batch_types[adapter_weights.get_batch_type()][adapter_index] = adapter_weights
-        
+
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
             batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta)
@@ -93,14 +96,16 @@ class AdapterBatchData:
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
     @staticmethod
-    def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]) -> "AdapterBatchData":
+    def from_meta(
+        meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]
+    ) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
                 continue
             data[k] = v.get_data(meta)
         return AdapterBatchData(meta=meta, data=data)
-    
+
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation
         return set(
@@ -108,7 +113,7 @@ class AdapterBatchData:
             for layer_data in self.data.values()
             for rank_data in layer_data.get(LORA, []).rank_data.values()
         )
-    
+
     @property
     def max_rank(self) -> int:
         ranks = self.ranks()

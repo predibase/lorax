@@ -27,8 +27,7 @@ try:
         )
     if not (is_sm8x or is_sm90):
         raise ImportError(
-            f"GPU with CUDA capability {major} {minor} is not supported for "
-            "Flash Attention V2"
+            f"GPU with CUDA capability {major} {minor} is not supported for " "Flash Attention V2"
         )
     HAS_FLASH_ATTN_V2 = True
 except ImportError as e:
@@ -42,9 +41,7 @@ except ImportError as e:
         ) from e
 
     if not (is_sm75 or is_sm8x or is_sm90):
-        raise ImportError(
-            f"GPU with CUDA capability {major} {minor} is not supported"
-        ) from e
+        raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported") from e
     logger.warning(f"Unable to use Flash Attention V2: {e}")
     HAS_FLASH_ATTN = True
 
@@ -81,9 +78,7 @@ def attention(
 
     if HAS_FLASH_ATTN:
         if window_size_left != -1:
-            raise NotImplementedError(
-                "window_size_left is only available with flash attn v2"
-            )
+            raise NotImplementedError("window_size_left is only available with flash attn v2")
 
         # Flash attention v1 requires q, k and v to have the same number of heads
         if k.shape[1] != q.shape[1]:

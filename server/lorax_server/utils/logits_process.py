@@ -62,9 +62,7 @@ class StaticWarper:
 
                     self.static_warped_scores = local_scores
                     # Compute logprobs
-                    self.static_next_logprob = torch.log_softmax(
-                        self.static_warped_scores, -1
-                    )
+                    self.static_next_logprob = torch.log_softmax(self.static_warped_scores, -1)
 
             self.static_scores.copy_(scores)
             self.cuda_graph.replay()
@@ -84,9 +82,7 @@ def static_warper(
     top_p: Optional[float],
     typical_p: Optional[float],
 ) -> StaticWarper:
-    return StaticWarper(
-        temperature=temperature, top_k=top_k, top_p=top_p, typical_p=typical_p
-    )
+    return StaticWarper(temperature=temperature, top_k=top_k, top_p=top_p, typical_p=typical_p)
 
 
 class HeterogeneousRepetitionPenaltyLogitsProcessor(LogitsProcessor):
@@ -103,17 +99,13 @@ class HeterogeneousRepetitionPenaltyLogitsProcessor(LogitsProcessor):
 
     def __init__(self, penalty: List[float], dtype: torch.dtype, device: torch.device):
         self.penalty = penalty
-        self.penalty_tensor = torch.tensor(
-            penalty, dtype=dtype, device=device
-        ).unsqueeze(1)
+        self.penalty_tensor = torch.tensor(penalty, dtype=dtype, device=device).unsqueeze(1)
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         score = torch.gather(scores, 1, input_ids)
 
         # if score < 0 then repetition penalty has to be multiplied to reduce the previous token probability
-        score = torch.where(
-            score < 0, score * self.penalty_tensor, score / self.penalty_tensor
-        )
+        score = torch.where(score < 0, score * self.penalty_tensor, score / self.penalty_tensor)
 
         scores.scatter_(1, input_ids, score)
         return scores
@@ -137,13 +129,9 @@ class HeterogeneousTemperatureLogitsWarper(LogitsWarper):
             The value used to module the logits distribution.
     """
 
-    def __init__(
-        self, temperature: List[float], dtype: torch.dtype, device: torch.device
-    ):
+    def __init__(self, temperature: List[float], dtype: torch.dtype, device: torch.device):
         self.temperature = temperature
-        self.temperature_tensor = torch.tensor(
-            temperature, dtype=dtype, device=device
-        ).unsqueeze(1)
+        self.temperature_tensor = torch.tensor(temperature, dtype=dtype, device=device).unsqueeze(1)
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         scores.div_(self.temperature_tensor)
@@ -182,9 +170,7 @@ class HeterogeneousTopPLogitsWarper(LogitsWarper):
         min_tokens_to_keep: int = 1,
     ):
         self.top_p = top_p
-        self.top_p_opposite = 1 - torch.tensor(
-            top_p, dtype=dtype, device=device
-        ).unsqueeze(1)
+        self.top_p_opposite = 1 - torch.tensor(top_p, dtype=dtype, device=device).unsqueeze(1)
         self.filter_value = filter_value
         self.min_tokens_to_keep = min_tokens_to_keep
 
@@ -198,7 +184,7 @@ class HeterogeneousTopPLogitsWarper(LogitsWarper):
         # Remove tokens with cumulative top_p above the threshold (token with 0 are kept)
         sorted_indices_to_remove = probs <= self.top_p_opposite
         # Keep at least min_tokens_to_keep
-        sorted_indices_to_remove[..., -self.min_tokens_to_keep:] = 0
+        sorted_indices_to_remove[..., -self.min_tokens_to_keep :] = 0
 
         # scatter sorted tensors to original indexing
         indices_to_remove = sorted_indices_to_remove.scatter(
@@ -251,9 +237,9 @@ class HeterogeneousTopKLogitsWarper(LogitsWarper):
         disabled = [x == 0 for x in top_k]
 
         if any(disabled):
-            self.top_k_disabled_mask = torch.tensor(
-                disabled, dtype=torch.bool, device=device
-            ).view(-1, 1)
+            self.top_k_disabled_mask = torch.tensor(disabled, dtype=torch.bool, device=device).view(
+                -1, 1
+            )
         else:
             self.top_k_disabled_mask = None
 
@@ -357,9 +343,7 @@ class HeterogeneousTypicalLogitsWarper(LogitsWarper):
         if self.disabled_mask is not None:
             last_ind.masked_fill_(self.disabled_mask, scores.shape[-1] - 1)
 
-        sorted_indices_to_remove = sorted_scores > sorted_scores.gather(
-            1, last_ind.view(-1, 1)
-        )
+        sorted_indices_to_remove = sorted_scores > sorted_scores.gather(1, last_ind.view(-1, 1))
         if self.min_tokens_to_keep > 1:
             # Keep at least min_tokens_to_keep (set to min_tokens_to_keep-1 because we add the first one below)
             sorted_indices_to_remove[..., : self.min_tokens_to_keep] = 0
@@ -379,9 +363,7 @@ class HeterogeneousTypicalLogitsWarper(LogitsWarper):
             self.mass_tensor = self.mass_tensor[indices]
 
             if self.disabled_mask is not None:
-                self.disabled_mask = (
-                    self.disabled_mask[indices] if any(disabled) else None
-                )
+                self.disabled_mask = self.disabled_mask[indices] if any(disabled) else None
 
             return self
         return None
@@ -403,7 +385,7 @@ class HeterogeneousProcessorWrapper(LogitsProcessor):
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in self.processors.items():
-            scores[i: i + 1] = processor(input_ids[i: i + 1], scores[i: i + 1])
+            scores[i : i + 1] = processor(input_ids[i : i + 1], scores[i : i + 1])
         return scores
 
     def filter(self, indices):
@@ -437,7 +419,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in enumerate(self.sequence_processors):
             if processor is not None:
-                scores[i:i + 1] = processor(input_ids[i:i + 1], scores[i:i + 1])
+                scores[i : i + 1] = processor(input_ids[i : i + 1], scores[i : i + 1])
         return scores
 
     def filter(self, indices):
@@ -445,7 +427,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
         if any([x is not None for x in self.sequence_processors]):
             return self
         return None
-    
+
     @classmethod
     def from_schemas(
         cls,

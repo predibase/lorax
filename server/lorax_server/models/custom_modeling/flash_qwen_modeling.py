@@ -109,9 +109,7 @@ class QwenRMSNorm(nn.Module):
 
             hidden_states = hidden_states.to(torch.float32)
             variance = hidden_states.pow(2).mean(-1, keepdim=True)
-            hidden_states = hidden_states * torch.rsqrt(
-                variance + self.variance_epsilon
-            )
+            hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
             # convert into half-precision if necessary
             if self.weight.dtype in [torch.float16, torch.bfloat16]:
@@ -141,15 +139,21 @@ class QwenRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
-        
+
 
 def load_attention(config, prefix, weights, layer_id):
-    projection_size = (config.hidden_size // config.num_attention_heads) * config.num_attention_heads
+    projection_size = (
+        config.hidden_size // config.num_attention_heads
+    ) * config.num_attention_heads
     base_layer = load_attention_multi(config, prefix, weights, projection_size)
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [ATTN_C_ATTN], sizes=[
+        base_layer,
+        layer_id,
+        [ATTN_C_ATTN],
+        sizes=[
             3 * projection_size,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
 
 
@@ -179,7 +183,9 @@ class FlashQwenAttention(torch.nn.Module):
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
-        self.projection_size = (self.head_size * config.num_attention_heads) // weights.process_group.size()
+        self.projection_size = (
+            self.head_size * config.num_attention_heads
+        ) // weights.process_group.size()
         self.process_group = weights.process_group
 
         self.rotary_emb = PositionRotaryEmbedding.static(
@@ -202,12 +208,17 @@ class FlashQwenAttention(torch.nn.Module):
 
         self.c_attn = load_attention(config, prefix, weights, layer_id)
 
-        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.c_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, ATTN_C_PROJ, process_group=weights.process_group)
+        self.c_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.c_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            ATTN_C_PROJ,
+            process_group=weights.process_group,
+        )
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
@@ -240,9 +251,7 @@ class FlashQwenAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
-        paged_attn.reshape_and_cache(
-            kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -286,9 +295,7 @@ class QwenMLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         )
         # Fuse gate and up proj
@@ -300,21 +307,28 @@ class QwenMLP(nn.Module):
             bias=False,
         )
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj, layer_id, [MLP_W2, MLP_W1], sizes=[
+            gate_up_proj,
+            layer_id,
+            [MLP_W2, MLP_W1],
+            sizes=[
                 config.intermediate_size // 2,
                 config.intermediate_size // 2,
-            ], process_group=weights.process_group
+            ],
+            process_group=weights.process_group,
         )
 
-        self.c_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.c_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, MLP_C_PROJ, process_group=weights.process_group)
-        self.intermediate_size = (
-            config.intermediate_size // weights.process_group.size()
+        self.c_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.c_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            MLP_C_PROJ,
+            process_group=weights.process_group,
         )
+        self.intermediate_size = config.intermediate_size // weights.process_group.size()
 
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
@@ -327,9 +341,14 @@ class FlashQwenLayer(nn.Module):
         super().__init__()
         prefix = f"transformer.h.{layer_id}"
         self.attn = FlashQwenAttention(
-            prefix=f"{prefix}.attn", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.attn",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
-        self.mlp = QwenMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = QwenMLP(
+            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        )
 
         self.ln_1 = QwenRMSNorm(
             prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon
@@ -371,9 +390,7 @@ class FlashQwenLayer(nn.Module):
         )
 
         # faster post attention rms norm
-        normed_attn_res_output, attn_res = self.ln_2(
-            attn_output, res
-        )
+        normed_attn_res_output, attn_res = self.ln_2(attn_output, res)
 
         mlp_output = self.mlp(normed_attn_res_output, adapter_data)
 
@@ -387,9 +404,7 @@ class FlashQwenModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.wte = TensorParallelEmbedding(
-            prefix="transformer.wte", weights=weights
-        )
+        self.wte = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
         self.h = nn.ModuleList(
             [
                 FlashQwenLayer(
@@ -426,9 +441,7 @@ class FlashQwenModel(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.h[0].attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.h[0].attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.h):
@@ -456,11 +469,16 @@ class FlashQwenForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.transformer = FlashQwenModel(config, weights)
-        self.lm_head = MultiAdapterHead.load(TensorParallelHead.load(
-            config,
-            prefix="lm_head",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
+        self.lm_head = MultiAdapterHead.load(
+            TensorParallelHead.load(
+                config,
+                prefix="lm_head",
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
 
     def forward(
         self,

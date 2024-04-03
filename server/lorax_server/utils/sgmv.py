@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 try:
     import punica_kernels as _kernels
+
     HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
 except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
@@ -29,7 +30,7 @@ def pad_rank(t: torch.Tensor, dim: int, world_size: int) -> torch.Tensor:
     """Pad a tensor to the minimum rank for SGMV and the nearest multiple of the SGMV block size."""
     if not has_sgmv():
         return t
-    
+
     # tensor parallelism will result in effective rank being divided by world_size,
     # so we need to scale the min rank to offset that effect
     min_rank = MIN_SGMV_RANK * world_size
@@ -38,8 +39,9 @@ def pad_rank(t: torch.Tensor, dim: int, world_size: int) -> torch.Tensor:
     # otherwise, pad to the nearest multiple of the block size
     current_rank = t.size(dim)
     target_rank = (
-        min_rank if current_rank <= min_rank else
-        (current_rank + SGMV_BLOCK_SIZE - 1) // SGMV_BLOCK_SIZE * SGMV_BLOCK_SIZE
+        min_rank
+        if current_rank <= min_rank
+        else (current_rank + SGMV_BLOCK_SIZE - 1) // SGMV_BLOCK_SIZE * SGMV_BLOCK_SIZE
     )
     if current_rank == target_rank:
         return t
@@ -94,7 +96,7 @@ def add_lora_sgmv_cutlass(
         # Custom SGMV shrink only supports rank 16, 32, 64, 128
         _add_lora_sgmv_cutlass_legacy(y, x, wa_ptr, wb_ptr, s_start, s_end, layer_idx, lora_rank)
         return
-    
+
     tmp1 = torch.empty((8 * 1024 * 1024,), dtype=torch.uint8, device=x.device)
     tmp2_size = _kernels.sgmv_cutlass_tmp_size(wa_ptr.size(0))
     tmp2 = torch.empty((tmp2_size,), dtype=torch.uint8, device=x.device)
@@ -135,7 +137,9 @@ def get_tmp_expand_size(size: int) -> int:
     return _kernels.sgmv_cutlass_tmp_size(size)
 
 
-def get_tmp_tensors(nsegments: int, lora_rank: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_tmp_tensors(
+    nsegments: int, lora_rank: int, device: torch.device
+) -> Tuple[torch.Tensor, torch.Tensor]:
     if use_cutlass_shrink(lora_rank):
         tmp = get_tmp_tensor_for_size(nsegments, device)
         return tmp, tmp

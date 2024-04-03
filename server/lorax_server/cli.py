@@ -49,9 +49,7 @@ def serve(
     speculative_tokens: int = 0,
 ):
     if sharded:
-        assert (
-            os.getenv("RANK", None) is not None
-        ), "RANK must be set when sharded is True"
+        assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
         assert (
             os.getenv("WORLD_SIZE", None) is not None
         ), "WORLD_SIZE must be set when sharded is True"
@@ -90,16 +88,16 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id, 
-        adapter_id, 
-        revision, 
-        sharded, 
-        quantize, 
-        compile, 
-        dtype, 
-        trust_remote_code, 
-        uds_path, 
-        source, 
+        model_id,
+        adapter_id,
+        revision,
+        sharded,
+        quantize,
+        compile,
+        dtype,
+        trust_remote_code,
+        uds_path,
+        source,
         adapter_source,
         speculative_tokens,
     )

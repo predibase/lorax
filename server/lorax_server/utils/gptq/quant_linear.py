@@ -158,8 +158,7 @@ try:
         a_mask = offs_am[:, None] < M
         # b_ptrs is set up such that it repeats elements along the K axis 8 times
         b_ptrs = b_ptr + (
-            (offs_k[:, None] // infearure_per_bits) * stride_bk
-            + offs_bn[None, :] * stride_bn
+            (offs_k[:, None] // infearure_per_bits) * stride_bk + offs_bn[None, :] * stride_bn
         )  # (BLOCK_SIZE_K, BLOCK_SIZE_N)
         g_ptrs = g_ptr + offs_k
         # shifter is used to extract the N bits of each element in the 32-bit word from B
@@ -275,12 +274,8 @@ class QuantLinear(nn.Module):
             (math.ceil(infeatures / groupsize), outfeatures // 32 * bits),
             dtype=torch.int32,
         )
-        scales = torch.zeros(
-            (math.ceil(infeatures / groupsize), outfeatures), dtype=torch.float16
-        )
-        g_idx = torch.tensor(
-            [i // groupsize for i in range(infeatures)], dtype=torch.int32
-        )
+        scales = torch.zeros((math.ceil(infeatures / groupsize), outfeatures), dtype=torch.float16)
+        g_idx = torch.tensor([i // groupsize for i in range(infeatures)], dtype=torch.int32)
         if bias:
             bias = torch.zeros((outfeatures), dtype=torch.float16)
         else:
@@ -327,9 +322,7 @@ class QuantLinear(nn.Module):
 
         zeros -= 1
         zeros = zeros.numpy().astype(np.uint32)
-        qzeros = np.zeros(
-            (zeros.shape[0], zeros.shape[1] // 32 * self.bits), dtype=np.uint32
-        )
+        qzeros = np.zeros((zeros.shape[0], zeros.shape[1] // 32 * self.bits), dtype=np.uint32)
         i = 0
         col = 0
         while col < qzeros.shape[1]:
@@ -357,7 +350,7 @@ class QuantLinear(nn.Module):
         )
         out = out + self.bias if self.bias is not None else out
         return out.reshape(out_shape)
-    
+
     @property
     def weight(self) -> torch.Tensor:
         return self.qweight
