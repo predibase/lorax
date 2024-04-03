@@ -1,10 +1,5 @@
-from collections import defaultdict
-from dataclasses import dataclass
-from typing import Dict, List, Set, Type
 
-import torch
 
-from lorax_server.adapters.weights import AdapterWeights, BatchAdapterWeights
 
 
 # Constants

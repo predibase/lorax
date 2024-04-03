@@ -1,4 +1,3 @@
-import json
 import math
 import torch
 import torch.distributed
@@ -6,7 +5,6 @@ import torch.distributed
 import numpy as np
 
 from dataclasses import dataclass
-from loguru import logger
 from opentelemetry import trace
 from transformers import PreTrainedTokenizerBase
 from transformers.models.llama import LlamaTokenizerFast
@@ -24,9 +22,6 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     ATTN_O_PROJ,
     ATTN_Q_PROJ,
     ATTN_V_PROJ,
-    MOE_W1,
-    MOE_W2,
-    MOE_W3,
     FlashMixtralForCausalLM,
     MixtralConfig,
 )
@@ -37,7 +32,6 @@ from lorax_server.utils import (
     HeterogeneousNextTokenChooser,
     StoppingCriteria,
 )
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.segments import find_segments
 from lorax_server.utils.tokenizer import TokenizerManager

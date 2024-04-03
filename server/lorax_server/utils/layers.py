@@ -359,7 +359,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
         except Exception:
             raise NotImplementedError(
-                f"The passed weight is not `gptq` compatible, loader needs to be updated."
+                "The passed weight is not `gptq` compatible, loader needs to be updated."
             )
 
         if use_exllama:
@@ -378,7 +378,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         try:
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
-            raise NotImplementedError(f"The passed weight is not compatible with `awq`")
+            raise NotImplementedError("The passed weight is not compatible with `awq`")
         linear = AWQLinear(
             w_bit=bits,
             group_size=groupsize,

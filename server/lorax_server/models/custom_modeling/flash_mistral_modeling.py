@@ -24,7 +24,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Set, Tuple
+from typing import Optional, List, Tuple
 
 # Flash attention imports
 import dropout_layer_norm

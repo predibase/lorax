@@ -22,7 +22,6 @@ from transformers.configuration_utils import PretrainedConfig
 from typing import Optional, List, Tuple
 
 # Flash attention imports
-import dropout_layer_norm
 
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn
@@ -34,14 +33,12 @@ from lorax_server.utils.layers import (
     TensorParallelEmbedding,
     TensorParallelMultiAdapterLinear,
     PositionRotaryEmbedding,
-    TensorParallelHead,
     get_linear,
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,
     K_PROJ,
-    LM_HEAD,
     O_PROJ,
     Q_PROJ,
     UP_PROJ,

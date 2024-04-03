@@ -60,7 +60,7 @@ def get_model(
     if source == "s3":
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
-        logger.info(f"Using the local files since we are coming from s3")
+        logger.info("Using the local files since we are coming from s3")
         model_path = get_s3_model_local_dir(model_id)
         logger.info(f"model_path: {model_path}")
         config_dict, _ = PretrainedConfig.get_config_dict(
