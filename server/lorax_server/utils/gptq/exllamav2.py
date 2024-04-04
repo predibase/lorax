@@ -8,7 +8,7 @@ import torch.nn as nn
 logger = getLogger(__name__)
 
 try:
-    from exllamav2_kernels import make_q_matrix, gemm_half_q_half
+    from exllamav2_kernels import gemm_half_q_half, make_q_matrix
 except ImportError:
     logger.error("exllamav2_kernels not installed.")
     raise

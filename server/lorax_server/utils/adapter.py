@@ -1,14 +1,14 @@
+import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple
-import warnings
 
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
 from lorax_server.pb import generate_pb2
-from lorax_server.utils.sources import get_model_source, get_config_path
 from lorax_server.utils.merges.strategies import merge_adapters
+from lorax_server.utils.sources import get_config_path, get_model_source
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig, ModuleMap

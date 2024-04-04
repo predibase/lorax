@@ -1,18 +1,18 @@
-import torch
-import torch.distributed
-
 from typing import Optional
 
+import torch
+import torch.distributed
 from transformers import (
-    AutoTokenizer,
     AutoConfig,
+    AutoTokenizer,
 )
-from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
+
 from lorax_server.models import CausalLM
+from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 
 

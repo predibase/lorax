@@ -1,4 +1,5 @@
 import math
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,6 +8,7 @@ from torch.cuda.amp import custom_fwd
 try:
     import triton
     import triton.language as tl
+
     from . import custom_autotune
 
     # code based https://github.com/fpgaminer/GPTQ-triton

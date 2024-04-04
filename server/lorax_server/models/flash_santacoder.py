@@ -1,18 +1,18 @@
+from typing import List, Optional
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
-from transformers import AutoTokenizer, AutoConfig
-from typing import Optional, List
+from transformers import AutoConfig, AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_santacoder_modeling import (
     FlashSantacoderForCausalLM,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 
 tracer = trace.get_tracer(__name__)

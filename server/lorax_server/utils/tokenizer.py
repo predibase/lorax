@@ -1,5 +1,6 @@
 import json
 from typing import Optional
+
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2

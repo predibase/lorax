@@ -1,8 +1,8 @@
+from typing import List, Optional
+
 import torch
 import torch.distributed
-
-from typing import Optional, List
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from lorax_server.models import CausalLM
 

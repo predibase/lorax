@@ -1,9 +1,9 @@
+from typing import Dict, List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
 from transformers.models.llama import LlamaTokenizerFast
-from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_mistral_modeling import (
@@ -11,9 +11,9 @@ from lorax_server.models.custom_modeling.flash_mistral_modeling import (
     MistralConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,

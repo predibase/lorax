@@ -18,13 +18,12 @@ import copy
 import math
 from typing import Optional, Tuple, Union
 
-from loguru import logger
-
 import torch
 import torch.distributed
+from loguru import logger
 from torch import nn
 from torch.nn import CrossEntropyLoss
-
+from transformers import T5Config
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
     BaseModelOutput,
@@ -36,12 +35,12 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import (
     is_torch_fx_proxy,
 )
-from transformers import T5Config
+
 from lorax_server.utils.layers import (
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelRowLinear,
     TensorParallelHead,
+    TensorParallelRowLinear,
 )
 
 

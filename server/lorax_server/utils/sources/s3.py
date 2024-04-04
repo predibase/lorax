@@ -1,18 +1,17 @@
 import os
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional, List, Any, Tuple
-
-from loguru import logger
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+
 import boto3
 from botocore.config import Config
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
-
 from huggingface_hub.utils import (
-    LocalEntryNotFoundError,
     EntryNotFoundError,
+    LocalEntryNotFoundError,
 )
+from loguru import logger
 
 from .source import BaseModelSource, try_to_load_from_cache
 

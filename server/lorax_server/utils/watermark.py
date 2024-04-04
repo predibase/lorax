@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from typing import List, Union
 
 import torch
 from transformers import LogitsProcessor
-from typing import List, Union
 
 GAMMA = os.getenv("WATERMARK_GAMMA", 0.5)
 DELTA = os.getenv("WATERMARK_DELTA", 2.0)

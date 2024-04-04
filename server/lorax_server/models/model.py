@@ -1,13 +1,14 @@
-from collections import defaultdict
 import inspect
-import torch
-
 from abc import ABC, abstractmethod
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple, Type, TypeVar
+
+import torch
 from loguru import logger
-from typing import Dict, List, Tuple, Optional, TypeVar, Type
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
@@ -16,7 +17,6 @@ from lorax_server.utils.adapter import (
 )
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.utils.weights import shard_on_dim
 
 B = TypeVar("B", bound=Batch)

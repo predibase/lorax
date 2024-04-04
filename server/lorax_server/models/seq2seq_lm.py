@@ -1,20 +1,20 @@
-import torch
-
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Type
+
+import torch
 from opentelemetry import trace
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, PreTrainedTokenizerBase
-from typing import Optional, Tuple, List, Type, Dict
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, PreTrainedTokenizerBase
 
 from lorax_server.models import Model
 from lorax_server.models.types import (
-    GeneratedText,
     Batch,
+    GeneratedText,
     Generation,
     NextTokens,
     PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
 from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)

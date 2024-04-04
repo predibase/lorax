@@ -1,13 +1,17 @@
+import copy
 from abc import ABC
 from collections import defaultdict
-import copy
 from typing import TYPE_CHECKING, Dict, List, Tuple, Type, Union
 
 import torch
 
 from lorax_server.pb.generate_pb2 import (
     AdapterParameters,
+)
+from lorax_server.pb.generate_pb2 import (
     MajoritySignMethod as MajoritySignMethodEnum,
+)
+from lorax_server.pb.generate_pb2 import (
     MergeStrategy as MergeStrategyEnum,
 )
 from lorax_server.utils.merges.utils import calculate_majority_sign_mask, disjoint_merge, prune

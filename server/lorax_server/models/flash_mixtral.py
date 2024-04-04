@@ -15,9 +15,9 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     MixtralConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import LM_HEAD
 

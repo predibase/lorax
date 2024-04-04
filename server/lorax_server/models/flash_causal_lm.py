@@ -1,8 +1,8 @@
 import itertools
 import math
-from dataclasses import dataclass
 import os
-from typing import Optional, Tuple, List, Type, Union, Dict
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -12,31 +12,30 @@ from opentelemetry import trace
 from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models import Model
 from lorax_server.models.cache_manager import (
+    BLOCK_SIZE,
     get_cache_manager,
     set_cache_manager,
-    BLOCK_SIZE,
 )
 from lorax_server.models.types import (
-    Batch,
-    PrefillTokens,
     AlternativeTokens,
-    Generation,
+    Batch,
     GeneratedText,
+    Generation,
     NextTokens,
+    PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
+from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
-from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.state import get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
-
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
 

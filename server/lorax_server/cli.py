@@ -1,14 +1,13 @@
 import os
 import sys
-import typer
-
-from pathlib import Path
-from loguru import logger
-from typing import Optional
 from enum import Enum
+from pathlib import Path
+from typing import Optional
+
+import typer
+from loguru import logger
 
 from lorax_server.utils.weights import download_weights as _download_weights
-
 
 app = typer.Typer()
 

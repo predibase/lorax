@@ -19,34 +19,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.distributed
-
-import numpy as np
-
-from torch import nn
-from transformers.activations import ACT2FN
-from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
+import numpy as np
+import torch
+import torch.distributed
+from torch import nn
+from transformers.activations import ACT2FN
+from transformers.configuration_utils import PretrainedConfig
 
-from lorax_server.utils import paged_attn, flash_attn
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils.layers import (
     FastLinear,
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
     get_linear,
 )
-from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.lora import LM_HEAD
 
 if not HAS_FLASH_ATTN_V2:

@@ -1,26 +1,26 @@
 import re
-import torch
+from typing import List, Optional, Tuple
 
+import torch
 from transformers import (
-    RepetitionPenaltyLogitsProcessor,
     PreTrainedTokenizerBase,
+    RepetitionPenaltyLogitsProcessor,
 )
-from typing import List, Tuple, Optional
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
-from lorax_server.utils.watermark import WatermarkLogitsProcessor
 from lorax_server.utils.logits_process import (
-    static_warper,
+    HeterogeneousProcessorWrapper,
     HeterogeneousRepetitionPenaltyLogitsProcessor,
+    HeterogeneousSchemaLogitsProcessor,
     HeterogeneousTemperatureLogitsWarper,
     HeterogeneousTopKLogitsWarper,
     HeterogeneousTopPLogitsWarper,
     HeterogeneousTypicalLogitsWarper,
-    HeterogeneousProcessorWrapper,
-    HeterogeneousSchemaLogitsProcessor,
     OutlinesLogitsProcessor,
+    static_warper,
 )
+from lorax_server.utils.watermark import WatermarkLogitsProcessor
 
 
 class NextTokenChooser:

@@ -4,32 +4,29 @@
 # Copyright (c) Alibaba Cloud.
 # LICENSE: https://huggingface.co/Qwen/Qwen-7B/blob/main/LICENSE
 
-import torch
-import torch.distributed
-
-from torch import nn
-from transformers.activations import ACT2FN
-from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
+import torch
+import torch.distributed
+from torch import nn
+from transformers.activations import ACT2FN
+from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelMultiAdapterLinear,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import LM_HEAD
-
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"

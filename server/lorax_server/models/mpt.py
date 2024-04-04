@@ -1,23 +1,23 @@
-import torch
-import torch.distributed
-
+import json
 from pathlib import Path
 from typing import Optional, Type
+
+import torch
+import torch.distributed
+from huggingface_hub import hf_hub_download
 from opentelemetry import trace
 from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBase
-from huggingface_hub import hf_hub_download
-import json
 
 from lorax_server.models import CausalLM
 from lorax_server.models.causal_lm import CausalLMBatch
-from lorax_server.pb import generate_pb2
 from lorax_server.models.custom_modeling.mpt_modeling import (
     MPTForCausalLM,
 )
+from lorax_server.pb import generate_pb2
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
 

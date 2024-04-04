@@ -1,21 +1,21 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Type, Dict
+from typing import Dict, List, Optional, Tuple, Type
 
 import torch
 from opentelemetry import trace
-from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizerBase
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
 
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models import Model
 from lorax_server.models.types import (
     Batch,
+    GeneratedText,
+    Generation,
     NextTokens,
     PrefillTokens,
-    Generation,
-    GeneratedText,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
-from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
 

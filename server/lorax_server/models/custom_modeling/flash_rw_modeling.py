@@ -1,20 +1,19 @@
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
-from transformers.modeling_utils import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from transformers.modeling_utils import PreTrainedModel
 
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
-    TensorParallelRowLinear,
+    FastLayerNorm,
+    PositionRotaryEmbedding,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelHead,
-    FastLayerNorm,
-    PositionRotaryEmbedding,
+    TensorParallelRowLinear,
     get_linear,
 )
 

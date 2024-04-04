@@ -1,11 +1,11 @@
 import math
 from functools import lru_cache
-from typing import Optional, List, Dict, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 from transformers import (
-    LogitsWarper,
     LogitsProcessor,
+    LogitsWarper,
     PreTrainedTokenizerBase,
     TemperatureLogitsWarper,
     TopKLogitsWarper,
@@ -14,7 +14,7 @@ from transformers import (
 )
 
 try:
-    from outlines.fsm.fsm import RegexFSM, FSMState
+    from outlines.fsm.fsm import FSMState, RegexFSM
     from outlines.fsm.json_schema import build_regex_from_schema
 
     HAS_OUTLINES = True

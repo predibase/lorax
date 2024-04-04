@@ -1,8 +1,8 @@
-from abc import abstractmethod
 import json
 import os
-from typing import Optional, List
+from abc import abstractmethod
 from pathlib import Path
+from typing import List, Optional
 
 from lorax_server.adapters.config import AdapterConfig
 

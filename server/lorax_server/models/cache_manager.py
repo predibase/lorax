@@ -1,7 +1,7 @@
 import math
-import torch
+from typing import List, Optional, Tuple
 
-from typing import Optional, List, Tuple
+import torch
 
 BLOCK_SIZE: int = 16
 # Will be set in warmup

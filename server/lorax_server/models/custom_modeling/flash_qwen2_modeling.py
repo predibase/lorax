@@ -4,32 +4,29 @@
 # Copyright 2024 The Qwen team and the HuggingFace Inc. team.
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
 
-import torch
-import torch.distributed
-
-from torch import nn
-from transformers.activations import ACT2FN
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
+import torch
+import torch.distributed
+from torch import nn
+from transformers.activations import ACT2FN
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelMultiAdapterLinear,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
     get_linear,
 )
 from lorax_server.utils.lora import LM_HEAD
-
 
 ATTN_Q_PROJ = "self_attn.q_proj"
 ATTN_K_PROJ = "self_attn.k_proj"

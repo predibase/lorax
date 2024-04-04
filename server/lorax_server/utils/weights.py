@@ -2,14 +2,14 @@ import json
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import LocalEntryNotFoundError
-from safetensors import safe_open, SafetensorError
 from loguru import logger
+from safetensors import SafetensorError, safe_open
 
 
 class AbstractWeights(ABC):
@@ -454,8 +454,8 @@ def download_weights(
         # Safetensors final filenames
         local_st_files = [p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors" for p in local_pt_files]
         try:
-            from transformers import AutoConfig
             import transformers
+            from transformers import AutoConfig
 
             config_path = sources.get_config_path(model_id, source)
             config = AutoConfig.from_pretrained(

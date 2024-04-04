@@ -13,26 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
 
 # Flash attention imports
-
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelMultiAdapterLinear,
-    PositionRotaryEmbedding,
+    TensorParallelRowLinear,
     get_linear,
 )
 from lorax_server.utils.lora import (

@@ -1,7 +1,7 @@
-import torch
-
-from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Optional, Tuple
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from lorax_server.models import CausalLM
 

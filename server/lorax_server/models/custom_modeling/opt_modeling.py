@@ -20,20 +20,20 @@ from typing import List, Optional, Tuple, Union
 import torch
 import torch.utils.checkpoint
 from torch import nn
-
+from transformers import OPTConfig
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers import OPTConfig
+
 from lorax_server.utils.layers import (
     FastLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelRowLinear,
     TensorParallelHead,
+    TensorParallelRowLinear,
 )
 
 EPS = 1e-5

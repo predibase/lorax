@@ -1,9 +1,8 @@
 import os
-from typing import Optional, List
-
 from pathlib import Path
-from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
+from typing import List, Optional
 
+from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
 from .source import BaseModelSource
 

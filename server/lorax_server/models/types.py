@@ -1,9 +1,8 @@
-import torch
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional
 
+import torch
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2

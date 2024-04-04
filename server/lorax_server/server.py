@@ -1,21 +1,20 @@
 import asyncio
 import os
-import torch
-
-from grpc import aio
-from loguru import logger
-
-from grpc_reflection.v1alpha import reflection
 from pathlib import Path
 from typing import List, Optional
+
+import torch
+from grpc import aio
+from grpc_reflection.v1alpha import reflection
+from loguru import logger
 
 from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
 from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
-from lorax_server.pb import generate_pb2_grpc, generate_pb2
+from lorax_server.pb import generate_pb2, generate_pb2_grpc
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, PBASE, map_pbase_model_id_to_s3
+from lorax_server.utils import HUB, LOCAL, PBASE, S3, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_speculative_tokens

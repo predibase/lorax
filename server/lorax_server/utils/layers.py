@@ -1,24 +1,22 @@
 import math
 import os
-import torch
-import torch.distributed
-
-from torch import nn
-from torch.nn import functional as F
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
+import torch
+import torch.distributed
 from accelerate import init_empty_weights
+from torch import nn
+from torch.nn import functional as F
 
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.utils.sgmv import (
+    has_sgmv,
     lora_a_sgmv_cutlass,
     lora_b_sgmv_cutlass,
-    has_sgmv,
     orient_for_rank,
 )
 from lorax_server.utils.state import is_warmup
-
 
 HAS_BITS_AND_BYTES = True
 try:
@@ -813,8 +811,8 @@ except ImportError:
 
 
 try:
-    from flash_attn.layers.rotary import RotaryEmbedding  # noqa: F401
     import rotary_emb
+    from flash_attn.layers.rotary import RotaryEmbedding  # noqa: F401
 
     def _create_inv_freq(dim, base, device):
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))

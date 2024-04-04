@@ -1,24 +1,24 @@
 import re
-import torch
-import torch.distributed
-
 from typing import List, Optional, Type
 
+import torch
+import torch.distributed
 from transformers import (
-    AutoTokenizer,
     AutoConfig,
+    AutoTokenizer,
     PreTrainedTokenizerBase,
 )
+
 from lorax_server.models import CausalLM
 from lorax_server.models.causal_lm import CausalLMBatch
-from lorax_server.pb import generate_pb2
 from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
+from lorax_server.pb import generate_pb2
 from lorax_server.utils import (
     NextTokenChooser,
     StoppingCriteria,
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
 

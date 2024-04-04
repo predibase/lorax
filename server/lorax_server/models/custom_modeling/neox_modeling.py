@@ -14,29 +14,28 @@
 # limitations under the License.
 """PyTorch GPTNeoX model."""
 
+import os
 from typing import Optional, Tuple, Union
 
-import os
 import torch
 import torch.distributed
 import torch.utils.checkpoint
+from loguru import logger
 from torch import nn
 from torch.nn import CrossEntropyLoss
-
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
 from transformers.modeling_utils import PreTrainedModel
-from loguru import logger
+
 from lorax_server.utils.layers import (
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelRowLinear,
     TensorParallelHead,
+    TensorParallelRowLinear,
 )
-
 
 CUSTOM_KERNELS_ENABLED = False
 if not os.environ.get("DISABLE_CUSTOM_KERNELS", "False") == "True":

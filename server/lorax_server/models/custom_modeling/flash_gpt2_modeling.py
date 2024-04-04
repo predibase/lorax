@@ -18,26 +18,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2Config
-from typing import Optional, List, Tuple
 
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
+    FastLayerNorm,
     TensorParallelAdapterRowLinear,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    FastLayerNorm,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
 )
-from lorax_server.adapters import AdapterBatchData
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"

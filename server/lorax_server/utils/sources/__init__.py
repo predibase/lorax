@@ -1,18 +1,18 @@
 import os
-from typing import Optional
 from functools import lru_cache
+from typing import Optional
 
 import requests
 
 from .hub import (
+    HubModelSource,
+    download_weights,
     get_hub_model_local_dir,
     weight_files,
-    download_weights,
     weight_hub_files,
-    HubModelSource,
 )
 from .local import LocalModelSource, get_model_local_dir
-from .s3 import S3ModelSource, get_s3_model_local_dir, _get_bucket_and_model_id
+from .s3 import S3ModelSource, _get_bucket_and_model_id, get_s3_model_local_dir
 
 HUB = "hub"
 S3 = "s3"

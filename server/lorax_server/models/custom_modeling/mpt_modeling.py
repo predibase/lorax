@@ -6,21 +6,23 @@ Inspired by https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
 import math
 import warnings
 from typing import List, Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
+from packaging import version
 from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
-from einops import rearrange
-from packaging import version
+
 from lorax_server.utils.layers import (
-    TensorParallelEmbedding,
     TensorParallelColumnLinear,
-    TensorParallelRowLinear,
+    TensorParallelEmbedding,
     TensorParallelHead,
+    TensorParallelRowLinear,
     get_linear,
 )
 

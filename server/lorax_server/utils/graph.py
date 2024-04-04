@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, List, Optional, Tuple
-import numpy as np
 
+import numpy as np
 import torch
 from torch import nn
 from tqdm import tqdm
@@ -14,7 +14,7 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
-from lorax_server.models.cache_manager import get_cache_manager, BLOCK_SIZE
+from lorax_server.models.cache_manager import BLOCK_SIZE, get_cache_manager
 from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
 
 if TYPE_CHECKING:

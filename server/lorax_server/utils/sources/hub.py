@@ -1,17 +1,16 @@
-import time
 import os
-
+import time
 from datetime import timedelta
-from loguru import logger
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
-    LocalEntryNotFoundError,
     EntryNotFoundError,  # Import here to ease try/except in other part of the lib
+    LocalEntryNotFoundError,
 )
+from loguru import logger
 
 from .source import BaseModelSource, try_to_load_from_cache
 

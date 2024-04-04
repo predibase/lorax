@@ -1,6 +1,6 @@
 import os
-import torch
 
+import torch
 from loguru import logger
 
 if os.getenv("USE_FLASH_ATTENTION", "").lower() == "false":

@@ -25,22 +25,21 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import LayerNorm
 from torch.nn import functional as F
-
+from transformers import BloomConfig, PreTrainedModel
 from transformers.modeling_outputs import (
     BaseModelOutputWithPastAndCrossAttentions,
     CausalLMOutputWithCrossAttentions,
 )
-from transformers import BloomConfig, PreTrainedModel
 
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.layers import (
     TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
+    TensorParallelHead,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
-    TensorParallelHead,
 )
-from lorax_server.adapters import AdapterBatchData
 
 CUSTOM_KERNELS_ENABLED = False
 if not os.environ.get("DISABLE_CUSTOM_KERNELS", "False") == "True":

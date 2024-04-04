@@ -9,29 +9,27 @@
 #
 # LICENSE: https://huggingface.co/microsoft/phi-2/blob/main/LICENSE
 
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
-from typing import Optional, List, Tuple
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
     FastLayerNorm,
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelMultiAdapterLinear,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import LM_HEAD
-
 
 ATTN_Q_PROJ = "self_attn.q_proj"
 ATTN_K_PROJ = "self_attn.k_proj"
