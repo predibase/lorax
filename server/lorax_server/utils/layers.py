@@ -281,9 +281,7 @@ class Linear4bit(nn.Module):
         super().__init__()
 
         # Initialize weight with 4-bit quantization
-        self.weight = Params4bit(
-            weight.data, requires_grad=False, compress_statistics=True, quant_type=quant_type
-        )
+        self.weight = Params4bit(weight.data, requires_grad=False, compress_statistics=True, quant_type=quant_type)
         self.weight.cuda(weight.device)
 
         # Initialize other attributes
@@ -356,9 +354,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
         except Exception:
-            raise NotImplementedError(
-                "The passed weight is not `gptq` compatible, loader needs to be updated."
-            )
+            raise NotImplementedError("The passed weight is not `gptq` compatible, loader needs to be updated.")
 
         if use_exllama:
             linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
@@ -387,17 +383,11 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         )
     elif "hqq-" in quantize:
         if quantize == "hqq-4bit":
-            quant_config = BaseQuantizeConfig(
-                nbits=4, group_size=64, quant_zero=True, quant_scale=False
-            )
+            quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
         elif quantize == "hqq-3bit":
-            quant_config = BaseQuantizeConfig(
-                nbits=3, group_size=64, quant_zero=True, quant_scale=False
-            )
+            quant_config = BaseQuantizeConfig(nbits=3, group_size=64, quant_zero=True, quant_scale=False)
         elif quantize == "hqq-2bit":
-            quant_config = BaseQuantizeConfig(
-                nbits=2, group_size=16, quant_zero=True, quant_scale=False
-            )
+            quant_config = BaseQuantizeConfig(nbits=2, group_size=16, quant_zero=True, quant_scale=False)
 
         # init nn.linear from weight and bias
         layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
@@ -455,12 +445,7 @@ class TensorParallelHead(SuperLayer):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         world_size = self.process_group.size()
         # Fast branch for single requests
-        if (
-            self.should_gather
-            and len(input.shape) == 2
-            and isinstance(self.linear, FastLinear)
-            and input.shape[0] == 1
-        ):
+        if self.should_gather and len(input.shape) == 2 and isinstance(self.linear, FastLinear) and input.shape[0] == 1:
             out_dim = self.linear.weight.shape[0]
 
             world_out = input.new_empty(1, out_dim * world_size)
@@ -575,11 +560,7 @@ class LoraLinear(nn.Module):
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (
-                        (adapter_data.meta.adapter_indices == adapter_index)
-                        .to(input.dtype)
-                        .view(-1, 1)
-                    )
+                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 
@@ -616,9 +597,7 @@ class TensorParallelMultiAdapterLinear(LoraLinear):
 
     @classmethod
     def load(cls, base_layer, layer_id, layer_names, sizes, process_group):
-        return TensorParallelMultiAdapterLinear(
-            base_layer, layer_id, layer_names, sizes, process_group
-        )
+        return TensorParallelMultiAdapterLinear(base_layer, layer_id, layer_names, sizes, process_group)
 
     def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
         result = self.base_layer(input)
@@ -643,9 +622,7 @@ class TensorParallelMultiAdapterLinear(LoraLinear):
             else:
                 end_idx = result.shape[1]
 
-            result = self.forward_layer_type(
-                result, input, adapter_data, layer_name, start_idx, end_idx
-            )
+            result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
 
         if is_3d:
             result = result.reshape(prev_shape)
@@ -840,9 +817,7 @@ try:
     import rotary_emb
 
     def _create_inv_freq(dim, base, device):
-        inv_freq = 1.0 / (
-            base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
-        )
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
         return inv_freq
 
     def _get_rope_config(config):
@@ -897,9 +872,7 @@ try:
                         **rope_scaling,
                     )
                 else:
-                    raise NotImplementedError(
-                        f"rope scaling type {rope_type} is not implemented or invalid"
-                    )
+                    raise NotImplementedError(f"rope scaling type {rope_type} is not implemented or invalid")
             return cls(inv_freq, scaling_factor, config.max_position_embeddings, device, dtype)
 
         @classmethod
@@ -937,19 +910,13 @@ try:
                         **rope_scaling,
                     )
                 else:
-                    raise NotImplementedError(
-                        f"rope scaling type {rope_type} is not implemented or invalid"
-                    )
+                    raise NotImplementedError(f"rope scaling type {rope_type} is not implemented or invalid")
             return cls(inv_freq, scaling_factor)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
             # or if we're on a new device (possibly due to tracing for instance)
-            if (
-                seqlen > self._seq_len_cached
-                or self._cos_cached.device != device
-                or self._cos_cached.dtype != dtype
-            ):
+            if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
                 self._seq_len_cached = seqlen
                 t = torch.arange(seqlen, device=device, dtype=self.inv_freq.dtype)
                 if self.scaling_factor is not None:
@@ -997,15 +964,10 @@ try:
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
             # or if we're on a new device (possibly due to tracing for instance)
-            if (
-                seqlen > self._seq_len_cached
-                or self._cos_cached.device != device
-                or self._cos_cached.dtype != dtype
-            ):
+            if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
                 if seqlen > self.max_position_embeddings:
                     newbase = self.base * (
-                        (self.scaling_factor * seqlen / self.max_position_embeddings)
-                        - (self.scaling_factor - 1)
+                        (self.scaling_factor * seqlen / self.max_position_embeddings) - (self.scaling_factor - 1)
                     ) ** (self.dim / (self.dim - 2))
                     self.inv_freq = _create_inv_freq(self.dim, newbase, self.inv_freq.device)
                 self._seq_len_cached = seqlen
@@ -1046,16 +1008,10 @@ try:
             self.finetuned = finetuned
 
             self.yarn(device, factor)
-            super().__init__(
-                _create_inv_freq(dim, base, device), factor, max_position_embeddings, device, dtype
-            )
+            super().__init__(_create_inv_freq(dim, base, device), factor, max_position_embeddings, device, dtype)
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
-            if (
-                seqlen > self._seq_len_cached
-                or self._cos_cached.device != device
-                or self._cos_cached.dtype != dtype
-            ):
+            if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
                 self._seq_len_cached = seqlen
 
                 t = torch.arange(self._seq_len_cached, device=device, dtype=self.inv_freq.dtype)
@@ -1079,10 +1035,7 @@ try:
             inv_freq_mask = (
                 1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)
             ) * self.extrapolation_factor  # Get n-d rotational scaling corrected for extrapolation
-            inv_freq = (
-                inv_freq_interpolation * (1 - inv_freq_mask)
-                + inv_freq_extrapolation * inv_freq_mask
-            )
+            inv_freq = inv_freq_interpolation * (1 - inv_freq_mask) + inv_freq_extrapolation * inv_freq_mask
 
             self.inv_freq = inv_freq
             self.mscale = float(
@@ -1091,9 +1044,7 @@ try:
 
     # Inverse dim formula to find dim based on number of rotations
     def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):
-        return (dim * math.log(max_position_embeddings / (num_rotations * 2 * math.pi))) / (
-            2 * math.log(base)
-        )
+        return (dim * math.log(max_position_embeddings / (num_rotations * 2 * math.pi))) / (2 * math.log(base))
 
     # Find dim range bounds based on rotations
     def find_correction_range(low_rot, high_rot, dim, base=10000, max_position_embeddings=2048):

@@ -17,9 +17,7 @@ def get_model_local_dir(model_id: str) -> Path:
 
 
 class LocalModelSource(BaseModelSource):
-    def __init__(
-        self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"
-    ):
+    def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
         if len(model_id) < 5:
             raise ValueError(f"model_id '{model_id}' is too short for prefix filtering")
 
@@ -43,9 +41,7 @@ class LocalModelSource(BaseModelSource):
         if local_path.exists() and local_path.is_dir():
             local_files = list(local_path.glob(f"*{extension}"))
             if not local_files:
-                raise FileNotFoundError(
-                    f"No local weights found in {model_id} with extension {extension}"
-                )
+                raise FileNotFoundError(f"No local weights found in {model_id} with extension {extension}")
             return local_files
 
         raise FileNotFoundError(f"No local weights found in {model_id} with extension {extension}")

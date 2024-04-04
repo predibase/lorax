@@ -65,9 +65,7 @@ class PrefillTokens:
     texts: List[str]
 
     def to_pb(self) -> generate_pb2.PrefillTokens:
-        return generate_pb2.PrefillTokens(
-            ids=self.token_ids, logprobs=self.logprobs, texts=self.texts
-        )
+        return generate_pb2.PrefillTokens(ids=self.token_ids, logprobs=self.logprobs, texts=self.texts)
 
     def __len__(self):
         return len(self.token_ids)
@@ -80,9 +78,7 @@ class AlternativeTokens:
     texts: List[str]
 
     def to_pb(self) -> generate_pb2.AlternativeTokens:
-        return generate_pb2.AlternativeTokens(
-            ids=self.token_ids, logprobs=self.logprobs, texts=self.texts
-        )
+        return generate_pb2.AlternativeTokens(ids=self.token_ids, logprobs=self.logprobs, texts=self.texts)
 
     def __len__(self):
         return len(self.token_ids)

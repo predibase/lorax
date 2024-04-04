@@ -63,9 +63,7 @@ def weight_files(
     if Path(model_id).exists() and Path(model_id).is_dir():
         local_files = list(Path(model_id).glob(f"*{extension}"))
         if not local_files:
-            raise FileNotFoundError(
-                f"No local weights found in {model_id} with extension {extension}"
-            )
+            raise FileNotFoundError(f"No local weights found in {model_id} with extension {extension}")
         return local_files
 
     try:
@@ -130,9 +128,7 @@ def download_weights(
                     local_files_only=False,
                     token=api_token,
                 )
-                logger.info(
-                    f"Downloaded {local_file} in {timedelta(seconds=int(time.time() - start_time))}."
-                )
+                logger.info(f"Downloaded {local_file} in {timedelta(seconds=int(time.time() - start_time))}.")
                 return Path(local_file)
             except Exception as e:
                 if i + 1 == tries:

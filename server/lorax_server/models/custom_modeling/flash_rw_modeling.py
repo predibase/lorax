@@ -74,12 +74,8 @@ class RWConfig(PretrainedConfig):
         # Backward compatibility with n_embed kwarg
         n_embed = kwargs.pop("n_embed", None)
         self.hidden_size = hidden_size if n_embed is None else n_embed
-        self.n_layer = (
-            num_hidden_layers if num_hidden_layers is not None else kwargs.pop("n_layer", 2)
-        )
-        self.n_head = (
-            num_attention_heads if num_attention_heads is not None else kwargs.pop("n_head", 8)
-        )
+        self.n_layer = num_hidden_layers if num_hidden_layers is not None else kwargs.pop("n_layer", 2)
+        self.n_head = num_attention_heads if num_attention_heads is not None else kwargs.pop("n_head", 8)
         self.layer_norm_epsilon = layer_norm_epsilon
         self.initializer_range = initializer_range
         self.use_cache = use_cache
@@ -144,13 +140,9 @@ class FlashRWAttention(torch.nn.Module):
         self.dense = load_row(config, prefix=f"{prefix}.dense", weights=weights, bias=config.bias)
 
         if self.num_heads_kv == 1:
-            self.kv_head_mapping = torch.zeros(
-                self.num_heads, dtype=torch.int32, device=weights.device
-            )
+            self.kv_head_mapping = torch.zeros(self.num_heads, dtype=torch.int32, device=weights.device)
         else:
-            self.kv_head_mapping = torch.arange(
-                0, self.num_heads, dtype=torch.int32, device=weights.device
-            )
+            self.kv_head_mapping = torch.arange(0, self.num_heads, dtype=torch.int32, device=weights.device)
 
     def forward(
         self,
@@ -242,9 +234,7 @@ class FlashRWLargeAttention(torch.nn.Module):
         process_group = weights.process_group
 
         if process_group.size() > self.num_groups:
-            raise NotImplementedError(
-                "Tensor Parallelism is not implemented for world_size > n groups"
-            )
+            raise NotImplementedError("Tensor Parallelism is not implemented for world_size > n groups")
         if self.num_groups % process_group.size() != 0:
             raise NotImplementedError(
                 f"Tensor Parallelism is not implemented for {self.num_groups} not divisible by {process_group.size()}"
@@ -339,9 +329,7 @@ class FlashMLP(nn.Module):
         self.dense_h_to_4h = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.dense_h_to_4h", weights=weights, bias=config.bias
         )
-        self.dense_4h_to_h = load_row(
-            config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=config.bias
-        )
+        self.dense_4h_to_h = load_row(config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=config.bias)
 
     def forward(self, hidden_states):
         hidden_states = self.dense_h_to_4h(hidden_states)
@@ -524,24 +512,16 @@ class FlashRWModel(FlashRWPreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        self.word_embeddings = TensorParallelEmbedding(
-            prefix="transformer.word_embeddings", weights=weights
-        )
+        self.word_embeddings = TensorParallelEmbedding(prefix="transformer.word_embeddings", weights=weights)
 
         if config.new_decoder_architecture:
             self.h = nn.ModuleList(
-                [
-                    FlashRWLargeLayer(layer_id, config, weights)
-                    for layer_id in range(config.num_hidden_layers)
-                ]
+                [FlashRWLargeLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
             )
             self.cache_size = self.h[0].self_attention.num_groups
         else:
             self.h = nn.ModuleList(
-                [
-                    FlashRWLayer(layer_id, config, weights)
-                    for layer_id in range(config.num_hidden_layers)
-                ]
+                [FlashRWLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
             )
             self.cache_size = self.h[0].self_attention.num_heads_kv
 
@@ -568,9 +548,7 @@ class FlashRWModel(FlashRWPreTrainedModel):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.h[0].self_attention.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.h[0].self_attention.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.h):

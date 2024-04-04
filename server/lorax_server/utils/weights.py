@@ -89,9 +89,7 @@ class Weights(AbstractWeights):
             with safe_open(filename, framework="pytorch") as f:
                 for k in f.keys():
                     if k in adapter_routes:
-                        logger.debug(
-                            f"Overriding main model weights with adapter weights for key: {k}"
-                        )
+                        logger.debug(f"Overriding main model weights with adapter weights for key: {k}")
                     elif k in routing:
                         raise RuntimeError(
                             f"Key {k} was found in multiple non-adapter files: {filename} and {routing[k]}"
@@ -146,9 +144,7 @@ class Weights(AbstractWeights):
         tensor = tensor.to(device=self.device)
         return tensor
 
-    def get_partial_sharded(
-        self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None
-    ):
+    def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
         """Loads tensor with the given name and shards it along the given dimension.
 
         The optional range argument can be used to load and split on only a subset of the tensor.
@@ -193,9 +189,7 @@ class Weights(AbstractWeights):
         slice_ = f.get_slice(tensor_name)
         world_size = self.process_group.size()
         size = slice_.get_shape()[dim] if range is None else range[1]
-        assert (
-            size % world_size == 0
-        ), f"The choosen size {size} is not compatible with sharding on {world_size} shards"
+        assert size % world_size == 0, f"The choosen size {size} is not compatible with sharding on {world_size} shards"
         return self.get_partial_sharded(tensor_name, dim, range=range)
 
     def get_sharded_prefix(self, module_name: str, prefix: Union[str, Tuple], dim: int):
@@ -309,9 +303,7 @@ class Weights(AbstractWeights):
             try:
                 qweight = self.get_sharded(f"{prefix}.qweight", dim=0)
             except RuntimeError:
-                raise RuntimeError(
-                    "Cannot load `awq` weight, make sure the model is already quantized"
-                )
+                raise RuntimeError("Cannot load `awq` weight, make sure the model is already quantized")
 
             qzeros = self.get_sharded(f"{prefix}.qzeros", dim=0)
             scales = self.get_sharded(f"{prefix}.scales", dim=0)
@@ -460,9 +452,7 @@ def download_weights(
         )
 
         # Safetensors final filenames
-        local_st_files = [
-            p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors" for p in local_pt_files
-        ]
+        local_st_files = [p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors" for p in local_pt_files]
         try:
             from transformers import AutoConfig
             import transformers

@@ -26,9 +26,7 @@ try:
             "or install flash attention v2 with `cd server && make install install-flash-attention-v2`"
         )
     if not (is_sm8x or is_sm90):
-        raise ImportError(
-            f"GPU with CUDA capability {major} {minor} is not supported for " "Flash Attention V2"
-        )
+        raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported for " "Flash Attention V2")
     HAS_FLASH_ATTN_V2 = True
 except ImportError as e:
     try:

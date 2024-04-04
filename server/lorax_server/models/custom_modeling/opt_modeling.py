@@ -99,9 +99,7 @@ class OPTLearnedPositionalEmbedding(nn.Module):
         attention_mask = attention_mask.long()
 
         # create positions depending on attention_mask
-        positions = (
-            torch.cumsum(attention_mask, dim=1).type_as(attention_mask) * attention_mask
-        ).long() - 1
+        positions = (torch.cumsum(attention_mask, dim=1).type_as(attention_mask) * attention_mask).long() - 1
 
         # cut positions if `past_key_values_length` is > 0
         positions = positions[:, past_key_values_length:]
@@ -147,18 +145,10 @@ class OPTAttention(nn.Module):
         self.num_heads = self.num_heads // process_group.size()
         self.hidden_size = self.hidden_size // process_group.size()
 
-        self.q_proj = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.q_proj", weights=weights, bias=bias
-        )
-        self.k_proj = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.k_proj", weights=weights, bias=bias
-        )
-        self.v_proj = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.v_proj", weights=weights, bias=bias
-        )
-        self.out_proj = TensorParallelRowLinear.load(
-            config, prefix=f"{prefix}.out_proj", weights=weights, bias=bias
-        )
+        self.q_proj = TensorParallelColumnLinear.load(config, prefix=f"{prefix}.q_proj", weights=weights, bias=bias)
+        self.k_proj = TensorParallelColumnLinear.load(config, prefix=f"{prefix}.k_proj", weights=weights, bias=bias)
+        self.v_proj = TensorParallelColumnLinear.load(config, prefix=f"{prefix}.v_proj", weights=weights, bias=bias)
+        self.out_proj = TensorParallelRowLinear.load(config, prefix=f"{prefix}.out_proj", weights=weights, bias=bias)
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
         return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
@@ -232,16 +222,12 @@ class OPTAttention(nn.Module):
                     f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is {attention_mask.size()}"
                 )
             attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attention_mask
-            attn_weights = torch.max(
-                attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min)
-            )
+            attn_weights = torch.max(attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min))
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
         # upcast to fp32 if the weights are in fp16. Please see https://github.com/huggingface/transformers/pull/17437
         if attn_weights.dtype == torch.float16:
-            attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
-                torch.float16
-            )
+            attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(torch.float16)
         else:
             attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
@@ -251,9 +237,7 @@ class OPTAttention(nn.Module):
                     f"Head mask for a single layer should be of size {(self.num_heads,)}, but is"
                     f" {layer_head_mask.size()}"
                 )
-            attn_weights = layer_head_mask.view(1, -1, 1, 1) * attn_weights.view(
-                bsz, self.num_heads, tgt_len, src_len
-            )
+            attn_weights = layer_head_mask.view(1, -1, 1, 1) * attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
         if output_attentions:
@@ -305,18 +289,14 @@ class OPTDecoderLayer(nn.Module):
         self.dropout = config.dropout
         self.activation_fn = ACT2FN[config.activation_function]
 
-        self.self_attn_layer_norm = nn.LayerNorm.load(
-            prefix=f"{prefix}.self_attn_layer_norm", weights=weights, eps=EPS
-        )
+        self.self_attn_layer_norm = nn.LayerNorm.load(prefix=f"{prefix}.self_attn_layer_norm", weights=weights, eps=EPS)
         self.fc1 = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.fc1", weights=weights, bias=config.enable_bias
         )
         self.fc2 = TensorParallelRowLinear.load(
             config, prefix=f"{prefix}.fc2", weights=weights, bias=config.enable_bias
         )
-        self.final_layer_norm = nn.LayerNorm.load(
-            prefix=f"{prefix}.final_layer_norm", weights=weights, eps=EPS
-        )
+        self.final_layer_norm = nn.LayerNorm.load(prefix=f"{prefix}.final_layer_norm", weights=weights, eps=EPS)
 
     def forward(
         self,
@@ -409,15 +389,11 @@ class OPTDecoder(OPTPreTrainedModel):
         self.max_target_positions = config.max_position_embeddings
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix="model.decoder.embed_tokens", weights=weights
-        )
+        self.embed_tokens = TensorParallelEmbedding(prefix="model.decoder.embed_tokens", weights=weights)
         self.embed_positions = OPTLearnedPositionalEmbedding(weights)
 
         if config.word_embed_proj_dim != config.hidden_size:
-            self.project_out = FastLinear.load(
-                config, prefix="model.decoder.project_out", bias=False
-            )
+            self.project_out = FastLinear.load(config, prefix="model.decoder.project_out", bias=False)
         else:
             self.project_out = None
 
@@ -430,23 +406,16 @@ class OPTDecoder(OPTPreTrainedModel):
         # with checkpoints that have been fine-tuned before transformers v4.20.1
         # see https://github.com/facebookresearch/metaseq/pull/164
         if config.do_layer_norm_before and not config._remove_final_layer_norm:
-            self.final_layer_norm = nn.LayerNorm.load(
-                prefix="model.decoder.final_layer_norm", weights=weights, eps=EPS
-            )
+            self.final_layer_norm = nn.LayerNorm.load(prefix="model.decoder.final_layer_norm", weights=weights, eps=EPS)
         else:
             self.final_layer_norm = None
 
         self.layers = nn.ModuleList(
-            [
-                OPTDecoderLayer(layer_id, config, weights)
-                for layer_id in range(config.num_hidden_layers)
-            ]
+            [OPTDecoderLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
         )
 
     # Copied from transformers.models.bart.modeling_bart.BartDecoder._prepare_decoder_attention_mask
-    def _prepare_decoder_attention_mask(
-        self, attention_mask, input_shape, inputs_embeds, past_key_values_length
-    ):
+    def _prepare_decoder_attention_mask(self, attention_mask, input_shape, inputs_embeds, past_key_values_length):
         # create causal mask
         # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
         combined_attention_mask = None
@@ -460,13 +429,11 @@ class OPTDecoder(OPTPreTrainedModel):
 
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
-            expanded_attn_mask = _expand_mask(
-                attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]
-            ).to(inputs_embeds.device)
+            expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1]).to(
+                inputs_embeds.device
+            )
             combined_attention_mask = (
-                expanded_attn_mask
-                if combined_attention_mask is None
-                else expanded_attn_mask + combined_attention_mask
+                expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
             )
 
         return combined_attention_mask
@@ -530,13 +497,9 @@ class OPTDecoder(OPTPreTrainedModel):
             return_dict (`bool`, *optional*):
                 Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
         """
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
@@ -544,26 +507,20 @@ class OPTDecoder(OPTPreTrainedModel):
 
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError(
-                "You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time"
-            )
+            raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
             input_shape = input_ids.size()
             input_ids = input_ids.view(-1, input_shape[-1])
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
         else:
-            raise ValueError(
-                "You have to specify either decoder_input_ids or decoder_inputs_embeds"
-            )
+            raise ValueError("You have to specify either decoder_input_ids or decoder_inputs_embeds")
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
         batch_size, seq_length = input_shape
-        past_key_values_length = (
-            past_key_values[0][0].shape[2] if past_key_values is not None else 0
-        )
+        past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
         # required mask seq length can be calculated via length of past
         mask_seq_length = past_key_values_length + seq_length
 
@@ -634,11 +591,7 @@ class OPTDecoder(OPTPreTrainedModel):
 
         next_cache = next_decoder_cache if use_cache else None
         if not return_dict:
-            return tuple(
-                v
-                for v in [hidden_states, next_cache, all_hidden_states, all_self_attns]
-                if v is not None
-            )
+            return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=next_cache,
@@ -665,13 +618,9 @@ class OPTModel(OPTPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -706,9 +655,7 @@ class OPTForCausalLM(OPTPreTrainedModel):
 
         self.model = OPTModel(config, weights)
 
-        self.lm_head = TensorParallelHead.load(
-            config, prefix="model.decoder.embed_tokens", weights=weights
-        )
+        self.lm_head = TensorParallelHead.load(config, prefix="model.decoder.embed_tokens", weights=weights)
 
     def forward(
         self,
@@ -723,13 +670,9 @@ class OPTForCausalLM(OPTPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -788,7 +731,5 @@ class OPTForCausalLM(OPTPreTrainedModel):
     def _reorder_cache(past_key_values, beam_idx):
         reordered_past = ()
         for layer_past in past_key_values:
-            reordered_past += (
-                tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),
-            )
+            reordered_past += (tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),)
         return reordered_past

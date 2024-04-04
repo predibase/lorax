@@ -159,13 +159,10 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.head_dim
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert (
-            list(weight.shape)
-            == [
-                (num_heads + 2 * num_key_value_heads) * head_size,
-                config.hidden_size,
-            ]
-        ), f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert list(weight.shape) == [
+            (num_heads + 2 * num_key_value_heads) * head_size,
+            config.hidden_size,
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
@@ -379,9 +376,7 @@ class GemmaDecoderLayer(nn.Module):
             weights=weights,
             layer_id=layer_id,
         )
-        self.mlp = GemmaMLP(
-            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
-        )
+        self.mlp = GemmaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = GemmaRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
@@ -479,9 +474,7 @@ class GemmaModel(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

@@ -44,9 +44,7 @@ class FlashRWSharded(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = RWConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = RWConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
 
         torch.distributed.barrier(group=self.process_group)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")

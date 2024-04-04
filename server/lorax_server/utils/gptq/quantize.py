@@ -207,9 +207,7 @@ class GPTQ:
         table.header(["name", "weight_error", "fp_inp_SNR", "q_inp_SNR", "time"])
 
         # assign weight
-        self.layer.weight.data = q_weight.reshape(self.layer.weight.shape).to(
-            self.layer.weight.data.dtype
-        )
+        self.layer.weight.data = q_weight.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
 
         if self.inp1 is not None:
             # quantize input to int8
@@ -292,9 +290,7 @@ class GPTQ:
 
                 if groupsize != -1:
                     if (i1 + i) % groupsize == 0:
-                        self.quantizer.find_params(
-                            W[:, (i1 + i) : (i1 + i + groupsize)], weight=True
-                        )
+                        self.quantizer.find_params(W[:, (i1 + i) : (i1 + i + groupsize)], weight=True)
 
                     if ((i1 + i) // groupsize) - now_idx == -1:
                         scale.append(self.quantizer.scale)
@@ -568,9 +564,7 @@ def find_layers(module, layers=(nn.Conv2d, nn.Linear), name=""):
         return {name: module}
     res = {}
     for name1, child in module.named_children():
-        res.update(
-            find_layers(child, layers=layers, name=name + "." + name1 if name != "" else name1)
-        )
+        res.update(find_layers(child, layers=layers, name=name + "." + name1 if name != "" else name1))
     return res
 
 
@@ -726,9 +720,7 @@ def make_quant_linear(module, names, bits, groupsize, name=""):
                 ),
             )
     for name1, child in module.named_children():
-        make_quant_linear(
-            child, names, bits, groupsize, name + "." + name1 if name != "" else name1
-        )
+        make_quant_linear(child, names, bits, groupsize, name + "." + name1 if name != "" else name1)
 
 
 # TODO: perform packing on GPU
@@ -837,9 +829,7 @@ def quantize(
     )
 
     with init_empty_weights():
-        model = AutoModelForCausalLM.from_config(
-            config, torch_dtype=torch.float16, trust_remote_code=trust_remote_code
-        )
+        model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.float16, trust_remote_code=trust_remote_code)
     model = model.eval()
 
     print("LOADED model")
@@ -877,9 +867,7 @@ def quantize(
     nsamples = 128
     seed = None
 
-    dataloader, testloader = get_loaders(
-        dataset, nsamples=nsamples, seed=seed, model_id=model_id, seqlen=model.seqlen
-    )
+    dataloader, testloader = get_loaders(dataset, nsamples=nsamples, seed=seed, model_id=model_id, seqlen=model.seqlen)
 
     tick = time.time()
     quantizers = sequential(
@@ -905,9 +893,7 @@ def quantize(
     state_dict["gptq_groupsize"] = torch.LongTensor([groupsize])
 
     max_shard_size = "10GB"
-    shards, index = shard_checkpoint(
-        state_dict, max_shard_size=max_shard_size, weights_name="model.safetensors"
-    )
+    shards, index = shard_checkpoint(state_dict, max_shard_size=max_shard_size, weights_name="model.safetensors")
     os.makedirs(output_dir, exist_ok=True)
     for shard_file, shard in shards.items():
         save_file(

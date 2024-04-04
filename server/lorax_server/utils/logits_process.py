@@ -187,9 +187,7 @@ class HeterogeneousTopPLogitsWarper(LogitsWarper):
         sorted_indices_to_remove[..., -self.min_tokens_to_keep :] = 0
 
         # scatter sorted tensors to original indexing
-        indices_to_remove = sorted_indices_to_remove.scatter(
-            1, sorted_indices, sorted_indices_to_remove
-        )
+        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
         warped_scores = scores.masked_fill_(indices_to_remove, self.filter_value)
 
         return warped_scores
@@ -237,9 +235,7 @@ class HeterogeneousTopKLogitsWarper(LogitsWarper):
         disabled = [x == 0 for x in top_k]
 
         if any(disabled):
-            self.top_k_disabled_mask = torch.tensor(disabled, dtype=torch.bool, device=device).view(
-                -1, 1
-            )
+            self.top_k_disabled_mask = torch.tensor(disabled, dtype=torch.bool, device=device).view(-1, 1)
         else:
             self.top_k_disabled_mask = None
 
@@ -275,9 +271,7 @@ class HeterogeneousTopKLogitsWarper(LogitsWarper):
             self.max_top_k = max(self.top_k)
 
             if self.top_k_disabled_mask is not None:
-                self.top_k_disabled_mask = (
-                    self.top_k_disabled_mask[indices] if any(disabled) else None
-                )
+                self.top_k_disabled_mask = self.top_k_disabled_mask[indices] if any(disabled) else None
 
             return self
         return None
@@ -347,9 +341,7 @@ class HeterogeneousTypicalLogitsWarper(LogitsWarper):
         if self.min_tokens_to_keep > 1:
             # Keep at least min_tokens_to_keep (set to min_tokens_to_keep-1 because we add the first one below)
             sorted_indices_to_remove[..., : self.min_tokens_to_keep] = 0
-        indices_to_remove = sorted_indices_to_remove.scatter(
-            1, sorted_indices, sorted_indices_to_remove
-        )
+        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
 
         warped_scores = scores.masked_fill_(indices_to_remove, self.filter_value)
 

@@ -83,9 +83,7 @@ class FlashPhiAttention(torch.nn.Module):
         rope_theta = 10000
         config.max_position_embeddings = getattr(config, "n_positions", 2048)
 
-        rotary_dim = int(
-            config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads)
-        )
+        rotary_dim = int(config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads))
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=rotary_dim,
@@ -339,9 +337,7 @@ class FlashPhiModel(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

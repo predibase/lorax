@@ -136,13 +136,10 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert (
-            list(weight.shape)
-            == [
-                (num_heads + 2 * num_key_value_heads) * head_size,
-                config.hidden_size,
-            ]
-        ), f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert list(weight.shape) == [
+            (num_heads + 2 * num_key_value_heads) * head_size,
+            config.hidden_size,
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=True, quantize=config.quantize))
 
@@ -233,9 +230,7 @@ class FlashQwen2Attention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attn.reshape_and_cache(
-            kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -331,9 +326,7 @@ class FlashQwen2Layer(nn.Module):
             weights=weights,
             layer_id=layer_id,
         )
-        self.mlp = Qwen2MLP(
-            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
-        )
+        self.mlp = Qwen2MLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = Qwen2RMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
@@ -427,9 +420,7 @@ class FlashQwen2Model(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

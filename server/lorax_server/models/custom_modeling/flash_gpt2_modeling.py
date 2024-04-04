@@ -109,9 +109,7 @@ class FlashGPT2Attention(torch.nn.Module):
         self.layer_idx = layer_id
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
-        self.c_attn = load_attention(
-            config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True
-        )
+        self.c_attn = load_attention(config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True)
         self.c_proj = TensorParallelAdapterRowLinear.load(
             TensorParallelRowLinear.load(
                 config,
@@ -141,9 +139,7 @@ class FlashGPT2Attention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
 
-        self.kv_head_mapping = torch.arange(
-            0, self.num_heads, dtype=torch.int32, device=weights.device
-        )
+        self.kv_head_mapping = torch.arange(0, self.num_heads, dtype=torch.int32, device=weights.device)
         self.num_key_value_heads = self.num_heads
 
     def forward(
@@ -248,9 +244,7 @@ class GPT2Block(nn.Module):
         prefix = f"h.{layer_id}"
 
         self.ln_1 = FastLayerNorm.load(prefix=f"{prefix}.ln_1", weights=weights, eps=layer_norm_eps)
-        self.attn = FlashGPT2Attention(
-            config, prefix=f"{prefix}.attn", weights=weights, layer_id=layer_id
-        )
+        self.attn = FlashGPT2Attention(config, prefix=f"{prefix}.attn", weights=weights, layer_id=layer_id)
         self.ln_2 = FastLayerNorm.load(prefix=f"{prefix}.ln_2", weights=weights, eps=layer_norm_eps)
 
         self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights, layer_id=layer_id)
@@ -309,9 +303,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         self.wte = TensorParallelEmbedding(prefix="wte", weights=weights)
         self.wpe = TensorParallelEmbedding(prefix="wpe", weights=weights)
 
-        self.h = nn.ModuleList(
-            [GPT2Block(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
-        )
+        self.h = nn.ModuleList([GPT2Block(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)])
         self.ln_f = FastLayerNorm.load(
             prefix="ln_f",
             weights=weights,

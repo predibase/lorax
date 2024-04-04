@@ -42,9 +42,7 @@ class CacheManager:
             for _ in range(num_layers)
         ]
         self.free_block_mask = torch.ones(num_blocks, dtype=torch.int32, device="cpu")
-        self.slots = torch.arange(0, num_blocks * self.block_size, dtype=torch.int64).view(
-            num_blocks, self.block_size
-        )
+        self.slots = torch.arange(0, num_blocks * self.block_size, dtype=torch.int64).view(num_blocks, self.block_size)
 
     def allocate(
         self,
@@ -117,9 +115,7 @@ def set_cache_manager(
         del CACHE_MANAGER
         torch.cuda.empty_cache()
 
-    CACHE_MANAGER = CacheManager(
-        num_blocks, num_layers, num_heads, head_size, repeat_slots, dtype, device
-    )
+    CACHE_MANAGER = CacheManager(num_blocks, num_layers, num_heads, head_size, repeat_slots, dtype, device)
     return CACHE_MANAGER
 
 

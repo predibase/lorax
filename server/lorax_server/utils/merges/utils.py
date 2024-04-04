@@ -80,9 +80,7 @@ def prune(
         raise ValueError(f"Unknown method {method}")
 
 
-def calculate_majority_sign_mask(
-    tensor: torch.Tensor, method: Literal["total", "frequency"] = "total"
-):
+def calculate_majority_sign_mask(tensor: torch.Tensor, method: Literal["total", "frequency"] = "total"):
     """
     Get the mask of the majority sign across the task tensors. Task tensors are stacked on dimension 0.
 

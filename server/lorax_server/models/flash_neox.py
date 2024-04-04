@@ -43,9 +43,7 @@ class FlashNeoXSharded(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = AutoConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)

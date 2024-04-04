@@ -160,9 +160,7 @@ class GraphWrapper:
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
     ) -> "GraphWrapper":
-        max_input_state = get_max_graph_state(
-            device, adapter_layers, max_total_tokens, sliding_window_blocks
-        )
+        max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
         # WARNING: for some reason the SGMV kernel can hang if we don't use a power of 2
         # as the segment size. This is a workaround until we can figure out why.
@@ -190,21 +188,11 @@ class GraphWrapper:
                             max_rank: RankSegments(
                                 rank=max_rank,
                                 tmp_shrink=tmp_shrink,
-                                tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[
-                                    :tmp_expand_size
-                                ],
-                                lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[
-                                    :segment_size
-                                ],
-                                lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[
-                                    :segment_size
-                                ],
-                                segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[
-                                    :segment_size
-                                ],
-                                segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[
-                                    :segment_size
-                                ],
+                                tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
+                                lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
+                                lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
+                                segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
+                                segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
                             ),
                         }
                         if max_rank > 0
@@ -223,9 +211,7 @@ class GraphWrapper:
                 meta=AdapterBatchMetadata(
                     adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
                     adapter_set=max_input_state.adapter_data.meta.adapter_set,
-                    adapter_segments=max_input_state.adapter_data.meta.adapter_segments[
-                        :batch_size
-                    ],
+                    adapter_segments=max_input_state.adapter_data.meta.adapter_segments[:batch_size],
                     segment_indices=max_input_state.adapter_data.meta.segment_indices,
                 ),
                 data=adapter_weight_data,
@@ -272,9 +258,7 @@ class GraphWrapper:
         pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
 
         self.input_state.block_tables.zero_()
-        self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = (
-            block_tables
-        )
+        self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             lora_data = weight_data[LORA]
@@ -298,16 +282,11 @@ class GraphWrapper:
                     source_rank_data.segment_starts,
                     SEGMENT_PAD_VALUE,
                 )
-                pad_and_fill(
-                    dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE
-                )
+                pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
 
         self.graph.replay()
 
-        return tuple(
-            state[: input_ids.shape[0]] if state is not None else None
-            for state in self.output_states
-        )
+        return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)

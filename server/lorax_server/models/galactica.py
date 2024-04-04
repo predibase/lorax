@@ -213,9 +213,7 @@ class GalacticaSharded(CausalLM):
 
     def decode(self, generated_ids: List[int]) -> str:
         # Do not skip special tokens as they are used for custom parsing rules of the generated text
-        return self.tokenizer.decode(
-            generated_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False
-        )
+        return self.tokenizer.decode(generated_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
 
     def forward(self, input_ids, attention_mask, position_ids, past_key_values: Optional = None):
         outputs = self.model.forward(

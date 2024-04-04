@@ -7,9 +7,7 @@ from pathlib import Path
 from lorax_server.adapters.config import AdapterConfig
 
 
-def try_to_load_from_cache(
-    repo_cache: Path, revision: Optional[str], filename: str
-) -> Optional[Path]:
+def try_to_load_from_cache(repo_cache: Path, revision: Optional[str], filename: str) -> Optional[Path]:
     """Try to load a file from the Hugging Face cache"""
     if revision is None:
         revision = "main"

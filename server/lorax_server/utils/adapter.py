@@ -42,9 +42,7 @@ def load_and_merge_adapters(
     api_token: str,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     if len(adapter_parameters.adapter_ids) == 1:
-        return load_module_map(
-            model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token
-        )
+        return load_module_map(model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token)
 
     adapter_params = AdapterParametersContainer(adapter_parameters, adapter_source, adapter_index)
     return _load_and_merge(model_id, adapter_params, weight_names, api_token)
@@ -86,14 +84,10 @@ def _load_and_merge(
     return module_map, adapter_config, merged_weight_names, tokenizer
 
 
-def check_architectures(
-    model_id: str, adapter_id: str, adapter_config: "AdapterConfig", api_token: str
-):
+def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig", api_token: str):
     try:
         expected_config = AutoConfig.from_pretrained(model_id, token=api_token)
-        model_config = AutoConfig.from_pretrained(
-            adapter_config.base_model_name_or_path, token=api_token
-        )
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, token=api_token)
     except Exception as e:
         warnings.warn(
             f"Unable to check architecture compatibility for adapter '{adapter_id}' "
@@ -125,9 +119,7 @@ def load_module_map(
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     # TODO(geoffrey): refactor this and merge parts of this function with
     # lorax_server/utils/adapter.py::create_merged_weight_files
-    source = get_model_source(
-        adapter_source, adapter_id, extension=".safetensors", api_token=api_token
-    )
+    source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
     config_path = get_config_path(adapter_id, adapter_source)
     adapter_config = source.load_config()
     if adapter_config.base_model_name_or_path != model_id:
@@ -146,7 +138,5 @@ def load_module_map(
         adapter_weights.update(load_file(filename))
 
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
-    module_map, adapter_weight_names = adapter_config.map_weights_for_model(
-        adapter_weights, weight_names
-    )
+    module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
