@@ -97,31 +97,15 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             batch=next_batch.to_pb() if next_batch else None,
         )
 
-    async def Embed(self, request, context):
-        if len(request.batches) == 0:
-            raise ValueError("Must provide at least one batch")
 
-        batches = []
-        for batch_pb in request.batches:
-            batch = self.cache.pop(batch_pb.id)
-            if batch is None:
-                raise ValueError(f"Batch ID {batch_pb.id} not found in cache.")
-            batches.append(batch)
-
-        if len(batches) == 0:
-            raise ValueError("All batches are empty")
-
-        if len(batches) > 1:
-            batch = self.model.batch_type.concatenate(batches)
-        else:
-            batch = batches[0]
-
-        embeddings = self.model.embed(batch)
-        logger.info("Embedding shape: {}".format(embeddings.shape))
-
-        return generate_pb2.EmbedResponse(
-            embeddings=[generate_pb2.Embedding(embedding=embedding.tolist()) for embedding in embeddings]
+    async def Embed(self, request: generate_pb2.EmbedRequest, context):
+        batch = request.inputs
+        tokenised_batch = self.model.tokenize_to_batch(batch)
+        embeddings = self.model.embed(tokenised_batch)
+        resp = generate_pb2.EmbedResponse(
+            embeddings=embeddings
         )
+        return resp
 
     async def Decode(self, request: generate_pb2.DecodeRequest, context):
         if len(request.batches) == 0:

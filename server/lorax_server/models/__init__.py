@@ -8,6 +8,7 @@ from typing import Optional
 
 from lorax_server.models.model import Model
 from lorax_server.models.causal_lm import CausalLM
+from lorax_server.models.flash_bert import FlashBert
 from lorax_server.models.flash_causal_lm import FlashCausalLM
 from lorax_server.models.bloom import BLOOMSharded
 from lorax_server.models.mpt import MPTSharded
@@ -95,6 +96,9 @@ def get_model(
             dtype=dtype,
             dtypetrust_remote_code=trust_remote_code,
         )
+    
+    if "WhereIsAI/UAE-Large-V1" in model_id:
+        return FlashBert(model_id, revision=revision, dtype=dtype)
 
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded
