@@ -1,15 +1,13 @@
-from abc import abstractmethod
 import json
 import os
-from typing import Optional, List
+from abc import abstractmethod
 from pathlib import Path
+from typing import List, Optional
 
 from lorax_server.adapters.config import AdapterConfig
 
 
-def try_to_load_from_cache(
-    repo_cache: Path, revision: Optional[str], filename: str
-) -> Optional[Path]:
+def try_to_load_from_cache(repo_cache: Path, revision: Optional[str], filename: str) -> Optional[Path]:
     """Try to load a file from the Hugging Face cache"""
     if revision is None:
         revision = "main"

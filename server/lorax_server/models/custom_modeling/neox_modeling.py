@@ -14,29 +14,28 @@
 # limitations under the License.
 """PyTorch GPTNeoX model."""
 
+import os
 from typing import Optional, Tuple, Union
 
-import os
 import torch
 import torch.distributed
 import torch.utils.checkpoint
+from loguru import logger
 from torch import nn
 from torch.nn import CrossEntropyLoss
-
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
 from transformers.modeling_utils import PreTrainedModel
-from loguru import logger
+
 from lorax_server.utils.layers import (
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelRowLinear,
     TensorParallelHead,
+    TensorParallelRowLinear,
 )
-
 
 CUSTOM_KERNELS_ENABLED = False
 if not os.environ.get("DISABLE_CUSTOM_KERNELS", "False") == "True":
@@ -65,9 +64,7 @@ def make_causal_mask(
     )
     mask = mask.triu(1 + past_key_values_length)
 
-    expanded_mask = mask.unsqueeze(0).expand(
-        batch_size, target_length, target_length + past_key_values_length
-    )
+    expanded_mask = mask.unsqueeze(0).expand(batch_size, target_length, target_length + past_key_values_length)
     return expanded_mask
 
 
@@ -101,9 +98,7 @@ def prepare_attn_mask(
     # [batch_size, seq_length] -> [batch_size, tgt_length, src_length]
     expanded_attn_mask = expand_mask(attention_mask, tgt_length=src_length)
     combined_attention_mask = (
-        expanded_attn_mask
-        if combined_attention_mask is None
-        else expanded_attn_mask | combined_attention_mask
+        expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask | combined_attention_mask
     )
 
     return combined_attention_mask
@@ -137,9 +132,9 @@ class GPTNeoXAttention(nn.Module):
             base=config.rotary_emb_base,
         )
         self.rotary_emb.inv_freq = nn.Parameter(weights.get_tensor(f"{prefix}.rotary_emb.inv_freq"))
-        self.inv_norm_factor = 1.0 / torch.sqrt(
-            torch.tensor(self.head_size, dtype=torch.float32)
-        ).to(torch.get_default_dtype())
+        self.inv_norm_factor = 1.0 / torch.sqrt(torch.tensor(self.head_size, dtype=torch.float32)).to(
+            torch.get_default_dtype()
+        )
 
         if self.num_attention_heads % weights.process_group.size() != 0:
             raise ValueError(
@@ -151,9 +146,7 @@ class GPTNeoXAttention(nn.Module):
         self.query_key_value = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.query_key_value", weights=weights, bias=True
         )
-        self.dense = TensorParallelRowLinear.load(
-            config, prefix=f"{prefix}.dense", weights=weights, bias=True
-        )
+        self.dense = TensorParallelRowLinear.load(config, prefix=f"{prefix}.dense", weights=weights, bias=True)
 
     def forward(
         self,
@@ -382,9 +375,7 @@ class GPTNeoXLayer(nn.Module):
             weights=weights,
             eps=config.layer_norm_eps,
         )
-        self.attention = GPTNeoXAttention(
-            config, prefix=f"gpt_neox.layers.{layer_id}.attention", weights=weights
-        )
+        self.attention = GPTNeoXAttention(config, prefix=f"gpt_neox.layers.{layer_id}.attention", weights=weights)
         self.mlp = GPTNeoXMLP(config, prefix=f"gpt_neox.layers.{layer_id}.mlp", weights=weights)
 
     def forward(
@@ -406,9 +397,7 @@ class GPTNeoXLayer(nn.Module):
             use_cache=use_cache,
             output_attentions=output_attentions,
         )
-        attn_output = attention_layer_outputs[
-            0
-        ]  # output_attn: attn_output, present, (attn_weights)
+        attn_output = attention_layer_outputs[0]  # output_attn: attn_output, present, (attn_weights)
         outputs = attention_layer_outputs[1:]
 
         if self.use_parallel_residual:
@@ -441,10 +430,7 @@ class GPTNeoXModel(GPTNeoXPreTrainedModel):
 
         self.embed_in = TensorParallelEmbedding(prefix="gpt_neox.embed_in", weights=weights)
         self.layers = nn.ModuleList(
-            [
-                GPTNeoXLayer(layer_id, config, weights)
-                for layer_id in range(config.num_hidden_layers)
-            ]
+            [GPTNeoXLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
         )
         self.final_layer_norm = nn.LayerNorm.load(
             prefix="gpt_neox.final_layer_norm",
@@ -476,13 +462,9 @@ class GPTNeoXModel(GPTNeoXPreTrainedModel):
             If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding (see
             `past_key_values`).
         """
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
@@ -506,9 +488,7 @@ class GPTNeoXModel(GPTNeoXPreTrainedModel):
 
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device
-            position_ids = torch.arange(
-                past_length, seq_length + past_length, dtype=torch.long, device=device
-            )
+            position_ids = torch.arange(past_length, seq_length + past_length, dtype=torch.long, device=device)
             position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
         else:
             position_ids = position_ids.view(-1, seq_length).long()
@@ -525,9 +505,7 @@ class GPTNeoXModel(GPTNeoXPreTrainedModel):
             past_key_values_length = past_key_values[0][0].shape[-1]
             seq_length_with_past = seq_length_with_past + past_key_values_length
         if attention_mask is None:
-            attention_mask = torch.ones(
-                (batch_size, seq_length_with_past), device=hidden_states.device
-            )
+            attention_mask = torch.ones((batch_size, seq_length_with_past), device=hidden_states.device)
         else:
             attention_mask = attention_mask.to(hidden_states.device)
 
@@ -576,11 +554,7 @@ class GPTNeoXModel(GPTNeoXPreTrainedModel):
             all_hidden_states = all_hidden_states + (hidden_states,)
 
         if not return_dict:
-            return tuple(
-                v
-                for v in [hidden_states, presents, all_hidden_states, all_attentions]
-                if v is not None
-            )
+            return tuple(v for v in [hidden_states, presents, all_hidden_states, all_attentions] if v is not None)
 
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
@@ -737,7 +711,6 @@ class GPTNeoxForCausalLM(GPTNeoXPreTrainedModel):
         reordered_past = ()
         for layer_past in past_key_values:
             reordered_past += (
-                tuple(past_state.index_select(0, beam_idx) for past_state in layer_past[:2])
-                + layer_past[2:],
+                tuple(past_state.index_select(0, beam_idx) for past_state in layer_past[:2]) + layer_past[2:],
             )
         return reordered_past

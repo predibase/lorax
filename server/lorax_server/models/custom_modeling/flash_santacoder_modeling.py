@@ -1,34 +1,29 @@
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
-from typing import Optional, List, Tuple
 
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
-    TensorParallelRowLinear,
-    TensorParallelColumnLinear,
-    TensorParallelHead,
-    TensorParallelEmbedding,
     FastLayerNorm,
+    TensorParallelColumnLinear,
+    TensorParallelEmbedding,
+    TensorParallelHead,
+    TensorParallelRowLinear,
     get_linear,
 )
 
 
 def load_multi_mqa(config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size):
     if config.quantize in ["gptq", "awq", "eetq"]:
-        return _load_multi_mqa_gptq(
-            config, prefix, weights, bias, head_size, num_heads, hidden_size
-        )
+        return _load_multi_mqa_gptq(config, prefix, weights, bias, head_size, num_heads, hidden_size)
     else:
         return _load_multi_mqa(config, prefix, weights, bias, head_size, num_heads, hidden_size)
 
 
-def _load_multi_mqa_gptq(
-    config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size
-):
+def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size):
     if any("c_attn" in k for k in weights.routing.keys()) and not config.transpose:
         world_size = weights.process_group.size()
         rank = weights.process_group.rank()
@@ -155,9 +150,7 @@ def _load_multi_mqa(config, prefix: str, weights, bias: bool, head_size, num_hea
     ], f"{weight.shape} != {[(num_heads + 2) * head_size, hidden_size]}"
     if bias is not None:
         bias = bias.to(dtype=weights.dtype).to(device=weights.device)
-        assert list(bias.shape) == [
-            (num_heads + 2) * head_size
-        ], f"{weight.shape} != {[(num_heads + 2) * head_size]}"
+        assert list(bias.shape) == [(num_heads + 2) * head_size], f"{weight.shape} != {[(num_heads + 2) * head_size]}"
     return TensorParallelColumnLinear(get_linear(weight, bias, config.quantize))
 
 
@@ -185,9 +178,7 @@ def load_row(config, prefix: str, weights, bias: bool):
         bias = weights.get_tensor(f"{prefix}.bias")
     else:
         bias = None
-    return TensorParallelRowLinear(
-        get_linear(weight, bias, config.quantize), process_group=weights.process_group
-    )
+    return TensorParallelRowLinear(get_linear(weight, bias, config.quantize), process_group=weights.process_group)
 
 
 class FlashMQAttention(torch.nn.Module):
@@ -240,9 +231,7 @@ class FlashMQAttention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         key_value = key_value.view(-1, 2, 1, self.head_size)
 
-        paged_attn.reshape_and_cache(
-            key_value[:, 0], key_value[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(key_value[:, 0], key_value[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output
         attn_output = torch.empty_like(query)
@@ -304,12 +293,8 @@ class Block(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"transformer.h.{layer_id}"
-        self.ln_1 = FastLayerNorm.load(
-            prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon
-        )
-        self.ln_2 = FastLayerNorm.load(
-            prefix=f"{prefix}.ln_2", weights=weights, eps=config.layer_norm_epsilon
-        )
+        self.ln_1 = FastLayerNorm.load(prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_2 = FastLayerNorm.load(prefix=f"{prefix}.ln_2", weights=weights, eps=config.layer_norm_epsilon)
         self.attn = FlashMQAttention(
             prefix=f"{prefix}.attn",
             config=config,
@@ -377,9 +362,7 @@ class FlashSantacoderModel(nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = FastLayerNorm.load(
-            prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon
-        )
+        self.ln_f = FastLayerNorm.load(prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon)
 
         self.head_size = self.h[0].attn.head_size
         self.num_heads = self.h[0].attn.num_heads

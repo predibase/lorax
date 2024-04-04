@@ -1,26 +1,26 @@
 import re
-import torch
+from typing import List, Optional, Tuple
 
+import torch
 from transformers import (
-    RepetitionPenaltyLogitsProcessor,
     PreTrainedTokenizerBase,
+    RepetitionPenaltyLogitsProcessor,
 )
-from typing import List, Tuple, Optional
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
-from lorax_server.utils.watermark import WatermarkLogitsProcessor
 from lorax_server.utils.logits_process import (
-    static_warper,
+    HeterogeneousProcessorWrapper,
     HeterogeneousRepetitionPenaltyLogitsProcessor,
+    HeterogeneousSchemaLogitsProcessor,
     HeterogeneousTemperatureLogitsWarper,
     HeterogeneousTopKLogitsWarper,
     HeterogeneousTopPLogitsWarper,
     HeterogeneousTypicalLogitsWarper,
-    HeterogeneousProcessorWrapper,
-    HeterogeneousSchemaLogitsProcessor,
     OutlinesLogitsProcessor,
+    static_warper,
 )
+from lorax_server.utils.watermark import WatermarkLogitsProcessor
 
 
 class NextTokenChooser:
@@ -61,14 +61,10 @@ class NextTokenChooser:
     ):
         self.watermark_processor = WatermarkLogitsProcessor(device=device) if watermark else None
         self.repetition_processor = (
-            RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty)
-            if repetition_penalty
-            else None
+            RepetitionPenaltyLogitsProcessor(penalty=repetition_penalty) if repetition_penalty else None
         )
 
-        self.schema_processor = (
-            OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
-        )
+        self.schema_processor = OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
 
         has_warpers = (
             (temperature is not None and temperature != 1.0)
@@ -77,9 +73,7 @@ class NextTokenChooser:
             or (typical_p is not None and typical_p < 1.0)
         )
         if has_warpers:
-            self.static_warper = static_warper(
-                temperature=temperature, top_k=top_k, top_p=top_p, typical_p=typical_p
-            )
+            self.static_warper = static_warper(temperature=temperature, top_k=top_k, top_p=top_p, typical_p=typical_p)
         else:
             self.static_warper = None
 
@@ -252,11 +246,7 @@ class HeterogeneousNextTokenChooser:
 
         self.watermark_processor = (
             HeterogeneousProcessorWrapper(
-                {
-                    i: WatermarkLogitsProcessor(device=device)
-                    for i, do_watermark in enumerate(watermark)
-                    if do_watermark
-                }
+                {i: WatermarkLogitsProcessor(device=device) for i, do_watermark in enumerate(watermark) if do_watermark}
             )
             if any(watermark)
             else None
@@ -271,15 +261,11 @@ class HeterogeneousNextTokenChooser:
         if sequence_processors is not None:
             # Reuse the state from the previous generation steps
             self.schema_processor = (
-                HeterogeneousSchemaLogitsProcessor(sequence_processors)
-                if any(sequence_processors)
-                else None
+                HeterogeneousSchemaLogitsProcessor(sequence_processors) if any(sequence_processors) else None
             )
         else:
             self.schema_processor = (
-                HeterogeneousSchemaLogitsProcessor.from_schemas(schemas, tokenizers)
-                if any(schemas)
-                else None
+                HeterogeneousSchemaLogitsProcessor.from_schemas(schemas, tokenizers) if any(schemas) else None
             )
 
         if any([x != 1.0 for x in temperature]):
@@ -381,9 +367,7 @@ class HeterogeneousNextTokenChooser:
                         break
                 accepted_ids.append(accepted)
 
-            accepted_ids = torch.tensor(
-                accepted_ids, device=input_ids.device, dtype=input_ids.dtype
-            )
+            accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
             next_ids = next_ids[indices]
             scores = scores[indices]
             indices = torch.arange(B, device=input_ids.device) * S
@@ -392,9 +376,7 @@ class HeterogeneousNextTokenChooser:
         else:
             accepted_ids = torch.ones_like(next_ids)
 
-        next_logprobs = torch.gather(torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)).view(
-            -1
-        )
+        next_logprobs = torch.gather(torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)).view(-1)
 
         speculative_ids = None
         if speculate > 0:
@@ -558,9 +540,7 @@ def ngram_speculate(
 
     # Speculate out from the last match by the number of speculative tokens `speculate`
     # Clamp the indices to the maximum length of the input_ids to prevent out-of-bound errors
-    all_indices = indices.unsqueeze(-1).expand(B, speculate) + torch.arange(
-        speculate, device=input_ids.device
-    )
+    all_indices = indices.unsqueeze(-1).expand(B, speculate) + torch.arange(speculate, device=input_ids.device)
     all_indices = torch.clamp(all_indices, max=input_ids.shape[1] - 1)
 
     # Gather the speculative tokens from the input_ids to form a [B, S] tensor

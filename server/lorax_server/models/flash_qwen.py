@@ -1,9 +1,9 @@
+from typing import Dict, List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen_modeling import (
@@ -16,9 +16,9 @@ from lorax_server.models.custom_modeling.flash_qwen_modeling import (
     QwenConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.weights import shard_on_dim
@@ -57,9 +57,7 @@ class FlashQwen(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = QwenConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = QwenConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)
@@ -142,9 +140,7 @@ class FlashQwen(FlashCausalLM):
         if layer_type == ATTN_C_ATTN:
             # [hidden_size, r]
             split_dim = 0 if self.is_row_parallel(layer_type) else 1
-            weights_a = [
-                shard_on_dim(w, dim=split_dim, process_group=self.process_group) for w in weights_a
-            ]
+            weights_a = [shard_on_dim(w, dim=split_dim, process_group=self.process_group) for w in weights_a]
 
             # [r, hidden_size]
             # Because we're splitting on the hidden size dimension, we need to

@@ -8,7 +8,7 @@ import torch.nn as nn
 logger = getLogger(__name__)
 
 try:
-    from exllamav2_kernels import make_q_matrix, gemm_half_q_half
+    from exllamav2_kernels import gemm_half_q_half, make_q_matrix
 except ImportError:
     logger.error("exllamav2_kernels not installed.")
     raise
@@ -114,9 +114,7 @@ def ext_make_q_matrix(w: dict, temp_dq):
             w["scales"] = w["scales"].half()
 
         # Check if 'g_idx' exists and is not all zeros
-        g_idx_exists_and_not_all_zeros = (
-            w.get("g_idx", None) is not None and not (w["g_idx"] == 0).all().item()
-        )
+        g_idx_exists_and_not_all_zeros = w.get("g_idx", None) is not None and not (w["g_idx"] == 0).all().item()
 
         if g_idx_exists_and_not_all_zeros:
             # Create 'q_perm' and 'q_invperm'

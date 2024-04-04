@@ -1,17 +1,16 @@
-import time
 import os
-
+import time
 from datetime import timedelta
-from loguru import logger
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
-    LocalEntryNotFoundError,
     EntryNotFoundError,  # Import here to ease try/except in other part of the lib
+    LocalEntryNotFoundError,
 )
+from loguru import logger
 
 from .source import BaseModelSource, try_to_load_from_cache
 
@@ -63,9 +62,7 @@ def weight_files(
     if Path(model_id).exists() and Path(model_id).is_dir():
         local_files = list(Path(model_id).glob(f"*{extension}"))
         if not local_files:
-            raise FileNotFoundError(
-                f"No local weights found in {model_id} with extension {extension}"
-            )
+            raise FileNotFoundError(f"No local weights found in {model_id} with extension {extension}")
         return local_files
 
     try:
@@ -130,9 +127,7 @@ def download_weights(
                     local_files_only=False,
                     token=api_token,
                 )
-                logger.info(
-                    f"Downloaded {local_file} in {timedelta(seconds=int(time.time() - start_time))}."
-                )
+                logger.info(f"Downloaded {local_file} in {timedelta(seconds=int(time.time() - start_time))}.")
                 return Path(local_file)
             except Exception as e:
                 if i + 1 == tries:

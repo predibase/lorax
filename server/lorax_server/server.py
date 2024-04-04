@@ -1,21 +1,20 @@
 import asyncio
 import os
-import torch
-
-from grpc import aio
-from loguru import logger
-
-from grpc_reflection.v1alpha import reflection
 from pathlib import Path
 from typing import List, Optional
+
+import torch
+from grpc import aio
+from grpc_reflection.v1alpha import reflection
+from loguru import logger
 
 from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
 from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
-from lorax_server.pb import generate_pb2_grpc, generate_pb2
+from lorax_server.pb import generate_pb2, generate_pb2_grpc
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, PBASE, map_pbase_model_id_to_s3
+from lorax_server.utils import HUB, LOCAL, PBASE, S3, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_speculative_tokens
@@ -154,14 +153,11 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         else:
             # Assume 0.0 memory fraction if adapter memory size is not set
             logger.info(
-                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                f"(no reservation limit)"
+                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)"
             )
             adapter_memory_fraction = 0.0
 
-        return generate_pb2.DownloadAdapterResponse(
-            downloaded=True, memory_fraction=adapter_memory_fraction
-        )
+        return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
@@ -237,10 +233,7 @@ def serve(
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
-            server_urls = [
-                unix_socket_template.format(uds_path, rank)
-                for rank in range(int(os.environ["WORLD_SIZE"]))
-            ]
+            server_urls = [unix_socket_template.format(uds_path, rank) for rank in range(int(os.environ["WORLD_SIZE"]))]
             local_url = server_urls[int(os.environ["RANK"])]
         else:
             local_url = unix_socket_template.format(uds_path, 0)
@@ -289,9 +282,7 @@ def serve(
                 UDSOpenTelemetryAioServerInterceptor(),
             ]
         )
-        generate_pb2_grpc.add_LoraxServiceServicer_to_server(
-            LoraxService(model, Cache(), server_urls), server
-        )
+        generate_pb2_grpc.add_LoraxServiceServicer_to_server(LoraxService(model, Cache(), server_urls), server)
         SERVICE_NAMES = (
             generate_pb2.DESCRIPTOR.services_by_name["LoraxService"].full_name,
             reflection.SERVICE_NAME,

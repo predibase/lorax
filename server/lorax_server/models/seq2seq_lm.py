@@ -1,20 +1,20 @@
-import torch
-
 from dataclasses import dataclass
-from opentelemetry import trace
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, PreTrainedTokenizerBase
-from typing import Optional, Tuple, List, Type, Dict
+from typing import Dict, List, Optional, Tuple, Type
 
-from lorax_server.models import Model
+import torch
+from opentelemetry import trace
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, PreTrainedTokenizerBase
+
+from lorax_server.models.model import Model
 from lorax_server.models.types import (
-    GeneratedText,
     Batch,
+    GeneratedText,
     Generation,
     NextTokens,
     PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
+from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
 from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
@@ -117,9 +117,7 @@ class Seq2SeqLMBatch(Batch):
         max_input_length = input_lengths.max()
 
         # Decoder sequence only contains the bos_token
-        decoder_input_ids = (
-            torch.tensor(tokenizer.bos_token_id, device=device).repeat(len(pb.requests)).view(-1, 1)
-        )
+        decoder_input_ids = torch.tensor(tokenizer.bos_token_id, device=device).repeat(len(pb.requests)).view(-1, 1)
         for _ in pb.requests:
             prefix_offsets.append(0)
             read_offsets.append(1)
@@ -200,9 +198,7 @@ class Seq2SeqLMBatch(Batch):
             next_token_choosers.append(self.next_token_choosers[idx])
             stopping_criteria = self.stopping_criterias[idx]
             stopping_criterias.append(stopping_criteria)
-            remaining_decode_tokens = (
-                stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
-            )
+            remaining_decode_tokens = stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
             total_remaining_decode_tokens += remaining_decode_tokens
             padding_right_offset = max(padding_right_offset, remaining_decode_tokens)
 
@@ -218,9 +214,7 @@ class Seq2SeqLMBatch(Batch):
                 + padding_right_offset,
             ]
 
-        self.encoder_last_hidden_state = self.encoder_last_hidden_state[
-            keep_indices, -max_input_length:
-        ]
+        self.encoder_last_hidden_state = self.encoder_last_hidden_state[keep_indices, -max_input_length:]
 
         # Ensure that past_key_values tensors can be updated in-place
         if type(self.past_key_values[0]) == tuple:
@@ -233,10 +227,7 @@ class Seq2SeqLMBatch(Batch):
             layer[2] = layer[2][keep_indices, :, -max_input_length:]
             layer[3] = layer[3][keep_indices, :, -max_input_length:]
 
-        max_tokens = (
-            len(request_ids) * (max_input_length + max_decoder_input_length)
-            + remaining_decode_tokens
-        )
+        max_tokens = len(request_ids) * (max_input_length + max_decoder_input_length) + remaining_decode_tokens
 
         self.requests = requests
         self.requests_idx_mapping = requests_idx_mapping
@@ -358,9 +349,7 @@ class Seq2SeqLMBatch(Batch):
             # If it exists, we need to index
             else:
                 batch_left_offset = (
-                    batch.decoder_attention_mask.shape[1]
-                    - batch.max_decoder_input_length
-                    - batch.padding_right_offset
+                    batch.decoder_attention_mask.shape[1] - batch.max_decoder_input_length - batch.padding_right_offset
                 )
                 decoder_attention_mask[
                     start_index:end_index,
@@ -392,10 +381,7 @@ class Seq2SeqLMBatch(Batch):
 
             # Add eventual padding tokens that were added while concatenating
             max_tokens += batch.max_tokens + (
-                max_input_length
-                - batch.max_input_length
-                + max_decoder_input_length
-                - batch.max_decoder_input_length
+                max_input_length - batch.max_input_length + max_decoder_input_length - batch.max_decoder_input_length
             ) * len(batch)
 
             start_index = end_index
@@ -437,9 +423,7 @@ class Seq2SeqLMBatch(Batch):
                     end_index = start_index + len(batch)
                     # We slice the past keys and values to remove the padding from previous batches
                     past_seq_len = batch.max_decoder_input_length - 1
-                    padded_past_values[start_index:end_index, :, -past_seq_len:, :] = t[
-                        :, :, -past_seq_len:, :
-                    ]
+                    padded_past_values[start_index:end_index, :, -past_seq_len:, :] = t[:, :, -past_seq_len:, :]
                     del t
 
                     start_index = end_index
@@ -519,9 +503,7 @@ class Seq2SeqLM(Model):
             model_id,
             revision=revision,
             torch_dtype=dtype,
-            device_map=(
-                "auto" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else None
-            ),
+            device_map=("auto" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else None),
             load_in_8bit=quantize == "bitsandbytes",
             trust_remote_code=trust_remote_code,
         )
@@ -551,9 +533,7 @@ class Seq2SeqLM(Model):
         return Seq2SeqLMBatch
 
     def decode(self, decoder_ids: List[int]) -> str:
-        return self.tokenizer.decode(
-            decoder_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )
+        return self.tokenizer.decode(decoder_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
     def forward(
         self,
@@ -585,9 +565,7 @@ class Seq2SeqLM(Model):
         )
 
     @tracer.start_as_current_span("generate_token")
-    def generate_token(
-        self, batch: Seq2SeqLMBatch
-    ) -> Tuple[List[Generation], Optional[Seq2SeqLMBatch]]:
+    def generate_token(self, batch: Seq2SeqLMBatch) -> Tuple[List[Generation], Optional[Seq2SeqLMBatch]]:
         if batch.decoder_attention_mask is not None:
             # slice to the correct shape
             decoder_attention_mask = batch.decoder_attention_mask[:, : -batch.padding_right_offset]
@@ -640,9 +618,7 @@ class Seq2SeqLM(Model):
             all_decoder_input_ids,
         ) in enumerate(iterator):
             # Select next token
-            next_token_id, logprobs = next_token_chooser(
-                all_decoder_input_ids.view(1, -1), logits[-1:, :]
-            )
+            next_token_id, logprobs = next_token_chooser(all_decoder_input_ids.view(1, -1), logits[-1:, :])
 
             # Append next token to decoder tokens
             all_decoder_input_ids = torch.cat([all_decoder_input_ids, next_token_id.squeeze(1)])
@@ -675,9 +651,7 @@ class Seq2SeqLM(Model):
                     else:
                         seed = None
 
-                    generated_text = GeneratedText(
-                        output_text, stopping_criteria.current_tokens, reason, seed
-                    )
+                    generated_text = GeneratedText(output_text, stopping_criteria.current_tokens, reason, seed)
                 else:
                     generated_text = None
 
@@ -717,9 +691,7 @@ class Seq2SeqLM(Model):
             batch.prefix_offsets[i] = prefix_offset
             batch.read_offsets[i] = read_offset
             batch.max_input_length = max(batch.max_input_length, input_length)
-            batch.max_decoder_input_length = max(
-                batch.max_decoder_input_length, new_decoder_input_length
-            )
+            batch.max_decoder_input_length = max(batch.max_decoder_input_length, new_decoder_input_length)
 
         # We finished all generations in the batch; there is no next batch
         if stopped:

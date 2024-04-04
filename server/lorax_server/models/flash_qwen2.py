@@ -1,26 +1,26 @@
+from typing import Dict, List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
-from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
-    ATTN_Q_PROJ,
     ATTN_K_PROJ,
-    ATTN_V_PROJ,
     ATTN_O_PROJ,
+    ATTN_Q_PROJ,
+    ATTN_V_PROJ,
+    MLP_DOWN_PROJ,
     MLP_GATE_PROJ,
     MLP_UP_PROJ,
-    MLP_DOWN_PROJ,
     FlashQwen2ForCausalLM,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import LM_HEAD
 
@@ -67,9 +67,7 @@ class FlashQwen2(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = Qwen2Config.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = Qwen2Config.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)

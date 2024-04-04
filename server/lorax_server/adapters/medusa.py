@@ -71,10 +71,7 @@ class MedusaHead(torch.nn.Module):
     def __init__(self, config: MedusaConfig, prefix: str, weights: AbstractWeights):
         super().__init__()
         self.blocks = torch.nn.ModuleList(
-            [
-                ResBlock(config, prefix=f"{prefix}.{i}", weights=weights)
-                for i in range(config.medusa_num_layers)
-            ]
+            [ResBlock(config, prefix=f"{prefix}.{i}", weights=weights) for i in range(config.medusa_num_layers)]
         )
         n = len(self.blocks)
         self.out = FastLinear.load(config, prefix=f"{prefix}.{n}", weights=weights, bias=False)
@@ -90,10 +87,7 @@ class MedusaModel(torch.nn.Module):
     def __init__(self, config: MedusaConfig, weights: AbstractWeights):
         super().__init__()
         self.heads = torch.nn.ModuleList(
-            [
-                MedusaHead(config, prefix=f"{i}", weights=weights)
-                for i in range(config.medusa_num_heads)
-            ]
+            [MedusaHead(config, prefix=f"{i}", weights=weights) for i in range(config.medusa_num_heads)]
         )
 
     def forward(self, x):
@@ -141,14 +135,10 @@ class BatchMedusaWeights(BatchAdapterWeights):
         return MEDUSA
 
     @classmethod
-    def load(
-        cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata"
-    ) -> "BatchMedusaWeights":
+    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchMedusaWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
 
-        adapter_to_medusa = {
-            idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights
-        }
+        adapter_to_medusa = {idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights}
 
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_to_medusa,

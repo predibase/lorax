@@ -1,6 +1,5 @@
 from contextlib import contextmanager
 
-
 WARMUP = False
 SPECULATIVE_TOKENS = 0
 

@@ -25,22 +25,21 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import LayerNorm
 from torch.nn import functional as F
-
+from transformers import BloomConfig, PreTrainedModel
 from transformers.modeling_outputs import (
     BaseModelOutputWithPastAndCrossAttentions,
     CausalLMOutputWithCrossAttentions,
 )
-from transformers import BloomConfig, PreTrainedModel
 
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.layers import (
     TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
+    TensorParallelHead,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
-    TensorParallelHead,
 )
-from lorax_server.adapters import AdapterBatchData
 
 CUSTOM_KERNELS_ENABLED = False
 if not os.environ.get("DISABLE_CUSTOM_KERNELS", "False") == "True":
@@ -85,9 +84,7 @@ def _make_causal_mask(
     )
     mask = mask.triu(1 + past_key_values_length)
 
-    expanded_mask = mask.unsqueeze(0).expand(
-        batch_size, target_length, target_length + past_key_values_length
-    )
+    expanded_mask = mask.unsqueeze(0).expand(batch_size, target_length, target_length + past_key_values_length)
     return expanded_mask
 
 
@@ -126,9 +123,7 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int) -> torch.Te
         device=attention_mask.device,
         dtype=torch.float32,
     )
-    powers = torch.arange(
-        1, 1 + closest_power_of_2, device=attention_mask.device, dtype=torch.int32
-    )
+    powers = torch.arange(1, 1 + closest_power_of_2, device=attention_mask.device, dtype=torch.int32)
     slopes = torch.pow(base, powers)
 
     if closest_power_of_2 != num_heads:
@@ -159,9 +154,7 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int) -> torch.Te
 
 
 # @torch.jit.script
-def dropout_add(
-    x: torch.Tensor, residual: torch.Tensor, prob: float, training: bool
-) -> torch.Tensor:
+def dropout_add(x: torch.Tensor, residual: torch.Tensor, prob: float, training: bool) -> torch.Tensor:
     """
     Dropout add function
 
@@ -278,9 +271,7 @@ class BloomAttention(nn.Module):
             process_group=weights.process_group,
         )
         self.dense = TensorParallelAdapterRowLinear.load(
-            TensorParallelRowLinear.load(
-                config=config, prefix=f"{prefix}.dense", weights=weights, bias=True
-            ),
+            TensorParallelRowLinear.load(config=config, prefix=f"{prefix}.dense", weights=weights, bias=True),
             layer_id,
             ATTN_DENSE,
             process_group=weights.process_group,
@@ -305,9 +296,7 @@ class BloomAttention(nn.Module):
 
         ### TODO @thomasw21: this takes quite a bit of time, how do I accelerate that?
         # 3 x [batch_size, seq_length, num_heads, head_dim]
-        (query_layer, key_layer, value_layer) = _split_heads(
-            fused_qkv, num_heads=num_heads, head_dim=head_dim
-        )
+        (query_layer, key_layer, value_layer) = _split_heads(fused_qkv, num_heads=num_heads, head_dim=head_dim)
 
         if layer_past is not None:
             past_key, past_value = layer_past
@@ -342,9 +331,7 @@ class BloomAttention(nn.Module):
         if input_dtype == torch.float16:
             attention_scores = attention_scores.to(torch.float)
         # torch.finfo not supported by torch.jit, we temporarily remplace with `-1e34`
-        attn_weights = attention_scores.masked_fill_(
-            attention_mask, torch.finfo(attention_scores.dtype).min
-        )
+        attn_weights = attention_scores.masked_fill_(attention_mask, torch.finfo(attention_scores.dtype).min)
         attention_probs = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(input_dtype)
 
         # # [batch_size, num_heads, q_length, kv_length]
@@ -455,9 +442,7 @@ class BloomMLP(nn.Module):
             process_group=weights.process_group,
         )
         self.dense_4h_to_h = TensorParallelAdapterRowLinear.load(
-            TensorParallelRowLinear.load(
-                config=config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True
-            ),
+            TensorParallelRowLinear.load(config=config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True),
             layer_id,
             MLP_DENSE_4H_TO_H,
             process_group=weights.process_group,
@@ -473,11 +458,7 @@ class BloomMLP(nn.Module):
     ) -> torch.Tensor:
         hidden_states = self.gelu_impl(self.dense_h_to_4h(hidden_states, adapter_data))
 
-        if (
-            self.pretraining_tp > 1
-            and self.slow_but_exact
-            and (adapter_data is None or adapter_data.max_rank == 0)
-        ):
+        if self.pretraining_tp > 1 and self.slow_but_exact and (adapter_data is None or adapter_data.max_rank == 0):
             intermediate_output = torch.zeros_like(residual)
             slices = self.dense_4h_to_h.weight.shape[-1] / self.pretraining_tp
             for i in range(self.pretraining_tp):
@@ -517,12 +498,8 @@ class BloomBlock(nn.Module):
             eps=config.layer_norm_epsilon,
         )
 
-        self.mlp = BloomMLP(
-            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
-        )
-        self.apply_residual_connection_post_layernorm = (
-            config.apply_residual_connection_post_layernorm
-        )
+        self.mlp = BloomMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.apply_residual_connection_post_layernorm = config.apply_residual_connection_post_layernorm
         self.hidden_dropout = config.hidden_dropout
 
     def forward(
@@ -680,9 +657,7 @@ class BloomModel(BloomPreTrainedModel):
         # [batch_size, seq_length] -> [batch_size, tgt_length, src_length]
         expanded_attn_mask = _expand_mask(attention_mask, tgt_length=src_length)
         combined_attention_mask = (
-            expanded_attn_mask
-            if combined_attention_mask is None
-            else expanded_attn_mask | combined_attention_mask
+            expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask | combined_attention_mask
         )
 
         return combined_attention_mask
@@ -714,13 +689,9 @@ class BloomModel(BloomPreTrainedModel):
         if len(deprecated_arguments) > 0:
             raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
 
-        output_attentions = (
-            output_attentions if output_attentions is not None else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -759,9 +730,7 @@ class BloomModel(BloomPreTrainedModel):
             past_key_values_length = past_key_values[0][0].shape[-1]
             seq_length_with_past = seq_length_with_past + past_key_values_length
         if attention_mask is None:
-            attention_mask = torch.ones(
-                (batch_size, seq_length_with_past), device=hidden_states.device
-            )
+            attention_mask = torch.ones((batch_size, seq_length_with_past), device=hidden_states.device)
         else:
             attention_mask = attention_mask.to(hidden_states.device)
 

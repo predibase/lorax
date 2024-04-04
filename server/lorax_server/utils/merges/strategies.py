@@ -1,13 +1,17 @@
+import copy
 from abc import ABC
 from collections import defaultdict
-import copy
 from typing import TYPE_CHECKING, Dict, List, Tuple, Type, Union
 
 import torch
 
 from lorax_server.pb.generate_pb2 import (
     AdapterParameters,
+)
+from lorax_server.pb.generate_pb2 import (
     MajoritySignMethod as MajoritySignMethodEnum,
+)
+from lorax_server.pb.generate_pb2 import (
     MergeStrategy as MergeStrategyEnum,
 )
 from lorax_server.utils.merges.utils import calculate_majority_sign_mask, disjoint_merge, prune
@@ -17,9 +21,7 @@ if TYPE_CHECKING:
     from lorax_server.utils.adapter import ModuleMap
 
 
-def _apply_weights(
-    tensors: Union[torch.Tensor, List[torch.Tensor]], w: torch.Tensor
-) -> torch.Tensor:
+def _apply_weights(tensors: Union[torch.Tensor, List[torch.Tensor]], w: torch.Tensor) -> torch.Tensor:
     if isinstance(tensors, torch.Tensor):
         t = tensors
     else:
@@ -58,9 +60,7 @@ class TiesMerge(MergeStrategy):
         task_tensors = torch.stack(task_tensors, dim=0)
 
         # elect sign before applying weights
-        majority_sign_mask = calculate_majority_sign_mask(
-            task_tensors, method=self.majority_sign_method
-        )
+        majority_sign_mask = calculate_majority_sign_mask(task_tensors, method=self.majority_sign_method)
         weighted_task_tensors = _apply_weights(task_tensors, weights)
 
         # disjoint merge
@@ -73,9 +73,7 @@ class DareLinearMerge(MergeStrategy):
 
     def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
         # sparsify
-        task_tensors = [
-            prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors
-        ]
+        task_tensors = [prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors]
         weighted_task_tensors = _apply_weights(task_tensors, weights)
         return weighted_task_tensors.sum(dim=0)
 
@@ -87,15 +85,11 @@ class DareTiesMerge(MergeStrategy):
 
     def merge(self, task_tensors: List[torch.Tensor], weights: torch.Tensor) -> torch.Tensor:
         # sparsify
-        task_tensors = [
-            prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors
-        ]
+        task_tensors = [prune(tensor, self.density, method="random", rescale=True) for tensor in task_tensors]
         task_tensors = torch.stack(task_tensors, dim=0)
 
         # elect sign before applying weights
-        majority_sign_mask = calculate_majority_sign_mask(
-            task_tensors, method=self.majority_sign_method
-        )
+        majority_sign_mask = calculate_majority_sign_mask(task_tensors, method=self.majority_sign_method)
         weighted_task_tensors = _apply_weights(task_tensors, weights)
 
         # disjoint merge
@@ -125,9 +119,7 @@ def merge_adapters(
 
     merge_config = {
         "density": merge_params.density,
-        "majority_sign_method": MajoritySignMethodEnum.Name(
-            merge_params.majority_sign_method
-        ).lower(),
+        "majority_sign_method": MajoritySignMethodEnum.Name(merge_params.majority_sign_method).lower(),
     }
     merge_strategy = strategy_registry[strategy_name](**merge_config)
 
@@ -180,9 +172,7 @@ def _merge_lora_configs(lora_configs: List["LoraConfig"]) -> "LoraConfig":
     merged_lora_config = copy.copy(lora_configs[0])
 
     # merge target modules as a union operation
-    merged_target_modules = sorted(
-        set(module for lora_config in lora_configs for module in lora_config.target_modules)
-    )
+    merged_target_modules = sorted(set(module for lora_config in lora_configs for module in lora_config.target_modules))
     merged_lora_config.target_modules = merged_target_modules
 
     return merged_lora_config

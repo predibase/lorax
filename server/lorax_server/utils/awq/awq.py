@@ -1,8 +1,8 @@
 # Copied logic from https://github.com/mit-han-lab/llm-awq/blob/f084f40bd996f3cf3a0633c1ad7d9d476c318aaa/awq/quantize/qmodule.py
 
+import awq_inference_engine  # with CUDA kernels
 import torch
 import torch.nn as nn
-import awq_inference_engine  # with CUDA kernels
 
 
 class AWQLinear(nn.Module):
@@ -20,12 +20,8 @@ class AWQLinear(nn.Module):
         self.w_bit = w_bit
         self.group_size = group_size if group_size != -1 else self.in_features
 
-        assert (
-            self.in_features % self.group_size == 0
-        ), "in_features must be divisible by group_size"
-        assert (
-            self.out_features % (32 // self.w_bit) == 0
-        ), "out_features must be divisible by 32 // w_bit"
+        assert self.in_features % self.group_size == 0, "in_features must be divisible by group_size"
+        assert self.out_features % (32 // self.w_bit) == 0, "out_features must be divisible by 32 // w_bit"
 
         self.qweight = qweight
         self.qzeros = qzeros

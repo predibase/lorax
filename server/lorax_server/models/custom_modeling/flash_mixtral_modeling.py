@@ -19,34 +19,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.distributed
-
-import numpy as np
-
-from torch import nn
-from transformers.activations import ACT2FN
-from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
+import numpy as np
+import torch
+import torch.distributed
+from torch import nn
+from transformers.activations import ACT2FN
+from transformers.configuration_utils import PretrainedConfig
 
-from lorax_server.utils import paged_attn, flash_attn
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils.layers import (
     FastLinear,
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
     get_linear,
 )
-from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils.lora import LM_HEAD
 
 if not HAS_FLASH_ATTN_V2:
@@ -217,9 +215,7 @@ def _load_experts(config, prefix, mat, weights):
             expert_slice = slice_[:, start:stop].t().contiguous()
         else:
             expert_slice = slice_[start:stop]
-        tensor[i * block_size : (i + 1) * block_size] = expert_slice.to(dtype=weights.dtype).to(
-            device=weights.device
-        )
+        tensor[i * block_size : (i + 1) * block_size] = expert_slice.to(dtype=weights.dtype).to(device=weights.device)
     return tensor
 
 
@@ -403,9 +399,7 @@ class MixtralAttention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attn.reshape_and_cache(
-            kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -628,8 +622,7 @@ class BlockSparseMoE(nn.Module):
         # (top_k * sequence_length + padding, ffn_dim * n_experts)
         x = stk.Matrix(
             topo.size(),
-            self.act(stk.ops.sdd(x, self.w1.t(), topo).data)
-            * stk.ops.sdd(x, self.w3.t(), topo).data,
+            self.act(stk.ops.sdd(x, self.w1.t(), topo).data) * stk.ops.sdd(x, self.w3.t(), topo).data,
             topo.row_indices,
             topo.column_indices,
             topo.offsets,
@@ -740,15 +733,11 @@ class DenseMoE(nn.Module):
         self.gate = FastLinear.load(config, f"{prefix}.gate", weights, bias=False)
 
         self.w1 = [
-            TensorParallelColumnLinear.load(
-                config, prefix=f"{prefix}.experts.{i}.w1", weights=weights, bias=False
-            )
+            TensorParallelColumnLinear.load(config, prefix=f"{prefix}.experts.{i}.w1", weights=weights, bias=False)
             for i in range(self.num_experts)
         ]
         self.w3 = [
-            TensorParallelColumnLinear.load(
-                config, prefix=f"{prefix}.experts.{i}.w3", weights=weights, bias=False
-            )
+            TensorParallelColumnLinear.load(config, prefix=f"{prefix}.experts.{i}.w3", weights=weights, bias=False)
             for i in range(self.num_experts)
         ]
         self.w2 = [
@@ -906,9 +895,7 @@ class MixtralModel(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

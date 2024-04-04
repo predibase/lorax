@@ -1,6 +1,6 @@
-from functools import lru_cache
 import os
 import warnings
+from functools import lru_cache
 from typing import Tuple
 
 import torch
@@ -137,9 +137,7 @@ def get_tmp_expand_size(size: int) -> int:
     return _kernels.sgmv_cutlass_tmp_size(size)
 
 
-def get_tmp_tensors(
-    nsegments: int, lora_rank: int, device: torch.device
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_tmp_tensors(nsegments: int, lora_rank: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
     if use_cutlass_shrink(lora_rank):
         tmp = get_tmp_tensor_for_size(nsegments, device)
         return tmp, tmp

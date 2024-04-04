@@ -18,30 +18,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.distributed
-
-from torch import nn
-from transformers.activations import ACT2FN
-from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
+import torch
+import torch.distributed
+from torch import nn
+from transformers.activations import ACT2FN
+from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
 from lorax_server.utils.layers import (
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
     get_linear,
 )
 from lorax_server.utils.lora import (
@@ -209,13 +207,10 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert (
-            list(weight.shape)
-            == [
-                (num_heads + 2 * num_key_value_heads) * head_size,
-                config.hidden_size,
-            ]
-        ), f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert list(weight.shape) == [
+            (num_heads + 2 * num_key_value_heads) * head_size,
+            config.hidden_size,
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
@@ -324,9 +319,7 @@ class MistralAttention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attn.reshape_and_cache(
-            kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots
-        )
+        paged_attn.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -422,9 +415,7 @@ class MistralLayer(nn.Module):
             weights=weights,
             layer_id=layer_id,
         )
-        self.mlp = MistralMLP(
-            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
-        )
+        self.mlp = MistralMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = MistralRMSNorm(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
@@ -518,9 +509,7 @@ class MistralModel(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

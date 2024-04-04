@@ -1,18 +1,17 @@
 import os
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional, List, Any, Tuple
-
-from loguru import logger
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+
 import boto3
 from botocore.config import Config
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
-
 from huggingface_hub.utils import (
-    LocalEntryNotFoundError,
     EntryNotFoundError,
+    LocalEntryNotFoundError,
 )
+from loguru import logger
 
 from .source import BaseModelSource, try_to_load_from_cache
 
@@ -28,8 +27,7 @@ def _get_bucket_and_model_id(model_id: str) -> Tuple[str, str]:
         model_id_no_protocol = model_id[len(S3_PREFIX) :]
         if "/" not in model_id_no_protocol:
             raise ValueError(
-                f"Invalid model_id {model_id}. "
-                f"model_id should be of the form `s3://bucket_name/model_id`"
+                f"Invalid model_id {model_id}. " f"model_id should be of the form `s3://bucket_name/model_id`"
             )
         bucket_name, model_id = model_id_no_protocol.split("/", 1)
         return bucket_name, model_id
@@ -63,9 +61,7 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
     R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", None)
 
     if R2_ACCOUNT_ID:
-        s3 = boto3.resource(
-            "s3", endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com", config=config
-        )
+        s3 = boto3.resource("s3", endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com", config=config)
         return s3.Bucket(bucket_name)
     elif S3_ENDPOINT_URL:
         s3 = boto3.resource("s3", endpoint_url=f"{S3_ENDPOINT_URL}", config=config)
@@ -84,9 +80,7 @@ def get_s3_model_local_dir(model_id: str):
 def weight_s3_files(bucket: Any, model_id: str, extension: str = ".safetensors") -> List[str]:
     """Get the weights filenames from s3"""
     model_files = bucket.objects.filter(Prefix=model_id)
-    filenames = [
-        f.key.removeprefix(model_id).lstrip("/") for f in model_files if f.key.endswith(extension)
-    ]
+    filenames = [f.key.removeprefix(model_id).lstrip("/") for f in model_files if f.key.endswith(extension)]
     if not filenames:
         raise EntryNotFoundError(
             f"No {extension} weights found for model {model_id}",
@@ -119,9 +113,7 @@ def download_files_from_s3(
         logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
         bucket.download_file(str(bucket_file_name), str(local_file_path))
         # TODO: add support for revision
-        logger.info(
-            f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}."
-        )
+        logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
         if not local_file_path.is_file():
             raise FileNotFoundError(f"File {local_file_path} not found")
         return local_file_path
@@ -144,18 +136,14 @@ def download_files_from_s3(
     return files
 
 
-def weight_files_s3(
-    bucket: Any, model_id: str, revision: str = "", extension: str = ".safetensors"
-) -> List[Path]:
+def weight_files_s3(bucket: Any, model_id: str, revision: str = "", extension: str = ".safetensors") -> List[Path]:
     """Get the local files"""
     # Local model
     local_path = get_s3_model_local_dir(model_id)
     if local_path.exists() and local_path.is_dir():
         local_files = list(local_path.glob(f"*{extension}"))
         if not local_files:
-            raise FileNotFoundError(
-                f"No local weights found in {model_id} with extension {extension}"
-            )
+            raise FileNotFoundError(f"No local weights found in {model_id} with extension {extension}")
         return local_files
 
     try:
@@ -209,9 +197,7 @@ def download_model_from_s3(bucket: Any, model_id: str, extension: str = ".safete
 
 
 class S3ModelSource(BaseModelSource):
-    def __init__(
-        self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"
-    ):
+    def __init__(self, model_id: str, revision: Optional[str] = "", extension: str = ".safetensors"):
         if len(model_id) < 5:
             raise ValueError(f"model_id '{model_id}' is too short for prefix filtering")
 

@@ -1,11 +1,11 @@
 import logging
+
 import torch
 
 try:
     # Hack to ignore ray warnings from vLLM, which are not relevant to us.
     logging.disable(logging.WARNING)
-    from vllm import cache_ops
-    from vllm import attention_ops
+    from vllm import attention_ops, cache_ops
 finally:
     logging.disable(logging.NOTSET)
 

@@ -9,29 +9,27 @@
 #
 # LICENSE: https://huggingface.co/microsoft/phi-2/blob/main/LICENSE
 
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
-from typing import Optional, List, Tuple
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
     FastLayerNorm,
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelMultiAdapterLinear,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import LM_HEAD
-
 
 ATTN_Q_PROJ = "self_attn.q_proj"
 ATTN_K_PROJ = "self_attn.k_proj"
@@ -83,9 +81,7 @@ class FlashPhiAttention(torch.nn.Module):
         rope_theta = 10000
         config.max_position_embeddings = getattr(config, "n_positions", 2048)
 
-        rotary_dim = int(
-            config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads)
-        )
+        rotary_dim = int(config.partial_rotary_factor * (config.hidden_size // config.num_attention_heads))
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=rotary_dim,
@@ -339,9 +335,7 @@ class FlashPhiModel(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

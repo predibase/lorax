@@ -105,9 +105,7 @@ class Autotuner(triton.KernelInterface):
                 # prune configs
                 pruned_configs = self.prune_configs(kwargs)
                 bench_start = time.time()
-                timings = {
-                    config: self._bench(*args, config=config, **kwargs) for config in pruned_configs
-                }
+                timings = {config: self._bench(*args, config=config, **kwargs) for config in pruned_configs}
                 bench_end = time.time()
                 self.bench_time = bench_end - bench_start
                 self.cache[key] = builtins.min(timings, key=timings.get)

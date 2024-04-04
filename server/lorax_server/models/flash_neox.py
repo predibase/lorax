@@ -1,18 +1,18 @@
+from typing import Optional
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
-from transformers import AutoTokenizer, AutoConfig
-from typing import Optional
+from transformers import AutoConfig, AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_neox_modeling import (
     FlashGPTNeoXForCausalLM,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 
 tracer = trace.get_tracer(__name__)
@@ -43,9 +43,7 @@ class FlashNeoXSharded(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = AutoConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)

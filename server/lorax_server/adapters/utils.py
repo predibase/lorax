@@ -20,9 +20,7 @@ def download_adapter(
         HfApi(token=api_token).model_info(adapter_id, revision=None)
 
     # fail fast if ID is not an adapter (i.e. it is a full model)
-    source = get_model_source(
-        adapter_source, adapter_id, extension=".safetensors", api_token=api_token
-    )
+    source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)
     source.load_config()
 
     download_weights(adapter_id, source=adapter_source, api_token=api_token)

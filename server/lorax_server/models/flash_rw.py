@@ -1,19 +1,19 @@
+from typing import Optional
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from typing import Optional
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_rw_modeling import (
-    RWConfig,
     FlashRWForCausalLM,
+    RWConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 
 tracer = trace.get_tracer(__name__)
@@ -44,9 +44,7 @@ class FlashRWSharded(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = RWConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = RWConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
 
         torch.distributed.barrier(group=self.process_group)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
