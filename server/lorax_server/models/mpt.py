@@ -8,8 +8,7 @@ from huggingface_hub import hf_hub_download
 from opentelemetry import trace
 from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBase
 
-from lorax_server.models import CausalLM
-from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.models.causal_lm import CausalLM, CausalLMBatch
 from lorax_server.models.custom_modeling.mpt_modeling import (
     MPTForCausalLM,
 )

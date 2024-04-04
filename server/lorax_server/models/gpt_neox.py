@@ -7,7 +7,7 @@ from transformers import (
     AutoTokenizer,
 )
 
-from lorax_server.models import CausalLM
+from lorax_server.models.causal_lm import CausalLM
 from lorax_server.models.custom_modeling.neox_modeling import (
     GPTNeoxForCausalLM,
 )

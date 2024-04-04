@@ -4,7 +4,7 @@ import torch
 import torch.distributed
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from lorax_server.models import CausalLM
+from lorax_server.models.causal_lm import CausalLM
 
 FIM_PREFIX = "<fim-prefix>"
 FIM_MIDDLE = "<fim-middle>"

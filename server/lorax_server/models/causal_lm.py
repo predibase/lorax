@@ -6,7 +6,7 @@ from opentelemetry import trace
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
-from lorax_server.models import Model
+from lorax_server.models.model import Model
 from lorax_server.models.types import (
     Batch,
     GeneratedText,

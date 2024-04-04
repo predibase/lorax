@@ -9,8 +9,7 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from lorax_server.models import CausalLM
-from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.models.causal_lm import CausalLM, CausalLMBatch
 from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import (

@@ -7,7 +7,7 @@ from transformers import (
     AutoTokenizer,
 )
 
-from lorax_server.models import CausalLM
+from lorax_server.models.causal_lm import CausalLM
 from lorax_server.models.custom_modeling.opt_modeling import OPTForCausalLM
 from lorax_server.utils import (
     Weights,

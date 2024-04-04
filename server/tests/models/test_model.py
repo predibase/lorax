@@ -3,7 +3,7 @@ import torch
 
 from transformers import AutoTokenizer
 
-from lorax_server.models import Model
+from lorax_server.models.model import Model
 
 
 def get_test_model():
@@ -17,9 +17,7 @@ def get_test_model():
     model_id = "meta-llama/Llama-2-7b-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    model = TestModel(
-        model_id, torch.nn.Linear(1, 1), tokenizer, False, torch.float32, torch.device("cpu")
-    )
+    model = TestModel(model_id, torch.nn.Linear(1, 1), tokenizer, False, torch.float32, torch.device("cpu"))
     return model
 
 
@@ -28,17 +26,13 @@ def test_decode_streaming_english_spaces():
     model = get_test_model()
     truth = "Hello here, this is a simple test"
     all_input_ids = [15043, 1244, 29892, 445, 338, 263, 2560, 1243]
-    assert (
-        all_input_ids == model.tokenizer(truth, add_special_tokens=False)["input_ids"]
-    )
+    assert all_input_ids == model.tokenizer(truth, add_special_tokens=False)["input_ids"]
 
     decoded_text = ""
     offset = 0
     token_offset = 0
     for i in range(len(all_input_ids)):
-        text, offset, token_offset = model.decode_token(
-            all_input_ids[: i + 1], offset, token_offset
-        )
+        text, offset, token_offset = model.decode_token(all_input_ids[: i + 1], offset, token_offset)
         decoded_text += text
 
     assert decoded_text == truth
@@ -71,9 +65,7 @@ def test_decode_streaming_chinese_utf8():
     offset = 0
     token_offset = 0
     for i in range(len(all_input_ids)):
-        text, offset, token_offset = model.decode_token(
-            all_input_ids[: i + 1], offset, token_offset
-        )
+        text, offset, token_offset = model.decode_token(all_input_ids[: i + 1], offset, token_offset)
         decoded_text += text
 
     assert decoded_text == truth

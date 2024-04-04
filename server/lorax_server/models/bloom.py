@@ -9,8 +9,7 @@ from transformers import (
 )
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.models import CausalLM
-from lorax_server.models.causal_lm import CausalLMBatch
+from lorax_server.models.causal_lm import CausalLM, CausalLMBatch
 from lorax_server.models.custom_modeling.bloom_modeling import (
     ATTN_DENSE,
     ATTN_QKV,
