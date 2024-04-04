@@ -780,7 +780,7 @@ class FlashCausalLM(Model):
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
-        max_total_tokens = batch.max_seqlen + max_new_tokens
+        max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
         try:

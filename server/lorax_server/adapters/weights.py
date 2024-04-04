@@ -108,10 +108,14 @@ class AdapterBatchData:
 
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation
+        lora_data = self.data.get(LORA)
+        if lora_data is None:
+            return set()
+
         return set(
             rank_data.rank
             for layer_data in self.data.values()
-            for rank_data in layer_data.get(LORA, []).rank_data.values()
+            for rank_data in lora_data.rank_data.values()
         )
 
     @property

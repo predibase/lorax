@@ -34,4 +34,4 @@ export-requirements:
 
 format:
 	pip install ruff
-	python -m ruff format server/lorax_server
+	python -m ruff format lorax_server

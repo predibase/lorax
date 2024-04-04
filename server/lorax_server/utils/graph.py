@@ -3,7 +3,6 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
-import math
 from statistics import median
 from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
@@ -83,8 +82,7 @@ def get_max_graph_state(
     max_total_tokens: int,
     sliding_window_blocks: Optional[int] = None,
 ) -> GraphState:
-    # max_num_blocks = (max_total_tokens + BLOCK_SIZE - 1) // BLOCK_SIZE
-    max_num_blocks = math.ceil((max_total_tokens - 1) / BLOCK_SIZE)
+    max_num_blocks = (max_total_tokens + BLOCK_SIZE - 1) // BLOCK_SIZE
     if sliding_window_blocks is not None:
         # Needed blocks can not go over SLIDING_WINDOW_BLOCKS
         max_num_blocks = max(max_num_blocks, sliding_window_blocks)
@@ -142,7 +140,7 @@ class GraphWrapper:
         graph: torch.cuda.CUDAGraph,
         memory_pool: Tuple[int, int],
         input_state: GraphState,
-        output_states: torch.Tensor,
+        output_states: Tuple[torch.Tensor, Optional[torch.Tensor]],
         model: nn.Module,
     ):
         self.graph = graph
@@ -306,7 +304,10 @@ class GraphWrapper:
 
         self.graph.replay()
 
-        return self.output_states[: input_ids.shape[0]]
+        return tuple(
+            state[: input_ids.shape[0]] if state is not None else None
+            for state in self.output_states
+        )
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
