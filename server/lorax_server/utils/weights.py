@@ -1,13 +1,15 @@
+import json
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union
-from safetensors import safe_open, SafetensorError
-from loguru import logger
-from huggingface_hub import hf_hub_download
-import json
+
 import torch
 import torch.distributed
-import os
+from huggingface_hub import hf_hub_download
+from huggingface_hub.utils import LocalEntryNotFoundError
+from safetensors import safe_open, SafetensorError
+from loguru import logger
 
 
 class AbstractWeights(ABC):
@@ -414,7 +416,7 @@ def download_weights(
         logger.info("Files are already present on the host. " "Skipping download.")
         return
     # Local files not found
-    except (utils.LocalEntryNotFoundError, FileNotFoundError):
+    except (LocalEntryNotFoundError, FileNotFoundError):
         pass
 
     is_local_model = (Path(model_id).exists() and Path(model_id).is_dir()) or os.getenv(
@@ -439,7 +441,7 @@ def download_weights(
         local_pt_files = model_source.weight_files(extension=".bin")
 
     # No local pytorch weights
-    except utils.LocalEntryNotFoundError:
+    except LocalEntryNotFoundError:
         if extension == ".safetensors":
             logger.warning(
                 f"No safetensors weights found for model {model_id} at revision {revision}. "
