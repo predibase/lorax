@@ -5,7 +5,19 @@ import torch.distributed
 
 from torch import nn
 from torch.nn import functional as F
-from typing import List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+
+from accelerate import init_empty_weights
+
+from lorax_server.adapters.types import LORA, MEDUSA
+from lorax_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.utils.sgmv import (
+    lora_a_sgmv_cutlass,
+    lora_b_sgmv_cutlass,
+    has_sgmv,
+    orient_for_rank,
+)
+from lorax_server.utils.state import is_warmup
 
 
 HAS_BITS_AND_BYTES = True
@@ -17,7 +29,7 @@ except ImportError:
     HAS_BITS_AND_BYTES = False
 
 HAS_AWQ = True
-try: 
+try:
     from lorax_server.utils.awq.awq import AWQLinear
 except ImportError:
     HAS_AWQ = False
@@ -38,17 +50,9 @@ try:
         @property
         def weight(self) -> torch.Tensor:
             return self.W_q
+
 except ImportError:
     HAS_HQQ = False
-
-from accelerate import init_empty_weights
-
-from lorax_server.adapters.lora import BatchLoraWeights
-from lorax_server.adapters.types import LORA
-from lorax_server.utils.gptq.quant_linear import QuantLinear
-from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils.sgmv import lora_a_sgmv_cutlass, lora_b_sgmv_cutlass, has_sgmv, orient_for_rank
-from lorax_server.utils.state import is_warmup
 
 HAS_EXLLAMA = True
 if os.getenv("DISABLE_EXLLAMA") == "True":
@@ -57,6 +61,11 @@ try:
     from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
 except ImportError:
     HAS_EXLLAMA = False
+
+if TYPE_CHECKING:
+    from lorax_server.adapters import AdapterBatchData
+    from lorax_server.adapters.lora import BatchLoraWeights
+    from lorax_server.adapters.medusa import BatchMedusaWeights
 
 
 # Monkey patching
@@ -138,7 +147,7 @@ class FastConv1D(nn.Module):
         x = torch.addmm(self.bias, input.view(-1, input.size(-1)), self.weight)
         x = x.view(size_out)
         return x
-    
+
 
 class EETQLinear(nn.Module):
     """
@@ -187,29 +196,28 @@ class EETQLinear(nn.Module):
             self.bias = None
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-            """
-            Performs the forward pass of the layer.
+        """
+        Performs the forward pass of the layer.
 
-            Args:
-                input (torch.Tensor): The input tensor.
+        Args:
+            input (torch.Tensor): The input tensor.
 
-            Returns:
-                torch.Tensor: The output tensor.
-            """
-            # The function w8_a16_gemm performs a matrix multiplication operation between the input and the weight of the layer.
-            # The result is then scaled by a factor (self.scale).
-            gemm_output = w8_a16_gemm(input, self.weight, self.scale)
+        Returns:
+            torch.Tensor: The output tensor.
+        """
+        # The function w8_a16_gemm performs a matrix multiplication operation between the input and the weight of the layer.
+        # The result is then scaled by a factor (self.scale).
+        gemm_output = w8_a16_gemm(input, self.weight, self.scale)
 
-            # If a bias is present (i.e., self.bias is not None), it is added to the output of the matrix multiplication.
-            # If a bias is not present (i.e., self.bias is None), the output of the matrix multiplication is returned as is.
-            if self.bias is not None:
-                final_output = gemm_output + self.bias
-            else:
-                final_output = gemm_output
+        # If a bias is present (i.e., self.bias is not None), it is added to the output of the matrix multiplication.
+        # If a bias is not present (i.e., self.bias is None), the output of the matrix multiplication is returned as is.
+        if self.bias is not None:
+            final_output = gemm_output + self.bias
+        else:
+            final_output = gemm_output
 
-            # The final output is returned.
-            return final_output
-
+        # The final output is returned.
+        return final_output
 
 
 class Linear8bitLt(nn.Module):
@@ -223,9 +231,7 @@ class Linear8bitLt(nn.Module):
         index=None,
     ):
         super().__init__()
-        assert (
-            not memory_efficient_backward
-        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
+        assert not memory_efficient_backward, "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
         self.state = bnb.MatmulLtState()
         self.index = index
 
@@ -269,6 +275,7 @@ class Linear8bitLt(nn.Module):
                 self.weight.data = self.state.CxB
         return out
 
+
 class Linear4bit(nn.Module):
     def __init__(self, weight, bias, quant_type):
         super().__init__()
@@ -290,7 +297,9 @@ class Linear4bit(nn.Module):
 
         # Check if quantization state is initialized
         if getattr(self.weight, "quant_state", None) is None:
-            print("FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first.")
+            print(
+                "FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first."
+            )
 
         # Convert input to compute_dtype if specified
         inp_dtype = x.dtype
@@ -307,6 +316,7 @@ class Linear4bit(nn.Module):
         out = out.to(inp_dtype)
 
         return out
+
 
 def get_linear(weight, bias, quantize, fan_in_fan_out=False):
     # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
@@ -341,15 +351,13 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         if HAS_EETQ:
             linear = EETQLinear(weight, bias)
         else:
-            raise ImportError(
-                "Please install EETQ from https://github.com/NetEase-FuXi/EETQ"
-            )
+            raise ImportError("Please install EETQ from https://github.com/NetEase-FuXi/EETQ")
     elif quantize == "gptq":
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
         except Exception:
             raise NotImplementedError(
-                f"The passed weight is not `gptq` compatible, loader needs to be updated."
+                "The passed weight is not `gptq` compatible, loader needs to be updated."
             )
 
         if use_exllama:
@@ -368,17 +376,28 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         try:
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
-            raise NotImplementedError(
-                f"The passed weight is not compatible with `awq`"
-            )
-        linear = AWQLinear(w_bit=bits, group_size=groupsize, qweight=qweight, qzeros=qzeros, scales=scales, bias=bias is not None)
+            raise NotImplementedError("The passed weight is not compatible with `awq`")
+        linear = AWQLinear(
+            w_bit=bits,
+            group_size=groupsize,
+            qweight=qweight,
+            qzeros=qzeros,
+            scales=scales,
+            bias=bias is not None,
+        )
     elif "hqq-" in quantize:
         if quantize == "hqq-4bit":
-            quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
+            quant_config = BaseQuantizeConfig(
+                nbits=4, group_size=64, quant_zero=True, quant_scale=False
+            )
         elif quantize == "hqq-3bit":
-            quant_config = BaseQuantizeConfig(nbits=3, group_size=64, quant_zero=True, quant_scale=False)
+            quant_config = BaseQuantizeConfig(
+                nbits=3, group_size=64, quant_zero=True, quant_scale=False
+            )
         elif quantize == "hqq-2bit":
-            quant_config = BaseQuantizeConfig(nbits=2, group_size=16, quant_zero=True, quant_scale=False)
+            quant_config = BaseQuantizeConfig(
+                nbits=2, group_size=16, quant_zero=True, quant_scale=False
+            )
 
         # init nn.linear from weight and bias
         layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
@@ -386,7 +405,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             layer.weight.data = weight
             if bias is not None:
                 layer.bias.data = bias
-        
+
         linear = HQQLinearLayer(layer, quant_config, del_orig=True)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
@@ -449,9 +468,7 @@ class TensorParallelHead(SuperLayer):
 
             torch.mm(input, self.linear.weight.T, out=local_out)
 
-            torch.distributed.all_gather_into_tensor(
-                world_out, local_out, group=self.process_group
-            )
+            torch.distributed.all_gather_into_tensor(world_out, local_out, group=self.process_group)
             return world_out
 
         output = super().forward(input)
@@ -478,22 +495,19 @@ class TensorParallelColumnLinear(SuperLayer):
 
     @classmethod
     def load(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out: bool = False):
-        return cls.load_multi(
-            config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out)
+        return cls.load_multi(config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out)
 
     @classmethod
     def load_multi(
-        cls, 
-        config, 
-        prefixes: List[Union[str, Tuple]], 
-        weights, 
-        bias: bool, 
-        dim: int, 
-        fan_in_fan_out=False
+        cls,
+        config,
+        prefixes: List[Union[str, Tuple]],
+        weights,
+        bias: bool,
+        dim: int,
+        fan_in_fan_out=False,
     ):
-        weight = weights.get_multi_weights_col(
-            prefixes, quantize=config.quantize, dim=dim
-        )
+        weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 
         if bias:
             b = weights.get_sharded_list("bias", prefixes, dim=0)
@@ -502,7 +516,7 @@ class TensorParallelColumnLinear(SuperLayer):
             bias = None
         linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
         return cls(linear)
-    
+
 
 class LoraLinear(nn.Module):
     def __init__(self, base_layer, layer_id, process_group):
@@ -515,13 +529,13 @@ class LoraLinear(nn.Module):
         self,
         result: torch.Tensor,
         input: torch.Tensor,
-        adapter_data: AdapterBatchData,
+        adapter_data: "AdapterBatchData",
         layer_type: str,
         start_idx: int,
         end_idx: int,
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
-        data: BatchLoraWeights = data.get(LORA) if data is not None else None
+        data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
 
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
@@ -545,7 +559,7 @@ class LoraLinear(nn.Module):
 
                     if self.process_group.size() > 1:
                         v = self.collect_lora_a(v)
-                    
+
                     lora_b_sgmv_cutlass(
                         proj,
                         v,
@@ -555,22 +569,26 @@ class LoraLinear(nn.Module):
                         rank_segments.segment_ends,
                         self.layer_id,
                     )
-            
+
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    adapter_mask = (
+                        (adapter_data.meta.adapter_indices == adapter_index)
+                        .to(input.dtype)
+                        .view(-1, 1)
+                    )
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 
         return result
-    
+
     def forward_lora(
         self,
         input: torch.Tensor,
-        data: BatchLoraWeights,
+        data: "BatchLoraWeights",
         adapter_index: int,
         adapter_mask: torch.Tensor,
     ) -> torch.Tensor:
@@ -582,13 +600,13 @@ class LoraLinear(nn.Module):
         a_out = input @ lora_a
         if self.process_group.size() > 1:
             a_out = self.collect_lora_a(a_out)
-        
+
         result = (a_out @ lora_b) * adapter_mask
         return result
 
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("Implemented in subclasses")
-    
+
 
 class TensorParallelMultiAdapterLinear(LoraLinear):
     def __init__(self, base_layer, layer_id, layer_names, sizes, process_group):
@@ -601,10 +619,10 @@ class TensorParallelMultiAdapterLinear(LoraLinear):
         return TensorParallelMultiAdapterLinear(
             base_layer, layer_id, layer_names, sizes, process_group
         )
-    
-    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
+
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
         result = self.base_layer(input)
-        
+
         # handle models like Bloom that have inputs of shape
         # (batch_size, sequence_length, hidden_size)
         # we need to reshape them to (batch_size * sequence_length, hidden_size)
@@ -624,9 +642,11 @@ class TensorParallelMultiAdapterLinear(LoraLinear):
                 end_idx = offset // self.process_group.size()
             else:
                 end_idx = result.shape[1]
-            
-            result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
-        
+
+            result = self.forward_layer_type(
+                result, input, adapter_data, layer_name, start_idx, end_idx
+            )
+
         if is_3d:
             result = result.reshape(prev_shape)
 
@@ -652,19 +672,20 @@ class TensorParallelAdapterRowLinear(LoraLinear):
 
     @classmethod
     def load(cls, base_layer, layer_id, layer_name, process_group):
-        return TensorParallelAdapterRowLinear(base_layer, layer_id, layer_name, process_group)
-    
-    def forward(self, input: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
+        return cls(base_layer, layer_id, layer_name, process_group)
+
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
         result = self.base_layer(input)
-        
+
         # Fused all-gather + all-reduce from S-LoRA paper: https://arxiv.org/abs/2311.03285
         stride = result.shape[-1] // self.process_group.size()
         start_idx = self.process_group.rank() * stride
         end_idx = (self.process_group.rank() + 1) * stride
 
         self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
+
         return result
-    
+
     def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
         # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
         # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
@@ -675,7 +696,31 @@ class TensorParallelAdapterRowLinear(LoraLinear):
         #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
         torch.distributed.all_reduce(a_out, group=self.process_group)
         return a_out
-    
+
+
+class MultiAdapterHead(TensorParallelAdapterRowLinear):
+    def forward(
+        self, input: torch.Tensor, adapter_data: "AdapterBatchData"
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        result = super().forward(input, adapter_data)
+
+        # Medusa
+        data = adapter_data.data.get(self.layer_name)
+        data: Optional["BatchMedusaWeights"] = data.get(MEDUSA) if data is not None else None
+
+        speculative_logits = None
+        if data is not None and data.default_medusa is not None:
+            speculative_logits = data.default_medusa.model(input)
+
+            # TODO(travis): support multiple medusa adapters with masking:
+            # for adapter_index in adapter_data.meta.adapter_set:
+            #     if data.has_adapter(adapter_index):
+            #         adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+            #         speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
+            #         ...
+
+        return result, speculative_logits
+
 
 class TensorParallelRowLinear(SuperLayer):
     def __init__(self, linear, process_group, all_reduce: bool = True):
@@ -685,11 +730,11 @@ class TensorParallelRowLinear(SuperLayer):
 
     @classmethod
     def load(
-        cls, 
-        config, 
-        prefix: str, 
-        weights, 
-        bias: bool, 
+        cls,
+        config,
+        prefix: str,
+        weights,
+        bias: bool,
         fan_in_fan_out: bool = False,
         all_reduce: bool = True,
     ):
@@ -791,7 +836,7 @@ except ImportError:
 
 
 try:
-    from flash_attn.layers.rotary import RotaryEmbedding
+    from flash_attn.layers.rotary import RotaryEmbedding  # noqa: F401
     import rotary_emb
 
     def _create_inv_freq(dim, base, device):
@@ -916,9 +961,7 @@ try:
                 self._cos_cached = torch.cos(freqs).to(dtype)
                 self._sin_cached = torch.sin(freqs).to(dtype)
 
-        def get_cos_sin(
-            self, position_ids: torch.Tensor, max_s: int, dtype: torch.dtype
-        ):
+        def get_cos_sin(self, position_ids: torch.Tensor, max_s: int, dtype: torch.dtype):
             """
             Return cos and sin for the asked position ids
             """
@@ -964,9 +1007,7 @@ try:
                         (self.scaling_factor * seqlen / self.max_position_embeddings)
                         - (self.scaling_factor - 1)
                     ) ** (self.dim / (self.dim - 2))
-                    self.inv_freq = _create_inv_freq(
-                        self.dim, newbase, self.inv_freq.device
-                    )
+                    self.inv_freq = _create_inv_freq(self.dim, newbase, self.inv_freq.device)
                 self._seq_len_cached = seqlen
                 t = torch.arange(seqlen, device=device, dtype=self.inv_freq.dtype)
                 # Don't do einsum, it converts fp32 to fp16
@@ -981,14 +1022,14 @@ try:
 
         def __init__(
             self,
-            dim, 
-            max_position_embeddings=2048, 
-            base=10000, 
-            factor=1, 
-            original_max_position_embeddings=2048, 
-            extrapolation_factor=1, 
-            attn_factor=1, 
-            beta_fast=32, 
+            dim,
+            max_position_embeddings=2048,
+            base=10000,
+            factor=1,
+            original_max_position_embeddings=2048,
+            extrapolation_factor=1,
+            attn_factor=1,
+            beta_fast=32,
             beta_slow=1,
             finetuned=True,
             device=None,
@@ -1005,7 +1046,9 @@ try:
             self.finetuned = finetuned
 
             self.yarn(device, factor)
-            super().__init__(_create_inv_freq(dim, base, device), factor, max_position_embeddings, device, dtype)
+            super().__init__(
+                _create_inv_freq(dim, base, device), factor, max_position_embeddings, device, dtype
+            )
 
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             if (
@@ -1020,30 +1063,43 @@ try:
 
                 self._cos_cached = (torch.cos(freqs) * self.mscale).to(dtype)
                 self._sin_cached = (torch.sin(freqs) * self.mscale).to(dtype)
-        
+
         def yarn(self, device, scaling_factor):
             pos_freqs = self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
             inv_freq_extrapolation = 1.0 / pos_freqs
             inv_freq_interpolation = 1.0 / (scaling_factor * pos_freqs)
 
-            low, high = find_correction_range(self.beta_fast, self.beta_slow, self.dim, self.base, self.original_max_position_embeddings)
-            inv_freq_mask = (1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)) * self.extrapolation_factor # Get n-d rotational scaling corrected for extrapolation
-            inv_freq = inv_freq_interpolation * (1 - inv_freq_mask) + inv_freq_extrapolation * inv_freq_mask
+            low, high = find_correction_range(
+                self.beta_fast,
+                self.beta_slow,
+                self.dim,
+                self.base,
+                self.original_max_position_embeddings,
+            )
+            inv_freq_mask = (
+                1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)
+            ) * self.extrapolation_factor  # Get n-d rotational scaling corrected for extrapolation
+            inv_freq = (
+                inv_freq_interpolation * (1 - inv_freq_mask)
+                + inv_freq_extrapolation * inv_freq_mask
+            )
 
             self.inv_freq = inv_freq
-            self.mscale = float(get_mscale(scaling_factor) * self.attn_factor) # Get n-d magnitude scaling corrected for interpolation
+            self.mscale = float(
+                get_mscale(scaling_factor) * self.attn_factor
+            )  # Get n-d magnitude scaling corrected for interpolation
 
     # Inverse dim formula to find dim based on number of rotations
     def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):
-        return (dim * math.log(max_position_embeddings/(num_rotations * 2 * math.pi)))/(2 * math.log(base))
+        return (dim * math.log(max_position_embeddings / (num_rotations * 2 * math.pi))) / (
+            2 * math.log(base)
+        )
 
     # Find dim range bounds based on rotations
     def find_correction_range(low_rot, high_rot, dim, base=10000, max_position_embeddings=2048):
-        low = math.floor(find_correction_dim(
-            low_rot, dim, base, max_position_embeddings))
-        high = math.ceil(find_correction_dim(
-            high_rot, dim, base, max_position_embeddings))
-        return max(low, 0), min(high, dim-1)  # Clamp values just in case
+        low = math.floor(find_correction_dim(low_rot, dim, base, max_position_embeddings))
+        high = math.ceil(find_correction_dim(high_rot, dim, base, max_position_embeddings))
+        return max(low, 0), min(high, dim - 1)  # Clamp values just in case
 
     def linear_ramp_mask(min, max, dim):
         if min == max:

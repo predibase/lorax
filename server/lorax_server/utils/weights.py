@@ -1,15 +1,44 @@
+import json
+import os
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union
-from safetensors import safe_open, SafetensorError
-import torch
-from loguru import logger
-from huggingface_hub import hf_hub_download
-import json
+
 import torch
 import torch.distributed
-import os
+from huggingface_hub import hf_hub_download
+from huggingface_hub.utils import LocalEntryNotFoundError
+from safetensors import safe_open, SafetensorError
+from loguru import logger
 
-class Weights:
+
+class AbstractWeights(ABC):
+    @abstractmethod
+    def get_tensor(self, tensor_name: str) -> torch.Tensor:
+        pass
+
+    @abstractmethod
+    def get_shape(self, tensor_name: str) -> torch.Size:
+        pass
+
+
+class InMemoryWeights(AbstractWeights):
+    def __init__(self, weights: Dict[str, torch.Tensor], device: torch.device, dtype: torch.dtype):
+        self.weights = weights
+        self.device = device
+        self.dtype = dtype
+
+    def get_tensor(self, tensor_name: str) -> torch.Tensor:
+        tensor = self.weights[tensor_name]
+        tensor = tensor.to(dtype=self.dtype)
+        tensor = tensor.to(device=self.device)
+        return tensor
+
+    def get_shape(self, tensor_name: str) -> torch.Size:
+        return self.weights[tensor_name].shape
+
+
+class Weights(AbstractWeights):
     """
     A class representing weights for a model.
 
@@ -29,6 +58,7 @@ class Weights:
         process_group: The process group for distributed training.
         _handles (Dict[str, Any]): Dictionary of file handles for opened weight files.
     """
+
     def __init__(
         self,
         filenames: List[Path],
@@ -50,7 +80,7 @@ class Weights:
                                 f"Key {k} was found in multiple adapter files: {filename} and {routing[k]}"
                             )
                         routing[k] = filename
-        
+
         # set of keys that point to adapter files. Duplicates for these keys found
         # in main model files will be overridden.
         adapter_routes = set(routing.keys())
@@ -59,7 +89,9 @@ class Weights:
             with safe_open(filename, framework="pytorch") as f:
                 for k in f.keys():
                     if k in adapter_routes:
-                        logger.debug(f"Overriding main model weights with adapter weights for key: {k}")
+                        logger.debug(
+                            f"Overriding main model weights with adapter weights for key: {k}"
+                        )
                     elif k in routing:
                         raise RuntimeError(
                             f"Key {k} was found in multiple non-adapter files: {filename} and {routing[k]}"
@@ -114,7 +146,9 @@ class Weights:
         tensor = tensor.to(device=self.device)
         return tensor
 
-    def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
+    def get_partial_sharded(
+        self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None
+    ):
         """Loads tensor with the given name and shards it along the given dimension.
 
         The optional range argument can be used to load and split on only a subset of the tensor.
@@ -163,7 +197,7 @@ class Weights:
             size % world_size == 0
         ), f"The choosen size {size} is not compatible with sharding on {world_size} shards"
         return self.get_partial_sharded(tensor_name, dim, range=range)
-    
+
     def get_sharded_prefix(self, module_name: str, prefix: Union[str, Tuple], dim: int):
         if isinstance(prefix, str):
             return self.get_sharded(f"{prefix}.{module_name}", dim=dim)
@@ -171,27 +205,21 @@ class Weights:
             assert isinstance(prefix, tuple)
             assert len(prefix) == 2
             return self.get_sharded(f"{prefix[0]}.{module_name}", dim=dim, range=prefix[1])
-    
+
     def get_sharded_list(self, module_name: str, prefixes: List[Union[str, Tuple]], dim: int):
         return [self.get_sharded_prefix(module_name, p, dim=dim) for p in prefixes]
 
     def get_multi_weights_col(self, prefixes: List[Union[str, Tuple]], quantize: str, dim: int):
         if quantize in ["gptq", "awq"]:
             try:
-                qweight = torch.cat(
-                    self.get_sharded_list("qweight", prefixes, dim=1), dim=1
-                )
+                qweight = torch.cat(self.get_sharded_list("qweight", prefixes, dim=1), dim=1)
             except RuntimeError:
                 raise RuntimeError(
                     "Cannot load `gptq` weight, make sure the model is already quantized, or quantize it with `lorax-server quantize ORIGINAL_MODEL_ID NEW_MODEL_ID`"
                 )
 
-            qzeros = torch.cat(
-                self.get_sharded_list("qzeros", prefixes, dim=1), dim=1
-            )
-            scales = torch.cat(
-                self.get_sharded_list("scales", prefixes, dim=1), dim=1
-            )
+            qzeros = torch.cat(self.get_sharded_list("qzeros", prefixes, dim=1), dim=1)
+            scales = torch.cat(self.get_sharded_list("scales", prefixes, dim=1), dim=1)
             if quantize == "gptq":
                 # no tensor parallelism, so remove the range if provided
                 prefixes = [p[0] if isinstance(p, tuple) else p for p in prefixes]
@@ -343,6 +371,7 @@ class Weights:
                 except Exception:
                     pass
 
+
 def get_start_stop_idxs_for_rank(offset, size, rank, world_size):
     block_size = size // world_size
     start = offset + rank * block_size
@@ -353,7 +382,7 @@ def get_start_stop_idxs_for_rank(offset, size, rank, world_size):
 def shard_on_dim(t: torch.Tensor, dim: int, process_group: torch.distributed.ProcessGroup):
     world_size = process_group.size()
     rank = process_group.rank()
-    
+
     size = t.shape[dim]
     start, stop = get_start_stop_idxs_for_rank(0, size, rank, world_size)
 
@@ -365,3 +394,93 @@ def shard_on_dim(t: torch.Tensor, dim: int, process_group: torch.distributed.Pro
         raise NotImplementedError("Let's make that generic when needed")
 
     return tensor
+
+
+def download_weights(
+    model_id: str,
+    revision: Optional[str] = None,
+    extension: str = ".safetensors",
+    auto_convert: bool = True,
+    source: str = "hub",
+    api_token: Optional[str] = None,
+):
+    # Import here after the logger is added to log potential import exceptions
+    from lorax_server import utils
+    from lorax_server.utils import sources
+
+    model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
+
+    # Test if files were already download
+    try:
+        model_source.weight_files()
+        logger.info("Files are already present on the host. " "Skipping download.")
+        return
+    # Local files not found
+    except (LocalEntryNotFoundError, FileNotFoundError):
+        pass
+
+    is_local_model = (Path(model_id).exists() and Path(model_id).is_dir()) or os.getenv(
+        "WEIGHTS_CACHE_OVERRIDE", None
+    ) is not None
+
+    if not is_local_model:
+        # TODO: Combine into class that takes the source as input
+        # Try to download weights from the hub
+        try:
+            model_source.download_model_assets()
+            return
+        # No weights found on the hub with this extension
+        except utils.EntryNotFoundError as e:
+            # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
+            if not extension == ".safetensors" or not auto_convert:
+                raise e
+
+    # Try to see if there are local pytorch weights
+    try:
+        # Get weights for a local model, a hub cached model and inside the WEIGHTS_CACHE_OVERRIDE
+        local_pt_files = model_source.weight_files(extension=".bin")
+
+    # No local pytorch weights
+    except LocalEntryNotFoundError:
+        if extension == ".safetensors":
+            logger.warning(
+                f"No safetensors weights found for model {model_id} at revision {revision}. "
+                f"Downloading PyTorch weights."
+            )
+
+        # Try to see if there are pytorch weights on the hub
+        pt_filenames = model_source.remote_weight_files(extension=".bin")
+        # Download pytorch weights
+        local_pt_files = model_source.download_weights(pt_filenames)
+
+    if auto_convert:
+        logger.warning(
+            f"No safetensors weights found for model {model_id} at revision {revision}. "
+            f"Converting PyTorch weights to safetensors."
+        )
+
+        # Safetensors final filenames
+        local_st_files = [
+            p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors" for p in local_pt_files
+        ]
+        try:
+            from transformers import AutoConfig
+            import transformers
+
+            config_path = sources.get_config_path(model_id, source)
+            config = AutoConfig.from_pretrained(
+                config_path,
+                revision=revision,
+            )
+            architecture = config.architectures[0]
+
+            class_ = getattr(transformers, architecture)
+
+            # Name for this varible depends on transformers version.
+            discard_names = getattr(class_, "_tied_weights_keys", [])
+            discard_names.extend(getattr(class_, "_keys_to_ignore_on_load_missing", []))
+
+        except Exception:
+            discard_names = []
+        # Convert pytorch weights to safetensors
+        utils.convert_files(local_pt_files, local_st_files, discard_names)

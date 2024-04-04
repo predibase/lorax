@@ -31,7 +31,7 @@ class T5Sharded(Seq2SeqLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with T5")
-        
+
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")

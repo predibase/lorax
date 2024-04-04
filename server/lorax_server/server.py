@@ -16,7 +16,13 @@ from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2_grpc, generate_pb2
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, S3, PBASE, map_pbase_model_id_to_s3
+from lorax_server.utils import (
+    HUB,
+    LOCAL,
+    S3,
+    PBASE,
+    map_pbase_model_id_to_s3,
+)
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.sources import get_model_source
@@ -97,14 +103,11 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             batch=next_batch.to_pb() if next_batch else None,
         )
 
-
     async def Embed(self, request: generate_pb2.EmbedRequest, context):
         batch = request.inputs
         tokenised_batch = self.model.tokenize_to_batch(batch)
         embeddings = self.model.embed(tokenised_batch)
-        resp = generate_pb2.EmbedResponse(
-            embeddings=embeddings
-        )
+        resp = generate_pb2.EmbedResponse(embeddings=embeddings)
         return resp
 
     async def Decode(self, request: generate_pb2.DecodeRequest, context):

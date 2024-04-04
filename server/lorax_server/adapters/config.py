@@ -19,16 +19,19 @@ class AdapterConfig(ABC):
 
     @abstractmethod
     def map_weights_for_model(
-        self, adapter_weights: Dict, weight_names: Tuple[str],
+        self,
+        adapter_weights: Dict,
+        weight_names: Tuple[str],
     ) -> Tuple[ModuleMap, Set[str]]:
         pass
 
     @abstractmethod
     def load_batched_adapter_weights(
-        self, 
+        self,
         model: "Model",
-        module_map: Dict[str, Dict], 
+        module_map: Dict[str, Dict],
         layer_type: str,
         unused_weight_names: Set[str],
+        dynamic: bool,
     ) -> Optional[AdapterWeights]:
         pass

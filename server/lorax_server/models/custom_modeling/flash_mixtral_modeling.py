@@ -36,6 +36,7 @@ from lorax_server.utils import paged_attn, flash_attn
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils.layers import (
     FastLinear,
+    MultiAdapterHead,
     TensorParallelAdapterRowLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
@@ -75,28 +76,28 @@ class MixtralConfig(PretrainedConfig):
     model_type = "mixtral"
 
     def __init__(
-            self,
-            vocab_size=32000,
-            hidden_size=4096,
-            intermediate_size=14336,
-            num_hidden_layers=32,
-            num_attention_heads=32,
-            num_key_value_heads=8,
-            hidden_act="silu",
-            max_position_embeddings=4096 * 32,
-            initializer_range=0.02,
-            rms_norm_eps=1e-05,
-            use_cache=True,
-            pad_token_id=None,
-            bos_token_id=1,
-            eos_token_id=2,
-            pretraining_tp=1,
-            tie_word_embeddings=False,
-            rope_theta=10000.0,
-            sliding_window=4096,
-            num_experts_per_tok=2,
-            num_local_experts=8,
-            **kwargs,
+        self,
+        vocab_size=32000,
+        hidden_size=4096,
+        intermediate_size=14336,
+        num_hidden_layers=32,
+        num_attention_heads=32,
+        num_key_value_heads=8,
+        hidden_act="silu",
+        max_position_embeddings=4096 * 32,
+        initializer_range=0.02,
+        rms_norm_eps=1e-05,
+        use_cache=True,
+        pad_token_id=None,
+        bos_token_id=1,
+        eos_token_id=2,
+        pretraining_tp=1,
+        tie_word_embeddings=False,
+        rope_theta=10000.0,
+        sliding_window=4096,
+        num_experts_per_tok=2,
+        num_local_experts=8,
+        **kwargs,
     ):
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
@@ -137,11 +138,15 @@ def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
     head_size = config.hidden_size // config.num_attention_heads
     return TensorParallelMultiAdapterLinear.load(
-        base_layer, layer_id, [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ], sizes=[
+        base_layer,
+        layer_id,
+        [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ],
+        sizes=[
             head_size * config.num_attention_heads,
             head_size * config.num_key_value_heads,
             head_size * config.num_key_value_heads,
-        ], process_group=weights.process_group
+        ],
+        process_group=weights.process_group,
     )
 
 
@@ -179,9 +184,7 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(
-        get_linear(weight, bias=None, quantize=config.quantize)
-    )
+    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
 
 def _load_experts(config, prefix, mat, weights):
@@ -194,16 +197,18 @@ def _load_experts(config, prefix, mat, weights):
     rank = weights.process_group.rank()
 
     assert (
-            config.intermediate_size % world_size == 0
+        config.intermediate_size % world_size == 0
     ), f"The chosen size {config.intermediate_size} is not compatible with sharding on {world_size} shards"
 
     block_size = config.intermediate_size // world_size
     start = rank * block_size
     stop = (rank + 1) * block_size
 
-    tensor = torch.empty((config.num_local_experts * block_size, config.hidden_size),
-                         dtype=weights.dtype,
-                         device=weights.device)
+    tensor = torch.empty(
+        (config.num_local_experts * block_size, config.hidden_size),
+        dtype=weights.dtype,
+        device=weights.device,
+    )
 
     for i in range(config.num_local_experts):
         slice_ = weights._get_slice(f"{prefix}.{i}.{mat}.weight")
@@ -212,7 +217,9 @@ def _load_experts(config, prefix, mat, weights):
             expert_slice = slice_[:, start:stop].t().contiguous()
         else:
             expert_slice = slice_[start:stop]
-        tensor[i * block_size:(i + 1) * block_size] = expert_slice.to(dtype=weights.dtype).to(device=weights.device)
+        tensor[i * block_size : (i + 1) * block_size] = expert_slice.to(dtype=weights.dtype).to(
+            device=weights.device
+        )
     return tensor
 
 
@@ -235,9 +242,7 @@ class MixtralRMSNorm(nn.Module):
 
             hidden_states = hidden_states.to(torch.float32)
             variance = hidden_states.pow(2).mean(-1, keepdim=True)
-            hidden_states = hidden_states * torch.rsqrt(
-                variance + self.variance_epsilon
-            )
+            hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
             # convert into half-precision if necessary
             if self.weight.dtype in [torch.float16, torch.bfloat16]:
@@ -267,6 +272,7 @@ class MixtralRMSNorm(nn.Module):
                 res = hidden_states
 
             return normed_hidden_states, res
+
 
 class MixtralAttention(torch.nn.Module):
     """
@@ -303,9 +309,7 @@ class MixtralAttention(torch.nn.Module):
         layer_id: int,
     ):
         super().__init__()
-        self.max_past = (
-            config.sliding_window if config.sliding_window is not None else 0
-        )
+        self.max_past = config.sliding_window if config.sliding_window is not None else -1
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
@@ -318,7 +322,7 @@ class MixtralAttention(torch.nn.Module):
             dtype=weights.dtype,
         )
 
-        self.softmax_scale = self.head_size ** -0.5
+        self.softmax_scale = self.head_size**-0.5
 
         if self.num_heads % weights.process_group.size() != 0:
             raise ValueError(
@@ -326,36 +330,39 @@ class MixtralAttention(torch.nn.Module):
                 f"and `num_shards`: {weights.process_group.size()}"
             )
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = (
-                config.num_key_value_heads // weights.process_group.size()
-        )
+        self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
-        self.o_proj = TensorParallelAdapterRowLinear.load(TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.o_proj",
-            weights=weights,
-            bias=False,
-        ), layer_id, ATTN_O_PROJ, process_group=weights.process_group)
+        self.o_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.o_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            ATTN_O_PROJ,
+            process_group=weights.process_group,
+        )
         self.num_groups = self.num_heads // self.num_key_value_heads
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
 
     def forward(
-            self,
-            hidden_states,
-            cos,
-            sin,
-            cu_seqlen_prefill,
-            kv_cache,
-            block_tables,
-            slots,
-            input_lengths,
-            max_s,
-            adapter_data,
-            prefill_cache_indices,
+        self,
+        hidden_states,
+        cos,
+        sin,
+        cu_seqlen_prefill,
+        kv_cache,
+        block_tables,
+        slots,
+        input_lengths,
+        max_s,
+        adapter_data,
+        prefill_cache_indices,
     ):
         """
         Performs forward pass of the attention module.
@@ -475,9 +482,7 @@ class BlockSparseMoE(nn.Module):
         if "gelu" in act:
             self.act = lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         elif "silu" in act:
             self.act = torch.nn.functional.silu
@@ -529,8 +534,7 @@ class BlockSparseMoE(nn.Module):
         # Indices for the sparse matrix. The indices for
         # the intermediate matrix are dynamic depending
         # on the mapping of tokens to experts.
-        column_indices = ops.topology(padded_bins, self.blocking, block_rows,
-                                      blocks_per_row)
+        column_indices = ops.topology(padded_bins, self.blocking, block_rows, blocks_per_row)
 
         # For now, use meta init to save the device memory.
         data = torch.empty(
@@ -574,8 +578,7 @@ class BlockSparseMoE(nn.Module):
         # position of each bin.
 
         # List of size num_experts
-        padded_tokens_per_expert = round_up(tokens_per_expert,
-                                            self.blocking)
+        padded_tokens_per_expert = round_up(tokens_per_expert, self.blocking)
         # padded_tokens_per_expert => [128, O, 128, ...]
 
         # Cumulative selected experts per token
@@ -614,8 +617,7 @@ class BlockSparseMoE(nn.Module):
 
         # Permute tokens and pad to prepare expert computation
         # (top_k * sequence_length + padding, model_dim)
-        x = ops.padded_gather(x, indices, bin_ids, bins, padded_bins,
-                              self.top_k)
+        x = ops.padded_gather(x, indices, bin_ids, bins, padded_bins, self.top_k)
 
         # Create the sparse matrix topology
         with torch.no_grad():
@@ -657,7 +659,7 @@ class BlockSparseMoE(nn.Module):
             torch.distributed.all_reduce(x, group=self.process_group)
 
         return x.view(*input_shape)
-    
+
     def dense_forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: (sequence_length, model_dim)
@@ -690,18 +692,12 @@ class BlockSparseMoE(nn.Module):
         x = x.view(1, -1, input_shape[-1]).expand(self.num_experts, -1, input_shape[-1])
 
         # Permute to [num_experts, model_dim, ffn_dim]
-        w1 = self.w1.view(self.num_experts, self.ffn_dim, self.hidden_dim).permute(
-            0, 2, 1
-        )
-        w3 = self.w3.view(self.num_experts, self.ffn_dim, self.hidden_dim).permute(
-            0, 2, 1
-        )
+        w1 = self.w1.view(self.num_experts, self.ffn_dim, self.hidden_dim).permute(0, 2, 1)
+        w3 = self.w3.view(self.num_experts, self.ffn_dim, self.hidden_dim).permute(0, 2, 1)
 
         inter = self.act(torch.bmm(x, w1)) * torch.bmm(x, w3)
 
-        out = torch.bmm(
-            inter, self.w2.view(self.num_experts, self.ffn_dim, self.hidden_dim)
-        )
+        out = torch.bmm(inter, self.w2.view(self.num_experts, self.ffn_dim, self.hidden_dim))
         # Mask not selected experts
         out *= weights.t().view(self.num_experts, -1, 1)
 
@@ -733,9 +729,7 @@ class DenseMoE(nn.Module):
         if "gelu" in act:
             self.act = lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         elif "silu" in act:
             self.act = torch.nn.functional.silu
@@ -759,7 +753,11 @@ class DenseMoE(nn.Module):
         ]
         self.w2 = [
             TensorParallelRowLinear.load(
-                config, prefix=f"{prefix}.experts.{i}.w2", weights=weights, bias=False, all_reduce=False,
+                config,
+                prefix=f"{prefix}.experts.{i}.w2",
+                weights=weights,
+                bias=False,
+                all_reduce=False,
             )
             for i in range(self.num_experts)
         ]
@@ -830,19 +828,19 @@ class MixtralLayer(nn.Module):
         )
 
     def forward(
-            self,
-            hidden_states,
-            residual,
-            cos,
-            sin,
-            cu_seqlen_prefill,
-            kv_cache,
-            block_tables,
-            slots,
-            input_lengths,
-            max_s,
-            adapter_data,
-            prefill_cache_indices,
+        self,
+        hidden_states,
+        residual,
+        cos,
+        sin,
+        cu_seqlen_prefill,
+        kv_cache,
+        block_tables,
+        slots,
+        input_lengths,
+        max_s,
+        adapter_data,
+        prefill_cache_indices,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -862,9 +860,7 @@ class MixtralLayer(nn.Module):
         )
 
         # faster post attention rms norm
-        normed_attn_res_output, attn_res = self.post_attention_layernorm(
-            attn_output, res
-        )
+        normed_attn_res_output, attn_res = self.post_attention_layernorm(attn_output, res)
 
         moe_output = self.moe(normed_attn_res_output)
 
@@ -875,9 +871,7 @@ class MixtralModel(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix="model.embed_tokens", weights=weights
-        )
+        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
 
         self.layers = nn.ModuleList(
             [
@@ -889,26 +883,24 @@ class MixtralModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MixtralRMSNorm(
-            prefix="model.norm", weights=weights, eps=config.rms_norm_eps
-        )
+        self.norm = MixtralRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
         self.num_key_value_heads = self.layers[0].self_attn.num_key_value_heads
 
     def forward(
-            self,
-            input_ids: torch.Tensor,
-            position_ids: torch.Tensor,
-            cu_seqlen_prefill: Optional[torch.Tensor],
-            kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
-            block_tables: torch.Tensor,
-            slots: torch.Tensor,
-            input_lengths: torch.Tensor,
-            max_s: int,
-            adapter_data: AdapterBatchData,
-            prefill_cache_indices: Optional[torch.Tensor],
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
 
@@ -945,33 +937,36 @@ class FlashMixtralForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.model = MixtralModel(config, weights)
-        self.lm_head = TensorParallelAdapterRowLinear.load(TensorParallelHead.load(
-            config,
-            prefix="lm_head",
-            weights=weights,
-        ), 0, LM_HEAD, process_group=weights.process_group)
+        self.lm_head = MultiAdapterHead.load(
+            TensorParallelHead.load(
+                config,
+                prefix="lm_head",
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
         self.max_past = config.sliding_window
-        if self.max_past is None:
-            raise ValueError("max_past cannot be None")
 
     def forward(
-            self,
-            input_ids: torch.Tensor,
-            position_ids: torch.Tensor,
-            cu_seqlen_prefill: Optional[torch.Tensor],
-            kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
-            block_tables: torch.Tensor,
-            slots: torch.Tensor,
-            input_lengths: torch.Tensor,
-            max_s: int,
-            adapter_data: AdapterBatchData,
-            prefill_cache_indices: Optional[torch.Tensor] = None,
-            lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        prefill_cache_indices: Optional[torch.Tensor] = None,
+        lm_head_indices: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         if prefill_cache_indices is not None:
             # Slots also need to be sliced as it has the same size as the whole kv tensor
             slots = slots[prefill_cache_indices]
-        else:
+        elif self.max_past is not None:
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
@@ -991,5 +986,5 @@ class FlashMixtralForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits = self.lm_head(hidden_states, adapter_data)
-        return logits
+        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
+        return logits, speculative_logits

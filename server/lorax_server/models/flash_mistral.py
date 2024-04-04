@@ -1,7 +1,6 @@
 import torch
 import torch.distributed
 
-from loguru import logger
 from opentelemetry import trace
 from transformers.models.llama import LlamaTokenizerFast
 from typing import Dict, List, Optional, Tuple
@@ -12,13 +11,20 @@ from lorax_server.models.custom_modeling.flash_mistral_modeling import (
     MistralConfig,
 )
 from lorax_server.utils import (
-    create_merged_weight_files,
     initialize_torch_distributed,
     weight_files,
     Weights,
 )
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.utils.lora import (
+    DOWN_PROJ,
+    GATE_PROJ,
+    K_PROJ,
+    LM_HEAD,
+    O_PROJ,
+    Q_PROJ,
+    UP_PROJ,
+    V_PROJ,
+)
 
 tracer = trace.get_tracer(__name__)
 
@@ -61,29 +67,11 @@ class FlashMistral(FlashCausalLM):
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-
-        # if adapter_id passed in as part of model instantiation, then we merge 
-        # the adapter weights with the model weights. This also disables dynamic
-        # adapter loading, since the model is now itself initialized with an adapter.
-        merged_weight_filenames = None
-        dynamic_adapter_loading_enabled = True
-        if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
-            # Need to pass the adapter source here
-            merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
-            )
-            dynamic_adapter_loading_enabled = False
-            adapter_id = adapter_id
-        else:
-            adapter_id = BASE_MODEL_ADAPTER_ID
-
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
-            merged_weight_filenames=merged_weight_filenames
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -106,36 +94,45 @@ class FlashMistral(FlashCausalLM):
             sliding_window=config.sliding_window,
             compile=compile,
             adapter_id=adapter_id,
-            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
+            adapter_source=adapter_source,
         )
 
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, Q_PROJ)] = (
+                f"{prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, K_PROJ)] = (
+                f"{prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, V_PROJ)] = (
+                f"{prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.query_key_value,
+            )
             layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
             layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
-        
+
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

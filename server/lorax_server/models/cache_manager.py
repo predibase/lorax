@@ -42,9 +42,9 @@ class CacheManager:
             for _ in range(num_layers)
         ]
         self.free_block_mask = torch.ones(num_blocks, dtype=torch.int32, device="cpu")
-        self.slots = torch.arange(
-            0, num_blocks * self.block_size, dtype=torch.int64
-        ).view(num_blocks, self.block_size)
+        self.slots = torch.arange(0, num_blocks * self.block_size, dtype=torch.int64).view(
+            num_blocks, self.block_size
+        )
 
     def allocate(
         self,
@@ -64,9 +64,7 @@ class CacheManager:
         block_indices = block_indices.flatten()
 
         # Padded block tables
-        block_tables_tensor = torch.zeros(
-            (len(needed_blocks_slots), max_blocks), dtype=torch.int32
-        )
+        block_tables_tensor = torch.zeros((len(needed_blocks_slots), max_blocks), dtype=torch.int32)
 
         # Allocate paged attention blocks
         cumulative_blocks = 0
@@ -74,9 +72,7 @@ class CacheManager:
         block_tables = []
         for i, (needed_blocks, needed_slots) in enumerate(needed_blocks_slots):
             # Get allocated blocks for this sequence
-            allocated_blocks = block_indices[
-                cumulative_blocks : cumulative_blocks + needed_blocks
-            ]
+            allocated_blocks = block_indices[cumulative_blocks : cumulative_blocks + needed_blocks]
             # Get slots for the allocated blocks
             all_slots = self.slots[allocated_blocks].flatten()
 

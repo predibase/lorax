@@ -10,8 +10,7 @@ from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
     LocalEntryNotFoundError,
-    EntryNotFoundError,
-    RevisionNotFoundError,  # Import here to ease try/except in other part of the lib
+    EntryNotFoundError,  # Import here to ease try/except in other part of the lib
 )
 
 from .source import BaseModelSource, try_to_load_from_cache
@@ -26,7 +25,10 @@ def get_hub_model_local_dir(model_id: str) -> Path:
 
 
 def weight_hub_files(
-    model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None
+    model_id: str,
+    revision: Optional[str] = None,
+    extension: str = ".safetensors",
+    api_token: Optional[str] = None,
 ) -> List[str]:
     """Get the weights filenames on the hub"""
     api = HfApi(token=api_token)
@@ -50,9 +52,11 @@ def weight_hub_files(
     return filenames
 
 
-
 def weight_files(
-    model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None
+    model_id: str,
+    revision: Optional[str] = None,
+    extension: str = ".safetensors",
+    api_token: Optional[str] = None,
 ) -> List[Path]:
     """Get the local files"""
     # Local model
@@ -74,27 +78,21 @@ def weight_files(
         # Change pytorch extension to safetensors extension
         # It is possible that we have safetensors weights locally even though they are not on the
         # hub if we converted weights locally without pushing them
-        filenames = [
-            f"{Path(f).stem.lstrip('pytorch_')}.safetensors" for f in pt_filenames
-        ]
+        filenames = [f"{Path(f).stem.lstrip('pytorch_')}.safetensors" for f in pt_filenames]
 
     if WEIGHTS_CACHE_OVERRIDE is not None:
         files = []
         for filename in filenames:
             p = Path(WEIGHTS_CACHE_OVERRIDE) / filename
             if not p.exists():
-                raise FileNotFoundError(
-                    f"File {p} not found in {WEIGHTS_CACHE_OVERRIDE}."
-                )
+                raise FileNotFoundError(f"File {p} not found in {WEIGHTS_CACHE_OVERRIDE}.")
             files.append(p)
         return files
 
     repo_cache = get_hub_model_local_dir(model_id)
     files = []
     for filename in filenames:
-        cache_file = try_to_load_from_cache(
-            repo_cache, revision=revision, filename=filename
-        )
+        cache_file = try_to_load_from_cache(repo_cache, revision=revision, filename=filename)
         if cache_file is None:
             raise LocalEntryNotFoundError(
                 f"File {filename} of model {model_id} not found in "
@@ -107,7 +105,10 @@ def weight_files(
 
 
 def download_weights(
-    filenames: List[str], model_id: str, revision: Optional[str] = None, api_token: Optional[str] = None
+    filenames: List[str],
+    model_id: str,
+    revision: Optional[str] = None,
+    api_token: Optional[str] = None,
 ) -> List[Path]:
     """Download the safetensors files from the hub"""
 
@@ -158,7 +159,13 @@ def download_weights(
 
 
 class HubModelSource(BaseModelSource):
-    def __init__(self, model_id: str, revision: Optional[str] = None, extension: str = ".safetensors", api_token: Optional[str] = None):
+    def __init__(
+        self,
+        model_id: str,
+        revision: Optional[str] = None,
+        extension: str = ".safetensors",
+        api_token: Optional[str] = None,
+    ):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
@@ -182,7 +189,7 @@ class HubModelSource(BaseModelSource):
     def download_model_assets(self):
         filenames = self.remote_weight_files()
         return self.download_weights(filenames)
-    
+
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         try:
             return Path(hf_hub_download(self.model_id, revision=None, filename=filename))

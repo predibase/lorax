@@ -17,17 +17,13 @@ from lorax_server.utils.layers import (
 )
 
 
-def load_multi_mqa(
-    config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size
-):
+def load_multi_mqa(config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size):
     if config.quantize in ["gptq", "awq", "eetq"]:
         return _load_multi_mqa_gptq(
             config, prefix, weights, bias, head_size, num_heads, hidden_size
         )
     else:
-        return _load_multi_mqa(
-            config, prefix, weights, bias, head_size, num_heads, hidden_size
-        )
+        return _load_multi_mqa(config, prefix, weights, bias, head_size, num_heads, hidden_size)
 
 
 def _load_multi_mqa_gptq(
@@ -97,9 +93,7 @@ def _load_multi_mqa_gptq(
         raise NotImplementedError("Gptq loading with santacoder is not implemented")
 
 
-def _load_multi_mqa(
-    config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size
-):
+def _load_multi_mqa(config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size):
     if any("c_attn" in k for k in weights.routing.keys()):
         slice_ = weights._get_slice(f"{prefix}.c_attn.weight")
         shape = slice_.get_shape()
@@ -171,9 +165,7 @@ def load_col(config, prefix: str, weights, bias: bool):
     if config.transpose:
         weight = weights.get_sharded(f"{prefix}.weight", dim=1).T
     else:
-        weight = weights.get_multi_weights_col(
-            [prefix], quantize=config.quantize, dim=0
-        )
+        weight = weights.get_multi_weights_col([prefix], quantize=config.quantize, dim=0)
 
     if bias:
         bias = weights.get_sharded(f"{prefix}.bias", dim=0)
@@ -226,12 +218,8 @@ class FlashMQAttention(torch.nn.Module):
             hidden_size=hidden_size,
             num_heads=self.num_heads,
         )
-        self.c_proj = load_row(
-            config, prefix=f"{prefix}.c_proj", weights=weights, bias=True
-        )
-        self.kv_head_mapping = torch.zeros(
-            self.num_heads, dtype=torch.int32, device=weights.device
-        )
+        self.c_proj = load_row(config, prefix=f"{prefix}.c_proj", weights=weights, bias=True)
+        self.kv_head_mapping = torch.zeros(self.num_heads, dtype=torch.int32, device=weights.device)
 
     def forward(
         self,
@@ -246,9 +234,7 @@ class FlashMQAttention(torch.nn.Module):
         qkv = self.c_attn(hidden_states)
 
         # Split query from key_value
-        query, key_value = qkv.split(
-            [self.head_size * self.num_heads, 2 * self.head_size], dim=1
-        )
+        query, key_value = qkv.split([self.head_size * self.num_heads, 2 * self.head_size], dim=1)
 
         # Prepare query and key_value for indexing
         query = query.view(-1, self.num_heads, self.head_size)
@@ -300,18 +286,12 @@ class MLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh"
-                if act in ["gelu_fast", "gelu_pytorch_tanh"]
-                else "none",
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         )
 
-        self.c_fc = load_col(
-            config, prefix=f"{prefix}.c_fc", weights=weights, bias=True
-        )
-        self.c_proj = load_row(
-            config, prefix=f"{prefix}.c_proj", weights=weights, bias=True
-        )
+        self.c_fc = load_col(config, prefix=f"{prefix}.c_fc", weights=weights, bias=True)
+        self.c_proj = load_row(config, prefix=f"{prefix}.c_proj", weights=weights, bias=True)
 
     def forward(self, hidden_states):
         hidden_states = self.c_fc(hidden_states)
@@ -442,9 +422,7 @@ class FlashSantacoderForCausalLM(nn.Module):
     def __init__(self, config, weights):
         super().__init__()
         self.transformer = FlashSantacoderModel(config, weights)
-        self.lm_head = TensorParallelHead.load(
-            config, prefix="transformer.wte", weights=weights
-        )
+        self.lm_head = TensorParallelHead.load(config, prefix="transformer.wte", weights=weights)
 
     def forward(
         self,
@@ -458,7 +436,7 @@ class FlashSantacoderForCausalLM(nn.Module):
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.transformer(
             input_ids,
             position_ids,
@@ -472,4 +450,4 @@ class FlashSantacoderForCausalLM(nn.Module):
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
         logits = self.lm_head(hidden_states)
-        return logits
+        return logits, None

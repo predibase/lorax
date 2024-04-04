@@ -12,7 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch OPT model."""
+"""PyTorch OPT model."""
+
 import random
 from typing import List, Optional, Tuple, Union
 
@@ -28,6 +29,7 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers import OPTConfig
 from lorax_server.utils.layers import (
+    FastLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelRowLinear,
@@ -60,16 +62,12 @@ def _make_causal_mask(
     if past_key_values_length > 0:
         mask = torch.cat(
             [
-                torch.zeros(
-                    tgt_len, past_key_values_length, dtype=dtype, device=device
-                ),
+                torch.zeros(tgt_len, past_key_values_length, dtype=dtype, device=device),
                 mask,
             ],
             dim=-1,
         )
-    return mask[None, None, :, :].expand(
-        bsz, 1, tgt_len, tgt_len + past_key_values_length
-    )
+    return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
 
 
 def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] = None):
@@ -83,9 +81,7 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
 
     inverted_mask = 1.0 - expanded_mask
 
-    return inverted_mask.masked_fill(
-        inverted_mask.to(torch.bool), torch.finfo(dtype).min
-    )
+    return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
 
 class OPTLearnedPositionalEmbedding(nn.Module):
@@ -96,13 +92,9 @@ class OPTLearnedPositionalEmbedding(nn.Module):
     def __init__(self, weights):
         super().__init__()
         self.offset = 2
-        self.weight = nn.Parameter(
-            weights.get_tensor("model.decoder.embed_positions.weight")
-        )
+        self.weight = nn.Parameter(weights.get_tensor("model.decoder.embed_positions.weight"))
 
-    def forward(
-        self, attention_mask: torch.LongTensor, past_key_values_length: int = 0
-    ):
+    def forward(self, attention_mask: torch.LongTensor, past_key_values_length: int = 0):
         """`input_ids_shape` is expected to be [bsz x seqlen]."""
         attention_mask = attention_mask.long()
 
@@ -169,11 +161,7 @@ class OPTAttention(nn.Module):
         )
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
-        return (
-            tensor.view(bsz, seq_len, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-            .contiguous()
-        )
+        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
     def forward(
         self,
@@ -243,10 +231,7 @@ class OPTAttention(nn.Module):
                 raise ValueError(
                     f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is {attention_mask.size()}"
                 )
-            attn_weights = (
-                attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-                + attention_mask
-            )
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attention_mask
             attn_weights = torch.max(
                 attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min)
             )
@@ -254,9 +239,9 @@ class OPTAttention(nn.Module):
 
         # upcast to fp32 if the weights are in fp16. Please see https://github.com/huggingface/transformers/pull/17437
         if attn_weights.dtype == torch.float16:
-            attn_weights = nn.functional.softmax(
-                attn_weights, dim=-1, dtype=torch.float32
-            ).to(torch.float16)
+            attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+                torch.float16
+            )
         else:
             attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
@@ -276,18 +261,12 @@ class OPTAttention(nn.Module):
             # make sure that attn_weights keeps its gradient.
             # In order to do so, attn_weights have to be reshaped
             # twice and have to be reused in the following
-            attn_weights_reshaped = attn_weights.view(
-                bsz, self.num_heads, tgt_len, src_len
-            )
-            attn_weights = attn_weights_reshaped.view(
-                bsz * self.num_heads, tgt_len, src_len
-            )
+            attn_weights_reshaped = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
+            attn_weights = attn_weights_reshaped.view(bsz * self.num_heads, tgt_len, src_len)
         else:
             attn_weights_reshaped = None
 
-        attn_probs = nn.functional.dropout(
-            attn_weights, p=self.dropout, training=self.training
-        )
+        attn_probs = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
 
         attn_output = torch.bmm(attn_probs, value_states)
 
@@ -347,9 +326,7 @@ class OPTDecoderLayer(nn.Module):
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    ) -> Tuple[
-        torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
-    ]:
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
         Args:
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, hidden_size)`
@@ -380,9 +357,7 @@ class OPTDecoderLayer(nn.Module):
             layer_head_mask=layer_head_mask,
             output_attentions=output_attentions,
         )
-        hidden_states = nn.functional.dropout(
-            hidden_states, p=self.dropout, training=self.training
-        )
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 
         # 350m applies layer norm AFTER attention
@@ -402,9 +377,7 @@ class OPTDecoderLayer(nn.Module):
         hidden_states = self.activation_fn(hidden_states)
 
         hidden_states = self.fc2(hidden_states)
-        hidden_states = nn.functional.dropout(
-            hidden_states, p=self.dropout, training=self.training
-        )
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         hidden_states = (residual + hidden_states).view(hidden_states_shape)
 
@@ -449,9 +422,7 @@ class OPTDecoder(OPTPreTrainedModel):
             self.project_out = None
 
         if config.word_embed_proj_dim != config.hidden_size:
-            self.project_in = FastLinear.load(
-                config, prefix="model.decoder.project_in", bias=False
-            )
+            self.project_in = FastLinear.load(config, prefix="model.decoder.project_in", bias=False)
         else:
             self.project_in = None
 
@@ -560,9 +531,7 @@ class OPTDecoder(OPTPreTrainedModel):
                 Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
         """
         output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
+            output_attentions if output_attentions is not None else self.config.output_attentions
         )
         output_hidden_states = (
             output_hidden_states
@@ -571,9 +540,7 @@ class OPTDecoder(OPTPreTrainedModel):
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
@@ -602,9 +569,7 @@ class OPTDecoder(OPTPreTrainedModel):
 
         # embed positions
         if attention_mask is None:
-            attention_mask = torch.ones(
-                batch_size, mask_seq_length, device=inputs_embeds.device
-            )
+            attention_mask = torch.ones(batch_size, mask_seq_length, device=inputs_embeds.device)
         causal_attention_mask = self._prepare_decoder_attention_mask(
             attention_mask, input_shape, inputs_embeds, past_key_values_length
         )
@@ -638,9 +603,7 @@ class OPTDecoder(OPTPreTrainedModel):
             if self.training and (dropout_probability < self.layerdrop):
                 continue
 
-            past_key_value = (
-                past_key_values[idx] if past_key_values is not None else None
-            )
+            past_key_value = past_key_values[idx] if past_key_values is not None else None
 
             layer_outputs = decoder_layer(
                 hidden_states,
@@ -703,9 +666,7 @@ class OPTModel(OPTPreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
+            output_attentions if output_attentions is not None else self.config.output_attentions
         )
         output_hidden_states = (
             output_hidden_states
@@ -713,9 +674,7 @@ class OPTModel(OPTPreTrainedModel):
             else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, past_key_value, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
@@ -765,18 +724,14 @@ class OPTForCausalLM(OPTPreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
+            output_attentions if output_attentions is not None else self.config.output_attentions
         )
         output_hidden_states = (
             output_hidden_states
             if output_hidden_states is not None
             else self.config.output_hidden_states
         )
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model.decoder(
@@ -834,8 +789,6 @@ class OPTForCausalLM(OPTPreTrainedModel):
         reordered_past = ()
         for layer_past in past_key_values:
             reordered_past += (
-                tuple(
-                    past_state.index_select(0, beam_idx) for past_state in layer_past
-                ),
+                tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),
             )
         return reordered_past

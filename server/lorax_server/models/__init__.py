@@ -1,9 +1,7 @@
-import os
 import torch
 
 from loguru import logger
 from transformers.configuration_utils import PretrainedConfig
-from transformers.models.auto import modeling_auto
 from typing import Optional
 
 from lorax_server.models.model import Model
@@ -13,12 +11,10 @@ from lorax_server.models.flash_causal_lm import FlashCausalLM
 from lorax_server.models.bloom import BLOOMSharded
 from lorax_server.models.mpt import MPTSharded
 from lorax_server.models.seq2seq_lm import Seq2SeqLM
-from lorax_server.models.rw import RW
 from lorax_server.models.opt import OPTSharded
 from lorax_server.models.galactica import GalacticaSharded
 from lorax_server.models.santacoder import SantaCoder
 from lorax_server.models.t5 import T5Sharded
-from lorax_server.models.gpt_neox import GPTNeoxSharded
 from lorax_server.utils.sources import get_s3_model_local_dir
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
@@ -61,7 +57,7 @@ def get_model(
     if source == "s3":
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
-        logger.info(f"Using the local files since we are coming from s3")
+        logger.info("Using the local files since we are coming from s3")
         model_path = get_s3_model_local_dir(model_id)
         logger.info(f"model_path: {model_path}")
         config_dict, _ = PretrainedConfig.get_config_dict(
@@ -73,9 +69,9 @@ def get_model(
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
         )
-    else: 
+    else:
         raise ValueError(f"Unknown source {source}")
-    
+
     model_type = config_dict["model_type"]
 
     if dtype is None:
@@ -96,7 +92,7 @@ def get_model(
             dtype=dtype,
             dtypetrust_remote_code=trust_remote_code,
         )
-    
+
     if "WhereIsAI/UAE-Large-V1" in model_id:
         return FlashBert(model_id, revision=revision, dtype=dtype)
 
@@ -121,10 +117,14 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "mpt":
         return MPTSharded(
-            model_id, revision, quantize=quantize, compile=compile, trust_remote_code=trust_remote_code
+            model_id,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            trust_remote_code=trust_remote_code,
         )
 
     if model_type == "gpt_neox":
@@ -192,7 +192,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "mixtral":
         from lorax_server.models.flash_mixtral import FlashMixtral
 
@@ -206,7 +206,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "qwen":
         from lorax_server.models.flash_qwen import FlashQwen
 
@@ -234,7 +234,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type in ["phi-msft", "phi"]:
         from lorax_server.models.flash_phi import FlashPhi
 
@@ -248,7 +248,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "gemma":
         from lorax_server.models.flash_gemma import FlashGemma
 

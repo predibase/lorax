@@ -1,6 +1,4 @@
 from lorax_server.utils.adapter import (
-    compute_delta_weight, 
-    create_merged_weight_files,
     load_module_map,
 )
 from lorax_server.utils.convert import convert_file, convert_files
@@ -12,14 +10,11 @@ from lorax_server.utils.sources import (
     get_local_dir,
     download_weights,
     map_pbase_model_id_to_s3,
-    weight_hub_files,
     weight_files,
-    EntryNotFoundError,
+    weight_hub_files,
     HUB,
     PBASE,
     LOCAL,
-    LocalEntryNotFoundError,
-    RevisionNotFoundError,
     S3,
 )
 from lorax_server.utils.tokens import (
@@ -33,8 +28,6 @@ from lorax_server.utils.tokens import (
 )
 
 __all__ = [
-    "compute_delta_weight",
-    "create_merged_weight_files",
     "load_module_map",
     "convert_file",
     "convert_files",
@@ -45,15 +38,13 @@ __all__ = [
     "initialize_torch_distributed",
     "map_pbase_model_id_to_s3",
     "download_weights",
+    "weight_files",
     "weight_hub_files",
-    "EntryNotFoundError",
     "HeterogeneousNextTokenChooser",
     "HUB",
     "LOCAL",
     "PBASE",
     "S3",
-    "LocalEntryNotFoundError",
-    "RevisionNotFoundError",
     "Greedy",
     "NextTokenChooser",
     "Sampling",

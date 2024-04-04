@@ -4,7 +4,6 @@ import os
 from typing import Optional, List
 from pathlib import Path
 
-from lorax_server.adapters import load_adapter_config
 from lorax_server.adapters.config import AdapterConfig
 
 
@@ -55,25 +54,25 @@ class BaseModelSource:
     @abstractmethod
     def weight_files(self, extension: str = None) -> List[Path]:
         pass
-    
+
     @abstractmethod
     def download_weights(self, filenames: List[str]):
         pass
-    
+
     @abstractmethod
     def download_model_assets(self):
-        """ The reason we need this function is that for s3 
-        we need to download all the model files whereas for 
-        hub we only need to download the weight files. And maybe 
-        for other future sources  we might need something different. 
+        """The reason we need this function is that for s3
+        we need to download all the model files whereas for
+        hub we only need to download the weight files. And maybe
+        for other future sources  we might need something different.
         So this function will take the necessary steps to download
-        the needed files for any source """
+        the needed files for any source"""
         pass
-    
+
     @abstractmethod
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         pass
-    
+
     def get_weight_bytes(self) -> int:
         total_size = 0
         for path in self.weight_files():
@@ -84,21 +83,21 @@ class BaseModelSource:
             st = os.stat(fname)
             if st.st_size < 8:
                 raise RuntimeError(f"Length of safetensor file less than 8 bytes: {fname}")
-            
+
             with open(fname, "rb") as f:
                 # read header size
-                b8 = f.read(8) 
+                b8 = f.read(8)
                 if len(b8) != 8:
                     raise RuntimeError(f"Failed to read first 8 bytes of safetensor file: {fname}")
-                
-                headerlen = int.from_bytes(b8, 'little', signed=False)
+
+                headerlen = int.from_bytes(b8, "little", signed=False)
                 if 8 + headerlen > st.st_size:
                     raise RuntimeError(f"Header extends past end of file: {fname}")
-                
+
                 hdrbuf = f.read(headerlen)
                 header = json.loads(hdrbuf)
-                metadata = header.get('__metadata__', {})
-                total_size_bytes = metadata.get('total_size')
+                metadata = header.get("__metadata__", {})
+                total_size_bytes = metadata.get("total_size")
                 if total_size_bytes is None:
                     # Fallback to determining this value from the data offsets
                     min_data_offset = None
@@ -106,8 +105,8 @@ class BaseModelSource:
                     for v in header.values():
                         if not isinstance(v, dict):
                             continue
-                        
-                        data_offsets = v.get('data_offsets')
+
+                        data_offsets = v.get("data_offsets")
                         if data_offsets is None:
                             continue
 
@@ -115,12 +114,12 @@ class BaseModelSource:
                             min_data_offset = min(min_data_offset, data_offsets[0])
                         else:
                             min_data_offset = data_offsets[0]
-                        
+
                         if max_data_offset is not None:
                             max_data_offset = max(max_data_offset, data_offsets[1])
                         else:
                             max_data_offset = data_offsets[1]
-                    
+
                     if min_data_offset is None or max_data_offset is None:
                         # Fallback to determining total bytes from file size
                         total_size_bytes = st.st_size
@@ -128,11 +127,12 @@ class BaseModelSource:
                         total_size_bytes = max_data_offset - min_data_offset
 
                 total_size += total_size_bytes
-        
+
         return total_size
-    
+
     def load_config(self) -> AdapterConfig:
+        from lorax_server.adapters import load_adapter_config
+
         config_path = self.download_file("config.json", ignore_errors=True)
         adapter_config_path = self.download_file("adapter_config.json", ignore_errors=True)
         return load_adapter_config(config_path, adapter_config_path, self.api_token)
-        

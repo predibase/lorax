@@ -1,4 +1,3 @@
-import json
 import re
 import torch
 import torch.distributed
@@ -96,15 +95,11 @@ class GalacticaCausalLMBatch(CausalLMBatch):
             req_inputs = tokenizers.get_inputs(r, tokenizer)
             inputs.append(escape_custom_split_sequence(req_inputs))
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device, tokenizer))
-            stopping_criteria = StoppingCriteria.from_pb(
-                r.stopping_parameters, tokenizer
-            )
+            stopping_criteria = StoppingCriteria.from_pb(r.stopping_parameters, tokenizer)
             stopping_criterias.append(stopping_criteria)
             max_truncation = max(max_truncation, r.truncate)
             max_decode_tokens += stopping_criteria.max_new_tokens
-            padding_right_offset = max(
-                padding_right_offset, stopping_criteria.max_new_tokens
-            )
+            padding_right_offset = max(padding_right_offset, stopping_criteria.max_new_tokens)
 
         tokenized_inputs = tokenizer(
             inputs,
@@ -124,9 +119,7 @@ class GalacticaCausalLMBatch(CausalLMBatch):
 
         input_ids = tokenized_inputs["input_ids"]
         # Allocate maximum attention_mask
-        attention_mask = input_ids.new_zeros(
-            (pb.size, max_input_length + padding_right_offset)
-        )
+        attention_mask = input_ids.new_zeros((pb.size, max_input_length + padding_right_offset))
         # Copy tokenizer attention_mask into fully allocated attention_mask
         attention_mask[:, :max_input_length] = tokenized_inputs["attention_mask"]
 
@@ -168,7 +161,7 @@ class GalacticaSharded(CausalLM):
     ):
         if compile:
             raise ValueError("`--compile` is not supported with GalacticaSharded")
-        
+
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")
@@ -196,9 +189,7 @@ class GalacticaSharded(CausalLM):
 
         torch.distributed.barrier(group=self.process_group)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        weights = Weights(
-            filenames, device=device, dtype=dtype, process_group=self.process_group
-        )
+        weights = Weights(filenames, device=device, dtype=dtype, process_group=self.process_group)
         if config.quantize in ["gptq", "awq", "eetq"]:
             weights._set_gptq_params(model_id)
 
@@ -226,9 +217,7 @@ class GalacticaSharded(CausalLM):
             generated_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False
         )
 
-    def forward(
-        self, input_ids, attention_mask, position_ids, past_key_values: Optional = None
-    ):
+    def forward(self, input_ids, attention_mask, position_ids, past_key_values: Optional = None):
         outputs = self.model.forward(
             input_ids=input_ids,
             attention_mask=attention_mask,

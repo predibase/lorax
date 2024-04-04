@@ -7,6 +7,8 @@ from loguru import logger
 from typing import Optional
 from enum import Enum
 
+from lorax_server.utils.weights import download_weights as _download_weights
+
 
 app = typer.Typer()
 
@@ -44,11 +46,10 @@ def serve(
     otlp_endpoint: Optional[str] = None,
     source: str = "hub",
     adapter_source: str = "hub",
+    speculative_tokens: int = 0,
 ):
     if sharded:
-        assert (
-            os.getenv("RANK", None) is not None
-        ), "RANK must be set when sharded is True"
+        assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
         assert (
             os.getenv("WORLD_SIZE", None) is not None
         ), "WORLD_SIZE must be set when sharded is True"
@@ -87,98 +88,19 @@ def serve(
             "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
         )
     server.serve(
-        model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code, uds_path, source, adapter_source
+        model_id,
+        adapter_id,
+        revision,
+        sharded,
+        quantize,
+        compile,
+        dtype,
+        trust_remote_code,
+        uds_path,
+        source,
+        adapter_source,
+        speculative_tokens,
     )
-
-
-def _download_weights(
-    model_id: str,
-    revision: Optional[str] = None,
-    extension: str = ".safetensors",
-    auto_convert: bool = True,
-    source: str = "hub",
-    api_token: Optional[str] = None,
-):
-    # Import here after the logger is added to log potential import exceptions
-    from lorax_server import utils
-    from lorax_server.utils import sources
-    model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
-
-    # Test if files were already download
-    try:
-        model_source.weight_files()
-        logger.info("Files are already present on the host. " "Skipping download.")
-        return
-    # Local files not found
-    except (utils.LocalEntryNotFoundError, FileNotFoundError):
-        pass
-
-    is_local_model = (Path(model_id).exists() and Path(model_id).is_dir()) or os.getenv(
-        "WEIGHTS_CACHE_OVERRIDE", None
-    ) is not None
-
-    if not is_local_model:
-        # TODO: Combine into class that takes the source as input
-        # Try to download weights from the hub
-        try:
-            model_source.download_model_assets()
-            return
-        # No weights found on the hub with this extension
-        except utils.EntryNotFoundError as e:
-            # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
-            if not extension == ".safetensors" or not auto_convert:
-                raise e
-
-    # Try to see if there are local pytorch weights
-    try:
-        # Get weights for a local model, a hub cached model and inside the WEIGHTS_CACHE_OVERRIDE
-        local_pt_files = model_source.weight_files(extension=".bin")
-
-    # No local pytorch weights
-    except utils.LocalEntryNotFoundError:
-        if extension == ".safetensors":
-            logger.warning(
-                f"No safetensors weights found for model {model_id} at revision {revision}. "
-                f"Downloading PyTorch weights."
-            )
-
-        # Try to see if there are pytorch weights on the hub
-        pt_filenames = model_source.remote_weight_files(extension=".bin")
-        # Download pytorch weights
-        local_pt_files = model_source.download_weights(pt_filenames)
-
-    if auto_convert:
-        logger.warning(
-            f"No safetensors weights found for model {model_id} at revision {revision}. "
-            f"Converting PyTorch weights to safetensors."
-        )
-
-        # Safetensors final filenames
-        local_st_files = [
-            p.parent / f"{p.stem.lstrip('pytorch_')}.safetensors"
-            for p in local_pt_files
-        ]
-        try:
-            from transformers import AutoConfig
-            import transformers
-
-            config_path = sources.get_config_path(model_id, source)
-            config = AutoConfig.from_pretrained(
-                config_path,
-                revision=revision,
-            )
-            architecture = config.architectures[0]
-
-            class_ = getattr(transformers, architecture)
-
-            # Name for this varible depends on transformers version.
-            discard_names = getattr(class_, "_tied_weights_keys", [])
-            discard_names.extend(getattr(class_, "_keys_to_ignore_on_load_missing", []))
-
-        except Exception as e:
-            discard_names = []
-        # Convert pytorch weights to safetensors
-        utils.convert_files(local_pt_files, local_st_files, discard_names)
 
 
 @app.command()

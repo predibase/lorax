@@ -2,8 +2,8 @@
 
 Inspired by https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
 """
+
 import math
-import os
 import warnings
 from typing import List, Optional, Tuple, Union
 import torch
@@ -28,7 +28,7 @@ EPS = 1e-5
 
 
 def load_col(config, prefix, weights, bias):
-    assert bias == False, NotImplementedError
+    assert not bias, NotImplementedError
     assert config.quantize != "gptq", NotImplementedError
     slice_ = weights._get_slice(f"{prefix}.weight")
     rank = weights.process_group.rank()
@@ -50,9 +50,7 @@ def load_col(config, prefix, weights, bias):
     return TensorParallelColumnLinear(linear)
 
 
-def _reset_is_causal(
-    num_query_tokens: int, num_key_tokens: int, original_is_causal: bool
-):
+def _reset_is_causal(num_query_tokens: int, num_key_tokens: int, original_is_causal: bool):
     if original_is_causal and num_query_tokens != num_key_tokens:
         if num_query_tokens != 1:
             raise NotImplementedError(
@@ -113,9 +111,7 @@ def scaled_multihead_dot_product_attention(
                 + "into attn_bias once and passing that to each attention "
                 + "module instead."
             )
-        attn_weight = attn_weight.masked_fill(
-            ~key_padding_mask.view((b, 1, 1, s_k)), min_val
-        )
+        attn_weight = attn_weight.masked_fill(~key_padding_mask.view((b, 1, 1, s_k)), min_val)
     if is_causal and (not q.size(2) == 1):
         s = max(s_q, s_k)
         causal_mask = attn_weight.new_ones(s, s, dtype=torch.float16)
@@ -143,9 +139,7 @@ def check_valid_inputs(*tensors, valid_dtypes=[torch.float16, torch.bfloat16]):
                 f"tensor.dtype={tensor.dtype!r} must be in valid_dtypes={valid_dtypes!r}."
             )
         if not tensor.is_cuda:
-            raise TypeError(
-                f"Inputs must be cuda tensors (tensor.is_cuda={tensor.is_cuda!r})."
-            )
+            raise TypeError(f"Inputs must be cuda tensors (tensor.is_cuda={tensor.is_cuda!r}).")
 
 
 def flash_attn_fn(
@@ -165,7 +159,7 @@ def flash_attn_fn(
 ):
     try:
         from flash_attn import bert_padding, flash_attn_interface
-    except:
+    except Exception:
         raise RuntimeError("Please install flash-attn==1.0.3.post0")
     check_valid_inputs(query, key, value)
     if past_key_value is not None:
@@ -178,7 +172,7 @@ def flash_attn_fn(
         _s_k = max(0, attn_bias.size(3) - key.size(1))
         attn_bias = attn_bias[:, :, _s_q:, _s_k:]
     if attn_bias is not None:
-        raise NotImplementedError(f"attn_bias not implemented for flash attn.")
+        raise NotImplementedError("attn_bias not implemented for flash attn.")
     (batch_size, seqlen) = query.shape[:2]
     if key_padding_mask is None:
         key_padding_mask = torch.ones_like(key[:, :, 0], dtype=torch.bool)
@@ -187,21 +181,13 @@ def flash_attn_fn(
         query, query_padding_mask
     )
     query_unpad = rearrange(query_unpad, "nnz (h d) -> nnz h d", h=n_heads)
-    (key_unpad, _, cu_seqlens_k, max_seqlen_k) = bert_padding.unpad_input(
-        key, key_padding_mask
-    )
-    key_unpad = rearrange(
-        key_unpad, "nnz (h d) -> nnz h d", h=1 if multiquery else n_heads
-    )
+    (key_unpad, _, cu_seqlens_k, max_seqlen_k) = bert_padding.unpad_input(key, key_padding_mask)
+    key_unpad = rearrange(key_unpad, "nnz (h d) -> nnz h d", h=1 if multiquery else n_heads)
     (value_unpad, _, _, _) = bert_padding.unpad_input(value, key_padding_mask)
-    value_unpad = rearrange(
-        value_unpad, "nnz (h d) -> nnz h d", h=1 if multiquery else n_heads
-    )
+    value_unpad = rearrange(value_unpad, "nnz (h d) -> nnz h d", h=1 if multiquery else n_heads)
     if multiquery:
         key_unpad = key_unpad.expand(key_unpad.size(0), n_heads, key_unpad.size(-1))
-        value_unpad = value_unpad.expand(
-            value_unpad.size(0), n_heads, value_unpad.size(-1)
-        )
+        value_unpad = value_unpad.expand(value_unpad.size(0), n_heads, value_unpad.size(-1))
     dropout_p = dropout_p if training else 0.0
     reset_is_causal = _reset_is_causal(query.size(1), key.size(1), is_causal)
     output_unpad = flash_attn_interface.flash_attn_unpadded_func(
@@ -240,13 +226,13 @@ def triton_flash_attn_fn(
 ):
     try:
         from .flash_attn_triton import flash_attn_func
-    except:
+    except Exception:
         _installed = False
         if version.parse(torch.__version__) < version.parse("2.0.0"):
             _installed = True
             try:
                 from flash_attn.flash_attn_triton import flash_attn_func
-            except:
+            except Exception:
                 _installed = False
         if not _installed:
             raise RuntimeError(
@@ -263,9 +249,9 @@ def triton_flash_attn_fn(
         _s_k = max(0, attn_bias.size(3) - key.size(1))
         attn_bias = attn_bias[:, :, _s_q:, _s_k:]
     if dropout_p:
-        raise NotImplementedError(f"Dropout not implemented for attn_impl: triton.")
+        raise NotImplementedError("Dropout not implemented for attn_impl: triton.")
     if needs_weights:
-        raise NotImplementedError(f"attn_impl: triton cannot return attn weights.")
+        raise NotImplementedError("attn_impl: triton cannot return attn weights.")
     if key_padding_mask is not None:
         warnings.warn(
             "Propagating key_padding_mask to the attention module "
@@ -287,9 +273,7 @@ def triton_flash_attn_fn(
         key = key.expand(*key.shape[:2], n_heads, key.size(-1))
         value = value.expand(*value.shape[:2], n_heads, value.size(-1))
     reset_is_causal = _reset_is_causal(query.size(1), key.size(1), is_causal)
-    attn_output = flash_attn_func(
-        query, key, value, attn_bias, reset_is_causal, softmax_scale
-    )
+    attn_output = flash_attn_func(query, key, value, attn_bias, reset_is_causal, softmax_scale)
     output = attn_output.view(*attn_output.shape[:2], -1)
     return (output, None, past_key_value)
 
@@ -313,7 +297,6 @@ class MultiheadAttention(nn.Module):
         self.clip_qkv = config.attn_config["clip_qkv"]
         self.qk_ln = config.attn_config["qk_ln"]
         self.d_model = config.d_model
-        d_model = config.d_model
         self.n_heads = config.n_heads
         self.softmax_scale = config.attn_config["softmax_scale"]
         if self.softmax_scale is None:
@@ -397,7 +380,6 @@ class MultiQueryAttention(nn.Module):
         self.clip_qkv = config.attn_config["clip_qkv"]
         self.qk_ln = config.attn_config["qk_ln"]
         self.d_model = config.d_model
-        d_model = config.d_model
         self.n_heads = config.n_heads
         self.softmax_scale = config.attn_config["softmax_scale"]
         if self.softmax_scale is None:
@@ -407,28 +389,14 @@ class MultiQueryAttention(nn.Module):
         self.Wqkv = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.Wqkv", weights=weights, bias=not config.no_bias
         )
-        fuse_splits = (d_model, d_model + self.head_dim)
         if self.qk_ln:
             raise NotImplementedError("qk_ln not supported")
         if self.attn_impl == "flash":
             self.attn_fn = flash_attn_fn
         elif self.attn_impl == "triton":
             self.attn_fn = triton_flash_attn_fn
-            if verbose:
-                warnings.warn(
-                    "While `attn_impl: triton` can be faster than `attn_impl: flash` "
-                    + "it uses more memory. When training larger models this can trigger "
-                    + "alloc retries which hurts performance. If encountered, we recommend "
-                    + "using `attn_impl: flash` if your model does not use `alibi` or `prefix_lm`."
-                )
         elif self.attn_impl == "torch":
             self.attn_fn = scaled_multihead_dot_product_attention
-            if torch.cuda.is_available() and verbose:
-                warnings.warn(
-                    "Using `attn_impl: torch`. If your model does not use `alibi` or "
-                    + "`prefix_lm` we recommend using `attn_impl: flash` otherwise "
-                    + "we recommend using `attn_impl: triton`."
-                )
         else:
             raise ValueError(f"attn_impl={attn_impl!r} is an invalid setting.")
         self.out_proj = TensorParallelRowLinear.load(
@@ -451,9 +419,7 @@ class MultiQueryAttention(nn.Module):
         qkv = self.Wqkv(x)
         if self.clip_qkv:
             qkv.clamp_(min=-self.clip_qkv, max=self.clip_qkv)
-        (query, key, value) = qkv.split(
-            [self.d_model, self.head_dim, self.head_dim], dim=2
-        )
+        (query, key, value) = qkv.split([self.d_model, self.head_dim, self.head_dim], dim=2)
         key_padding_mask = attention_mask
         if self.qk_ln:
             dtype = query.dtype
@@ -477,9 +443,7 @@ class MultiQueryAttention(nn.Module):
         return (self.out_proj(context), attn_weights, past_key_value)
 
 
-def attn_bias_shape(
-    attn_impl, n_heads, seq_len, alibi, prefix_lm, causal, use_sequence_id
-):
+def attn_bias_shape(attn_impl, n_heads, seq_len, alibi, prefix_lm, causal, use_sequence_id):
     if attn_impl == "flash":
         return None
     elif attn_impl in ["torch", "triton"]:
@@ -527,9 +491,7 @@ def gen_slopes(n_heads, alibi_bias_max=8, device=None):
     return slopes.view(1, n_heads, 1, 1)
 
 
-def build_alibi_bias(
-    n_heads, seq_len, full=False, alibi_bias_max=8, device=None, dtype=None
-):
+def build_alibi_bias(n_heads, seq_len, full=False, alibi_bias_max=8, device=None, dtype=None):
     alibi_bias = torch.arange(1 - seq_len, 1, dtype=torch.int32, device=device).view(
         1, 1, 1, seq_len
     )
@@ -577,16 +539,10 @@ class MPTBlock(nn.Module):
         super().__init__()
         self.prefix = prefix
         if config.attn_config["attn_type"] != "multihead_attention":
-            raise NotImplementedError(
-                f"""Not implemented attn {config.attn_config["attn_type"]}"""
-            )
+            raise NotImplementedError(f"""Not implemented attn {config.attn_config["attn_type"]}""")
         resid_pdrop = config.resid_pdrop
-        self.norm_1 = nn.LayerNorm.load_no_bias(
-            prefix=f"{prefix}.norm_1", weights=weights, eps=EPS
-        )
-        self.norm_2 = nn.LayerNorm.load_no_bias(
-            prefix=f"{prefix}.norm_2", weights=weights, eps=EPS
-        )
+        self.norm_1 = nn.LayerNorm.load_no_bias(prefix=f"{prefix}.norm_1", weights=weights, eps=EPS)
+        self.norm_2 = nn.LayerNorm.load_no_bias(prefix=f"{prefix}.norm_2", weights=weights, eps=EPS)
         self.attn = MultiheadAttention(config, prefix=f"{prefix}.attn", weights=weights)
         self.ffn = MPTMLP(config, prefix=f"{prefix}.ffn", weights=weights)
         self.resid_attn_dropout = nn.Dropout(resid_pdrop)
@@ -648,13 +604,9 @@ class LPLayerNorm(torch.nn.LayerNorm):
         module_device = x.device
         downcast_x = _cast_if_autocast_enabled(x)
         downcast_weight = (
-            _cast_if_autocast_enabled(self.weight)
-            if self.weight is not None
-            else self.weight
+            _cast_if_autocast_enabled(self.weight) if self.weight is not None else self.weight
         )
-        downcast_bias = (
-            _cast_if_autocast_enabled(self.bias) if self.bias is not None else self.bias
-        )
+        downcast_bias = _cast_if_autocast_enabled(self.bias) if self.bias is not None else self.bias
         with torch.autocast(enabled=False, device_type=module_device.type):
             return torch.nn.functional.layer_norm(
                 downcast_x,
@@ -673,9 +625,7 @@ def rms_norm(x, weight=None, eps=1e-05):
 
 
 class RMSNorm(torch.nn.Module):
-    def __init__(
-        self, normalized_shape, eps=1e-05, weight=True, dtype=None, device=None
-    ):
+    def __init__(self, normalized_shape, eps=1e-05, weight=True, dtype=None, device=None):
         super().__init__()
         self.eps = eps
         if weight:
@@ -690,9 +640,7 @@ class RMSNorm(torch.nn.Module):
 
 
 class LPRMSNorm(RMSNorm):
-    def __init__(
-        self, normalized_shape, eps=1e-05, weight=True, dtype=None, device=None
-    ):
+    def __init__(self, normalized_shape, eps=1e-05, weight=True, dtype=None, device=None):
         super().__init__(
             normalized_shape=normalized_shape,
             eps=eps,
@@ -704,9 +652,7 @@ class LPRMSNorm(RMSNorm):
     def forward(self, x):
         downcast_x = _cast_if_autocast_enabled(x)
         downcast_weight = (
-            _cast_if_autocast_enabled(self.weight)
-            if self.weight is not None
-            else self.weight
+            _cast_if_autocast_enabled(self.weight) if self.weight is not None else self.weight
         )
         with torch.autocast(enabled=False, device_type=x.device.type):
             return rms_norm(downcast_x, downcast_weight, self.eps).to(dtype=x.dtype)
@@ -739,11 +685,6 @@ class MPTModel(MPTPreTrainedModel):
         self.attn_uses_sequence_id = config.attn_config["attn_uses_sequence_id"]
         self.alibi = config.attn_config["alibi"]
         self.alibi_bias_max = config.attn_config["alibi_bias_max"]
-        if config.init_device == "mixed":
-            if dist.get_local_rank() == 0:
-                config.init_device = "cpu"
-            else:
-                config.init_device = "meta"
         if config.norm_type.lower() not in NORM_CLASS_REGISTRY.keys():
             norm_options = " | ".join(NORM_CLASS_REGISTRY.keys())
             raise NotImplementedError(
@@ -806,9 +747,7 @@ class MPTModel(MPTPreTrainedModel):
     ):
         if not self._attn_bias_initialized:
             if self.attn_bias_shape:
-                self.attn_bias = torch.zeros(
-                    self.attn_bias_shape, device=device, dtype=dtype
-                )
+                self.attn_bias = torch.zeros(self.attn_bias_shape, device=device, dtype=dtype)
                 self.attn_bias = build_attn_bias(
                     self.attn_impl,
                     self.attn_bias,
@@ -849,9 +788,7 @@ class MPTModel(MPTPreTrainedModel):
                     + f"and prefix_mask shape={prefix_mask.shape} are not equal."
                 )
             min_val = torch.finfo(attn_bias.dtype).min
-            attn_bias = attn_bias.masked_fill(
-                ~attention_mask.view(-1, 1, 1, s_k), min_val
-            )
+            attn_bias = attn_bias.masked_fill(~attention_mask.view(-1, 1, 1, s_k), min_val)
         return (attn_bias, None)
 
     def _apply_prefix_mask(self, attn_bias: torch.Tensor, prefix_mask: torch.Tensor):
@@ -877,9 +814,7 @@ class MPTModel(MPTPreTrainedModel):
         attn_bias = attn_bias.masked_fill(cannot_attend, min_val)
         return attn_bias
 
-    def _apply_sequence_id(
-        self, attn_bias: torch.Tensor, sequence_id: torch.LongTensor
-    ):
+    def _apply_sequence_id(self, attn_bias: torch.Tensor, sequence_id: torch.LongTensor):
         seq_len = sequence_id.shape[-1]
         if seq_len > self.config.max_seq_len:
             raise ValueError(
@@ -905,18 +840,14 @@ class MPTModel(MPTPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         use_cache: Optional[bool] = None,
     ):
-        return_dict = (
-            return_dict if return_dict is not None else self.config.return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         if attention_mask is not None:
             attention_mask = attention_mask.bool()
         if prefix_mask is not None:
             prefix_mask = prefix_mask.bool()
         if not return_dict:
-            raise NotImplementedError(
-                "return_dict False is not implemented yet for MPT"
-            )
+            raise NotImplementedError("return_dict False is not implemented yet for MPT")
         if output_attentions:
             if self.attn_impl != "torch":
                 raise NotImplementedError(
@@ -927,9 +858,7 @@ class MPTModel(MPTPreTrainedModel):
             and attention_mask[:, 0].sum() != attention_mask.shape[0]
             and self.training
         ):
-            raise NotImplementedError(
-                "MPT does not support training with left padding."
-            )
+            raise NotImplementedError("MPT does not support training with left padding.")
         if self.prefix_lm and prefix_mask is None:
             raise ValueError(
                 "prefix_mask is a required argument when MPT is configured with prefix_lm=True."
@@ -957,7 +886,7 @@ class MPTModel(MPTPreTrainedModel):
             if past_key_values is not None:
                 if len(past_key_values) != self.config.n_layers:
                     raise ValueError(
-                        f"past_key_values must provide a past_key_value for each attention "
+                        "past_key_values must provide a past_key_value for each attention "
                         + f"layer in the network (len(past_key_values)={len(past_key_values)!r}; self.config.n_layers={self.config.n_layers!r})."
                     )
                 past_position = past_key_values[0][0].size(1)
@@ -975,10 +904,7 @@ class MPTModel(MPTPreTrainedModel):
             ).unsqueeze(0)
             if attention_mask is not None:
                 pos = torch.clamp(
-                    pos
-                    - torch.cumsum((~attention_mask).to(torch.int32), dim=1)[
-                        :, past_position:
-                    ],
+                    pos - torch.cumsum((~attention_mask).to(torch.int32), dim=1)[:, past_position:],
                     min=0,
                 )
             pos_emb = self.wpe(pos)
@@ -998,9 +924,7 @@ class MPTModel(MPTPreTrainedModel):
             if output_hidden_states:
                 assert all_hidden_states is not None
                 all_hidden_states = all_hidden_states + (x,)
-            past_key_value = (
-                past_key_values[b_idx] if past_key_values is not None else None
-            )
+            past_key_value = past_key_values[b_idx] if past_key_values is not None else None
             (x, attn_weights, past_key_value) = block(
                 x,
                 past_key_value=past_key_value,
@@ -1031,9 +955,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
         if not config.tie_word_embeddings:
             raise ValueError("MPTForCausalLM only supports tied word embeddings")
         self.transformer = MPTModel(config, weights)
-        self.lm_head = TensorParallelHead.load(
-            config, prefix="transformer.wte", weights=weights
-        )
+        self.lm_head = TensorParallelHead.load(config, prefix="transformer.wte", weights=weights)
         self.logit_scale = None
         if config.logit_scale is not None:
             logit_scale = config.logit_scale
@@ -1059,9 +981,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         use_cache: Optional[bool] = None,
     ):
-        return_dict = (
-            return_dict if return_dict is not None else self.config.return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         outputs = self.transformer(
             input_ids=input_ids,
@@ -1103,9 +1023,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
             raise NotImplementedError("inputs_embeds is not implemented for MPT yet")
         attention_mask = kwargs["attention_mask"].bool()
         if attention_mask[:, -1].sum() != attention_mask.shape[0]:
-            raise NotImplementedError(
-                "MPT does not support generation with right padding."
-            )
+            raise NotImplementedError("MPT does not support generation with right padding.")
         if self.transformer.attn_uses_sequence_id and self.training:
             sequence_id = torch.zeros_like(input_ids[:1])
         else:
@@ -1114,7 +1032,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
             input_ids = input_ids[:, -1].unsqueeze(-1)
         if self.transformer.prefix_lm:
             prefix_mask = torch.ones_like(attention_mask)
-            if kwargs.get("use_cache") == False:
+            if not kwargs.get("use_cache"):
                 raise NotImplementedError(
                     "MPT with prefix_lm=True does not support use_cache=False."
                 )
@@ -1139,8 +1057,6 @@ class MPTForCausalLM(MPTPreTrainedModel):
         reordered_past = []
         for layer_past in past_key_values:
             reordered_past += [
-                tuple(
-                    (past_state.index_select(0, beam_idx) for past_state in layer_past)
-                )
+                tuple((past_state.index_select(0, beam_idx) for past_state in layer_past))
             ]
         return reordered_past

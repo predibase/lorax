@@ -24,6 +24,7 @@ from lorax_server.models.types import (
     AlternativeTokens,
     Generation,
     GeneratedText,
+    NextTokens,
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
@@ -32,7 +33,8 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
-from lorax_server.utils.state import warmup_mode
+from lorax_server.utils.sources import HUB
+from lorax_server.utils.state import get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -55,6 +57,9 @@ class FlashCausalLMBatch(Batch):
     # Decoder values
     input_ids: torch.Tensor
     position_ids: torch.Tensor
+
+    # Spculative decoding values
+    speculative_ids: Optional[torch.Tensor]
 
     # Flash Attention values
 
@@ -179,13 +184,11 @@ class FlashCausalLMBatch(Batch):
         max_blocks = 0
 
         # Parse batch
-        for i, (r, tokenized_input) in enumerate(
-                zip(pb.requests, batch_tokenized_inputs)
-        ):
+        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             # request id -> idx in list mapping
             requests_idx_mapping[r.id] = i
 
-            tokenized_input = tokenized_input[-r.truncate:]
+            tokenized_input = tokenized_input[-r.truncate :]
 
             input_length = len(tokenized_input)
             input_lengths.append(input_length)
@@ -204,9 +207,7 @@ class FlashCausalLMBatch(Batch):
 
             next_token_chooser_parameters.append(r.parameters)
 
-            stopping_criteria = StoppingCriteria.from_pb(
-                r.stopping_parameters, tokenizer
-            )
+            stopping_criteria = StoppingCriteria.from_pb(r.stopping_parameters, tokenizer)
             max_new_tokens = stopping_criteria.max_new_tokens
             stopping_criterias.append(stopping_criteria)
 
@@ -215,7 +216,8 @@ class FlashCausalLMBatch(Batch):
 
             # Paged attention
             # Remove one as the first token des not have a past
-            total_tokens = input_length + max_new_tokens - 1
+            speculative_tokens = get_speculative_tokens()
+            total_tokens = input_length + max_new_tokens + speculative_tokens - 1
 
             needed_blocks = math.ceil(total_tokens / BLOCK_SIZE)
             if SLIDING_WINDOW is not None:
@@ -247,16 +249,12 @@ class FlashCausalLMBatch(Batch):
 
             if r.prefill_logprobs:
                 prefill_head_indices.append(request_position_ids + cumulative_length)
-                prefill_next_token_indices.append(
-                    prefill_out_cumulative_length + input_length - 1
-                )
+                prefill_next_token_indices.append(prefill_out_cumulative_length + input_length - 1)
                 prefill_cu_outlens.append(prefill_out_cumulative_length + input_length)
                 prefill_out_cumulative_length += input_length
             else:
                 prefill_head_indices.append(
-                    torch.tensor(
-                        [cumulative_length + input_length - 1], dtype=torch.int32
-                    )
+                    torch.tensor([cumulative_length + input_length - 1], dtype=torch.int32)
                 )
                 prefill_next_token_indices.append(prefill_out_cumulative_length)
                 prefill_cu_outlens.append(prefill_out_cumulative_length + 1)
@@ -267,13 +265,12 @@ class FlashCausalLMBatch(Batch):
             cumulative_max_length += total_tokens
             max_seqlen = max(max_seqlen, input_length)
             max_blocks = max(max_blocks, needed_blocks)
-            max_length = max(max_length, input_length + max_new_tokens)
+            max_length = max(max_length, input_length + max_new_tokens + speculative_tokens)
 
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
         request_tokenizers = [
-            tokenizers.get_tokenizer(r.adapter_index, tokenizer)
-            for r in pb.requests
+            tokenizers.get_tokenizer(r.adapter_index, tokenizer) for r in pb.requests
         ]
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, request_tokenizers, dtype, device
@@ -281,16 +278,12 @@ class FlashCausalLMBatch(Batch):
         start_slots = torch.tensor(start_slots, dtype=torch.int64)
 
         # Padded all_input_ids_tensor
-        all_input_ids_tensor = np.zeros(
-            (len(all_input_ids), max_length), dtype=np.int64
-        )
+        all_input_ids_tensor = np.zeros((len(all_input_ids), max_length), dtype=np.int64)
         for i, input_ids in enumerate(all_input_ids):
             all_input_ids_tensor[i, : len(input_ids)] = input_ids
 
         # Create tensors on device
-        all_input_ids_tensor = torch.tensor(
-            all_input_ids_tensor, dtype=torch.int64, device=device
-        )
+        all_input_ids_tensor = torch.tensor(all_input_ids_tensor, dtype=torch.int64, device=device)
 
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
@@ -305,18 +298,14 @@ class FlashCausalLMBatch(Batch):
             if SLIDING_WINDOW is not None:
                 prefill_cache_indices = prefill_cache_indices[0]
 
-        cu_seqlen_prefill = torch.tensor(
-            cu_seqlen_prefill, device=device, dtype=torch.int32
-        )
+        cu_seqlen_prefill = torch.tensor(cu_seqlen_prefill, device=device, dtype=torch.int32)
 
         position_ids = position_ids.to(device)
         slot_indices = slot_indices.to(device)
         if SLIDING_WINDOW is not None:
             prefill_cache_indices = prefill_cache_indices.to(device)
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
-        input_lengths_tensor = torch.tensor(
-            input_lengths, dtype=torch.int32, device=device
-        )
+        input_lengths_tensor = torch.tensor(input_lengths, dtype=torch.int32, device=device)
 
         adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
@@ -341,6 +330,7 @@ class FlashCausalLMBatch(Batch):
             requests_idx_mapping=requests_idx_mapping,
             input_ids=input_ids,
             position_ids=position_ids,
+            speculative_ids=None,
             cu_seqlen_prefill=cu_seqlen_prefill,
             start_slots=start_slots,
             slot_indices=slot_indices,
@@ -388,9 +378,7 @@ class FlashCausalLMBatch(Batch):
         indices = []
 
         # slots to keep after filtering
-        slot_filtering_indices = torch.zeros(
-            self.slots.shape[0], dtype=torch.bool, device=device
-        )
+        slot_filtering_indices = torch.zeros(self.slots.shape[0], dtype=torch.bool, device=device)
 
         # Create on CPU to only move to GPU once instead of at every copy
         slot_indices = torch.empty(len(request_ids), dtype=torch.int64)
@@ -435,9 +423,7 @@ class FlashCausalLMBatch(Batch):
 
             adapter_set.add(self.requests[idx].adapter_index)
 
-            remaining_tokens = (
-                    stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
-            )
+            remaining_tokens = stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
 
             request_block_table = self.block_tables[idx]
             blocks += len(request_block_table)
@@ -449,10 +435,10 @@ class FlashCausalLMBatch(Batch):
 
             # Set slice
             slot_filtering_indices[
-            self.start_slots[idx]: self.start_slots[idx]
-                                   + request_input_length
-                                   + remaining_tokens
-                                   - 1
+                self.start_slots[idx] : self.start_slots[idx]
+                + request_input_length
+                + remaining_tokens
+                - 1
             ] = True
 
             cumulative_max_length += request_input_length + remaining_tokens - 1
@@ -479,6 +465,9 @@ class FlashCausalLMBatch(Batch):
         input_lengths_tensor = self.input_lengths_tensor[indices]
         slots = self.slots[slot_filtering_indices]
         next_token_chooser = self.next_token_chooser.filter(indices)
+        speculative_ids = (
+            self.speculative_ids[indices] if self.speculative_ids is not None else None
+        )
 
         start_slots = torch.tensor(start_slots, dtype=torch.int64)
 
@@ -494,6 +483,7 @@ class FlashCausalLMBatch(Batch):
             requests_idx_mapping=requests_idx_mapping,
             input_ids=input_ids,
             position_ids=position_ids,
+            speculative_ids=speculative_ids,
             cu_seqlen_prefill=None,
             start_slots=start_slots,
             slot_indices=slot_indices,
@@ -542,11 +532,14 @@ class FlashCausalLMBatch(Batch):
             blocks += b.blocks
             max_blocks = max(max_blocks, b.max_blocks)
             max_seqlen = max(max_seqlen, b.max_seqlen)
+
+            speculative_length = b.speculative_ids.shape[1] if b.speculative_ids is not None else 0
             max_length = max(
                 max_length,
                 max(
                     input_length
                     + stopping_criteria.max_new_tokens
+                    + speculative_length
                     - stopping_criteria.current_tokens
                     for input_length, stopping_criteria in zip(
                         b.input_lengths, b.stopping_criterias
@@ -558,9 +551,7 @@ class FlashCausalLMBatch(Batch):
         position_ids = batches[0].position_ids.new_empty(total_batch_size)
         slots = batches[0].slots.new_empty(total_slots)
         slot_indices = batches[0].slot_indices.new_empty(total_batch_size)
-        input_lengths_tensor = batches[0].input_lengths_tensor.new_empty(
-            total_batch_size
-        )
+        input_lengths_tensor = batches[0].input_lengths_tensor.new_empty(total_batch_size)
         block_tables_tensor = batches[0].block_tables_tensor.new_zeros(
             (total_batch_size, max_blocks)
         )
@@ -615,21 +606,27 @@ class FlashCausalLMBatch(Batch):
 
             # Copy over adapter indices
             adapter_start_index = cumulative_adapter_indices_size
-            adapter_end_index = cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
-            adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_meta.adapter_indices
+            adapter_end_index = (
+                cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
+            )
+            adapter_indices[adapter_start_index:adapter_end_index] = (
+                batch.adapter_meta.adapter_indices
+            )
             cumulative_adapter_indices_size = adapter_end_index
             adapter_set.update(batch.adapter_meta.adapter_set)
 
             # Update adapter segments
-            adapter_segment_builder.concat(batch.adapter_meta.adapter_segments, batch.adapter_meta.segment_indices)
+            adapter_segment_builder.concat(
+                batch.adapter_meta.adapter_segments, batch.adapter_meta.segment_indices
+            )
 
-            all_input_ids_tensor[
-            start_index:end_index, : batch.all_input_ids_tensor.shape[1]
-            ] = batch.all_input_ids_tensor[:, :max_length]
+            all_input_ids_tensor[start_index:end_index, : batch.all_input_ids_tensor.shape[1]] = (
+                batch.all_input_ids_tensor[:, :max_length]
+            )
 
-            block_tables_tensor[
-            start_index:end_index, : batch.block_tables_tensor.shape[1]
-            ] = batch.block_tables_tensor[:, :max_blocks]
+            block_tables_tensor[start_index:end_index, : batch.block_tables_tensor.shape[1]] = (
+                batch.block_tables_tensor[:, :max_blocks]
+            )
 
             start_slots.append(batch.start_slots + cumulative_slots)
 
@@ -642,7 +639,9 @@ class FlashCausalLMBatch(Batch):
 
             next_token_chooser_parameters.extend([r.parameters for r in batch.requests])
             if batch.next_token_chooser.schema_processor is not None:
-                sequence_processors.extend(batch.next_token_chooser.schema_processor.sequence_processors)
+                sequence_processors.extend(
+                    batch.next_token_chooser.schema_processor.sequence_processors
+                )
             else:
                 # No sequence processors, so pad with Nones
                 sequence_processors.extend([None for _ in batch.requests])
@@ -662,6 +661,12 @@ class FlashCausalLMBatch(Batch):
             sequence_processors=sequence_processors,
         )
 
+        speculative_ids = (
+            torch.cat([b.speculative_ids for b in batches], dim=0)
+            if batches[0].speculative_ids is not None
+            else None
+        )
+
         adapter_segments, adapter_segment_indices = adapter_segment_builder.build()
 
         # Needed to avoid dropping blocks when the batches will go out of scope
@@ -675,6 +680,7 @@ class FlashCausalLMBatch(Batch):
             requests_idx_mapping=requests_idx_mapping,
             input_ids=input_ids,
             position_ids=position_ids,
+            speculative_ids=speculative_ids,
             cu_seqlen_prefill=None,
             start_slots=start_slots,
             slot_indices=slot_indices,
@@ -707,9 +713,7 @@ class FlashCausalLMBatch(Batch):
     def __del__(self):
         if self.block_tables is not None and self.block_tables:
             # Free blocks
-            get_cache_manager().free(
-                list(itertools.chain.from_iterable(self.block_tables))
-            )
+            get_cache_manager().free(list(itertools.chain.from_iterable(self.block_tables)))
 
     def __len__(self):
         return len(self.requests)
@@ -731,7 +735,7 @@ class FlashCausalLM(Model):
         sliding_window: Optional[int] = None,
         compile: bool = False,
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
-        dynamic_adapter_loading_enabled: bool = True,
+        adapter_source: str = HUB,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -751,7 +755,8 @@ class FlashCausalLM(Model):
             world_size=world_size,
             sliding_window=sliding_window,
             adapter_id=adapter_id,
-            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
+            adapter_source=adapter_source,
+            dynamic_adapter_loading_enabled=True,
         )
 
         if sliding_window is not None:
@@ -761,7 +766,7 @@ class FlashCausalLM(Model):
 
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
-    
+
     @property
     def sliding_window_blocks(self) -> Optional[int]:
         return SLIDING_WINDOW_BLOCKS
@@ -769,13 +774,13 @@ class FlashCausalLM(Model):
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
         return FlashCausalLMBatch
-    
+
     def adapter_memory_size(self) -> int:
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
-        max_total_tokens = batch.max_seqlen + max_new_tokens
+        max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
         try:
@@ -816,11 +821,11 @@ class FlashCausalLM(Model):
             # Needs to be estimated here rather than fully initialized as the graph cache relies on the
             # cache manager being set.
             self.model_graph_wrapper = GraphCache(
-                self.model, 
-                self.device, 
-                self.adapter_layers, 
-                max_total_tokens, 
-                self.sliding_window_blocks
+                self.model,
+                self.device,
+                self.adapter_layers,
+                max_total_tokens,
+                self.sliding_window_blocks,
             )
             graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
             logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
@@ -838,14 +843,15 @@ class FlashCausalLM(Model):
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
 
         free_memory = max(
-            0, total_free_memory - (1 - MEMORY_FRACTION + ADAPTER_MEMORY_FRACTION) * total_gpu_memory
+            0,
+            total_free_memory - (1 - MEMORY_FRACTION + ADAPTER_MEMORY_FRACTION) * total_gpu_memory,
         )
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
         num_blocks = (
-                int(free_memory // total_cache_size)
-                # Add batch.blocks as we allocated it above, so it is included in the peak memory.
-                + cache_manager.num_blocks
+            int(free_memory // total_cache_size)
+            # Add batch.blocks as we allocated it above, so it is included in the peak memory.
+            + cache_manager.num_blocks
         )
 
         del batch
@@ -875,27 +881,61 @@ class FlashCausalLM(Model):
         return self.tokenizer.decode(
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
-    
-    def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def forward(
+        self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
         if (
-            self.model_graph_wrapper is not None and
-            not prefill and
-            self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+            self.model_graph_wrapper is not None
+            and not prefill
+            and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
             model = self.model_graph_wrapper
-        
+
+        input_ids = batch.input_ids
+        position_ids = batch.position_ids
+        block_tables = batch.block_tables_tensor
+        slots = batch.slots[batch.slot_indices]
+        input_lengths = batch.input_lengths_tensor
+        max_s = batch.max_seqlen
+
+        if batch.speculative_ids is not None:
+            speculative_ids = batch.speculative_ids
+
+            B, speculative_length = speculative_ids.shape
+            new_length = speculative_length + 1
+            new_input_ids = torch.cat([input_ids.unsqueeze(-1), speculative_ids], dim=1).reshape(-1)
+            arange = torch.arange(new_length, device=position_ids.device).unsqueeze(0)
+            arange_int = arange.to(dtype=torch.int32)
+            new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
+            slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
+            input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(
+                -1
+            )
+
+            block_tables = (
+                block_tables.unsqueeze(1)
+                .expand(B, new_length, -1)
+                .reshape(B * new_length, -1)
+                .contiguous()
+            )
+            max_s = max_s + speculative_length
+
+            input_ids = new_input_ids
+            position_ids = new_position_ids
+
         # Model Forward
         logits = model.forward(
-            input_ids=batch.input_ids,
-            position_ids=batch.position_ids,
+            input_ids=input_ids,
+            position_ids=position_ids,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
             kv_cache=get_cache_manager().kv_cache,
-            block_tables=batch.block_tables_tensor,
-            slots=batch.slots[batch.slot_indices],
-            input_lengths=batch.input_lengths_tensor,
-            max_s=batch.max_seqlen,
+            block_tables=block_tables,
+            slots=slots,
+            input_lengths=input_lengths,
+            max_s=max_s,
             adapter_data=adapter_data,
             prefill_cache_indices=batch.prefill_cache_indices,
             lm_head_indices=batch.prefill_head_indices,
@@ -904,13 +944,24 @@ class FlashCausalLM(Model):
             batch.prefill_cache_indices = None
         return logits
 
+    def _try_generate_token(
+        self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        try:
+            return self.forward(batch, adapter_data)
+        except Exception as e:
+            del batch
+            raise e
+
     @tracer.start_as_current_span("generate_token")
     def generate_token(
         self, batch: FlashCausalLMBatch, is_warmup: bool = False
     ) -> Tuple[List[Generation], Optional[FlashCausalLMBatch]]:
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
-        return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
+        return_alternatives = any(
+            req.parameters.return_k_alternatives > 0 for req in batch.requests
+        )
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
@@ -925,29 +976,57 @@ class FlashCausalLM(Model):
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
 
-        # Assign pointers to LoRA weights
-        # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
+        # Update adapter indices for speculative tokens (if present)
+        adapter_meta = batch.adapter_meta
+        if batch.speculative_ids is not None:
+            B, speculative_length = batch.speculative_ids.shape
+            new_length = speculative_length + 1
+            adapter_indices = (
+                adapter_meta.adapter_indices.unsqueeze(-1).expand(B, new_length).reshape(-1)
+            )
+            adapter_segments = adapter_meta.adapter_segments * new_length
+            adapter_meta = AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_meta.adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_meta.segment_indices,
+            )
 
-        try:
-            out = self.forward(batch, adapter_data)
-        except Exception as e:
-            del batch
-            raise e
+        # Assign pointers to adapter weights
+        # TODO(travis): don't update this if indices haven't changed
+        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
+
+        out, speculative_logits = self._try_generate_token(batch, adapter_data)
 
         if prefill:
-            next_token_logits = (
-                out[batch.prefill_next_token_indices] if prefill_logprobs else out
-            )
+            next_token_logits = out[batch.prefill_next_token_indices] if prefill_logprobs else out
+            if speculative_logits is not None:
+                speculative_logits = (
+                    speculative_logits[batch.prefill_next_token_indices]
+                    if prefill_logprobs
+                    else speculative_logits
+                )
         else:
             next_token_logits = out
 
-        next_input_ids, next_token_logprobs = batch.next_token_chooser(
-            batch.all_input_ids_tensor[:, : batch.max_seqlen], next_token_logits
+        speculative_tokens = get_speculative_tokens()
+        (
+            next_input_ids,
+            next_token_logprobs,
+            accepted_ids,
+            speculative_ids,
+        ) = batch.next_token_chooser(
+            batch.all_input_ids_tensor[:, : batch.max_seqlen],
+            next_token_logits,
+            speculative_tokens,
+            batch.speculative_ids,
+            speculative_logits,
         )
 
         if return_alternatives:
-            alternative_token_logprobs, alternative_token_ids = torch.sort(torch.log_softmax(next_token_logits, -1), dim=-1, stable=True, descending=True)
+            alternative_token_logprobs, alternative_token_ids = torch.sort(
+                torch.log_softmax(next_token_logprobs, -1), dim=-1, stable=True, descending=True
+            )
 
         if prefill:
             if len(batch) > 1 and prefill_logprobs:
@@ -979,6 +1058,7 @@ class FlashCausalLM(Model):
         iterator = zip(
             batch.input_lengths,
             batch.all_input_ids,
+            accepted_ids,
         )
 
         # We do two for loops as the first one can run completely asynchronously from the GPU while for the second
@@ -986,9 +1066,11 @@ class FlashCausalLM(Model):
         # It is faster if we delay this sync for the maximum amount of time
 
         # For each member of the batch
+        idx = 0
         for i, (
-                input_length,
-                all_input_ids,
+            input_length,
+            all_input_ids,
+            num_accepted_ids,
         ) in enumerate(iterator):
             # Indexing metadata
             start_index = cumulative_length
@@ -1012,25 +1094,30 @@ class FlashCausalLM(Model):
                 # Copy batch.input_ids to prefill_token_indices
                 if prefill_logprobs:
                     if len(batch) > 1:
-                        prefill_tokens_indices[
-                        out_start_index: out_end_index - 1
-                        ] = batch.input_ids[start_index + 1: start_index + out_length]
+                        prefill_tokens_indices[out_start_index : out_end_index - 1] = (
+                            batch.input_ids[start_index + 1 : start_index + out_length]
+                        )
                     else:
                         # Set prefill_tokens_indices to the correct slice
                         prefill_tokens_indices = batch.input_ids[
-                                                 start_index + 1: start_index + out_length
-                                                 ]
+                            start_index + 1 : start_index + out_length
+                        ]
 
             batch.all_input_ids_tensor[i, input_length] = next_input_ids[i]
+
+            for j in range(num_accepted_ids):
+                batch.all_input_ids_tensor[i, input_length + j] = next_input_ids[idx]
+                idx += 1
 
             cumulative_length += input_length
 
         # Set values in batch
-        batch.input_ids = next_input_ids
-        batch.position_ids = next_position_ids + 1
+        batch.input_ids = next_input_ids[accepted_ids.cumsum(dim=-1) - 1]
+        batch.position_ids = next_position_ids + accepted_ids
         batch.adapter_meta.adapter_indices = next_adapter_indices
-        batch.input_lengths_tensor += 1
-        batch.slot_indices += 1
+        batch.speculative_ids = speculative_ids
+        batch.input_lengths_tensor += accepted_ids
+        batch.slot_indices += accepted_ids
 
         if prefill:
             # adjust segment lengths to account for all request lengths being 1 during decoding
@@ -1052,7 +1139,7 @@ class FlashCausalLM(Model):
 
         # GPU <-> CPU sync
         next_token_logprobs = next_token_logprobs.tolist()
-        next_token_ids = batch.input_ids.tolist()
+        next_token_ids = next_input_ids.tolist()
 
         if return_alternatives:
             alternative_token_logprobs = alternative_token_logprobs.tolist()
@@ -1068,77 +1155,95 @@ class FlashCausalLM(Model):
             batch.all_input_ids,
             batch.next_token_chooser.do_sample,
             batch.next_token_chooser.seeds,
-            next_token_ids,
-            next_token_logprobs,
+            accepted_ids,
         )
 
         # For each member of the batch
+        idx = 0
         for i, (
-                request,
-                input_length,
-                prefix_offset,
-                read_offset,
-                stopping_criteria,
-                all_input_ids,
-                do_sample,
-                seed,
-                next_token_id,
-                next_token_logprob,
+            request,
+            input_length,
+            prefix_offset,
+            read_offset,
+            stopping_criteria,
+            all_input_ids,
+            do_sample,
+            seed,
+            num_accepted_ids,
         ) in enumerate(iterator):
-            if request.parameters.return_k_alternatives > 0:
-                # Limit the number of alternatives to the vocabulary size
-                num_alternatives = min(request.parameters.return_k_alternatives, len(alternative_token_ids[i]))
+            all_alternative_tokens = [] if request.parameters.return_k_alternatives > 0 else None
+            next_token_texts = []
+            left = 0
+            current_stopped = False
+            for j in range(num_accepted_ids):
+                token_idx = idx + j
 
-                # Select top-k logprobs
-                request_alternative_token_ids = alternative_token_ids[i][:num_alternatives]
-                request_alternative_token_logprobs = alternative_token_logprobs[i][:num_alternatives]
-
-                # Decode tokens
-                request_alternative_token_texts = []
-                for alternative_token_id in request_alternative_token_ids:
-                    all_input_ids.append(alternative_token_id)
-                    alternative_token_text, _, _ = self.decode_token(
-                        all_input_ids,
-                        prefix_offset,
-                        read_offset,
-                    )
-                    request_alternative_token_texts.append(alternative_token_text)
-                    all_input_ids.pop()
-                alternative_tokens = AlternativeTokens(
-                    request_alternative_token_ids,
-                    request_alternative_token_logprobs,
-                    request_alternative_token_texts
+                # Generated token
+                next_token_id = next_token_ids[token_idx]
+                all_input_ids.append(next_token_id)
+                next_token_text, prefix_offset, read_offset = self.decode_token(
+                    all_input_ids,
+                    prefix_offset,
+                    read_offset,
                 )
-            else:
-                alternative_tokens = None
+                next_token_texts.append(next_token_text)
 
-            # Append next token to all tokens
-            all_input_ids.append(next_token_id)
+                if request.parameters.return_k_alternatives > 0:
+                    # Limit the number of alternatives to the vocabulary size
+                    num_alternatives = min(
+                        request.parameters.return_k_alternatives,
+                        len(alternative_token_ids[token_idx]),
+                    )
 
-            # Generated token
-            next_token_text, prefix_offset, read_offset = self.decode_token(
-                all_input_ids,
-                prefix_offset,
-                read_offset,
-            )
+                    # Select top-k logprobs
+                    request_alternative_token_ids = alternative_token_ids[token_idx][
+                        :num_alternatives
+                    ]
+                    request_alternative_token_logprobs = alternative_token_logprobs[token_idx][
+                        :num_alternatives
+                    ]
 
-            # Evaluate stopping criteria
-            stop, reason = stopping_criteria(
-                next_token_id,
-                next_token_text,
-            )
+                    # Decode tokens
+                    request_alternative_token_texts = []
+                    for alternative_token_id in request_alternative_token_ids:
+                        all_input_ids.append(alternative_token_id)
+                        alternative_token_text, _, _ = self.decode_token(
+                            all_input_ids,
+                            prefix_offset,
+                            read_offset,
+                        )
+                        request_alternative_token_texts.append(alternative_token_text)
+                        all_input_ids.pop()
+                    alternative_tokens = AlternativeTokens(
+                        request_alternative_token_ids,
+                        request_alternative_token_logprobs,
+                        request_alternative_token_texts,
+                    )
+                    all_alternative_tokens.append(alternative_tokens)
 
-            if not stop:
-                stopped = False
+                stop, reason = stopping_criteria(
+                    next_token_id,
+                    next_token_text,
+                )
+
+                if stop:
+                    left = num_accepted_ids - j - 1
+                    current_stopped = True
+                    break
+                else:
+                    current_stopped = False
+            stopped = stopped and current_stopped
+
+            accepted_token_ids = next_token_ids[idx : idx + num_accepted_ids - left]
+            accepted_token_logprobs = next_token_logprobs[idx : idx + num_accepted_ids - left]
+            idx += num_accepted_ids
 
             # Shard generations
             # All generations will be appended in the rust sharded client
             if i % self.world_size == self.rank:
                 if stop:
                     # Decode generated tokens
-                    output_text = self.decode(
-                        all_input_ids[-stopping_criteria.current_tokens:]
-                    )
+                    output_text = self.decode(all_input_ids[-stopping_criteria.current_tokens :])
                     generated_text = GeneratedText(
                         output_text,
                         stopping_criteria.current_tokens,
@@ -1155,8 +1260,8 @@ class FlashCausalLM(Model):
 
                     # Remove generated token to only have prefill and add nan for first prompt token
                     request_prefill_logprobs = [float("nan")] + prefill_logprobs[
-                                                                out_start_index: out_end_index - 1
-                                                                ]
+                        out_start_index : out_end_index - 1
+                    ]
                     prefill_token_ids = all_input_ids[:-1]
                     prefill_texts = self.tokenizer.batch_decode(
                         prefill_token_ids,
@@ -1173,18 +1278,22 @@ class FlashCausalLM(Model):
                     request.id,
                     prefill_tokens,
                     len(all_input_ids[:-1]) if prefill else 0,
-                    alternative_tokens,
-                    next_token_id,
-                    next_token_logprob,
-                    next_token_text,
-                    next_token_id in self.all_special_ids,
+                    NextTokens(
+                        accepted_token_ids,
+                        accepted_token_logprobs,
+                        next_token_texts,
+                        [tid in self.all_special_ids for tid in accepted_token_ids],
+                        all_alternative_tokens,
+                    ),
                     generated_text,
                 )
 
                 generations.append(generation)
 
             # Update values
-            batch.input_lengths[i] = input_length + 1
+            batch.input_lengths[i] = input_length + num_accepted_ids.item()
+            if batch.input_lengths[i] > batch.max_seqlen:
+                batch.max_seqlen = batch.input_lengths[i]
             batch.prefix_offsets[i] = prefix_offset
             batch.read_offsets[i] = read_offset
             batch.all_input_ids[i] = all_input_ids

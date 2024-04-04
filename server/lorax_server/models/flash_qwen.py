@@ -1,7 +1,6 @@
 import torch
 import torch.distributed
 
-from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer
 from typing import Dict, List, Optional, Tuple
@@ -17,12 +16,10 @@ from lorax_server.models.custom_modeling.flash_qwen_modeling import (
     QwenConfig,
 )
 from lorax_server.utils import (
-    create_merged_weight_files,
     initialize_torch_distributed,
     weight_files,
     Weights,
 )
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.weights import shard_on_dim
 
@@ -68,29 +65,11 @@ class FlashQwen(FlashCausalLM):
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-
-        # if adapter_id passed in as part of model instantiation, then we merge 
-        # the adapter weights with the model weights. This also disables dynamic
-        # adapter loading, since the model is now itself initialized with an adapter.
-        merged_weight_filenames = None
-        dynamic_adapter_loading_enabled = True
-        if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
-            # Need to pass the adapter source here
-            merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
-            )
-            dynamic_adapter_loading_enabled = False
-            adapter_id = adapter_id
-        else:
-            adapter_id = BASE_MODEL_ADAPTER_ID
-
         weights = Weights(
-            filenames, 
-            device, 
-            dtype, 
-            process_group=self.process_group, 
-            merged_weight_filenames=merged_weight_filenames
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
         )
 
         if config.quantize in ["gptq", "awq", "eetq"]:
@@ -113,13 +92,13 @@ class FlashQwen(FlashCausalLM):
             world_size=world_size,
             compile=compile,
             adapter_id=adapter_id,
-            dynamic_adapter_loading_enabled=dynamic_adapter_loading_enabled,
+            adapter_source=adapter_source,
         )
-    
+
     @property
     def supports_adapter_loading(self) -> bool:
         return True
-    
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
 
@@ -131,31 +110,28 @@ class FlashQwen(FlashCausalLM):
             layer_weights[(i, MLP_W1)] = (f"{prefix}.{i}.mlp.w1", layer.mlp.gate_up_proj)
             layer_weights[(i, MLP_W2)] = (f"{prefix}.{i}.mlp.w2", layer.mlp.gate_up_proj)
             layer_weights[(i, MLP_C_PROJ)] = (f"{prefix}.{i}.mlp.c_proj", layer.mlp.c_proj)
-        
+
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
-    
+
     @property
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
-    
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.transformer.h)
-    
+
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
-    
+
     def split_lora_b_qkv(self, t: torch.Tensor, projection_size: int) -> torch.Tensor:
         # Because we're splitting on the hidden size dimension, we need to
         # account for the separate q, k, and v matrices.
         chunks = torch.split(t, projection_size, dim=1)
         assert len(chunks) == 3
-        chunks = [
-            shard_on_dim(w, dim=1, process_group=self.process_group)
-            for w in chunks
-        ]
+        chunks = [shard_on_dim(w, dim=1, process_group=self.process_group) for w in chunks]
         return torch.cat(chunks, dim=1)
-    
+
     def shard_lora_weights(
         self,
         weights_a: List[torch.Tensor],
@@ -167,18 +143,16 @@ class FlashQwen(FlashCausalLM):
             # [hidden_size, r]
             split_dim = 0 if self.is_row_parallel(layer_type) else 1
             weights_a = [
-                shard_on_dim(w, dim=split_dim, process_group=self.process_group)
-                for w in weights_a
+                shard_on_dim(w, dim=split_dim, process_group=self.process_group) for w in weights_a
             ]
 
             # [r, hidden_size]
             # Because we're splitting on the hidden size dimension, we need to
             # account for the separate q, k, and v matrices.
-            projection_size = (self.config.hidden_size // self.config.num_attention_heads) * self.config.num_attention_heads
-            weights_b = [
-                self.split_lora_b_qkv(w, projection_size)
-                for w in weights_b
-            ]
+            projection_size = (
+                self.config.hidden_size // self.config.num_attention_heads
+            ) * self.config.num_attention_heads
+            weights_b = [self.split_lora_b_qkv(w, projection_size) for w in weights_b]
 
             return weights_a, weights_b
         else:

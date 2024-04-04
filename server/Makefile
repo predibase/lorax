@@ -31,3 +31,7 @@ run-dev:
 
 export-requirements:
 	poetry export -o requirements.txt -E bnb --without-hashes
+
+format:
+	pip install ruff
+	python -m ruff format lorax_server

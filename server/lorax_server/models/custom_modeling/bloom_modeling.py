@@ -199,15 +199,9 @@ def _split_heads(
     fused_qkv = fused_qkv.view(batch_size, seq_length, num_heads, 3 * head_dim)
     query_layer, key_layer, value_layer = fused_qkv.split(head_dim, dim=-1)
 
-    query_layer = query_layer.transpose(1, 2).reshape(
-        batch_size * num_heads, seq_length, head_dim
-    )
-    key_layer = key_layer.permute(0, 2, 3, 1).reshape(
-        batch_size * num_heads, head_dim, seq_length
-    )
-    value_layer = value_layer.transpose(1, 2).reshape(
-        batch_size * num_heads, seq_length, head_dim
-    )
+    query_layer = query_layer.transpose(1, 2).reshape(batch_size * num_heads, seq_length, head_dim)
+    key_layer = key_layer.permute(0, 2, 3, 1).reshape(batch_size * num_heads, head_dim, seq_length)
+    value_layer = value_layer.transpose(1, 2).reshape(batch_size * num_heads, seq_length, head_dim)
 
     return query_layer, key_layer, value_layer
 
@@ -278,7 +272,7 @@ class BloomAttention(nn.Module):
                 weights=weights,
                 bias=True,
             ),
-            layer_id, 
+            layer_id,
             [ATTN_QKV],
             sizes=None,
             process_group=weights.process_group,
@@ -351,9 +345,7 @@ class BloomAttention(nn.Module):
         attn_weights = attention_scores.masked_fill_(
             attention_mask, torch.finfo(attention_scores.dtype).min
         )
-        attention_probs = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
-            input_dtype
-        )
+        attention_probs = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(input_dtype)
 
         # # [batch_size, num_heads, q_length, kv_length]
         # attention_probs = self.attention_dropout(attention_probs)
@@ -365,9 +357,7 @@ class BloomAttention(nn.Module):
         context_layer = torch.bmm(attention_probs, value_layer, out=query_layer)
 
         # change view [batch_size, num_heads, q_length, head_dim]
-        context_layer = _merge_heads(
-            context_layer, num_heads=num_heads, head_dim=head_dim
-        )
+        context_layer = _merge_heads(context_layer, num_heads=num_heads, head_dim=head_dim)
 
         return context_layer, present, attention_probs
 
@@ -384,7 +374,8 @@ class BloomAttention(nn.Module):
         output_attentions: bool = False,
     ):
         fused_qkv = self.query_key_value(
-            hidden_states, adapter_data,
+            hidden_states,
+            adapter_data,
         )  # [batch_size, seq_length, 3 x hidden_size]
         batch_size, q_length, _ = fused_qkv.shape
 
@@ -397,9 +388,7 @@ class BloomAttention(nn.Module):
 
         if CUSTOM_KERNELS_ENABLED:
             assert self.training is False, "Only foward pass was implemented"
-            assert (
-                attention_mask.shape[-1] < 4096
-            ), "Custom kernel support only up to 4096 tokens"
+            assert attention_mask.shape[-1] < 4096, "Custom kernel support only up to 4096 tokens"
             (
                 context_layer,
                 present,
@@ -460,7 +449,7 @@ class BloomMLP(nn.Module):
             TensorParallelColumnLinear.load(
                 config=config, prefix=f"{prefix}.dense_h_to_4h", weights=weights, bias=True
             ),
-            layer_id, 
+            layer_id,
             [MLP_DENSE_H_TO_4H],
             sizes=None,
             process_group=weights.process_group,
@@ -477,24 +466,24 @@ class BloomMLP(nn.Module):
         self.hidden_dropout = config.hidden_dropout
 
     def forward(
-        self, 
-        hidden_states: torch.Tensor, 
-        residual: torch.Tensor, 
+        self,
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor,
         adapter_data: Optional[AdapterBatchData] = None,
     ) -> torch.Tensor:
         hidden_states = self.gelu_impl(self.dense_h_to_4h(hidden_states, adapter_data))
 
-        if self.pretraining_tp > 1 and self.slow_but_exact and (
-            adapter_data is None or adapter_data.max_rank == 0
+        if (
+            self.pretraining_tp > 1
+            and self.slow_but_exact
+            and (adapter_data is None or adapter_data.max_rank == 0)
         ):
             intermediate_output = torch.zeros_like(residual)
             slices = self.dense_4h_to_h.weight.shape[-1] / self.pretraining_tp
             for i in range(self.pretraining_tp):
                 intermediate_output = intermediate_output + F.linear(
                     hidden_states[:, :, int(i * slices) : int((i + 1) * slices)],
-                    self.dense_4h_to_h.weight[
-                        :, int(i * slices) : int((i + 1) * slices)
-                    ],
+                    self.dense_4h_to_h.weight[:, int(i * slices) : int((i + 1) * slices)],
                 )
         else:
             intermediate_output = self.dense_4h_to_h(hidden_states, adapter_data)
@@ -517,7 +506,10 @@ class BloomBlock(nn.Module):
         )
         self.num_heads = config.n_head
         self.self_attention = BloomAttention(
-            prefix=f"{prefix}.self_attention", config=config, weights=weights, layer_id=layer_id,
+            prefix=f"{prefix}.self_attention",
+            config=config,
+            weights=weights,
+            layer_id=layer_id,
         )
         self.post_attention_layernorm = LayerNorm.load(
             prefix=f"{prefix}.post_attention_layernorm",
@@ -525,7 +517,9 @@ class BloomBlock(nn.Module):
             eps=config.layer_norm_epsilon,
         )
 
-        self.mlp = BloomMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = BloomMLP(
+            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
+        )
         self.apply_residual_connection_post_layernorm = (
             config.apply_residual_connection_post_layernorm
         )
@@ -616,7 +610,7 @@ class BloomPreTrainedModel(PreTrainedModel):
 
     @staticmethod
     def _convert_to_bloom_cache(
-        past_key_value: Tuple[Tuple[torch.Tensor, torch.Tensor]]
+        past_key_value: Tuple[Tuple[torch.Tensor, torch.Tensor]],
     ) -> Tuple[Tuple[torch.Tensor, torch.Tensor]]:
         """
         Converts the cache to the format expected by Bloom, i.e. to tuple(tuple([batch_size * num_heads, ...]))
@@ -645,9 +639,7 @@ class BloomModel(BloomPreTrainedModel):
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
 
-        self.word_embeddings = TensorParallelEmbedding(
-            prefix="word_embeddings", weights=weights
-        )
+        self.word_embeddings = TensorParallelEmbedding(prefix="word_embeddings", weights=weights)
 
         self.word_embeddings_layernorm = LayerNorm.load(
             prefix="word_embeddings_layernorm",
@@ -664,9 +656,7 @@ class BloomModel(BloomPreTrainedModel):
         )
 
         # Final Layer Norm
-        self.ln_f = LayerNorm.load(
-            prefix="ln_f", weights=weights, eps=config.layer_norm_epsilon
-        )
+        self.ln_f = LayerNorm.load(prefix="ln_f", weights=weights, eps=config.layer_norm_epsilon)
 
     def _prepare_attn_mask(
         self,
@@ -725,9 +715,7 @@ class BloomModel(BloomPreTrainedModel):
             raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
 
         output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
+            output_attentions if output_attentions is not None else self.config.output_attentions
         )
         output_hidden_states = (
             output_hidden_states
@@ -735,14 +723,10 @@ class BloomModel(BloomPreTrainedModel):
             else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time"
-            )
+            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
             batch_size, seq_length = input_ids.shape
         elif inputs_embeds is not None:
@@ -792,9 +776,7 @@ class BloomModel(BloomPreTrainedModel):
         if hasattr(self, "tp_rank"):
             assert self.num_heads % self.tp_world_size == 0
             block_size = self.num_heads // self.tp_world_size
-            alibi = alibi[
-                :, self.tp_rank * block_size : (self.tp_rank + 1) * block_size
-            ]
+            alibi = alibi[:, self.tp_rank * block_size : (self.tp_rank + 1) * block_size]
             alibi = alibi.reshape(batch_size * block_size, 1, seq_length_with_past)
             causal_mask = torch.repeat_interleave(causal_mask, block_size, dim=0)
         else:
@@ -823,9 +805,7 @@ class BloomModel(BloomPreTrainedModel):
                 presents = presents + (outputs[1],)
 
             if output_attentions:
-                all_self_attentions = all_self_attentions + (
-                    outputs[2 if use_cache else 1],
-                )
+                all_self_attentions = all_self_attentions + (outputs[2 if use_cache else 1],)
 
         # Add last hidden state
         hidden_states = self.ln_f(hidden_states)
@@ -863,7 +843,10 @@ class BloomForCausalLM(BloomPreTrainedModel):
                 config,
                 prefix="word_embeddings",
                 weights=weights,
-            ), 0, LM_HEAD, process_group=weights.process_group
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
         )
 
     def prepare_inputs_for_generation(
@@ -928,9 +911,7 @@ class BloomForCausalLM(BloomPreTrainedModel):
         if len(deprecated_arguments) > 0:
             raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
 
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         transformer_outputs = self.transformer(
             input_ids,

@@ -3,7 +3,6 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
-import math
 from statistics import median
 from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
@@ -57,13 +56,13 @@ def get_cached_batch_size(batch_size: int) -> int:
 
 
 def pad_and_fill(dest: torch.Tensor, src: torch.Tensor, pad_value: int):
-    dest[:src.shape[0]] = src
-    dest[src.shape[0]:].fill_(pad_value)
+    dest[: src.shape[0]] = src
+    dest[src.shape[0] :].fill_(pad_value)
 
 
 def next_pow_2(x: int) -> int:
     assert x > 0
-    return 1 << (x-1).bit_length()
+    return 1 << (x - 1).bit_length()
 
 
 @dataclass
@@ -78,13 +77,12 @@ class GraphState:
 
 @lru_cache(maxsize=1)
 def get_max_graph_state(
-    device: torch.device, 
-    adapter_layers: Tuple[str], 
+    device: torch.device,
+    adapter_layers: Tuple[str],
     max_total_tokens: int,
     sliding_window_blocks: Optional[int] = None,
 ) -> GraphState:
-    # max_num_blocks = (max_total_tokens + BLOCK_SIZE - 1) // BLOCK_SIZE
-    max_num_blocks = math.ceil((max_total_tokens - 1) / BLOCK_SIZE)
+    max_num_blocks = (max_total_tokens + BLOCK_SIZE - 1) // BLOCK_SIZE
     if sliding_window_blocks is not None:
         # Needed blocks can not go over SLIDING_WINDOW_BLOCKS
         max_num_blocks = max(max_num_blocks, sliding_window_blocks)
@@ -142,7 +140,7 @@ class GraphWrapper:
         graph: torch.cuda.CUDAGraph,
         memory_pool: Tuple[int, int],
         input_state: GraphState,
-        output_states: torch.Tensor,
+        output_states: Tuple[torch.Tensor, Optional[torch.Tensor]],
         model: nn.Module,
     ):
         self.graph = graph
@@ -150,7 +148,7 @@ class GraphWrapper:
         self.input_state = input_state
         self.output_states = output_states
         self.model = model
-        
+
     @staticmethod
     def trace(
         model: nn.Module,
@@ -162,7 +160,9 @@ class GraphWrapper:
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
     ) -> "GraphWrapper":
-        max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
+        max_input_state = get_max_graph_state(
+            device, adapter_layers, max_total_tokens, sliding_window_blocks
+        )
 
         # WARNING: for some reason the SGMV kernel can hang if we don't use a power of 2
         # as the segment size. This is a workaround until we can figure out why.
@@ -185,17 +185,31 @@ class GraphWrapper:
                     lora_a={},
                     lora_b={},
                     adapter_index_configs={},
-                    rank_data={
-                        max_rank: RankSegments(
-                            rank=max_rank,
-                            tmp_shrink=tmp_shrink,
-                            tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
-                            lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
-                            lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
-                            segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
-                            segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
-                        ),
-                    } if max_rank > 0 else {},
+                    rank_data=(
+                        {
+                            max_rank: RankSegments(
+                                rank=max_rank,
+                                tmp_shrink=tmp_shrink,
+                                tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[
+                                    :tmp_expand_size
+                                ],
+                                lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[
+                                    :segment_size
+                                ],
+                                lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[
+                                    :segment_size
+                                ],
+                                segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[
+                                    :segment_size
+                                ],
+                                segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[
+                                    :segment_size
+                                ],
+                            ),
+                        }
+                        if max_rank > 0
+                        else {}
+                    ),
                 )
             }
 
@@ -209,7 +223,9 @@ class GraphWrapper:
                 meta=AdapterBatchMetadata(
                     adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
                     adapter_set=max_input_state.adapter_data.meta.adapter_set,
-                    adapter_segments=max_input_state.adapter_data.meta.adapter_segments[:batch_size],
+                    adapter_segments=max_input_state.adapter_data.meta.adapter_segments[
+                        :batch_size
+                    ],
                     segment_indices=max_input_state.adapter_data.meta.segment_indices,
                 ),
                 data=adapter_weight_data,
@@ -235,10 +251,8 @@ class GraphWrapper:
 
         torch.cuda.synchronize(device)
 
-        return GraphWrapper(
-            graph, graph.pool(), input_state, output_states, model
-        )
-    
+        return GraphWrapper(graph, graph.pool(), input_state, output_states, model)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -258,7 +272,9 @@ class GraphWrapper:
         pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
 
         self.input_state.block_tables.zero_()
-        self.input_state.block_tables[:block_tables.shape[0], :block_tables.shape[1]] = block_tables
+        self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = (
+            block_tables
+        )
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             lora_data = weight_data[LORA]
@@ -268,7 +284,7 @@ class GraphWrapper:
                     rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
                     rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                 continue
-            
+
             source_data = adapter_data.data[layer_name]
             dest_data = lora_data
             for rank, source_rank_data in source_data.rank_data.items():
@@ -277,22 +293,31 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
 
-                pad_and_fill(dest_rank_data.segment_starts, source_rank_data.segment_starts, SEGMENT_PAD_VALUE)
-                pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
-        
+                pad_and_fill(
+                    dest_rank_data.segment_starts,
+                    source_rank_data.segment_starts,
+                    SEGMENT_PAD_VALUE,
+                )
+                pad_and_fill(
+                    dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE
+                )
+
         self.graph.replay()
 
-        return self.output_states[:input_ids.shape[0]]
-    
+        return tuple(
+            state[: input_ids.shape[0]] if state is not None else None
+            for state in self.output_states
+        )
+
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
 
 class GraphCache:
     def __init__(
-        self, 
-        model: nn.Module, 
-        device: torch.device, 
+        self,
+        model: nn.Module,
+        device: torch.device,
         adapter_layers: List[str],
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
@@ -330,7 +355,7 @@ class GraphCache:
             and max_rank in _allowed_ranks
             and all(k == LORA for k in adapter_keys)
         )
-    
+
     def get_estimated_cache_memory(self) -> int:
         # Store off graphs into temporary cache to discard after estimation
         tmp_cache = {}
@@ -343,7 +368,7 @@ class GraphCache:
         for i, max_rank in enumerate(reversed(CACHED_MAX_RANKS)):
             torch.cuda.synchronize(self.device)
             free_memory_before, _ = torch.cuda.mem_get_info(self.device)
-            
+
             key = (batch_size, max_rank)
             graph = GraphWrapper.trace(
                 self.model,
@@ -366,11 +391,11 @@ class GraphCache:
             delta_memory = free_memory_before - free_memory_after
             if i > 0:
                 samples.append(delta_memory)
-            
+
             # Tracing all graphs can take a while, so limit the number of samples
             if len(samples) == MAX_SAMPLES:
                 break
-            
+
         # Estimate memory usage for all batch sizes and ranks
         ngraphs = len(CACHED_BATCH_SIZES) * len(CACHED_MAX_RANKS)
         per_graph_memory = median(samples)
@@ -381,7 +406,7 @@ class GraphCache:
         pool = None
         with tqdm(total=ngraphs, desc="Trace CUDA graphs") as pbar:
             for batch_size in reversed(CACHED_BATCH_SIZES):
-                pbar.set_postfix({'batch_size': batch_size})
+                pbar.set_postfix({"batch_size": batch_size})
                 for max_rank in reversed(CACHED_MAX_RANKS):
                     key = (batch_size, max_rank)
                     graph = GraphWrapper.trace(
@@ -410,7 +435,7 @@ class GraphCache:
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         batch_size = get_cached_batch_size(input_ids.shape[0])
         max_rank = adapter_data.max_rank
@@ -425,7 +450,7 @@ class GraphCache:
                 max_rank,
                 self.memory_pool,
             )
-            
+
         output_states = self.cache[key].forward(
             input_ids=input_ids,
             position_ids=position_ids,
@@ -440,6 +465,6 @@ class GraphCache:
         )
 
         return output_states
-    
+
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
