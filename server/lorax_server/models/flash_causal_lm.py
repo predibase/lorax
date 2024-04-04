@@ -13,12 +13,12 @@ from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
-from lorax_server.models.model import Model
 from lorax_server.models.cache_manager import (
     BLOCK_SIZE,
     get_cache_manager,
     set_cache_manager,
 )
+from lorax_server.models.model import Model
 from lorax_server.models.types import (
     AlternativeTokens,
     Batch,
