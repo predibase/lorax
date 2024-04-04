@@ -179,13 +179,10 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert (
-            list(weight.shape)
-            == [
-                (num_heads + 2 * num_key_value_heads) * head_size,
-                config.hidden_size,
-            ]
-        ), f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert list(weight.shape) == [
+            (num_heads + 2 * num_key_value_heads) * head_size,
+            config.hidden_size,
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
@@ -312,7 +309,7 @@ class MixtralAttention(torch.nn.Module):
         layer_id: int,
     ):
         super().__init__()
-        self.max_past = config.sliding_window if config.sliding_window is not None else 0
+        self.max_past = config.sliding_window if config.sliding_window is not None else -1
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
@@ -951,8 +948,6 @@ class FlashMixtralForCausalLM(torch.nn.Module):
             process_group=weights.process_group,
         )
         self.max_past = config.sliding_window
-        if self.max_past is None:
-            raise ValueError("max_past cannot be None")
 
     def forward(
         self,
@@ -971,7 +966,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
         if prefill_cache_indices is not None:
             # Slots also need to be sliced as it has the same size as the whole kv tensor
             slots = slots[prefill_cache_indices]
-        else:
+        elif self.max_past is not None:
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
