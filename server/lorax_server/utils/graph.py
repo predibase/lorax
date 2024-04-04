@@ -3,7 +3,6 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
-import math
 from statistics import median
 from typing import TYPE_CHECKING, List, Optional, Tuple
 import numpy as np
