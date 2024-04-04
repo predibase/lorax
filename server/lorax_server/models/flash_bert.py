@@ -8,12 +8,11 @@ from transformers.models.bert import BertConfig
 from transformers import AutoTokenizer
 from opentelemetry import trace
 
-from dataclasses import dataclass
-from abc import ABC
 
 from lorax_server.utils.layers import FastLayerNorm
 from lorax_server.utils.flash_attn import attention
 from lorax_server.models import Model
+from lorax_server.models.types import FlashBatch
 from lorax_server.pb.generate_pb2 import Embedding
 
 from lorax_server.utils import (
@@ -24,22 +23,6 @@ from lorax_server.utils import (
 
 tracer = trace.get_tracer(__name__)
 
-
-@dataclass
-class FlashBatch(ABC):
-    input_ids: torch.Tensor
-    token_type_ids: torch.Tensor
-    position_ids: torch.Tensor
-
-    cu_seqlens: torch.Tensor
-    max_s: int
-    size: int
-
-    def __len__(self):
-        return self.size
-
-    def from_pb(self, *args, **kwargs):
-        return None
 
 
 class BertEmbeddings:

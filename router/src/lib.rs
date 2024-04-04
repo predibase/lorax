@@ -629,10 +629,12 @@ pub(crate) enum CompletionFinishReason {
     ToolCalls,
 }
 
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct EmbedRequest {
     inputs: String,
 }
 
+#[derive(Serialize, ToSchema)]
 struct EmbedResponse {
     embeddings: Vec<f32>,
 }

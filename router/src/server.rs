@@ -977,7 +977,7 @@ pub async fn run(
     let generation_health = Arc::new(AtomicBool::new(false));
     let health_ext = Health::new(client.clone(), generation_health.clone());
     let infer = Infer::new(
-        client,
+        client.clone(),
         validation,
         waiting_served_ratio,
         max_batch_prefill_tokens,
@@ -1108,6 +1108,7 @@ pub async fn run(
         .route("/", post(compat_generate))
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
+        .route("/embed", post(embed))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
@@ -1123,6 +1124,7 @@ pub async fn run(
         .route("/metrics", get(metrics))
         .route("/tokenize", post(tokenize))
         .layer(Extension(info))
+        .layer(Extension(client.clone()))
         .layer(Extension(request_logger_sender.clone()))
         .layer(Extension(health_ext.clone()))
         .layer(Extension(compat_return_full_text))
@@ -1279,10 +1281,21 @@ impl From<InferError> for Event {
 )]
 #[instrument(skip_all)]
 async fn embed(
+    mut client: Extension<ShardedClient>,
     Json(req): Json<EmbedRequest>,
 ) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
-    tracing::debug!("Input: {}", req.inputs);
-    Ok(Json(EmbedResponse { embeddings: vec![] }))
+    tracing::info!("Input: {}", req.inputs);
+    let input = req.inputs.clone();
+    let embeddings = client.embed(input).await.unwrap();
+    // initialize the values array with the first embedding
+    let values = embeddings
+        .get(0)
+        .map(|emb| emb.embeddings.as_ref().map(|emb| emb.values.clone()))
+        .flatten()
+        .unwrap_or_default();
+    Ok(Json(EmbedResponse {
+        embeddings: values.clone(),
+    }))
 }
 
 /// Tokenize inputs

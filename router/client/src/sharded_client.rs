@@ -1,3 +1,4 @@
+use crate::pb::generate::v1::EmbedResponse;
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -151,6 +152,17 @@ impl ShardedClient {
         let results: Result<Vec<(Vec<Generation>, Option<CachedBatch>)>> =
             join_all(futures).await.into_iter().collect();
         merge_generations(results?)
+    }
+
+    /// Get the model info
+    #[instrument(skip(self))]
+    pub async fn embed(&mut self, inputs: String) -> Result<Vec<EmbedResponse>> {
+        let futures: Vec<_> = self
+            .clients
+            .iter_mut()
+            .map(|client| Box::pin(client.embed(inputs.clone())))
+            .collect();
+        join_all(futures).await.into_iter().collect()
     }
 
     pub async fn download_adapter(

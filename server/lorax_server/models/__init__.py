@@ -6,7 +6,6 @@ from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.models.bloom import BLOOMSharded
 from lorax_server.models.causal_lm import CausalLM
-from lorax_server.models.flash_bert import FlashBert
 from lorax_server.models.flash_causal_lm import FlashCausalLM
 from lorax_server.models.galactica import GalacticaSharded
 from lorax_server.models.model import Model
@@ -94,6 +93,7 @@ def get_model(
         )
 
     if "WhereIsAI/UAE-Large-V1" in model_id:
+        from lorax_server.models.flash_bert import FlashBert
         return FlashBert(model_id, revision=revision, dtype=dtype)
 
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":

@@ -124,3 +124,19 @@ class Generation:
             next_tokens=self.next_tokens.to_pb(),
             generated_text=self.generated_text.to_pb() if self.generated_text is not None else None,
         )
+
+@dataclass
+class FlashBatch(ABC):
+    input_ids: torch.Tensor
+    token_type_ids: torch.Tensor
+    position_ids: torch.Tensor
+
+    cu_seqlens: torch.Tensor
+    max_s: int
+    size: int
+
+    def __len__(self):
+        return self.size
+
+    def from_pb(self, *args, **kwargs):
+        return None
