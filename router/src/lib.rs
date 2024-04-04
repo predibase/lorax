@@ -629,6 +629,14 @@ pub(crate) enum CompletionFinishReason {
     ToolCalls,
 }
 
+struct EmbedRequest {
+    inputs: String,
+}
+
+struct EmbedResponse {
+    embeddings: Vec<f32>,
+}
+
 impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
         CompatGenerateRequest {

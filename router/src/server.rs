@@ -9,10 +9,11 @@ use crate::{
     ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
     ChatCompletionStreamResponseChoice, ChatMessage, CompatGenerateRequest, CompletionFinishReason,
     CompletionRequest, CompletionResponse, CompletionResponseChoice,
-    CompletionResponseStreamChoice, CompletionStreamResponse, Details, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs,
-    PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse,
-    Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
+    CompletionResponseStreamChoice, CompletionStreamResponse, Details, EmbedRequest, EmbedResponse,
+    ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, LogProbs, PrefillToken, ResponseFormat, ResponseFormatType,
+    SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse,
+    UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{request, HeaderMap, Method, StatusCode};
@@ -1263,6 +1264,25 @@ impl From<InferError> for Event {
             })
             .unwrap()
     }
+}
+
+/// Embed inputs
+#[utoipa::path(
+    post,
+    tag = "Embedding",
+    path = "/embed",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Embeddings ids", body = EmbedResponse),
+    (status = 500, description = "Incomplete embedding", body = ErrorResponse),
+    )
+)]
+#[instrument(skip_all)]
+async fn embed(
+    Json(req): Json<EmbedRequest>,
+) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
+    tracing::debug!("Input: {}", req.inputs);
+    Ok(Json(EmbedResponse { embeddings: vec![] }))
 }
 
 /// Tokenize inputs
