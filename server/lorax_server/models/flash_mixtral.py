@@ -23,10 +23,6 @@ from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
 
-# Will be set in init
-SLIDING_WINDOW: Optional[int] = None
-SLIDING_WINDOW_BLOCKS: Optional[int] = None
-
 ADAPTER_LAYERS = [
     ATTN_Q_PROJ,
     ATTN_K_PROJ,
