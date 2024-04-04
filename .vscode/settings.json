@@ -1,6 +1,6 @@
 {
     "editor.rulers": [
-        100
+        120
     ],
     "editor.formatOnSave": true,
     "[python]": {
@@ -9,11 +9,11 @@
     },
     "black-formatter.args": [
         "--line-length",
-        "100"
+        "120"
     ],
     "flake8.args": [
         "--max-line-length=120",
-        "--ignore=E203"
+        "--ignore=E203,W503"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": false,

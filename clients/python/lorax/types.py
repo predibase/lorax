@@ -214,15 +214,8 @@ class Request(BaseModel):
     @validator("stream")
     def valid_best_of_stream(cls, field_value, values):
         parameters = values["parameters"]
-        if (
-            parameters is not None
-            and parameters.best_of is not None
-            and parameters.best_of > 1
-            and field_value
-        ):
-            raise ValidationError(
-                "`best_of` != 1 is not supported when `stream` == True"
-            )
+        if parameters is not None and parameters.best_of is not None and parameters.best_of > 1 and field_value:
+            raise ValidationError("`best_of` != 1 is not supported when `stream` == True")
         return field_value
 
 
@@ -236,6 +229,7 @@ class InputToken(BaseModel):
     # Optional since the logprob of the first token cannot be computed
     logprob: Optional[float]
 
+
 # Alternative Tokens
 class AlternativeToken(BaseModel):
     # Token ID from the model tokenizer
@@ -244,6 +238,7 @@ class AlternativeToken(BaseModel):
     text: str
     # Logprob
     logprob: float
+
 
 # Generated tokens
 class Token(BaseModel):
