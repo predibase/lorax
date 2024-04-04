@@ -21,9 +21,7 @@ def load_adapter_config(
         if "medusa_num_heads" in config:
             return MedusaConfig.load(config)
 
-    raise ValueError(
-        f"No valid adapter config file found: " f"tried {adapter_config_path} and {config_path}"
-    )
+    raise ValueError(f"No valid adapter config file found: " f"tried {adapter_config_path} and {config_path}")
 
 
 __all__ = [

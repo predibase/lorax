@@ -1,11 +1,10 @@
-import torch
-import torch.distributed
-
 from typing import List, Optional, Tuple
 
+import torch
+import torch.distributed
 from transformers import (
-    AutoTokenizer,
     AutoConfig,
+    AutoTokenizer,
 )
 
 from lorax_server.models import Seq2SeqLM
@@ -13,9 +12,9 @@ from lorax_server.models.custom_modeling.t5_modeling import (
     T5ForConditionalGeneration,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 
 

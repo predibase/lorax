@@ -181,49 +181,33 @@ class BatchLoraWeights(BatchAdapterWeights):
         return adapter_index in self.adapter_index_configs
 
     def can_vectorize(self, pg: ProcessGroup) -> bool:
-        return all(
-            rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values()
-        )
+        return all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values())
 
     @classmethod
     def key(cls) -> str:
         return LORA
 
     @classmethod
-    def load(
-        self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata
-    ) -> "BatchLoraWeights":
+    def load(self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata) -> "BatchLoraWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
 
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device
         segment_indices = meta.segment_indices
 
-        lora_a = {
-            idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights
-        }
+        lora_a = {idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights}
         lora_a_ptr = torch.tensor(
             [
-                (
-                    adapter_weights[idx].weights_a.data_ptr()
-                    if idx in adapter_weights
-                    else EMPTY_TENSOR.data_ptr()
-                )
+                (adapter_weights[idx].weights_a.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
                 for idx in segment_indices
             ],
             dtype=torch.int64,
             device=device,
         )
-        lora_b = {
-            idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights
-        }
+        lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
         lora_b_ptr = torch.tensor(
             [
-                (
-                    adapter_weights[idx].weights_b.data_ptr()
-                    if idx in adapter_weights
-                    else EMPTY_TENSOR.data_ptr()
-                )
+                (adapter_weights[idx].weights_b.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
                 for idx in segment_indices
             ],
             dtype=torch.int64,
@@ -231,9 +215,7 @@ class BatchLoraWeights(BatchAdapterWeights):
         )
 
         adapter_index_configs = {
-            idx: adapter_weights[idx].adapter_config
-            for idx in segment_indices
-            if idx in adapter_weights
+            idx: adapter_weights[idx].adapter_config for idx in segment_indices if idx in adapter_weights
         }
 
         rank_indices = defaultdict(list)

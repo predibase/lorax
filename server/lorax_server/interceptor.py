@@ -1,11 +1,11 @@
-import torch
-import grpc
+from typing import Any, Callable
 
-from google.rpc import status_pb2, code_pb2
-from grpc_status import rpc_status
+import grpc
+import torch
+from google.rpc import code_pb2, status_pb2
 from grpc_interceptor.server import AsyncServerInterceptor
+from grpc_status import rpc_status
 from loguru import logger
-from typing import Callable, Any
 
 
 class ExceptionInterceptor(AsyncServerInterceptor):

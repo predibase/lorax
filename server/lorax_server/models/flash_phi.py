@@ -1,25 +1,25 @@
+from typing import Dict, List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_phi_modeling import (
-    ATTN_Q_PROJ,
-    ATTN_K_PROJ,
-    ATTN_V_PROJ,
     ATTN_DENSE,
+    ATTN_K_PROJ,
+    ATTN_Q_PROJ,
+    ATTN_V_PROJ,
     MLP_FC1,
     MLP_FC2,
     FlashPhiForCausalLM,
     PhiConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import LM_HEAD
 
@@ -57,9 +57,7 @@ class FlashPhi(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = PhiConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = PhiConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)

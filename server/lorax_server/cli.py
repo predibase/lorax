@@ -1,14 +1,13 @@
 import os
 import sys
-import typer
-
-from pathlib import Path
-from loguru import logger
-from typing import Optional
 from enum import Enum
+from pathlib import Path
+from typing import Optional
+
+import typer
+from loguru import logger
 
 from lorax_server.utils.weights import download_weights as _download_weights
-
 
 app = typer.Typer()
 
@@ -50,15 +49,9 @@ def serve(
 ):
     if sharded:
         assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
-        assert (
-            os.getenv("WORLD_SIZE", None) is not None
-        ), "WORLD_SIZE must be set when sharded is True"
-        assert (
-            os.getenv("MASTER_ADDR", None) is not None
-        ), "MASTER_ADDR must be set when sharded is True"
-        assert (
-            os.getenv("MASTER_PORT", None) is not None
-        ), "MASTER_PORT must be set when sharded is True"
+        assert os.getenv("WORLD_SIZE", None) is not None, "WORLD_SIZE must be set when sharded is True"
+        assert os.getenv("MASTER_ADDR", None) is not None, "MASTER_ADDR must be set when sharded is True"
+        assert os.getenv("MASTER_PORT", None) is not None, "MASTER_PORT must be set when sharded is True"
 
     # Remove default handler
     logger.remove()

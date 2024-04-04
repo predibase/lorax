@@ -18,24 +18,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt_neox import GPTNeoXConfig
-from typing import Optional, List, Tuple
 
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
-    TensorParallelRowLinear,
+    FastLayerNorm,
+    PositionRotaryEmbedding,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelHead,
-    FastLayerNorm,
-    PositionRotaryEmbedding,
+    TensorParallelRowLinear,
     get_linear,
 )
 
@@ -98,9 +97,7 @@ class FlashNeoxAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
 
-        self.rotary_emb = PositionRotaryEmbedding.load(
-            prefix=f"{prefix}.rotary_emb", weights=weights
-        )
+        self.rotary_emb = PositionRotaryEmbedding.load(prefix=f"{prefix}.rotary_emb", weights=weights)
 
         self.softmax_scale = self.head_size ** (-0.5)
 
@@ -113,9 +110,7 @@ class FlashNeoxAttention(torch.nn.Module):
             hidden_size=self.hidden_size,
         )
         self.dense = load_row(config, prefix=f"{prefix}.dense", weights=weights, bias=True)
-        self.kv_head_mapping = torch.arange(
-            0, self.num_heads, dtype=torch.int32, device=weights.device
-        )
+        self.kv_head_mapping = torch.arange(0, self.num_heads, dtype=torch.int32, device=weights.device)
 
     def forward(
         self,
@@ -187,9 +182,7 @@ class FlashMLP(nn.Module):
         self.dense_h_to_4h = TensorParallelColumnLinear.load(
             config, prefix=f"{prefix}.dense_h_to_4h", weights=weights, bias=True
         )
-        self.dense_4h_to_h = load_row(
-            config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True
-        )
+        self.dense_4h_to_h = load_row(config, prefix=f"{prefix}.dense_4h_to_h", weights=weights, bias=True)
 
     def forward(self, hidden_states):
         hidden_states = self.dense_h_to_4h(hidden_states)
@@ -294,10 +287,7 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
         self.embed_in = TensorParallelEmbedding(prefix="gpt_neox.embed_in", weights=weights)
 
         self.layers = nn.ModuleList(
-            [
-                FlashNeoXLayer(layer_id, config, weights)
-                for layer_id in range(config.num_hidden_layers)
-            ]
+            [FlashNeoXLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
         )
         self.final_layer_norm = FastLayerNorm.load(
             prefix="gpt_neox.final_layer_norm",
@@ -325,9 +315,7 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].attention.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].attention.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):

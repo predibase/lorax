@@ -4,32 +4,29 @@
 # Copyright (c) Alibaba Cloud.
 # LICENSE: https://huggingface.co/Qwen/Qwen-7B/blob/main/LICENSE
 
-import torch
-import torch.distributed
-
-from torch import nn
-from transformers.activations import ACT2FN
-from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 # Flash attention imports
 import dropout_layer_norm
+import torch
+import torch.distributed
+from torch import nn
+from transformers.activations import ACT2FN
+from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelMultiAdapterLinear,
-    PositionRotaryEmbedding,
     TensorParallelHead,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import LM_HEAD
-
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"
@@ -142,9 +139,7 @@ class QwenRMSNorm(nn.Module):
 
 
 def load_attention(config, prefix, weights, layer_id):
-    projection_size = (
-        config.hidden_size // config.num_attention_heads
-    ) * config.num_attention_heads
+    projection_size = (config.hidden_size // config.num_attention_heads) * config.num_attention_heads
     base_layer = load_attention_multi(config, prefix, weights, projection_size)
     return TensorParallelMultiAdapterLinear.load(
         base_layer,
@@ -183,9 +178,7 @@ class FlashQwenAttention(torch.nn.Module):
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
         self.head_size = self.hidden_size // self.num_heads
-        self.projection_size = (
-            self.head_size * config.num_attention_heads
-        ) // weights.process_group.size()
+        self.projection_size = (self.head_size * config.num_attention_heads) // weights.process_group.size()
         self.process_group = weights.process_group
 
         self.rotary_emb = PositionRotaryEmbedding.static(
@@ -346,13 +339,9 @@ class FlashQwenLayer(nn.Module):
             weights=weights,
             layer_id=layer_id,
         )
-        self.mlp = QwenMLP(
-            prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id
-        )
+        self.mlp = QwenMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
-        self.ln_1 = QwenRMSNorm(
-            prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon
-        )
+        self.ln_1 = QwenRMSNorm(prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon)
         self.ln_2 = QwenRMSNorm(
             prefix=f"{prefix}.ln_2",
             weights=weights,
@@ -415,9 +404,7 @@ class FlashQwenModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = QwenRMSNorm(
-            prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon
-        )
+        self.ln_f = QwenRMSNorm(prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon)
 
         self.gradient_checkpointing = False
 

@@ -1,6 +1,6 @@
-import torch
-
 from typing import Dict, Optional, TypeVar
+
+import torch
 
 from lorax_server.models.types import Batch
 

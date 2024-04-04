@@ -15,9 +15,9 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     MixtralConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import LM_HEAD
 
@@ -59,9 +59,7 @@ class FlashMixtral(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = MixtralConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = MixtralConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)

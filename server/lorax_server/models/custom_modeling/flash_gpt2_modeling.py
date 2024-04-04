@@ -18,26 +18,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2Config
-from typing import Optional, List, Tuple
 
-from lorax_server.utils import flash_attn
-from lorax_server.utils import paged_attn
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
+    FastLayerNorm,
     TensorParallelAdapterRowLinear,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    FastLayerNorm,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
 )
-from lorax_server.adapters import AdapterBatchData
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"
@@ -109,9 +108,7 @@ class FlashGPT2Attention(torch.nn.Module):
         self.layer_idx = layer_id
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
-        self.c_attn = load_attention(
-            config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True
-        )
+        self.c_attn = load_attention(config, prefix, weights, layer_id, [ATTN_C_ATTN], fan_in_fan_out=True)
         self.c_proj = TensorParallelAdapterRowLinear.load(
             TensorParallelRowLinear.load(
                 config,
@@ -141,9 +138,7 @@ class FlashGPT2Attention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
 
-        self.kv_head_mapping = torch.arange(
-            0, self.num_heads, dtype=torch.int32, device=weights.device
-        )
+        self.kv_head_mapping = torch.arange(0, self.num_heads, dtype=torch.int32, device=weights.device)
         self.num_key_value_heads = self.num_heads
 
     def forward(
@@ -248,9 +243,7 @@ class GPT2Block(nn.Module):
         prefix = f"h.{layer_id}"
 
         self.ln_1 = FastLayerNorm.load(prefix=f"{prefix}.ln_1", weights=weights, eps=layer_norm_eps)
-        self.attn = FlashGPT2Attention(
-            config, prefix=f"{prefix}.attn", weights=weights, layer_id=layer_id
-        )
+        self.attn = FlashGPT2Attention(config, prefix=f"{prefix}.attn", weights=weights, layer_id=layer_id)
         self.ln_2 = FastLayerNorm.load(prefix=f"{prefix}.ln_2", weights=weights, eps=layer_norm_eps)
 
         self.mlp = GPT2MLP(config, prefix=f"{prefix}.mlp", weights=weights, layer_id=layer_id)
@@ -309,9 +302,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         self.wte = TensorParallelEmbedding(prefix="wte", weights=weights)
         self.wpe = TensorParallelEmbedding(prefix="wpe", weights=weights)
 
-        self.h = nn.ModuleList(
-            [GPT2Block(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
-        )
+        self.h = nn.ModuleList([GPT2Block(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)])
         self.ln_f = FastLayerNorm.load(
             prefix="ln_f",
             weights=weights,

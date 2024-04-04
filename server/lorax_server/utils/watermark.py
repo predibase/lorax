@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from typing import List, Union
 
 import torch
 from transformers import LogitsProcessor
-from typing import List, Union
 
 GAMMA = os.getenv("WATERMARK_GAMMA", 0.5)
 DELTA = os.getenv("WATERMARK_DELTA", 2.0)
@@ -44,9 +44,7 @@ class WatermarkLogitsProcessor(LogitsProcessor):
         else:
             assert len(input_ids) == 1
             input_ids = input_ids[0]
-            assert (
-                input_ids.shape[-1] >= 1
-            ), "requires at least a 1 token prefix sequence to seed rng"
+            assert input_ids.shape[-1] >= 1, "requires at least a 1 token prefix sequence to seed rng"
             prev_token = input_ids[-1].item()
         self.rng.manual_seed(self.hash_key * prev_token)
 
@@ -78,15 +76,9 @@ class WatermarkLogitsProcessor(LogitsProcessor):
         scores[greenlist_mask] = scores[greenlist_mask] + greenlist_bias
         return scores
 
-    def __call__(
-        self, input_ids: Union[List[int], torch.LongTensor], scores: torch.FloatTensor
-    ) -> torch.FloatTensor:
+    def __call__(self, input_ids: Union[List[int], torch.LongTensor], scores: torch.FloatTensor) -> torch.FloatTensor:
         greenlist_ids = self._get_greenlist_ids(input_ids, scores.shape[-1], scores.device)
-        green_tokens_mask = self._calc_greenlist_mask(
-            scores=scores, greenlist_token_ids=greenlist_ids
-        )
+        green_tokens_mask = self._calc_greenlist_mask(scores=scores, greenlist_token_ids=greenlist_ids)
 
-        scores = self._bias_greenlist_logits(
-            scores=scores, greenlist_mask=green_tokens_mask, greenlist_bias=self.delta
-        )
+        scores = self._bias_greenlist_logits(scores=scores, greenlist_mask=green_tokens_mask, greenlist_bias=self.delta)
         return scores

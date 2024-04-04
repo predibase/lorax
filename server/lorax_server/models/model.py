@@ -1,13 +1,14 @@
-from collections import defaultdict
 import inspect
-import torch
-
 from abc import ABC, abstractmethod
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple, Type, TypeVar
+
+import torch
 from loguru import logger
-from typing import Dict, List, Tuple, Optional, TypeVar, Type
 from transformers import PreTrainedTokenizerBase
 
 from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
@@ -16,7 +17,6 @@ from lorax_server.utils.adapter import (
 )
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.utils.weights import shard_on_dim
 
 B = TypeVar("B", bound=Batch)
@@ -57,9 +57,7 @@ class Model(ABC):
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
 
-        self.has_position_ids = (
-            inspect.signature(model.forward).parameters.get("position_ids", None) is not None
-        )
+        self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
         if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
             download_adapter(adapter_id, adapter_source, api_token=None)
@@ -115,9 +113,7 @@ class Model(ABC):
 
         # The prefix text is necessary only to defeat cleanup algorithms in the decode
         # which decide to add a space or not depending on the surrounding ids.
-        prefix_text = self.tokenizer.decode(
-            all_input_ids[prefix_offset:read_offset], skip_special_tokens=False
-        )
+        prefix_text = self.tokenizer.decode(all_input_ids[prefix_offset:read_offset], skip_special_tokens=False)
         new_text = self.tokenizer.decode(all_input_ids[prefix_offset:], skip_special_tokens=False)
 
         if len(new_text) > len(prefix_text) and not new_text.endswith("�"):
@@ -160,10 +156,7 @@ class Model(ABC):
     @property
     def max_speculative_tokens(self) -> int:
         return max(
-            [
-                layer_weights.max_speculative_tokens
-                for layer_weights in self.batched_lora_weights.values()
-            ],
+            [layer_weights.max_speculative_tokens for layer_weights in self.batched_lora_weights.values()],
             default=0,
         )
 
@@ -196,9 +189,7 @@ class Model(ABC):
                 f"order to use the dynamic adapter loading feature."
             )
 
-        logger.info(
-            f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}"
-        )
+        logger.info(f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}")
         weight_names = tuple([v[0] for v in self.target_to_layer.values()])
         (
             module_map,
@@ -231,9 +222,7 @@ class Model(ABC):
             batched_weights.add_adapter(adapter_index, adapter_weights)
 
         if len(unused_weight_names) > 0:
-            logger.warning(
-                f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}"
-            )
+            logger.warning(f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}")
 
         if adapter_tokenizer is not None:
             self.tokenizers.add_tokenizer(adapter_index, adapter_tokenizer)
@@ -248,9 +237,7 @@ class Model(ABC):
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         # [hidden_size, r]
         split_dim = 0 if self.is_row_parallel(layer_type) else 1
-        weights_a = [
-            shard_on_dim(w, dim=split_dim, process_group=self.process_group) for w in weights_a
-        ]
+        weights_a = [shard_on_dim(w, dim=split_dim, process_group=self.process_group) for w in weights_a]
 
         # [r, hidden_size]
         weights_b = [shard_on_dim(w, dim=1, process_group=self.process_group) for w in weights_b]

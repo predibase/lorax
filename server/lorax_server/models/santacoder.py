@@ -1,10 +1,10 @@
+from typing import List, Optional
+
 import torch
 import torch.distributed
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from typing import Optional, List
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-from lorax_server.models import CausalLM
+from lorax_server.models.causal_lm import CausalLM
 
 FIM_PREFIX = "<fim-prefix>"
 FIM_MIDDLE = "<fim-middle>"
@@ -75,6 +75,4 @@ class SantaCoder(CausalLM):
 
     def decode(self, generated_ids: List[int]) -> str:
         # Do not skip special tokens as they are used for custom parsing rules of the generated text
-        return self.tokenizer.decode(
-            generated_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False
-        )
+        return self.tokenizer.decode(generated_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)

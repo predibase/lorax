@@ -45,9 +45,7 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def load(
-        cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata"
-    ) -> "BatchAdapterWeights":
+    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
         pass
 
 
@@ -67,18 +65,14 @@ class LayerAdapterWeights:
 
     @property
     def max_speculative_tokens(self) -> int:
-        return max(
-            adapter_weights.speculative_tokens for adapter_weights in self.adapter_weights.values()
-        )
+        return max(adapter_weights.speculative_tokens for adapter_weights in self.adapter_weights.values())
 
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0
 
     def get_data(self, meta: AdapterBatchMetadata) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
-        adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = (
-            defaultdict(dict)
-        )
+        adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
         for adapter_index, adapter_weights in self.adapter_weights.items():
             adapter_batch_types[adapter_weights.get_batch_type()][adapter_index] = adapter_weights
 
@@ -96,9 +90,7 @@ class AdapterBatchData:
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
     @staticmethod
-    def from_meta(
-        meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]
-    ) -> "AdapterBatchData":
+    def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
@@ -112,11 +104,7 @@ class AdapterBatchData:
         if lora_data is None:
             return set()
 
-        return set(
-            rank_data.rank
-            for layer_data in self.data.values()
-            for rank_data in lora_data.rank_data.values()
-        )
+        return set(rank_data.rank for layer_data in self.data.values() for rank_data in lora_data.rank_data.values())
 
     @property
     def max_rank(self) -> int:

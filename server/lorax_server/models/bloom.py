@@ -1,14 +1,15 @@
-import torch
-import torch.distributed
-
 from typing import Dict, List, Optional, Tuple, Type
 
+import torch
+import torch.distributed
 from transformers import (
-    AutoTokenizer,
     AutoConfig,
+    AutoTokenizer,
     PreTrainedTokenizerBase,
 )
 
+from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.causal_lm import CausalLM, CausalLMBatch
 from lorax_server.models.custom_modeling.bloom_modeling import (
     ATTN_DENSE,
     ATTN_QKV,
@@ -17,16 +18,13 @@ from lorax_server.models.custom_modeling.bloom_modeling import (
     MLP_DENSE_H_TO_4H,
     BloomForCausalLM,
 )
-from lorax_server.models import CausalLM
-from lorax_server.models.causal_lm import CausalLMBatch
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.adapters import AdapterBatchData
 
 ADAPTER_LAYERS = [ATTN_QKV, ATTN_DENSE, MLP_DENSE_H_TO_4H, MLP_DENSE_4H_TO_H]
 ROW_PARALLEL = {ATTN_DENSE, MLP_DENSE_4H_TO_H}
@@ -42,9 +40,7 @@ class BloomCausalLMBatch(CausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
-        batch = super().from_pb(
-            pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device
-        )
+        batch = super().from_pb(pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device)
         batch.keys_head_dim_last = False
         return batch
 

@@ -1,9 +1,9 @@
+from typing import Dict, List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from typing import Dict, List, Optional, Tuple
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
@@ -11,9 +11,9 @@ from lorax_server.models.custom_modeling.flash_llama_modeling import (
     LlamaConfig,
 )
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
@@ -61,9 +61,7 @@ class FlashLlama(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
-        config = LlamaConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
-        )
+        config = LlamaConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)

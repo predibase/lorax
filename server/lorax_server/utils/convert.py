@@ -1,12 +1,12 @@
 import datetime
-import torch
 import os
-
-from loguru import logger
-from pathlib import Path
-from safetensors.torch import save_file, load_file, _find_shared_tensors, _is_complete
-from typing import List, Dict
 from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List
+
+import torch
+from loguru import logger
+from safetensors.torch import _find_shared_tensors, _is_complete, load_file, save_file
 
 from lorax_server.utils.errors import InfWeightsError, NanWeightsError
 
@@ -91,13 +91,9 @@ def convert_file(pt_file: Path, sf_file: Path, discard_names: List[str]):
         sf_tensor = reloaded[k]
         if not torch.equal(pt_tensor, sf_tensor):
             if torch.any(torch.isnan(pt_tensor)):
-                raise NanWeightsError(
-                    f"Weights unusuable as param {k} in file {pt_file} contains NaN values"
-                )
+                raise NanWeightsError(f"Weights unusuable as param {k} in file {pt_file} contains NaN values")
             if torch.any(torch.isinf(pt_tensor)):
-                raise InfWeightsError(
-                    f"Weights unusuable as param {k} in file {pt_file} contains inf values"
-                )
+                raise InfWeightsError(f"Weights unusuable as param {k} in file {pt_file} contains inf values")
             raise RuntimeError(f"The output tensors do not match for key {k}")
 
 

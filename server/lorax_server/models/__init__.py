@@ -1,19 +1,19 @@
-import torch
-
-from loguru import logger
-from transformers.configuration_utils import PretrainedConfig
 from typing import Optional
 
-from lorax_server.models.model import Model
+import torch
+from loguru import logger
+from transformers.configuration_utils import PretrainedConfig
+
+from lorax_server.models.bloom import BLOOMSharded
 from lorax_server.models.causal_lm import CausalLM
 from lorax_server.models.flash_bert import FlashBert
 from lorax_server.models.flash_causal_lm import FlashCausalLM
-from lorax_server.models.bloom import BLOOMSharded
-from lorax_server.models.mpt import MPTSharded
-from lorax_server.models.seq2seq_lm import Seq2SeqLM
-from lorax_server.models.opt import OPTSharded
 from lorax_server.models.galactica import GalacticaSharded
+from lorax_server.models.model import Model
+from lorax_server.models.mpt import MPTSharded
+from lorax_server.models.opt import OPTSharded
 from lorax_server.models.santacoder import SantaCoder
+from lorax_server.models.seq2seq_lm import Seq2SeqLM
 from lorax_server.models.t5 import T5Sharded
 from lorax_server.utils.sources import get_s3_model_local_dir
 

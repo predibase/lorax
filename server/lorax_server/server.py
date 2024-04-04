@@ -1,33 +1,23 @@
 import asyncio
 import os
-import shutil
-import torch
-from huggingface_hub import HfApi
-from peft import PeftConfig
-
-from grpc import aio
-from loguru import logger
-
-from grpc_reflection.v1alpha import reflection
 from pathlib import Path
 from typing import List, Optional
 
+import torch
+from grpc import aio
+from grpc_reflection.v1alpha import reflection
+from loguru import logger
+
+from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
-from lorax_server.cli import _download_weights
 from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
-from lorax_server.pb import generate_pb2_grpc, generate_pb2
+from lorax_server.pb import generate_pb2, generate_pb2_grpc
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import (
-    HUB,
-    LOCAL,
-    S3,
-    PBASE,
-    map_pbase_model_id_to_s3,
-)
+from lorax_server.utils import HUB, LOCAL, PBASE, S3, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
-from lorax_server.utils.sources import get_model_source
+from lorax_server.utils.state import set_speculative_tokens
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
@@ -109,8 +99,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         batch = request.inputs
         tokenised_batch = self.model.tokenize_to_batch(batch)
         embeddings = self.model.embed(tokenised_batch)
-        resp = generate_pb2.EmbedResponse(embeddings=embeddings)
-        return resp
+        return generate_pb2.EmbedResponse(embeddings=embeddings)
 
     async def Decode(self, request: generate_pb2.DecodeRequest, context):
         if len(request.batches) == 0:
@@ -153,24 +142,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 logger.info("No adapter to download for base model. Skipping.")
                 continue
 
-            if adapter_source == PBASE:
-                adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
-                adapter_source = S3
-
-            if adapter_source == HUB:
-                # Quick auth check on the repo against the token
-                HfApi(token=api_token).model_info(adapter_id, revision=None)
-
-            # fail fast if ID is not an adapter (i.e. it is a full model)
-            source = get_model_source(
-                adapter_source, adapter_id, extension=".safetensors", api_token=api_token
-            )
-            source.load_config()
-
-            _download_weights(adapter_id, source=adapter_source, api_token=api_token)
-
-            # Calculate size of adapter to be loaded
-            adapter_bytes += source.get_weight_bytes()
+            adapter_bytes += download_adapter(adapter_id, adapter_source, api_token)
 
         adapter_memory_size = self.model.adapter_memory_size()
         if adapter_memory_size > 0:
@@ -187,14 +159,11 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         else:
             # Assume 0.0 memory fraction if adapter memory size is not set
             logger.info(
-                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                f"(no reservation limit)"
+                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)"
             )
             adapter_memory_fraction = 0.0
 
-        return generate_pb2.DownloadAdapterResponse(
-            downloaded=True, memory_fraction=adapter_memory_fraction
-        )
+        return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
@@ -255,23 +224,22 @@ def serve(
     uds_path: Path,
     source: str,
     adapter_source: str,
+    speculative_tokens: int,
 ):
     async def serve_inner(
         model_id: str,
         adapter_id: str,
         revision: Optional[str],
-        sharded: bool = False,
-        quantize: Optional[str] = None,
-        compile: bool = False,
-        dtype: Optional[str] = None,
-        trust_remote_code: bool = False,
+        sharded: bool,
+        quantize: Optional[str],
+        compile: bool,
+        dtype: Optional[str],
+        trust_remote_code: bool,
+        speculative_tokens: int,
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
-            server_urls = [
-                unix_socket_template.format(uds_path, rank)
-                for rank in range(int(os.environ["WORLD_SIZE"]))
-            ]
+            server_urls = [unix_socket_template.format(uds_path, rank) for rank in range(int(os.environ["WORLD_SIZE"]))]
             local_url = server_urls[int(os.environ["RANK"])]
         else:
             local_url = unix_socket_template.format(uds_path, 0)
@@ -309,15 +277,18 @@ def serve(
             except ImportError:
                 pass
 
+        # set speculative decoding tokens
+        speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
+        if speculative_tokens > 0:
+            set_speculative_tokens(speculative_tokens)
+
         server = aio.server(
             interceptors=[
                 ExceptionInterceptor(),
                 UDSOpenTelemetryAioServerInterceptor(),
             ]
         )
-        generate_pb2_grpc.add_LoraxServiceServicer_to_server(
-            LoraxService(model, Cache(), server_urls), server
-        )
+        generate_pb2_grpc.add_LoraxServiceServicer_to_server(LoraxService(model, Cache(), server_urls), server)
         SERVICE_NAMES = (
             generate_pb2.DESCRIPTOR.services_by_name["LoraxService"].full_name,
             reflection.SERVICE_NAME,
@@ -343,7 +314,15 @@ def serve(
 
     asyncio.run(
         serve_inner(
-            model_id, adapter_id, revision, sharded, quantize, compile, dtype, trust_remote_code
+            model_id,
+            adapter_id,
+            revision,
+            sharded,
+            quantize,
+            compile,
+            dtype,
+            trust_remote_code,
+            speculative_tokens,
         )
     )
 
