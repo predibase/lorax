@@ -139,7 +139,7 @@ class Weights(AbstractWeights):
         tensor = f.get_tensor(tensor_name)
         # Special case for gptq which shouldn't convert
         # u4 which are disguised as int32
-        if tensor.dtype not in [torch.int32, torch.int64]:
+        if tensor.dtype not in [torch.int8, torch.int32, torch.int64]:
             tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
@@ -178,7 +178,7 @@ class Weights(AbstractWeights):
             raise NotImplementedError("Let's make that generic when needed")
         # Special case for gptq which shouldn't convert
         # u4 which are disguised as int32
-        if tensor.dtype != torch.int32:
+        if tensor.dtype not in [torch.int8, torch.int32]:
             tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
@@ -226,6 +226,15 @@ class Weights(AbstractWeights):
 
             bits, groupsize = self._get_gptq_params()
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
+        elif quantize == "eetq":
+            try:
+                qweight = torch.cat(self.get_sharded_list("qweight", prefixes, dim=1), dim=1)
+                scales = torch.cat(self.get_sharded_list("weight_scales", prefixes, dim=0), dim=0)
+                weight = (qweight, scales)
+            except RuntimeError:
+                logger.info("It seems that weight is not quantized, so load it normally then make JIT later")
+                w = self.get_sharded_list("weight", prefixes, dim=0)
+                weight = torch.cat(w, dim=dim)
         else:
             w = self.get_sharded_list("weight", prefixes, dim=0)
             weight = torch.cat(w, dim=dim)
@@ -310,6 +319,14 @@ class Weights(AbstractWeights):
             g_idx = None
             use_exllama = False
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
+        elif quantize == "eetq":
+            try:
+                qweight = self.get_sharded(f"{prefix}.qweight", dim=0)
+                scales = self.get_sharded(f"{prefix}.weight_scales", dim=0)
+                weight = (qweight, scales)
+            except RuntimeError:
+                logger.info("It seems that weight is not quantized, so load it normally then make JIT later")
+                weight = self.get_sharded(f"{prefix}.weight", dim=1)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
         return weight

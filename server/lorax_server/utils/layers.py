@@ -7,6 +7,7 @@ import torch.distributed
 from accelerate import init_empty_weights
 from torch import nn
 from torch.nn import functional as F
+from loguru import logger
 
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -166,32 +167,40 @@ class EETQLinear(nn.Module):
         self,
         weight,
         bias,
+        scales=None,
+        quantized=False,
     ) -> None:
         super().__init__()
-        # Get the device where the weight tensor is currently stored.
-        device = weight.device
 
-        # Transpose the weight tensor and make a contiguous copy of it on the CPU.
-        # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
-        # which can improve performance in some cases.
-        weight_transposed = torch.t(weight)
-        weight_contiguous = weight_transposed.contiguous()
-        weight_cpu = weight_contiguous.cpu()
-
-        # Quantize the weights. The quant_weights function is assumed to perform the quantization.
-        # The weights are quantized to int8 format, and the quantization is not performed in place (False).
-        weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
-
-        # Move the quantized weights and the scale back to the original device (GPU if available).
-        # The cuda() function is used to move the tensors to the GPU.
-        self.weight = weight_quantized.cuda(device)
-        self.scale = scale.cuda(device)
-
-        # If a bias is present, move it to the GPU as well. If not, set the bias to None.
-        if bias is not None:
-            self.bias = bias.cuda(device)
+        if quantized:
+            self.weight = weight
+            self.scale = scales
+            self.bias = bias if bias is not None else None
         else:
-            self.bias = None
+            # Get the device where the weight tensor is currently stored.
+            device = weight.device
+
+            # Transpose the weight tensor and make a contiguous copy of it on the CPU.
+            # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
+            # which can improve performance in some cases.
+            weight_transposed = torch.t(weight)
+            weight_contiguous = weight_transposed.contiguous()
+            weight_cpu = weight_contiguous.cpu()
+
+            # Quantize the weights. The quant_weights function is assumed to perform the quantization.
+            # The weights are quantized to int8 format, and the quantization is not performed in place (False).
+            weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
+
+            # Move the quantized weights and the scale back to the original device (GPU if available).
+            # The cuda() function is used to move the tensors to the GPU.
+            self.weight = weight_quantized.cuda(device)
+            self.scale = scale.cuda(device)
+
+            # If a bias is present, move it to the GPU as well. If not, set the bias to None.
+            if bias is not None:
+                self.bias = bias.cuda(device)
+            else:
+                self.bias = None
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
@@ -344,10 +353,20 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             quant_type="fp4",
         )
     elif quantize == "eetq":
-        if HAS_EETQ:
-            linear = EETQLinear(weight, bias)
-        else:
+        if not HAS_EETQ:
             raise ImportError("Please install EETQ from https://github.com/NetEase-FuXi/EETQ")
+
+        try:
+            qweight, scales = weight
+            linear = EETQLinear(
+                qweight,
+                bias,
+                scales,
+                True,
+            )
+        except Exception:
+            logger.info("It seems that weight not quantized, make JIT now")
+            linear = EETQLinear(weight, bias)
     elif quantize == "gptq":
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
