@@ -176,31 +176,32 @@ class EETQLinear(nn.Module):
             self.weight = weight
             self.scale = scales
             self.bias = bias if bias is not None else None
+            return
+
+        # Get the device where the weight tensor is currently stored.
+        device = weight.device
+
+        # Transpose the weight tensor and make a contiguous copy of it on the CPU.
+        # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
+        # which can improve performance in some cases.
+        weight_transposed = torch.t(weight)
+        weight_contiguous = weight_transposed.contiguous()
+        weight_cpu = weight_contiguous.cpu()
+
+        # Quantize the weights. The quant_weights function is assumed to perform the quantization.
+        # The weights are quantized to int8 format, and the quantization is not performed in place (False).
+        weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
+
+        # Move the quantized weights and the scale back to the original device (GPU if available).
+        # The cuda() function is used to move the tensors to the GPU.
+        self.weight = weight_quantized.cuda(device)
+        self.scale = scale.cuda(device)
+
+        # If a bias is present, move it to the GPU as well. If not, set the bias to None.
+        if bias is not None:
+            self.bias = bias.cuda(device)
         else:
-            # Get the device where the weight tensor is currently stored.
-            device = weight.device
-
-            # Transpose the weight tensor and make a contiguous copy of it on the CPU.
-            # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
-            # which can improve performance in some cases.
-            weight_transposed = torch.t(weight)
-            weight_contiguous = weight_transposed.contiguous()
-            weight_cpu = weight_contiguous.cpu()
-
-            # Quantize the weights. The quant_weights function is assumed to perform the quantization.
-            # The weights are quantized to int8 format, and the quantization is not performed in place (False).
-            weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
-
-            # Move the quantized weights and the scale back to the original device (GPU if available).
-            # The cuda() function is used to move the tensors to the GPU.
-            self.weight = weight_quantized.cuda(device)
-            self.scale = scale.cuda(device)
-
-            # If a bias is present, move it to the GPU as well. If not, set the bias to None.
-            if bias is not None:
-                self.bias = bias.cuda(device)
-            else:
-                self.bias = None
+            self.bias = None
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
