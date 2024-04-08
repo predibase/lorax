@@ -194,43 +194,43 @@ import triton.language as tl
 #     return group_C
 
 
-@triton.autotune(
-    configs=[
-        triton.Config(
-            {
-                "BLOCK_SIZE_S": 16,
-                "BLOCK_SIZE_H1": 128,
-                "BLOCK_SIZE_R": 16,
-                "NUM_SM": 84,
-            }
-        ),
-        # triton.Config(
-        #     {
-        #         "BLOCK_SIZE_M": 128,
-        #         "BLOCK_SIZE_N": 128,
-        #         "BLOCK_SIZE_K": 32,
-        #         "NUM_SM": 128,
-        #     }
-        # ),
-        # triton.Config(
-        #     {
-        #         "BLOCK_SIZE_M": 64,
-        #         "BLOCK_SIZE_N": 64,
-        #         "BLOCK_SIZE_K": 32,
-        #         "NUM_SM": 84,
-        #     }
-        # ),
-        # triton.Config(
-        #     {
-        #         "BLOCK_SIZE_M": 64,
-        #         "BLOCK_SIZE_N": 64,
-        #         "BLOCK_SIZE_K": 32,
-        #         "NUM_SM": 128,
-        #     }
-        # ),
-    ],
-    key=["nsegments"],
-)
+# @triton.autotune(
+#     configs=[
+#         triton.Config(
+#             {
+#                 "BLOCK_SIZE_S": 16,
+#                 "BLOCK_SIZE_H1": 128,
+#                 "BLOCK_SIZE_R": 16,
+#                 "NUM_SM": 84,
+#             }
+#         ),
+#         # triton.Config(
+#         #     {
+#         #         "BLOCK_SIZE_M": 128,
+#         #         "BLOCK_SIZE_N": 128,
+#         #         "BLOCK_SIZE_K": 32,
+#         #         "NUM_SM": 128,
+#         #     }
+#         # ),
+#         # triton.Config(
+#         #     {
+#         #         "BLOCK_SIZE_M": 64,
+#         #         "BLOCK_SIZE_N": 64,
+#         #         "BLOCK_SIZE_K": 32,
+#         #         "NUM_SM": 84,
+#         #     }
+#         # ),
+#         # triton.Config(
+#         #     {
+#         #         "BLOCK_SIZE_M": 64,
+#         #         "BLOCK_SIZE_N": 64,
+#         #         "BLOCK_SIZE_K": 32,
+#         #         "NUM_SM": 128,
+#         #     }
+#         # ),
+#     ],
+#     key=["nsegments"],
+# )
 @triton.jit
 def sgmv_kernel(
     y,
@@ -273,6 +273,7 @@ def sgmv_kernel(
                 tile_idx_in_gemm = tile_idx - last_problem_end
                 tile_s_idx = tile_idx_in_gemm // num_r_tiles
                 tile_r_idx = tile_idx_in_gemm % num_r_tiles
+                # print(f"{tile_idx_in_gemm=} {tile_s_idx=} {tile_r_idx=}")
 
                 # do regular gemm here
                 offs_xs = tile_s_idx * BLOCK_SIZE_S + tl.arange(0, BLOCK_SIZE_S)
@@ -356,6 +357,10 @@ def sgmv(
         R,
         H1,
         H2,
+        BLOCK_SIZE_S=16,
+        BLOCK_SIZE_H1=128,
+        BLOCK_SIZE_R=16,
+        NUM_SM=84,
     )
 
     return y
@@ -385,7 +390,7 @@ def lora_ref_impl(
 
 device = "cuda"
 
-B = 3
+B = 3 * 16
 H1 = 1024
 H2 = 1024
 R = 16
@@ -396,7 +401,7 @@ layer_idx = 0
 torch.manual_seed(42)
 X = torch.rand((B, H1), device=device, dtype=torch.float16)
 
-s1, s2 = [0, 2], [1, 3]
+s1, s2 = [0, 2 * 16], [1 * 16, 3 * 16]
 s_start = torch.tensor(s1, dtype=torch.int32, device=device)
 s_end = torch.tensor(s2, dtype=torch.int32, device=device)
 
