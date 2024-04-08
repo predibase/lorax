@@ -286,9 +286,9 @@ def sgmv_kernel(
                     tl.multiple_of(x_tile_ptr, [16, 16])
                     tl.multiple_of(wa_tile_ptr, [16, 16])
                     # assume full tile for now
-                    x = tl.load(x_tile_ptr)
-                    wa = tl.load(wa_tile_ptr)
-                    accumulator += tl.dot(x, wa)
+                    x_tile = tl.load(x_tile_ptr)
+                    wa_tile = tl.load(wa_tile_ptr)
+                    accumulator += tl.dot(x_tile, wa_tile)
                     x_tile_ptr += BLOCK_SIZE_H1
                     wa_tile_ptr += BLOCK_SIZE_H1 * R
                 y_tile = accumulator.to(tl.float16)
