@@ -229,7 +229,9 @@ class Linear8bitLt(nn.Module):
         index=None,
     ):
         super().__init__()
-        assert not memory_efficient_backward, "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
+        assert (
+            not memory_efficient_backward
+        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
         self.state = bnb.MatmulLtState()
         self.index = index
 
@@ -314,13 +316,26 @@ class Linear4bit(nn.Module):
         return out
 
 
+from float8_experimental.float8_linear_utils import (
+    swap_linear_with_float8_linear,
+)
+from float8_experimental.float8_dynamic_linear import Float8DynamicLinear
+
+# from float8_experimental.float8_linear import Float8Linear
+
+
 def get_linear(weight, bias, quantize, fan_in_fan_out=False):
     # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
     # Set to True if replacing a Conv1D layer with a Linear layer
     if fan_in_fan_out:
         weight = weight.T.contiguous()
 
-    if quantize is None:
+    if True:
+        linear = FastLinear(weight, bias)
+        linear.in_features = weight.shape[1]
+        linear.out_features = weight.shape[0]
+        linear = Float8DynamicLinear.from_float(linear)
+    elif quantize is None:
         linear = FastLinear(weight, bias)
     elif quantize == "bitsandbytes":
         linear = Linear8bitLt(
