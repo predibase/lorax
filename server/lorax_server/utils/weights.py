@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.distributed
 from huggingface_hub import hf_hub_download
-from huggingface_hub.utils import LocalEntryNotFoundError
+from huggingface_hub.utils import EntryNotFoundError, LocalEntryNotFoundError
 from loguru import logger
 from safetensors import SafetensorError, safe_open
 
@@ -422,7 +422,7 @@ def download_weights(
             model_source.download_model_assets()
             return
         # No weights found on the hub with this extension
-        except utils.EntryNotFoundError as e:
+        except EntryNotFoundError as e:
             # Check if we want to automatically convert to safetensors or if we can use .bin weights instead
             if not extension == ".safetensors" or not auto_convert:
                 raise e
