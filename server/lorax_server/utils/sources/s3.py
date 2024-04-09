@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 import boto3
+from botocore.exceptions import ClientError
 from botocore.config import Config
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
@@ -235,7 +236,7 @@ class S3ModelSource(BaseModelSource):
         try:
             paths = download_files_from_s3(self.bucket, filenames, self.model_id, self.revision)
             return paths[0]
-        except FileNotFoundError as e:
+        except ClientError as e:
             if ignore_errors:
                 return None
             raise e
