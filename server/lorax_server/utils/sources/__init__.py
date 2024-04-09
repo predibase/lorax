@@ -19,8 +19,9 @@ S3 = "s3"
 LOCAL = "local"
 PBASE = "pbase"
 
-PREDIBASE_MODEL_URL_ENDPOINT = "/v1/models/version/name/{}"
-PREDIBASE_MODEL_VERSION_URL_ENDPOINT = "/v1/models/version/name/{}?version={}"
+LEGACY_PREDIBASE_MODEL_URL_ENDPOINT = "/v1/models/version/name/{}"
+LEGACY_PREDIBASE_MODEL_VERSION_URL_ENDPOINT = "/v1/models/version/name/{}?version={}"
+PREDIBASE_ADAPTER_VERSION_URL_ENDPOINT = "v2/repos/{}/version/{}"
 PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://api.predibase.com")
 
 
@@ -33,10 +34,10 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
     # version is optional
     if len(name_components) == 1:
         name = name_components[0]
-        url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_URL_ENDPOINT.format(name)
+        url = PREDIBASE_GATEWAY_ENDPOINT + LEGACY_PREDIBASE_MODEL_URL_ENDPOINT.format(name)
     elif len(name_components) == 2:
         name, version = name_components
-        url = PREDIBASE_GATEWAY_ENDPOINT + PREDIBASE_MODEL_VERSION_URL_ENDPOINT.format(name, version)
+        url = PREDIBASE_GATEWAY_ENDPOINT + LEGACY_PREDIBASE_MODEL_VERSION_URL_ENDPOINT.format(name, version)
     else:
         raise ValueError(f"Invalid model id {model_id}")
     resp = requests.get(url, headers=headers)
