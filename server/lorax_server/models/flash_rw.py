@@ -45,6 +45,7 @@ class FlashRWSharded(FlashCausalLM):
         )
 
         config = RWConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
+        config.quantize = quantize
 
         torch.distributed.barrier(group=self.process_group)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
@@ -55,10 +56,7 @@ class FlashRWSharded(FlashCausalLM):
             process_group=self.process_group,
             aliases={"transformer.word_embeddings.weight": ["lm_head.weight"]},
         )
-
-        config.quantize = quantize
-        if config.quantize in ["gptq", "awq", "eetq"]:
-            weights._set_gptq_params(model_id)
+        weights._set_config(model_id, config)
 
         model = FlashRWForCausalLM(config, weights)
 

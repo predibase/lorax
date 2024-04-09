@@ -224,7 +224,7 @@ class Weights(AbstractWeights):
             else:
                 g_idx = None
 
-            bits, groupsize = self._get_gptq_params()
+            bits, groupsize = self._get_bits_and_groupsize()
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         else:
             w = self.get_sharded_list("weight", prefixes, dim=0)
@@ -234,7 +234,7 @@ class Weights(AbstractWeights):
     def get_multi_weights_row(self, prefix: str, quantize: str):
         if quantize == "gptq":
             use_exllama = True
-            bits, groupsize = self._get_gptq_params()
+            bits, groupsize = self._get_bits_and_groupsize()
 
             if bits != 4:
                 use_exllama = False
@@ -298,7 +298,7 @@ class Weights(AbstractWeights):
 
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
         elif quantize == "awq":
-            bits, groupsize = self._get_gptq_params()
+            bits, groupsize = self._get_bits_and_groupsize()
 
             try:
                 qweight = self.get_sharded(f"{prefix}.qweight", dim=0)
@@ -314,31 +314,28 @@ class Weights(AbstractWeights):
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
         return weight
 
-    def _get_gptq_params(self) -> Tuple[int, int]:
+    def _get_bits_and_groupsize(self) -> Tuple[int, int]:
         try:
-            bits = self.get_tensor("gptq_bits").item()
-            groupsize = self.get_tensor("gptq_groupsize").item()
-        except (SafetensorError, RuntimeError) as e:
+            bits = self.config.quantization_config["bits"]
+            groupsize = self.config.quantization_config["groupsize"]
+        except KeyError as e:
             try:
-                bits = self.gptq_bits
-                groupsize = self.gptq_groupsize
-            except Exception:
-                raise e
+                bits = self.get_tensor("gptq_bits").item()
+                groupsize = self.get_tensor("gptq_groupsize").item()
+            except KeyError as e:
+                try:
+                    bits = self.config.quantization_config["gptq_bits"]
+                    groupsize = self.config.quantization_config["gptq_groupsize"]
+                except Exception:
+                    raise e
 
         return bits, groupsize
 
-    def _set_gptq_params(self, model_id):
-        filename = "config.json"
-        try:
-            if os.path.exists(os.path.join(model_id, filename)):
-                filename = os.path.join(model_id, filename)
-            else:
-                filename = hf_hub_download(model_id, filename=filename)
-            with open(filename, "r") as f:
-                data = json.load(f)
-            self.gptq_bits = data["quantization_config"]["bits"]
-            self.gptq_groupsize = data["quantization_config"]["group_size"]
-        except Exception:
+    def _set_config(self, model_id, config):
+        self.config = config
+
+        if not hasattr(self.config, "quantization_config"):
+            # fill from other config file
             filename = "quantize_config.json"
             try:
                 if os.path.exists(os.path.join(model_id, filename)):
@@ -347,8 +344,7 @@ class Weights(AbstractWeights):
                     filename = hf_hub_download(model_id, filename=filename)
                 with open(filename, "r") as f:
                     data = json.load(f)
-                self.gptq_bits = data["bits"]
-                self.gptq_groupsize = data["group_size"]
+                self.config.quantization_config = data["quantization_config"]
             except Exception:
                 filename = "quant_config.json"
                 try:
@@ -358,8 +354,7 @@ class Weights(AbstractWeights):
                         filename = hf_hub_download(model_id, filename=filename)
                     with open(filename, "r") as f:
                         data = json.load(f)
-                    self.gptq_bits = data["w_bit"]
-                    self.gptq_groupsize = data["q_group_size"]
+                    self.config.quantization_config = data["quantization_config"]
                 except Exception:
                     pass
 
