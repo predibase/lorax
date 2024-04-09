@@ -50,7 +50,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
             # Try to retrieve data using the new endpoint.
             resp = requests.get(url, headers=headers)
             resp.raise_for_status()
-        except:  # ruff: noqa E722
+        except requests.RequestException:
             # Not found in new path, fall back to legacy endpoint.
             resp = requests.get(legacy_url, headers=headers)
             resp.raise_for_status()
