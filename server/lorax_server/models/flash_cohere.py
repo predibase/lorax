@@ -14,7 +14,7 @@ from lorax_server.utils import (
     weight_files,
     Weights,
 )
-from server.lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)
 
