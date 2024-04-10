@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, validator, Field, ConfigDict
+from pydantic.v1 import BaseModel, validator, Field, ConfigDict
 from typing import Optional, List, Dict, Any, OrderedDict, Union
 
 from lorax.errors import ValidationError
