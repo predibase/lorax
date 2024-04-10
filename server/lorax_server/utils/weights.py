@@ -9,7 +9,7 @@ import torch.distributed
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import LocalEntryNotFoundError
 from loguru import logger
-from safetensors import SafetensorError, safe_open
+from safetensors import safe_open
 
 
 class AbstractWeights(ABC):
@@ -318,15 +318,16 @@ class Weights(AbstractWeights):
         try:
             bits = self.config.quantization_config["bits"]
             groupsize = self.config.quantization_config["group_size"]
-        except KeyError as e:
+        except KeyError:
+            # be compatible with old hehavior for gptq
             try:
-                bits = self.get_tensor("gptq_bits").item()
-                groupsize = self.get_tensor("gptq_groupsize").item()
-            except KeyError as e:
+                bits = self.config.quantization_config["gptq_bits"]
+                groupsize = self.config.quantization_config["gptq_groupsize"]
+            except KeyError:
                 try:
-                    bits = self.config.quantization_config["gptq_bits"]
-                    groupsize = self.config.quantization_config["gptq_groupsize"]
-                except Exception:
+                    bits = self.get_tensor("gptq_bits").item()
+                    groupsize = self.get_tensor("gptq_groupsize").item()
+                except Exception as e:
                     raise e
 
         return bits, groupsize
