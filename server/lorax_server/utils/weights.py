@@ -317,7 +317,7 @@ class Weights(AbstractWeights):
     def _get_bits_and_groupsize(self) -> Tuple[int, int]:
         try:
             bits = self.config.quantization_config["bits"]
-            groupsize = self.config.quantization_config["groupsize"]
+            groupsize = self.config.quantization_config["group_size"]
         except KeyError as e:
             try:
                 bits = self.get_tensor("gptq_bits").item()
