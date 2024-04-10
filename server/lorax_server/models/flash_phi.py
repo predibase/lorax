@@ -69,9 +69,7 @@ class FlashPhi(FlashCausalLM):
             dtype,
             process_group=self.process_group,
         )
-
-        if config.quantize in ["gptq", "awq", "eetq"]:
-            weights._set_gptq_params(model_id)
+        weights._set_config(model_id, config)
 
         model = FlashPhiForCausalLM(config, weights)
         self.config = config
