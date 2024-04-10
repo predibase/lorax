@@ -45,6 +45,12 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
     else:
         raise ValueError(f"Invalid model id {model_id}")
 
+    def fetch_legacy_url():
+        r = requests.get(legacy_url, headers=headers)
+        r.raise_for_status()
+        uuid, best_run_id = resp.json()["uuid"], resp.json()["bestRunID"]
+        return f"{uuid}/{best_run_id}/artifacts/model/model_weights/"
+
     if url is not None:
         try:
             # Try to retrieve data using the new endpoint.
@@ -52,10 +58,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
             resp.raise_for_status()
         except requests.RequestException:
             # Not found in new path, fall back to legacy endpoint.
-            resp = requests.get(legacy_url, headers=headers)
-            resp.raise_for_status()
-            uuid, best_run_id = resp.json()["uuid"], resp.json()["bestRunID"]
-            return f"{uuid}/{best_run_id}/artifacts/model/model_weights/"
+            return fetch_legacy_url()
 
         path = resp.json().get("adapterPath", None)
         if path is None:
@@ -63,10 +66,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
         return path
     else:
         # Use legacy path only since new endpoint requires both name and version number.
-        resp = requests.get(legacy_url, headers=headers)
-        resp.raise_for_status()
-        uuid, best_run_id = resp.json()["uuid"], resp.json()["bestRunID"]
-        return f"{uuid}/{best_run_id}/artifacts/model/model_weights/"
+        return fetch_legacy_url()
 
 
 # TODO(travis): refactor into registry pattern
