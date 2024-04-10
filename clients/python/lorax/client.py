@@ -2,7 +2,7 @@ import json
 import requests
 
 from aiohttp import ClientSession, ClientTimeout
-from pydantic import ValidationError
+from pydantic.v1 import ValidationError
 from typing import Any, Dict, Optional, List, AsyncIterator, Iterator, Union
 
 from lorax.types import (
