@@ -56,6 +56,10 @@ class FlashCohere(FlashCausalLM):
         config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
+        if not hasattr(config, "use_qk_norm"):
+            # Some variants lack this property in the config
+            config.use_qk_norm = False
+
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
@@ -71,6 +75,7 @@ class FlashCohere(FlashCausalLM):
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashCohere, self).__init__(
+            model_id=model_id,
             model=model,
             tokenizer=tokenizer,
             num_layers=len(model.model.layers),
@@ -108,8 +113,8 @@ class FlashCohere(FlashCausalLM):
             )
             layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
-            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_proj)
-            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.up_proj)
+            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.gate_up_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
 
         return layer_weights

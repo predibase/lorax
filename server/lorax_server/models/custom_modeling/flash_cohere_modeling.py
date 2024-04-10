@@ -192,6 +192,7 @@ class FlashCohereAttention(torch.nn.Module):
             dim=self.head_size,
             base=config.rope_theta,
             device=weights.device,
+            dtype=weights.dtype,
         )
 
         self.softmax_scale = self.head_size**-0.5
@@ -363,8 +364,10 @@ class FlashCohereLayer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
         prefix = f"model.layers.{layer_id}"
-        self.self_attn = FlashCohereAttention(prefix=f"{prefix}.self_attn", config=config, weights=weights)
-        self.mlp = CohereMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
+        self.self_attn = FlashCohereAttention(
+            prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id
+        )
+        self.mlp = CohereMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = FastLayerNorm.load_no_bias(
             prefix=f"{prefix}.input_layernorm",
