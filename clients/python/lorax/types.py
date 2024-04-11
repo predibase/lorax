@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, field_validator, Field, ConfigDict
+from pydantic import BaseModel, field_validator, model_validator, Field, ConfigDict
 from typing import Optional, List, Dict, Any, OrderedDict, Union
 
 from lorax.errors import ValidationError
@@ -116,12 +116,13 @@ class Parameters(BaseModel):
     # Optional response format specification to constrain the generated text
     response_format: Optional[ResponseFormat] = None
 
-    @field_validator("adapter_id")
-    def valid_adapter_id(cls, v, values):
-        merged_adapters = values.get("merged_adapters")
-        if v is not None and merged_adapters is not None:
+    @model_validator(mode="after")
+    def valid_adapter_id(self):
+        adapter_id = self.adapter_id
+        merged_adapters = self.merged_adapters
+        if adapter_id is not None and merged_adapters is not None:
             raise ValidationError("you must specify at most one of `adapter_id` or `merged_adapters`")
-        return v
+        return self
 
     @field_validator("adapter_source")
     def valid_adapter_source(cls, v):
