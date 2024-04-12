@@ -259,6 +259,20 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
+    if model_type == "cohere":
+        from lorax_server.models.flash_cohere import FlashCohere
+
+        return FlashCohere(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
     if model_type == "opt":
         return OPTSharded(
             model_id,

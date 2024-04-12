@@ -27,7 +27,7 @@ hf-transfer = "^0.1.2"
 sentencepiece = "^0.1.97"
 tokenizers = "0.15.0"
 huggingface-hub = "^0.19.4"
-transformers = "^4.38.0"
+transformers = "^4.39.3"
 einops = "^0.6.1"
 tiktoken = "^0.5.2"
 texttable = { version = "^1.6.7", optional = true }
