@@ -242,6 +242,7 @@ message Embedding {
 
 message EmbedResponse {
     Embedding embeddings = 1;
+    string errorMsg = 2;
 }
 
 message WarmupRequest {

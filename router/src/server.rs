@@ -1284,12 +1284,22 @@ async fn embed(
     mut client: Extension<ShardedClient>,
     Json(req): Json<EmbedRequest>,
 ) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
-    tracing::info!("Input: {}", req.inputs);
     let input = req.inputs.clone();
     let embeddings = client.embed(input).await.unwrap();
-    // initialize the values array with the first embedding
+    let embeddings = embeddings.get(0);
+
+    // TODO: better error enums
+    if (!embeddings.unwrap().error_msg.is_empty()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: embeddings.unwrap().error_msg.clone(),
+                error_type: "model doesn't support embeddings".to_string(),
+            }),
+        ));
+    }
+
     let values = embeddings
-        .get(0)
         .map(|emb| emb.embeddings.as_ref().map(|emb| emb.values.clone()))
         .flatten()
         .unwrap_or_default();

@@ -204,6 +204,10 @@ class FlashBert(Model):
     def batch_type(self) -> Type[FlashBatch]:
         return FlashBatch
 
+    @property
+    def supports_embeddings(self) -> bool:
+        return True
+
     def warmup(self, batch: FlashBatch, max_new_tokens: int) -> int | None:
         # return super().warmup(batch, max_new_tokens)
         return 42  # lol
