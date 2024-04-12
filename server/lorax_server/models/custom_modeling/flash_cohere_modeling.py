@@ -532,7 +532,7 @@ class FlashCohereForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits, speculative_logits = self.lm_head(hidden_states)
+        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
         logits *= self.logit_scale
         if speculative_logits is not None:
             speculative_logits *= self.logit_scale
