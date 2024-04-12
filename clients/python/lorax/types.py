@@ -335,3 +335,7 @@ class StreamResponse(BaseModel):
 class DeployedModel(BaseModel):
     model_id: str
     sha: str
+
+class EmbedResponse(BaseModel):
+    # Embeddings
+    embeddings: Optional[List[float]]
