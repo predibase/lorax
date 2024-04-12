@@ -377,7 +377,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             qweight=qweight,
             qzeros=qzeros,
             scales=scales,
-            bias=bias is not None,
+            bias=bias,
         )
     elif "hqq-" in quantize:
         if quantize == "hqq-4bit":

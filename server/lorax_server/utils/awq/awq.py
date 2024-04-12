@@ -26,7 +26,7 @@ class AWQLinear(nn.Module):
         self.qweight = qweight
         self.qzeros = qzeros
         self.scales = scales
-        self.bias = bias if bias else None
+        self.bias = bias
 
     @torch.no_grad()
     def forward(self, x):

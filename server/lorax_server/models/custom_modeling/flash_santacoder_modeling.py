@@ -63,7 +63,7 @@ def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, nu
 
         g_idx = weights.get_tensor(f"{prefix}.c_attn.g_idx")
         g_idx = g_idx.to(device=weights.device)
-        bits, groupsize = weights._get_gptq_params()
+        bits, groupsize = weights._get_bits_and_groupsize()
 
         from lorax_server.utils.layers import HAS_EXLLAMA
 

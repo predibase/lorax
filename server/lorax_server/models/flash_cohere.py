@@ -3,34 +3,28 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
-from transformers.models.phi.modeling_phi import PhiConfig
+from transformers import AutoConfig, AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
-from lorax_server.models.custom_modeling.flash_phi_modeling import (
-    ATTN_DENSE,
-    ATTN_K_PROJ,
-    ATTN_Q_PROJ,
-    ATTN_V_PROJ,
-    MLP_FC1,
-    MLP_FC2,
-    FlashPhiForCausalLM,
+from lorax_server.models.custom_modeling.flash_cohere_modeling import (
+    FlashCohereForCausalLM,
 )
 from lorax_server.utils import (
     Weights,
     initialize_torch_distributed,
     weight_files,
 )
-from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)
 
 
-ADAPTER_LAYERS = [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ, ATTN_DENSE, MLP_FC1, MLP_FC2, LM_HEAD]
-ROW_PARALLEL = {ATTN_DENSE, MLP_FC2, LM_HEAD}
+# TODO(travis): re-enable LM_HEAD after resolving issues with outputs
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
+ROW_PARALLEL = {O_PROJ, DOWN_PROJ}
 
 
-class FlashPhi(FlashCausalLM):
+class FlashCohere(FlashCausalLM):
     def __init__(
         self,
         model_id: str,
@@ -47,7 +41,7 @@ class FlashPhi(FlashCausalLM):
             device = torch.device(f"cuda:{rank}")
             dtype = torch.float16 if dtype is None else dtype
         else:
-            raise NotImplementedError("FlashPhi is only available on GPU")
+            raise NotImplementedError("FlashCohere is only available on GPU")
 
         tokenizer = AutoTokenizer.from_pretrained(
             model_id,
@@ -55,10 +49,16 @@ class FlashPhi(FlashCausalLM):
             padding_side="left",
             truncation_side="left",
             trust_remote_code=trust_remote_code,
+            use_fast=True,
+            from_slow=False,
         )
 
-        config = PhiConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
+        config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+
+        if not hasattr(config, "use_qk_norm"):
+            # Some variants lack this property in the config
+            config.use_qk_norm = False
 
         torch.distributed.barrier(group=self.process_group)
 
@@ -71,11 +71,10 @@ class FlashPhi(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashPhiForCausalLM(config, weights)
-        self.config = config
+        model = FlashCohereForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
-        super(FlashPhi, self).__init__(
+        super(FlashCohere, self).__init__(
             model_id=model_id,
             model=model,
             tokenizer=tokenizer,
@@ -100,27 +99,24 @@ class FlashPhi(FlashCausalLM):
 
         prefix = "model.layers"
         for i, layer in enumerate(self.model.model.layers):
-            layer_weights[(i, ATTN_Q_PROJ)] = (
+            layer_weights[(i, Q_PROJ)] = (
                 f"{prefix}.{i}.self_attn.q_proj",
-                layer.self_attn.qkv_proj,
+                layer.self_attn.query_key_value,
             )
-            layer_weights[(i, ATTN_K_PROJ)] = (
+            layer_weights[(i, K_PROJ)] = (
                 f"{prefix}.{i}.self_attn.k_proj",
-                layer.self_attn.qkv_proj,
+                layer.self_attn.query_key_value,
             )
-            layer_weights[(i, ATTN_V_PROJ)] = (
+            layer_weights[(i, V_PROJ)] = (
                 f"{prefix}.{i}.self_attn.v_proj",
-                layer.self_attn.qkv_proj,
+                layer.self_attn.query_key_value,
             )
-            layer_weights[(i, ATTN_DENSE)] = (
-                f"{prefix}.{i}.self_attn.dense",
-                layer.self_attn.dense,
-            )
+            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
-            layer_weights[(i, MLP_FC1)] = (f"{prefix}.{i}.mlp.fc1", layer.mlp.fc1)
-            layer_weights[(i, MLP_FC2)] = (f"{prefix}.{i}.mlp.fc2", layer.mlp.fc2)
+            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.gate_up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
 
-        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
 
     @property
@@ -128,7 +124,7 @@ class FlashPhi(FlashCausalLM):
         return ADAPTER_LAYERS
 
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
+        return len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
