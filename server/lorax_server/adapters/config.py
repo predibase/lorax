@@ -7,7 +7,7 @@ import torch
 from lorax_server.adapters.weights import AdapterWeights
 
 if TYPE_CHECKING:
-    from server.lorax_server.models.model import Model
+    from lorax_server.models.model import Model
 
 
 ModuleMap = Dict[str, Dict[str, Tuple[torch.Tensor, str]]]
