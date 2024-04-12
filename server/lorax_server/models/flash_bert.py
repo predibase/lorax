@@ -1,33 +1,29 @@
-from lorax_server.models.types import GeneratedText
-import torch
+from typing import List, Optional, Type
 
+import torch
+from opentelemetry import trace
 from torch import nn
-from typing import Type, List, Optional
+from transformers import AutoTokenizer
 from transformers.activations import ACT2FN
 from transformers.models.bert import BertConfig
-from transformers import AutoTokenizer
-from opentelemetry import trace
 
-
-from lorax_server.utils.layers import FastLayerNorm
-from lorax_server.utils.flash_attn import attention
 from lorax_server.models import Model
-from lorax_server.models.types import FlashBatch
+from lorax_server.models.types import FlashBatch, GeneratedText
 from lorax_server.pb.generate_pb2 import Embedding
-
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
+from lorax_server.utils.flash_attn import attention
+from lorax_server.utils.layers import FastLayerNorm
 
 tracer = trace.get_tracer(__name__)
 
 
-# NOTE: This implementation of flashbert was based on the huggingface/text-embeddings-inference implementation of flashbert here:
+# NOTE: This implementation of flashbert was based on the
+# huggingface/text-embeddings-inference implementation of flashbert here:
 # https://github.com/huggingface/text-embeddings-inference/blob/cb802a25d43fe6078c715b49652a3bc8a7d5aac8/backends/python/server/text_embeddings_server/models/flash_bert.py
-
-
 
 
 class BertEmbeddings:
