@@ -24,6 +24,11 @@ from lorax_server.utils import (
 tracer = trace.get_tracer(__name__)
 
 
+# NOTE: This implementation of flashbert was based on the huggingface/text-embeddings-inference implementation of flashbert here:
+# https://github.com/huggingface/text-embeddings-inference/blob/cb802a25d43fe6078c715b49652a3bc8a7d5aac8/backends/python/server/text_embeddings_server/models/flash_bert.py
+
+
+
 
 class BertEmbeddings:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
