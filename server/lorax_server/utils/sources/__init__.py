@@ -21,7 +21,7 @@ PBASE = "pbase"
 
 LEGACY_PREDIBASE_MODEL_URL_ENDPOINT = "/v1/models/version/name/{}"
 LEGACY_PREDIBASE_MODEL_VERSION_URL_ENDPOINT = "/v1/models/version/name/{}?version={}"
-PREDIBASE_ADAPTER_VERSION_URL_ENDPOINT = "v2/repos/{}/version/{}"
+PREDIBASE_ADAPTER_VERSION_URL_ENDPOINT = "/v2/repos/{}/version/{}"
 PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://api.predibase.com")
 
 
