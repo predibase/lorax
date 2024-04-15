@@ -163,7 +163,7 @@ class FlashBert(Model):
         self,
         model_id: str,
         revision: Optional[str] = None,
-        dtype: Optional[torch.dtype] = None,
+        dtype: Optional[str] = None,
     ):
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
