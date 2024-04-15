@@ -48,7 +48,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
     def fetch_legacy_url():
         r = requests.get(legacy_url, headers=headers)
         r.raise_for_status()
-        uuid, best_run_id = resp.json()["uuid"], resp.json()["bestRunID"]
+        uuid, best_run_id = r.json()["uuid"], r.json()["bestRunID"]
         return f"{uuid}/{best_run_id}/artifacts/model/model_weights/"
 
     if url is not None:
