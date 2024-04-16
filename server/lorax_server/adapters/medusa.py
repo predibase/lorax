@@ -61,10 +61,14 @@ class ResBlock(torch.nn.Module):
     def __init__(self, config: MedusaConfig, prefix: str, weights: AbstractWeights):
         super().__init__()
         self.linear = FastLinear.load(config, prefix=f"{prefix}.linear", weights=weights, bias=True)
+        # self.lora_A = FastLinear.load(config, prefix=f"{prefix}.lora_A", weights=weights, bias=False)
+        # self.lora_B = FastLinear.load(config, prefix=f"{prefix}.lora_B", weights=weights, bias=False)
         self.act = torch.nn.SiLU()
+        self.scaling = 1
 
     def forward(self, x):
         return x + self.act(self.linear(x))
+        # return x + self.act(self.lora_B(self.lora_A(x)) * self.scaling)
 
 
 class MedusaHead(torch.nn.Module):

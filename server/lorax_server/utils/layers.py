@@ -229,7 +229,9 @@ class Linear8bitLt(nn.Module):
         index=None,
     ):
         super().__init__()
-        assert not memory_efficient_backward, "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
+        assert (
+            not memory_efficient_backward
+        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
         self.state = bnb.MatmulLtState()
         self.index = index
 
@@ -686,6 +688,9 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
         speculative_logits = None
         if data is not None and data.default_medusa is not None:
             speculative_logits = data.default_medusa.model(input)
+            # print("shape before", speculative_logits.shape)
+            # speculative_logits = super().forward(speculative_logits, adapter_data)
+            # print("shape after", speculative_logits.shape)
 
             # TODO(travis): support multiple medusa adapters with masking:
             # for adapter_index in adapter_data.meta.adapter_set:
