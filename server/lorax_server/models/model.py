@@ -60,9 +60,6 @@ class Model(ABC):
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
         if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
-            # If we provided a "static_adapter_source" use that instead here
-            # This supports loading in a static adapter (such as meuda weights) on a model you would otherwise
-            # want to use 
             download_adapter(adapter_id, adapter_source, api_token=None)
             self.load_adapter(
                 AdapterParameters(adapter_ids=[adapter_id]),
