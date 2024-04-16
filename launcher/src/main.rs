@@ -116,21 +116,21 @@ struct Args {
     source: String,
 
     /// The default source of the dynamic adapters to load.
-    /// Can be `hub` or `s3` or `pbase`
-    /// `hub` will load the model from the huggingface hub.
-    /// `s3` will load the model from the predibase S3 bucket.
-    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
-    #[clap(default_value = "hub", long, env)]
-    adapter_source: String,
-
-    /// The source of the static adapter to load.
     /// If not defined, we fallback to the value from `adapter_source`
     /// Can be `hub` or `s3` or `pbase`
     /// `hub` will load the model from the huggingface hub.
     /// `s3` will load the model from the predibase S3 bucket.
     /// `pbase` will load an s3 model but resolve the metadata from a predibase server
     #[clap(long, env)]
-    static_adapter_source: Option<String>,
+    default_adapter_source: Option<String>,
+
+    /// The source of the static adapter to load.
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(default_value = "hub", long, env)]
+    adapter_source: String,
 
     /// The actual revision of the model if you're referring to a model
     /// on the hub. You can use a specific commit id or a branch like `refs/pr/2`.
@@ -396,7 +396,7 @@ fn shard_manager(
     revision: Option<String>,
     source: String,
     adapter_source: String,
-    static_adapter_source: Option<String>,
+    default_adapter_source: Option<String>,
     quantize: Option<Quantization>,
     compile: bool,
     speculative_tokens: Option<usize>,
@@ -446,9 +446,9 @@ fn shard_manager(
     ];
 
     // Check if the static adapter source is a non empty string
-    if let Some(static_adapter_source) = static_adapter_source {
-        shard_args.push("--static-adapter-source".to_string());
-        shard_args.push(static_adapter_source);
+    if let Some(default_adapter_source) = default_adapter_source {
+        shard_args.push("--default-adapter-source".to_string());
+        shard_args.push(default_adapter_source);
     }
 
     // Check if adapter id is non-empty string
@@ -794,8 +794,8 @@ fn download_convert_model(
     
     let adapter_source;
 
-    if let Some(static_adapter_source) = args.static_adapter_source.clone()  {
-        adapter_source = static_adapter_source;
+    if let Some(default_adapter_source) = args.default_adapter_source.clone()  {
+        adapter_source = default_adapter_source;
     } else {
         adapter_source = args.adapter_source.clone()
     }
@@ -965,7 +965,7 @@ fn spawn_shards(
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
-        let static_adapter_source = args.static_adapter_source.clone();
+        let default_adapter_source = args.default_adapter_source.clone();
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -973,7 +973,7 @@ fn spawn_shards(
                 revision,
                 source,
                 adapter_source,
-                static_adapter_source,
+                default_adapter_source,
                 quantize,
                 compile,
                 speculative_tokens,
@@ -1067,9 +1067,18 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
-        "--adapter-source".to_string(),
-        args.adapter_source,
     ];
+
+    // Set the default adapter source as "default_adapter_source" if defined, otherwise, "adapter_source"
+    let adapter_source;
+    if let Some(default_adapter_source) = args.default_adapter_source {
+        adapter_source = default_adapter_source
+    } else {
+        adapter_source = args.adapter_source
+    }
+
+    router_args.push("--adapter-source".to_string());
+    router_args.push(adapter_source.to_string());
 
     // Model optional max batch total tokens
     if let Some(max_batch_total_tokens) = args.max_batch_total_tokens {

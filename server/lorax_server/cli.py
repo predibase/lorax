@@ -45,15 +45,8 @@ def serve(
     otlp_endpoint: Optional[str] = None,
     source: str = "hub",
     adapter_source: str = "hub",
-    static_adapter_source: Optional[str] = None,
     speculative_tokens: int = 0,
 ):
-    # The static adapter source defaults to the adapter source 
-    # The adapter source used when initializing the model here is only used when loading in static adapters 
-    # at model launch time. All dynamic adapters default to the adapter_source set in the lorax router before 
-    # sending generate request makes it down here.
-    if static_adapter_source is None:
-        static_adapter_source = adapter_source
 
     if sharded:
         assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
@@ -99,7 +92,7 @@ def serve(
         trust_remote_code,
         uds_path,
         source,
-        static_adapter_source,
+        adapter_source,
         speculative_tokens,
     )
 
