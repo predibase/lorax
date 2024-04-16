@@ -186,8 +186,15 @@ class Client:
             timeout=self.timeout,
         )
 
-        # TODO: expose better error messages for 422 and similar errors
-        payload = resp.json()
+        try:
+            payload = resp.json()
+        except requests.JSONDecodeError as e:
+            # If the status code is success-like, reset it to 500 since the server is sending an invalid response.
+            if 200 <= resp.status_code < 400:
+                resp.status_code = 500
+
+            payload = {"message": e.msg}
+
         if resp.status_code != 200:
             raise parse_error(resp.status_code, payload)
 

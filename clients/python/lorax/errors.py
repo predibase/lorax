@@ -54,10 +54,15 @@ class NotSupportedError(Exception):
         super(NotSupportedError, self).__init__(message)
 
 
-# Unknown error
-class UnknownError(Exception):
+class UnprocessableEntityError(Exception):
     def __init__(self, message: str):
         super().__init__(message)
+
+
+# Unknown error
+class UnknownError(Exception):
+    def __init__(self, message: str, code: int):
+        super().__init__(f"Error status {code}: {message}")
 
 
 def parse_error(status_code: int, payload: Dict[str, str]) -> Exception:
@@ -75,17 +80,17 @@ def parse_error(status_code: int, payload: Dict[str, str]) -> Exception:
 
     """
     # Try to parse a LoRAX error
-    message = payload["error"]
-    if "error_type" in payload:
-        error_type = payload["error_type"]
-        if error_type == "generation":
-            return GenerationError(message)
-        if error_type == "incomplete_generation":
-            return IncompleteGenerationError(message)
-        if error_type == "overloaded":
-            return OverloadedError(message)
-        if error_type == "validation":
-            return ValidationError(message)
+    message = payload.get("error", "")
+
+    error_type = payload.get("error_type", "")
+    if error_type == "generation":
+        return GenerationError(message)
+    if error_type == "incomplete_generation":
+        return IncompleteGenerationError(message)
+    if error_type == "overloaded":
+        return OverloadedError(message)
+    if error_type == "validation":
+        return ValidationError(message)
 
     # Try to parse a APIInference error
     if status_code == 400:
@@ -98,6 +103,8 @@ def parse_error(status_code: int, payload: Dict[str, str]) -> Exception:
         return NotFoundError(message)
     if status_code == 429:
         return RateLimitExceededError(message)
+    if status_code == 422:
+        return UnprocessableEntityError(message)
 
     # Fallback to an unknown error
-    return UnknownError(message)
+    return UnknownError(message, status_code)
