@@ -115,13 +115,22 @@ struct Args {
     #[clap(default_value = "hub", long, env)]
     source: String,
 
-    /// The source of the static adapter to load.
+    /// The default source of the dynamic adapters to load.
     /// Can be `hub` or `s3` or `pbase`
     /// `hub` will load the model from the huggingface hub.
     /// `s3` will load the model from the predibase S3 bucket.
     /// `pbase` will load an s3 model but resolve the metadata from a predibase server
     #[clap(default_value = "hub", long, env)]
     adapter_source: String,
+
+    /// The source of the static adapter to load.
+    /// If not defined, we fallback to the value from `adapter_source`
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(long, env)]
+    static_adapter_source: Option<String>,
 
     /// The actual revision of the model if you're referring to a model
     /// on the hub. You can use a specific commit id or a branch like `refs/pr/2`.
@@ -387,6 +396,7 @@ fn shard_manager(
     revision: Option<String>,
     source: String,
     adapter_source: String,
+    static_adapter_source: Option<String>,
     quantize: Option<Quantization>,
     compile: bool,
     speculative_tokens: Option<usize>,
@@ -434,6 +444,12 @@ fn shard_manager(
         "--adapter-source".to_string(),
         adapter_source,
     ];
+
+    // Check if the static adapter source is a non empty string
+    if let Some(static_adapter_source) = static_adapter_source {
+        shard_args.push("--static-adapter-source".to_string());
+        shard_args.push(static_adapter_source);
+    }
 
     // Check if adapter id is non-empty string
     if !adapter_id.is_empty() {
@@ -941,6 +957,7 @@ fn spawn_shards(
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
+        let static_adapter_source = args.static_adapter_source.clone();
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -948,6 +965,7 @@ fn spawn_shards(
                 revision,
                 source,
                 adapter_source,
+                static_adapter_source,
                 quantize,
                 compile,
                 speculative_tokens,

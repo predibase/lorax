@@ -250,7 +250,7 @@ def serve(
                 dtype,
                 trust_remote_code,
                 source,
-                adapter_source,
+                adapter_source
             )
         except Exception:
             logger.exception("Error when initializing model")
