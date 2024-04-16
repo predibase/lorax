@@ -57,6 +57,10 @@ if not HAS_FLASH_ATTN_V2:
     raise ImportError("Mistral model requires flash attn v2")
 
 
+def _get_weight_name(prefix, name):
+    return f"{prefix}.{name}" if prefix else name
+
+
 class MistralConfig(PretrainedConfig):
     model_type = "mistral"
 
@@ -406,9 +410,9 @@ class MistralMLP(nn.Module):
 
 
 class MistralLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, layer_id, config, weights, weight_prefix="model"):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = _get_weight_name(weight_prefix, f"layers.{layer_id}")
         self.self_attn = MistralAttention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -467,24 +471,25 @@ class MistralLayer(nn.Module):
 
 
 class MistralModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, config, weights, prefix="model"):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=_get_weight_name(prefix, "embed_tokens"), weights=weights)
         self.layers = nn.ModuleList(
             [
                 MistralLayer(
                     layer_id,
                     config,
                     weights,
+                    prefix
                 )
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MistralRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = MistralRMSNorm(prefix=_get_weight_name(prefix, "norm"), weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -537,7 +542,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
 
-        self.model = MistralModel(config, weights)
+        self.model = MistralModel(config, weights, prefix="model")
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
@@ -590,3 +595,45 @@ class FlashMistralForCausalLM(torch.nn.Module):
             hidden_states = hidden_states[lm_head_indices]
         logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
         return logits, speculative_logits
+
+class FlashMistralForEmbedding(torch.nn.Module):
+    def __init__(self, config, weights):
+        super().__init__()
+        self.model = MistralModel(config, weights, prefix="")
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        prefill_cache_indices: Optional[torch.Tensor] = None,
+        lm_head_indices: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        if prefill_cache_indices is not None:
+            # Slots also need to be sliced as it has the same size as the whole kv tensor
+            slots = slots[prefill_cache_indices]
+        elif self.max_past is not None:
+            # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
+            # kernel requires the true values
+            max_s = min(self.max_past, max_s)
+            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+
+        hidden_states = self.model(
+            input_ids,
+            position_ids,
+            cu_seqlen_prefill,
+            kv_cache,
+            block_tables,
+            slots,
+            input_lengths,
+            max_s,
+            adapter_data,
+            prefill_cache_indices,
+        )
+        return hidden_states

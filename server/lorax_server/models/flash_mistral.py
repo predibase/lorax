@@ -6,8 +6,10 @@ from opentelemetry import trace
 from transformers.models.llama import LlamaTokenizerFast
 
 from lorax_server.models import FlashCausalLM
+from lorax_server.models.types import FlashBatch
 from lorax_server.models.custom_modeling.flash_mistral_modeling import (
     FlashMistralForCausalLM,
+    FlashMistralForEmbedding,
     MistralConfig,
 )
 from lorax_server.utils import (
@@ -43,7 +45,9 @@ class FlashMistral(FlashCausalLM):
         compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
+        embed_mode: bool = False,
     ):
+        self.embed_mode = embed_mode
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{rank}")
@@ -73,7 +77,10 @@ class FlashMistral(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashMistralForCausalLM(config, weights)
+        if self.embed_mode:
+            model = FlashMistralForEmbedding(config, weights)
+        else:
+            model = FlashMistralForCausalLM(config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashMistral, self).__init__(
@@ -119,6 +126,9 @@ class FlashMistral(FlashCausalLM):
             layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
+        
+        if self.embed_mode:
+            return layer_weights
 
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
@@ -132,3 +142,17 @@ class FlashMistral(FlashCausalLM):
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
+
+    def tokenize_to_batch(self, inputs) -> FlashBatch:
+        tokens = self.tokenizer(inputs, return_token_type_ids=True)
+        num_tokens = len(tokens["input_ids"])
+        position_ids = range(num_tokens)
+        return FlashBatch(
+            input_ids=torch.tensor(tokens["input_ids"], dtype=torch.int32, device=self.device),
+            token_type_ids=torch.tensor(tokens["token_type_ids"], dtype=torch.int32, device=self.device),
+            position_ids=torch.tensor(position_ids, dtype=torch.int32, device=self.device),
+            cu_seqlens=torch.tensor([0, num_tokens], dtype=torch.int32, device=self.device),
+            cu_seqlen_prefill=None,
+            max_s=num_tokens,
+            size=1,
+        )

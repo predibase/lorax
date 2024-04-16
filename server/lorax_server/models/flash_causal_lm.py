@@ -26,6 +26,7 @@ from lorax_server.models.types import (
     Generation,
     NextTokens,
     PrefillTokens,
+    FlashBatch
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
@@ -851,6 +852,10 @@ class FlashCausalLM(Model):
 
     def decode(self, generated_ids: Union[torch.Tensor, List[int]]) -> str:
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+    
+    def embed(self, batch: FlashBatch) -> torch.Tensor:
+        out = self.forward(batch, None)
+        breakpoint()
 
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None

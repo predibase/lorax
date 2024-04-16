@@ -144,6 +144,10 @@ class Model(ABC):
     def supports_adapter_loading(self) -> bool:
         return False
 
+    @property
+    def supports_embedding_generation(self) -> bool:
+        return False
+
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         return {}
 

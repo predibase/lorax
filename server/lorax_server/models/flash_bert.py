@@ -202,6 +202,10 @@ class FlashBert(Model):
         )
 
     @property
+    def supports_embedding_generation(self) -> bool:
+        return True
+    
+    @property
     def batch_type(self) -> Type[FlashBatch]:
         return FlashBatch
 

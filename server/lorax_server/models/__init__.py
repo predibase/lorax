@@ -182,6 +182,19 @@ def get_model(
     if model_type == "mistral":
         from lorax_server.models.flash_mistral import FlashMistral
 
+        if "intfloat/e5-mistral-7b-instruct" in model_id:
+            return FlashMistral(
+                model_id,
+                adapter_id,
+                adapter_source,
+                revision,
+                quantize=quantize,
+                compile=compile,
+                dtype=dtype,
+                trust_remote_code=trust_remote_code,
+                embed_mode=True,
+            )
+
         return FlashMistral(
             model_id,
             adapter_id,

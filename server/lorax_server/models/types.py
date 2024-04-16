@@ -131,6 +131,8 @@ class FlashBatch(ABC):
     token_type_ids: torch.Tensor
     position_ids: torch.Tensor
 
+    cu_seqlen_prefill: Optional[torch.Tensor]
+
     cu_seqlens: torch.Tensor
     max_s: int
     size: int
