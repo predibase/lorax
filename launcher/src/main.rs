@@ -1070,6 +1070,7 @@ fn spawn_webserver(
     ];
 
     // Set the default adapter source as "default_adapter_source" if defined, otherwise, "adapter_source"
+    // adapter_source in the router is used to set the default adapter source for dynamically loaded adapters.
     let adapter_source;
     if let Some(default_adapter_source) = args.default_adapter_source {
         adapter_source = default_adapter_source
