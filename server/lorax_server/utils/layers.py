@@ -7,6 +7,7 @@ import torch.distributed
 from accelerate import init_empty_weights
 from torch import nn
 from torch.nn import functional as F
+from loguru import logger
 
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
@@ -166,8 +167,17 @@ class EETQLinear(nn.Module):
         self,
         weight,
         bias,
+        scales=None,
+        quantized=False,
     ) -> None:
         super().__init__()
+
+        if quantized:
+            self.weight = weight
+            self.scale = scales
+            self.bias = bias if bias is not None else None
+            return
+
         # Get the device where the weight tensor is currently stored.
         device = weight.device
 
@@ -344,10 +354,20 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             quant_type="fp4",
         )
     elif quantize == "eetq":
-        if HAS_EETQ:
-            linear = EETQLinear(weight, bias)
-        else:
+        if not HAS_EETQ:
             raise ImportError("Please install EETQ from https://github.com/NetEase-FuXi/EETQ")
+
+        try:
+            qweight, scales = weight
+            linear = EETQLinear(
+                qweight,
+                bias,
+                scales,
+                True,
+            )
+        except Exception:
+            logger.info("It seems that weight not quantized, make JIT now")
+            linear = EETQLinear(weight, bias)
     elif quantize == "gptq":
         try:
             qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
