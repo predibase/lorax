@@ -687,7 +687,7 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
 
         speculative_logits = None
         if data is not None and data.default_medusa is not None:
-            speculative_logits = data.default_medusa.model(input)
+            speculative_logits = data.default_medusa.model(input, self)
             # print("shape before", speculative_logits.shape)
             # speculative_logits = super().forward(speculative_logits, adapter_data)
             # print("shape after", speculative_logits.shape)

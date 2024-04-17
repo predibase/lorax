@@ -21,12 +21,24 @@ class AbstractWeights(ABC):
     def get_shape(self, tensor_name: str) -> torch.Size:
         pass
 
+    @property
+    @abstractmethod
+    def process_group(self):
+        pass
+
 
 class InMemoryWeights(AbstractWeights):
-    def __init__(self, weights: Dict[str, torch.Tensor], device: torch.device, dtype: torch.dtype):
+    def __init__(
+        self,
+        weights: Dict[str, torch.Tensor],
+        device: torch.device,
+        dtype: torch.dtype,
+        process_group: torch.distributed.ProcessGroup,
+    ):
         self.weights = weights
         self.device = device
         self.dtype = dtype
+        self._process_group = process_group
 
     def get_tensor(self, tensor_name: str) -> torch.Tensor:
         tensor = self.weights[tensor_name]
@@ -36,6 +48,10 @@ class InMemoryWeights(AbstractWeights):
 
     def get_shape(self, tensor_name: str) -> torch.Size:
         return self.weights[tensor_name].shape
+
+    @property
+    def process_group(self):
+        return self._process_group
 
 
 class Weights(AbstractWeights):
