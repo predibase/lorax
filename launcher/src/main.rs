@@ -957,7 +957,6 @@ fn spawn_shards(
                 revision,
                 source,
                 adapter_source,
-                default_adapter_source,
                 quantize,
                 compile,
                 speculative_tokens,
