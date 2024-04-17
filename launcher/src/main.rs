@@ -441,7 +441,6 @@ fn shard_manager(
         "--json-output".to_string(),
         "--source".to_string(),
         source,
-
     ];
 
     let default_adapter_source_for_launcher; 
@@ -1065,19 +1064,9 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
+        "--adapter-source".to_string(),
+        args.adapter_source.to_string(),
     ];
-
-    // Set the default adapter source as "default_adapter_source" if defined, otherwise, "adapter_source"
-    // adapter_source in the router is used to set the default adapter source for dynamically loaded adapters.
-    let adapter_source;
-    if let Some(default_adapter_source) = args.default_adapter_source {
-        adapter_source = default_adapter_source
-    } else {
-        adapter_source = args.adapter_source
-    }
-
-    router_args.push("--adapter-source".to_string());
-    router_args.push(adapter_source.to_string());
 
     // Model optional max batch total tokens
     if let Some(max_batch_total_tokens) = args.max_batch_total_tokens {
