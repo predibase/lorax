@@ -396,7 +396,6 @@ fn shard_manager(
     revision: Option<String>,
     source: String,
     adapter_source: String,
-    default_adapter_source: Option<String>,
     quantize: Option<Quantization>,
     compile: bool,
     speculative_tokens: Option<usize>,
@@ -441,20 +440,9 @@ fn shard_manager(
         "--json-output".to_string(),
         "--source".to_string(),
         source,
+        "--adapter-source".to_string(),
+        adapter_source
     ];
-
-    let default_adapter_source_for_launcher; 
-    
-    // Start the lorax shard with adapter_source = either the default adapter source if provided, otherwise, 
-    // fallback to the static adapter source.
-    if let Some(default_adapter_source) = default_adapter_source {
-        default_adapter_source_for_launcher = default_adapter_source
-    } else {
-        default_adapter_source_for_launcher = adapter_source;
-    }
-
-    shard_args.push("--adapter-source".to_string());
-    shard_args.push(default_adapter_source_for_launcher);
 
     // Check if adapter id is non-empty string
     if !adapter_id.is_empty() {
@@ -962,7 +950,6 @@ fn spawn_shards(
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
-        let default_adapter_source = args.default_adapter_source.clone();
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1064,9 +1051,18 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
-        "--adapter-source".to_string(),
-        args.adapter_source.to_string(),
     ];
+    // Set the default adapter source as "default_adapter_source" if defined, otherwise, "adapter_source"
+    // adapter_source in the router is used to set the default adapter source for dynamically loaded adapters.
+    let adapter_source;
+    if let Some(default_adapter_source) = args.default_adapter_source {
+        adapter_source = default_adapter_source
+    } else {
+        adapter_source = args.adapter_source
+    }
+
+    router_args.push("--adapter-source".to_string());
+    router_args.push(adapter_source.to_string());
 
     // Model optional max batch total tokens
     if let Some(max_batch_total_tokens) = args.max_batch_total_tokens {
