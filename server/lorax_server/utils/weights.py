@@ -22,13 +22,16 @@ class AbstractWeights(ABC):
         pass
 
     @abstractmethod
-    def get_shape(self, tensor_name: str) -> torch.Size:
+    def get_slice_shape(self, slice) -> torch.Size:
         pass
 
     @property
     @abstractmethod
     def process_group(self):
         pass
+
+    def get_shape(self, tensor_name: str) -> torch.Size:
+        return self.get_slice_shape(self.get_slice(tensor_name))
 
     def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
         """Loads tensor with the given name and shards it along the given dimension.
@@ -51,7 +54,7 @@ class AbstractWeights(ABC):
             offset, size = range
         else:
             offset = 0
-            size = slice_.shape[dim]
+            size = self.get_slice_shape(slice_)[dim]
         start, stop = get_start_stop_idxs_for_rank(offset, size, rank, world_size)
 
         if dim == 0:
@@ -70,7 +73,7 @@ class AbstractWeights(ABC):
     def get_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
         slice_ = self.get_slice(tensor_name)
         world_size = self.process_group.size()
-        size = slice_.shape[dim] if range is None else range[1]
+        size = self.get_slice_shape(slice_)[dim] if range is None else range[1]
         assert size % world_size == 0, f"The choosen size {size} is not compatible with sharding on {world_size} shards"
         return self.get_partial_sharded(tensor_name, dim, range=range)
 
@@ -237,8 +240,8 @@ class InMemoryWeights(AbstractWeights):
         tensor = tensor.to(device=self.device)
         return tensor
 
-    def get_shape(self, tensor_name: str) -> torch.Size:
-        return self.weights[tensor_name].shape
+    def get_slice_shape(self, slice) -> torch.Size:
+        return slice.shape
 
     @property
     def process_group(self):
@@ -341,8 +344,8 @@ class Weights(AbstractWeights):
         slice_ = f.get_slice(tensor_name)
         return slice_
 
-    def get_shape(self, tensor_name: str):
-        return self.get_slice(tensor_name).shape
+    def get_slice_shape(self, slice) -> torch.Size:
+        return slice.get_shape()
 
     def get_tensor(self, tensor_name: str):
         filename, tensor_name = self.get_filename(tensor_name)
