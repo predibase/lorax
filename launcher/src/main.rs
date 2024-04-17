@@ -4,7 +4,7 @@ use nix::unistd::Pid;
 use serde::Deserialize;
 use std::env;
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Lines, Read};
+use std::io::{BufRead, BufReader, Lines};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -114,6 +114,15 @@ struct Args {
     /// `s3` will load the model from the predibase S3 bucket.
     #[clap(default_value = "hub", long, env)]
     source: String,
+
+    /// The default source of the dynamic adapters to load.
+    /// If not defined, we fallback to the value from `adapter_source`
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(long, env)]
+    default_adapter_source: Option<String>,
 
     /// The source of the static adapter to load.
     /// Can be `hub` or `s3` or `pbase`
@@ -1041,9 +1050,18 @@ fn spawn_webserver(
         format!("{}-0", args.shard_uds_path),
         "--tokenizer-name".to_string(),
         args.model_id,
-        "--adapter-source".to_string(),
-        args.adapter_source,
     ];
+    // Set the default adapter source as "default_adapter_source" if defined, otherwise, "adapter_source"
+    // adapter_source in the router is used to set the default adapter source for dynamically loaded adapters.
+    let adapter_source;
+    if let Some(default_adapter_source) = args.default_adapter_source {
+        adapter_source = default_adapter_source
+    } else {
+        adapter_source = args.adapter_source
+    }
+
+    router_args.push("--adapter-source".to_string());
+    router_args.push(adapter_source.to_string());
 
     // Model optional max batch total tokens
     if let Some(max_batch_total_tokens) = args.max_batch_total_tokens {
