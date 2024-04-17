@@ -441,7 +441,7 @@ fn shard_manager(
         "--source".to_string(),
         source,
         "--adapter-source".to_string(),
-        adapter_source
+        adapter_source,
     ];
 
     // Check if adapter id is non-empty string
@@ -784,7 +784,7 @@ fn download_convert_model(
 ) -> Result<(), LauncherError> {
     // Enter download tracing span
     let _span = tracing::span!(tracing::Level::INFO, "download").entered();
-    
+
     let mut download_args = vec![
         "download-weights".to_string(),
         model_id,
