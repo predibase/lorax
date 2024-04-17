@@ -700,6 +700,8 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
             #         adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
             #         speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
             #         ...
+        else:
+            result = super().forward(input, adapter_data)
 
         return result, speculative_logits
 
