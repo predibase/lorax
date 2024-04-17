@@ -441,15 +441,21 @@ fn shard_manager(
         "--json-output".to_string(),
         "--source".to_string(),
         source,
-        "--adapter-source".to_string(),
-        adapter_source,
+
     ];
 
-    // Check if the static adapter source is a non empty string
+    let default_adapter_source_for_launcher; 
+    
+    // Start the lorax shard with adapter_source = either the default adapter source if provided, otherwise, 
+    // fallback to the static adapter source.
     if let Some(default_adapter_source) = default_adapter_source {
-        shard_args.push("--default-adapter-source".to_string());
-        shard_args.push(default_adapter_source);
+        default_adapter_source_for_launcher = default_adapter_source
+    } else {
+        default_adapter_source_for_launcher = adapter_source;
     }
+
+    shard_args.push("--adapter-source".to_string());
+    shard_args.push(default_adapter_source_for_launcher);
 
     // Check if adapter id is non-empty string
     if !adapter_id.is_empty() {
