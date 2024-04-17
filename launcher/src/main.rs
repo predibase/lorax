@@ -792,14 +792,6 @@ fn download_convert_model(
     // Enter download tracing span
     let _span = tracing::span!(tracing::Level::INFO, "download").entered();
     
-    let adapter_source;
-
-    if let Some(default_adapter_source) = args.default_adapter_source.clone()  {
-        adapter_source = default_adapter_source;
-    } else {
-        adapter_source = args.adapter_source.clone()
-    }
-
     let mut download_args = vec![
         "download-weights".to_string(),
         model_id,
@@ -811,7 +803,7 @@ fn download_convert_model(
         "--source".to_string(),
         args.source.clone(),
         "--adapter-source".to_string(),
-        adapter_source,
+        args.adapter_source.clone(),
     ];
 
     // Model optional revision
