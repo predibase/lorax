@@ -679,7 +679,7 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
     def forward(
         self, input: torch.Tensor, adapter_data: "AdapterBatchData"
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        result = super().forward(input, adapter_data)
+        # result = super().forward(input, adapter_data)
 
         # Medusa
         data = adapter_data.data.get(self.layer_name)
@@ -687,7 +687,9 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
 
         speculative_logits = None
         if data is not None and data.default_medusa is not None:
-            speculative_logits = data.default_medusa.model(input, self)
+            forward = super().forward
+            lm_head = lambda x: forward(x, adapter_data)
+            result, speculative_logits = data.default_medusa.model(input, lm_head)
             # print("shape before", speculative_logits.shape)
             # speculative_logits = super().forward(speculative_logits, adapter_data)
             # print("shape after", speculative_logits.shape)
