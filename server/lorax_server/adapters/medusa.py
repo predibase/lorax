@@ -19,6 +19,10 @@ class MedusaConfig(AdapterConfig):
     medusa_num_heads: int
     medusa_num_layers: int
 
+    @property
+    def quantize(self) -> Optional[str]:
+        return None
+
     def map_weights_for_model(
         self,
         adapter_weights: Dict,
