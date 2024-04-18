@@ -679,8 +679,6 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
     def forward(
         self, input: torch.Tensor, adapter_data: "AdapterBatchData"
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        # result = super().forward(input, adapter_data)
-
         # Medusa
         data = adapter_data.data.get(self.layer_name)
         data: Optional["BatchMedusaWeights"] = data.get(MEDUSA) if data is not None else None
@@ -688,11 +686,8 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
         speculative_logits = None
         if data is not None and data.default_medusa is not None:
             forward = super().forward
-            lm_head = lambda x: forward(x, adapter_data)
-            result, speculative_logits = data.default_medusa.model(input, lm_head)
-            # print("shape before", speculative_logits.shape)
-            # speculative_logits = super().forward(speculative_logits, adapter_data)
-            # print("shape after", speculative_logits.shape)
+            lm_head = lambda x: forward(x, adapter_data)  # noqa: E731
+            logits, speculative_logits = data.default_medusa.model(input, lm_head)
 
             # TODO(travis): support multiple medusa adapters with masking:
             # for adapter_index in adapter_data.meta.adapter_set:
@@ -701,9 +696,9 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
             #         speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
             #         ...
         else:
-            result = super().forward(input, adapter_data)
+            logits = super().forward(input, adapter_data)
 
-        return result, speculative_logits
+        return logits, speculative_logits
 
 
 class TensorParallelRowLinear(SuperLayer):

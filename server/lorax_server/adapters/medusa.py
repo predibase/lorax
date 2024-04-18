@@ -66,14 +66,11 @@ class ResBlock(torch.nn.Module):
     def __init__(self, config: MedusaConfig, prefix: str, weights: AbstractWeights):
         super().__init__()
         self.linear = FastLinear.load(config, prefix=f"{prefix}.linear", weights=weights, bias=True)
-        # self.lora_A = FastLinear.load(config, prefix=f"{prefix}.lora_A", weights=weights, bias=False)
-        # self.lora_B = FastLinear.load(config, prefix=f"{prefix}.lora_B", weights=weights, bias=False)
         self.act = torch.nn.SiLU()
         self.scaling = 1
 
     def forward(self, x):
         return x + self.act(self.linear(x))
-        # return x + self.act(self.lora_B(self.lora_A(x)) * self.scaling)
 
 
 class MedusaHead(torch.nn.Module):
@@ -82,17 +79,30 @@ class MedusaHead(torch.nn.Module):
         self.blocks = torch.nn.ModuleList(
             [ResBlock(config, prefix=f"{prefix}.{i}", weights=weights) for i in range(config.medusa_num_layers)]
         )
-        # n = len(self.blocks)
-        # self.out = FastLinear.load(config, prefix=f"{prefix}.{n}", weights=weights, bias=False)
+        n = len(self.blocks)
+        self.out = FastLinear.load(config, prefix=f"{prefix}.{n}", weights=weights, bias=False)
 
     def forward(self, x):
         for block in self.blocks:
             x = block(x)
-        # x = self.out(x)
+        x = self.out(x)
         return x
 
 
-class MedusaModel(torch.nn.Module):
+class MedusaV1(torch.nn.Module):
+    def __init__(self, config: MedusaConfig, weights: AbstractWeights):
+        super().__init__()
+        self.heads = torch.nn.ModuleList(
+            [MedusaHead(config, prefix=f"{i}", weights=weights) for i in range(config.medusa_num_heads)]
+        )
+
+    def forward(self, x, lm_head):
+        logits = lm_head(x)
+        speculative_logits = torch.stack([head(x) for head in self.heads], dim=1)
+        return logits, speculative_logits
+
+
+class MedusaV2(torch.nn.Module):
     def __init__(self, config: MedusaConfig, weights: AbstractWeights):
         super().__init__()
         self.n_medusa_heads = config.medusa_num_heads
@@ -110,10 +120,6 @@ class MedusaModel(torch.nn.Module):
         self.rank = self.process_group.rank()
 
         self.act = torch.nn.SiLU()
-
-    # def forward(self, x):
-    #     speculative_logits = torch.stack([head(x) for head in self.heads], dim=1)
-    #     return speculative_logits
 
     def forward(self, x, lm_head):
         # If we have too many tokens, we skip speculative logits
@@ -151,6 +157,18 @@ class MedusaModel(torch.nn.Module):
         logits = logits.squeeze(-2)
 
         return logits, speculative_logits
+
+
+class MedusaModel(torch.nn.Module):
+    def __init__(self, config: MedusaConfig, weights: AbstractWeights):
+        super().__init__()
+        if config.medusa_num_layers > 1 or weights.has_tensor(f"0.{config.medusa_num_layers}.weight"):
+            self.medusa = MedusaV1(config, weights)
+        else:
+            self.medusa = MedusaV2(config, weights)
+
+    def forward(self, x, lm_head):
+        return self.medusa(x, lm_head)
 
 
 class MedusaWeights(AdapterWeights):

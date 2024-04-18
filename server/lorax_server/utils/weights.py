@@ -25,6 +25,10 @@ class AbstractWeights(ABC):
     def get_slice_shape(self, slice) -> torch.Size:
         pass
 
+    @abstractmethod
+    def has_tensor(self, tensor_name: str) -> bool:
+        pass
+
     @property
     @abstractmethod
     def process_group(self):
@@ -243,6 +247,9 @@ class InMemoryWeights(AbstractWeights):
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.shape
 
+    def has_tensor(self, tensor_name: str) -> bool:
+        return tensor_name in self.weights
+
     @property
     def process_group(self):
         return self._process_group
@@ -357,6 +364,17 @@ class Weights(AbstractWeights):
             tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
+
+    def has_tensor(self, tensor_name: str) -> bool:
+        filename = self.routing.get(tensor_name, None)
+        if filename is None:
+            aliases = self.aliases.get(tensor_name, [])
+            for alias in aliases:
+                filename = self.routing.get(alias, None)
+                if filename is not None:
+                    return True
+            return False
+        return True
 
     def _set_config(self, model_id, config):
         self.config = config
