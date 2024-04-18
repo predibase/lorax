@@ -10,8 +10,8 @@ from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_dbrx_modeling import (
     ATTN_O_PROJ,
     ATTN_WQKV,
-    FlashDbrxForCausalLM,
     DbrxConfig,
+    FlashDbrxForCausalLM,
 )
 from lorax_server.utils import (
     Weights,

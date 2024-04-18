@@ -47,7 +47,6 @@ def serve(
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
 ):
-
     if sharded:
         assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
         assert os.getenv("WORLD_SIZE", None) is not None, "WORLD_SIZE must be set when sharded is True"

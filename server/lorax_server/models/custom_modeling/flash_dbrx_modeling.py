@@ -13,38 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.distributed
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
-
+import torch
+import torch.distributed
+from loguru import logger
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple, Any
-from loguru import logger
 
 from lorax_server.adapters.weights import AdapterBatchData
-from lorax_server.utils import paged_attn, flash_attn
+from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.layers import (
-    FastLinear,
     FastLayerNorm,
+    FastLinear,
     MultiAdapterHead,
+    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelHead,
-    PositionRotaryEmbedding,
+    TensorParallelMultiAdapterLinear,
+    TensorParallelRowLinear,
     get_linear,
 )
 from lorax_server.utils.lora import LM_HEAD
 
 HAS_MEGABLOCKS = True
 try:
-    import stk
     import megablocks.ops as ops
+    import stk
 except ImportError:
     logger.warning("Dbrx: megablocks is not installed")
     HAS_MEGABLOCKS = False
