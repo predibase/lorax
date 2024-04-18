@@ -209,7 +209,7 @@ def _load_experts(config, prefix, mat, weights):
     )
 
     for i in range(config.num_local_experts):
-        slice_ = weights._get_slice(f"{prefix}.{i}.{mat}.weight")
+        slice_ = weights.get_slice(f"{prefix}.{i}.{mat}.weight")
 
         if mat == "w2":
             expert_slice = slice_[:, start:stop].t().contiguous()
