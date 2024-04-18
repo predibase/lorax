@@ -28,7 +28,7 @@ def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, nu
         world_size = weights.process_group.size()
         rank = weights.process_group.rank()
 
-        slice_ = weights._get_slice(f"{prefix}.c_attn.qweight")
+        slice_ = weights.get_slice(f"{prefix}.c_attn.qweight")
         shape = slice_.get_shape()
         block_size = (shape[1] - 2 * head_size) // world_size
         start = rank * block_size
@@ -39,7 +39,7 @@ def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, nu
         qweight = torch.cat([q_tensor, kv_tensor], dim=1)
         qweight = qweight.to(device=weights.device)
 
-        slice_ = weights._get_slice(f"{prefix}.c_attn.scales")
+        slice_ = weights.get_slice(f"{prefix}.c_attn.scales")
         shape = slice_.get_shape()
         block_size = (shape[1] - 2 * head_size) // world_size
         start = rank * block_size
@@ -50,7 +50,7 @@ def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, nu
         scales = torch.cat([q_tensor, kv_tensor], dim=1)
         scales = scales.to(device=weights.device)
 
-        slice_ = weights._get_slice(f"{prefix}.c_attn.qzeros")
+        slice_ = weights.get_slice(f"{prefix}.c_attn.qzeros")
         shape = slice_.get_shape()
         block_size = (shape[1] - (2 * head_size) * 4 // 32) // world_size
         start = rank * block_size
@@ -71,7 +71,7 @@ def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, nu
         weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
 
         if bias:
-            slice_ = weights._get_slice(f"{prefix}.c_attn.bias")
+            slice_ = weights.get_slice(f"{prefix}.c_attn.bias")
             shape = slice_.get_shape()
             block_size = (shape[0] - 2 * head_size) // world_size
             assert (shape[0] - 2 * head_size) % world_size == 0
@@ -90,7 +90,7 @@ def _load_multi_mqa_gptq(config, prefix: str, weights, bias: bool, head_size, nu
 
 def _load_multi_mqa(config, prefix: str, weights, bias: bool, head_size, num_heads, hidden_size):
     if any("c_attn" in k for k in weights.routing.keys()):
-        slice_ = weights._get_slice(f"{prefix}.c_attn.weight")
+        slice_ = weights.get_slice(f"{prefix}.c_attn.weight")
         shape = slice_.get_shape()
         world_size = weights.process_group.size()
         rank = weights.process_group.rank()
@@ -111,7 +111,7 @@ def _load_multi_mqa(config, prefix: str, weights, bias: bool, head_size, num_hea
             kv_tensor = slice_[-2 * head_size :]
             weight = torch.cat([q_tensor, kv_tensor], dim=0)
         if bias:
-            slice_ = weights._get_slice(f"{prefix}.c_attn.bias")
+            slice_ = weights.get_slice(f"{prefix}.c_attn.bias")
             shape = slice_.get_shape()
             block_size = (shape[0] - 2 * head_size) // world_size
             assert (shape[0] - 2 * head_size) % world_size == 0

@@ -214,7 +214,7 @@ def _load_gqa(config, prefix: str, weights):
 
     if config.quantize in ["gptq", "awq"]:
         try:
-            qweight_slice = weights._get_slice(f"{prefix}.qweight")
+            qweight_slice = weights.get_slice(f"{prefix}.qweight")
             q_qweight = qweight_slice[:, q_start:q_stop]
             k_qweight = qweight_slice[:, k_start:k_stop]
             v_qweight = qweight_slice[:, v_start:v_stop]
@@ -223,14 +223,14 @@ def _load_gqa(config, prefix: str, weights):
         except RuntimeError:
             raise RuntimeError(f"Cannot load `{config.quantize}` weight, make sure the model is already quantized")
 
-        qzeros_slice = weights._get_slice(f"{prefix}.qzeros")
+        qzeros_slice = weights.get_slice(f"{prefix}.qzeros")
         q_qzeros = qzeros_slice[:, q_start:q_stop]
         k_qzeros = qzeros_slice[:, k_start:k_stop]
         v_qzeros = qzeros_slice[:, v_start:v_stop]
 
         qzeros = torch.cat([q_qzeros, k_qzeros, v_qzeros], dim=1)
 
-        scales_slice = weights._get_slice(f"{prefix}.scales")
+        scales_slice = weights.get_slice(f"{prefix}.scales")
         q_scales = scales_slice[:, q_start:q_stop]
         k_scales = scales_slice[:, k_start:k_stop]
         v_scales = scales_slice[:, v_start:v_stop]
@@ -244,7 +244,7 @@ def _load_gqa(config, prefix: str, weights):
         use_exllama = bits == 4 and HAS_EXLLAMA and config.quantize == "gptq" and not desc_act
 
         if config.quantize == "gptq" and quant_method == "gptq":
-            g_idx_slice = weights._get_slice(f"{prefix}.g_idx")
+            g_idx_slice = weights.get_slice(f"{prefix}.g_idx")
             q_g_idx = g_idx_slice[:, q_start:q_stop]
             k_g_idx = g_idx_slice[:, k_start:k_stop]
             v_g_idx = g_idx_slice[:, v_start:v_stop]
@@ -260,7 +260,7 @@ def _load_gqa(config, prefix: str, weights):
 
         weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
     else:
-        qkv_slice = weights._get_slice(f"{prefix}.Wqkv.weight")
+        qkv_slice = weights.get_slice(f"{prefix}.Wqkv.weight")
         q = qkv_slice[q_start:q_stop]
         k = qkv_slice[k_start:k_stop]
         v = qkv_slice[v_start:v_stop]
@@ -290,7 +290,7 @@ def _load_experts(config, prefix, weights):
         device=weights.device,
     )
 
-    slice_ = weights._get_slice(f"{prefix}")
+    slice_ = weights.get_slice(f"{prefix}")
 
     for i in range(config.ffn_config.moe_num_experts):
         offset = i * expert_size
@@ -313,7 +313,7 @@ def _load_experts_quantized(config, prefix, weights, cls):
     start = rank * block_size
     stop = (rank + 1) * block_size
 
-    slice_ = weights._get_slice(f"{prefix}")
+    slice_ = weights.get_slice(f"{prefix}")
 
     experts = []
     for i in range(config.ffn_config.moe_num_experts):
