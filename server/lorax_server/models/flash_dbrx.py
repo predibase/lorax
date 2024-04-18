@@ -123,11 +123,11 @@ class FlashDbrx(FlashCausalLM):
         for i, layer in enumerate(self.model.model.layers):
             layer_weights[(i, ATTN_WQKV)] = (
                 f"{prefix}.{i}.norm_attn_norm.attn.q_proj",
-                layer.norm_attn_norm.attn.query_key_value,
+                layer.attn.self_attn.query_key_value,
             )
             layer_weights[(i, ATTN_O_PROJ)] = (
                 f"{prefix}.{i}.norm_attn_norm.attn.out_proj",
-                layer.norm_attn_norm.attn.o_proj,
+                layer.attn.self_attn.o_proj,
             )
 
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
