@@ -80,6 +80,7 @@ class FlashDbrx(FlashCausalLM):
 
         config = DbrxConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+        config.max_position_embeddings = config.max_seq_len
 
         torch.distributed.barrier(group=self.process_group)
 
