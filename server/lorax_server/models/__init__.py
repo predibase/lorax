@@ -260,9 +260,9 @@ def get_model(
         )
 
     if model_type == "cohere":
-        from lorax_server.models.flash_dbrx import FlashDbrx
+        from lorax_server.models.flash_cohere import FlashCohere
 
-        return FlashDbrx(
+        return FlashCohere(
             model_id,
             adapter_id,
             adapter_source,
@@ -274,9 +274,9 @@ def get_model(
         )
 
     if model_type == "dbrx":
-        from lorax_server.models.flash_cohere import FlashCohere
+        from lorax_server.models.flash_dbrx import FlashDbrx
 
-        return FlashCohere(
+        return FlashDbrx(
             model_id,
             adapter_id,
             adapter_source,
