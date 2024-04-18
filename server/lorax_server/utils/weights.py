@@ -14,135 +14,28 @@ from safetensors import safe_open
 
 class AbstractWeights(ABC):
     @abstractmethod
+    def get_slice(self, tensor_name: str) -> torch.Tensor:
+        pass
+
+    @abstractmethod
     def get_tensor(self, tensor_name: str) -> torch.Tensor:
         pass
 
     @abstractmethod
-    def get_shape(self, tensor_name: str) -> torch.Size:
+    def get_slice_shape(self, slice) -> torch.Size:
         pass
 
+    @abstractmethod
+    def has_tensor(self, tensor_name: str) -> bool:
+        pass
 
-class InMemoryWeights(AbstractWeights):
-    def __init__(self, weights: Dict[str, torch.Tensor], device: torch.device, dtype: torch.dtype):
-        self.weights = weights
-        self.device = device
-        self.dtype = dtype
-
-    def get_tensor(self, tensor_name: str) -> torch.Tensor:
-        tensor = self.weights[tensor_name]
-        tensor = tensor.to(dtype=self.dtype)
-        tensor = tensor.to(device=self.device)
-        return tensor
+    @property
+    @abstractmethod
+    def process_group(self):
+        pass
 
     def get_shape(self, tensor_name: str) -> torch.Size:
-        return self.weights[tensor_name].shape
-
-
-class Weights(AbstractWeights):
-    """
-    A class representing weights for a model.
-
-    Args:
-        filenames (List[Path]): List of file paths containing the weights.
-        device: The device to load the weights onto.
-        dtype: The data type to convert the weights to.
-        process_group: The process group for distributed training.
-        aliases (Optional[Dict[str, List[str]]]): Dictionary of aliases for weight names.
-        merged_weight_filenames (Optional[List]): List of file paths containing merged weights.
-
-    Attributes:
-        aliases (Dict[str, List[str]]): Dictionary of aliases for weight names.
-        routing (Dict[str, str]): Dictionary mapping weight names to file paths.
-        device: The device to load the weights onto.
-        dtype: The data type of the weights.
-        process_group: The process group for distributed training.
-        _handles (Dict[str, Any]): Dictionary of file handles for opened weight files.
-    """
-
-    def __init__(
-        self,
-        filenames: List[Path],
-        device,
-        dtype,
-        process_group,
-        aliases: Optional[Dict[str, List[str]]] = None,
-        merged_weight_filenames: Optional[List] = None,
-    ):
-        # routes to adapter files take precedence over routes to main model files
-        # to ensure that adapter weights are loaded instead of main model weights
-        routing = {}
-        if merged_weight_filenames is not None:
-            for filename in merged_weight_filenames:
-                with safe_open(filename, framework="pytorch") as f:
-                    for k in f.keys():
-                        if k in routing:
-                            raise RuntimeError(
-                                f"Key {k} was found in multiple adapter files: {filename} and {routing[k]}"
-                            )
-                        routing[k] = filename
-
-        # set of keys that point to adapter files. Duplicates for these keys found
-        # in main model files will be overridden.
-        adapter_routes = set(routing.keys())
-
-        for filename in filenames:
-            with safe_open(filename, framework="pytorch") as f:
-                for k in f.keys():
-                    if k in adapter_routes:
-                        logger.debug(f"Overriding main model weights with adapter weights for key: {k}")
-                    elif k in routing:
-                        raise RuntimeError(
-                            f"Key {k} was found in multiple non-adapter files: {filename} and {routing[k]}"
-                        )
-                    else:
-                        routing[k] = filename
-
-        if aliases is None:
-            aliases = {}
-        self.aliases = aliases
-        self.routing = routing
-        self.device = device
-        self.dtype = dtype
-        self.process_group = process_group
-        self._handles = {}
-
-    def _get_handle(self, filename):
-        if filename not in self._handles:
-            f = safe_open(filename, framework="pytorch")
-            self._handles[filename] = f
-
-        return self._handles[filename]
-
-    def get_filename(self, tensor_name: str) -> (str, str):
-        filename = self.routing.get(tensor_name, None)
-        if filename is None:
-            aliases = self.aliases.get(tensor_name, [])
-            for alias in aliases:
-                filename = self.routing.get(alias, None)
-                if filename is not None:
-                    return str(filename), alias
-            raise RuntimeError(f"weight {tensor_name} does not exist")
-        return str(filename), tensor_name
-
-    def _get_slice(self, tensor_name: str):
-        filename, tensor_name = self.get_filename(tensor_name)
-        f = self._get_handle(filename)
-        slice_ = f.get_slice(tensor_name)
-        return slice_
-
-    def get_shape(self, tensor_name: str):
-        return self._get_slice(tensor_name).get_shape()
-
-    def get_tensor(self, tensor_name: str):
-        filename, tensor_name = self.get_filename(tensor_name)
-        f = self._get_handle(filename)
-        tensor = f.get_tensor(tensor_name)
-        # Special case for gptq which shouldn't convert
-        # u4 which are disguised as int32
-        if tensor.dtype not in [torch.int32, torch.int64]:
-            tensor = tensor.to(dtype=self.dtype)
-        tensor = tensor.to(device=self.device)
-        return tensor
+        return self.get_slice_shape(self.get_slice(tensor_name))
 
     def get_partial_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
         """Loads tensor with the given name and shards it along the given dimension.
@@ -157,17 +50,15 @@ class Weights(AbstractWeights):
             dim (int): Dimension to shard along.
             range (Optional[Tuple[int, int]]): Range of indices to load and shard as (offset, size).
         """
-        filename, tensor_name = self.get_filename(tensor_name)
         world_size = self.process_group.size()
         rank = self.process_group.rank()
 
-        f = self._get_handle(filename)
-        slice_ = f.get_slice(tensor_name)
+        slice_ = self.get_slice(tensor_name)
         if range is not None:
             offset, size = range
         else:
             offset = 0
-            size = slice_.get_shape()[dim]
+            size = self.get_slice_shape(slice_)[dim]
         start, stop = get_start_stop_idxs_for_rank(offset, size, rank, world_size)
 
         if dim == 0:
@@ -184,11 +75,9 @@ class Weights(AbstractWeights):
         return tensor
 
     def get_sharded(self, tensor_name: str, dim: int, range: Optional[Tuple[int, int]] = None):
-        filename, tensor_name = self.get_filename(tensor_name)
-        f = self._get_handle(filename)
-        slice_ = f.get_slice(tensor_name)
+        slice_ = self.get_slice(tensor_name)
         world_size = self.process_group.size()
-        size = slice_.get_shape()[dim] if range is None else range[1]
+        size = self.get_slice_shape(slice_)[dim] if range is None else range[1]
         assert size % world_size == 0, f"The choosen size {size} is not compatible with sharding on {world_size} shards"
         return self.get_partial_sharded(tensor_name, dim, range=range)
 
@@ -331,6 +220,161 @@ class Weights(AbstractWeights):
                     raise e
 
         return bits, groupsize
+
+
+class InMemoryWeights(AbstractWeights):
+    def __init__(
+        self,
+        weights: Dict[str, torch.Tensor],
+        device: torch.device,
+        dtype: torch.dtype,
+        process_group: torch.distributed.ProcessGroup,
+    ):
+        self.weights = weights
+        self.device = device
+        self.dtype = dtype
+        self._process_group = process_group
+
+    def get_slice(self, tensor_name: str) -> torch.Tensor:
+        return self.get_tensor(tensor_name)
+
+    def get_tensor(self, tensor_name: str) -> torch.Tensor:
+        tensor = self.weights[tensor_name]
+        tensor = tensor.to(dtype=self.dtype)
+        tensor = tensor.to(device=self.device)
+        return tensor
+
+    def get_slice_shape(self, slice) -> torch.Size:
+        return slice.shape
+
+    def has_tensor(self, tensor_name: str) -> bool:
+        return tensor_name in self.weights
+
+    @property
+    def process_group(self):
+        return self._process_group
+
+
+class Weights(AbstractWeights):
+    """
+    A class representing weights for a model.
+
+    Args:
+        filenames (List[Path]): List of file paths containing the weights.
+        device: The device to load the weights onto.
+        dtype: The data type to convert the weights to.
+        process_group: The process group for distributed training.
+        aliases (Optional[Dict[str, List[str]]]): Dictionary of aliases for weight names.
+        merged_weight_filenames (Optional[List]): List of file paths containing merged weights.
+
+    Attributes:
+        aliases (Dict[str, List[str]]): Dictionary of aliases for weight names.
+        routing (Dict[str, str]): Dictionary mapping weight names to file paths.
+        device: The device to load the weights onto.
+        dtype: The data type of the weights.
+        process_group: The process group for distributed training.
+        _handles (Dict[str, Any]): Dictionary of file handles for opened weight files.
+    """
+
+    def __init__(
+        self,
+        filenames: List[Path],
+        device,
+        dtype,
+        process_group,
+        aliases: Optional[Dict[str, List[str]]] = None,
+        merged_weight_filenames: Optional[List] = None,
+    ):
+        # routes to adapter files take precedence over routes to main model files
+        # to ensure that adapter weights are loaded instead of main model weights
+        routing = {}
+        if merged_weight_filenames is not None:
+            for filename in merged_weight_filenames:
+                with safe_open(filename, framework="pytorch") as f:
+                    for k in f.keys():
+                        if k in routing:
+                            raise RuntimeError(
+                                f"Key {k} was found in multiple adapter files: {filename} and {routing[k]}"
+                            )
+                        routing[k] = filename
+
+        # set of keys that point to adapter files. Duplicates for these keys found
+        # in main model files will be overridden.
+        adapter_routes = set(routing.keys())
+
+        for filename in filenames:
+            with safe_open(filename, framework="pytorch") as f:
+                for k in f.keys():
+                    if k in adapter_routes:
+                        logger.debug(f"Overriding main model weights with adapter weights for key: {k}")
+                    elif k in routing:
+                        raise RuntimeError(
+                            f"Key {k} was found in multiple non-adapter files: {filename} and {routing[k]}"
+                        )
+                    else:
+                        routing[k] = filename
+
+        if aliases is None:
+            aliases = {}
+        self.aliases = aliases
+        self.routing = routing
+        self.device = device
+        self.dtype = dtype
+        self._process_group = process_group
+        self._handles = {}
+
+    @property
+    def process_group(self):
+        return self._process_group
+
+    def _get_handle(self, filename):
+        if filename not in self._handles:
+            f = safe_open(filename, framework="pytorch")
+            self._handles[filename] = f
+
+        return self._handles[filename]
+
+    def get_filename(self, tensor_name: str) -> (str, str):
+        filename = self.routing.get(tensor_name, None)
+        if filename is None:
+            aliases = self.aliases.get(tensor_name, [])
+            for alias in aliases:
+                filename = self.routing.get(alias, None)
+                if filename is not None:
+                    return str(filename), alias
+            raise RuntimeError(f"weight {tensor_name} does not exist")
+        return str(filename), tensor_name
+
+    def get_slice(self, tensor_name: str):
+        filename, tensor_name = self.get_filename(tensor_name)
+        f = self._get_handle(filename)
+        slice_ = f.get_slice(tensor_name)
+        return slice_
+
+    def get_slice_shape(self, slice) -> torch.Size:
+        return slice.get_shape()
+
+    def get_tensor(self, tensor_name: str):
+        filename, tensor_name = self.get_filename(tensor_name)
+        f = self._get_handle(filename)
+        tensor = f.get_tensor(tensor_name)
+        # Special case for gptq which shouldn't convert
+        # u4 which are disguised as int32
+        if tensor.dtype not in [torch.int32, torch.int64]:
+            tensor = tensor.to(dtype=self.dtype)
+        tensor = tensor.to(device=self.device)
+        return tensor
+
+    def has_tensor(self, tensor_name: str) -> bool:
+        filename = self.routing.get(tensor_name, None)
+        if filename is None:
+            aliases = self.aliases.get(tensor_name, [])
+            for alias in aliases:
+                filename = self.routing.get(alias, None)
+                if filename is not None:
+                    return True
+            return False
+        return True
 
     def _set_config(self, model_id, config):
         self.config = config

@@ -229,7 +229,9 @@ class Linear8bitLt(nn.Module):
         index=None,
     ):
         super().__init__()
-        assert not memory_efficient_backward, "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
+        assert (
+            not memory_efficient_backward
+        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
         self.state = bnb.MatmulLtState()
         self.index = index
 
@@ -677,15 +679,15 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
     def forward(
         self, input: torch.Tensor, adapter_data: "AdapterBatchData"
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        result = super().forward(input, adapter_data)
-
         # Medusa
         data = adapter_data.data.get(self.layer_name)
         data: Optional["BatchMedusaWeights"] = data.get(MEDUSA) if data is not None else None
 
         speculative_logits = None
         if data is not None and data.default_medusa is not None:
-            speculative_logits = data.default_medusa.model(input)
+            forward = super().forward
+            lm_head = lambda x: forward(x, adapter_data)  # noqa: E731
+            logits, speculative_logits = data.default_medusa.model(input, lm_head)
 
             # TODO(travis): support multiple medusa adapters with masking:
             # for adapter_index in adapter_data.meta.adapter_set:
@@ -693,8 +695,10 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
             #         adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
             #         speculative_logits = data.adapter_to_medusa[adapter_index].model(input)
             #         ...
+        else:
+            logits = super().forward(input, adapter_data)
 
-        return result, speculative_logits
+        return logits, speculative_logits
 
 
 class TensorParallelRowLinear(SuperLayer):
