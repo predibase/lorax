@@ -86,8 +86,8 @@ def _load_and_merge(
 
 def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig", api_token: str):
     try:
-        expected_config = AutoConfig.from_pretrained(model_id, token=api_token)
-        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, token=api_token)
+        expected_config = AutoConfig.from_pretrained(model_id)
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
     except Exception as e:
         warnings.warn(
             f"Unable to check architecture compatibility for adapter '{adapter_id}' "
