@@ -14,14 +14,13 @@ from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)
 
 
-# TODO(travis): re-enable LM_HEAD after resolving issues with outputs
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
-ROW_PARALLEL = {O_PROJ, DOWN_PROJ}
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
+ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 
 class FlashCohere(FlashCausalLM):
@@ -117,6 +116,7 @@ class FlashCohere(FlashCausalLM):
             layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.gate_up_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
 
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
         return layer_weights
 
     @property
@@ -124,7 +124,7 @@ class FlashCohere(FlashCausalLM):
         return ADAPTER_LAYERS
 
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return len(self.model.model.layers)
+        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

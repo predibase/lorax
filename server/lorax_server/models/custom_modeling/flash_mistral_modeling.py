@@ -210,7 +210,7 @@ def _load_gqa(config, prefix: str, weights):
         assert list(weight.shape) == [
             (num_heads + 2 * num_key_value_heads) * head_size,
             config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 

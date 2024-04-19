@@ -9,7 +9,7 @@ from lorax.errors import (
     ShardTimeoutError,
     NotFoundError,
     RateLimitExceededError,
-    UnknownError,
+    UnknownError, UnprocessableEntityError,
 )
 
 
@@ -57,6 +57,11 @@ def test_not_found_error():
 def test_rate_limit_exceeded_error():
     payload = {"error": "test"}
     assert isinstance(parse_error(429, payload), RateLimitExceededError)
+
+
+def test_unprocessable_entity_error():
+    payload = {"error": "test"}
+    assert isinstance(parse_error(422, payload), UnprocessableEntityError)
 
 
 def test_unknown_error():

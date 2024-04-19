@@ -32,7 +32,7 @@ EPS = 1e-5
 def load_col(config, prefix, weights, bias):
     assert not bias, NotImplementedError
     assert config.quantize != "gptq", NotImplementedError
-    slice_ = weights._get_slice(f"{prefix}.weight")
+    slice_ = weights.get_slice(f"{prefix}.weight")
     rank = weights.process_group.rank()
     size = weights.process_group.size()
 

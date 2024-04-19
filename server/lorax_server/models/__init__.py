@@ -277,6 +277,20 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
+    if model_type == "dbrx":
+        from lorax_server.models.flash_dbrx import FlashDbrx
+
+        return FlashDbrx(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
     if model_type == "opt":
         return OPTSharded(
             model_id,
