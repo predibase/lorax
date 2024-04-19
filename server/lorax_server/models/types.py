@@ -126,7 +126,7 @@ class Generation:
         )
 
 @dataclass
-class FlashBatch(ABC):
+class FlashEmbeddingBatch(ABC):
     input_ids: torch.Tensor
     token_type_ids: torch.Tensor
     position_ids: torch.Tensor

@@ -92,7 +92,7 @@ def get_model(
             dtypetrust_remote_code=trust_remote_code,
         )
 
-    if "WhereIsAI/UAE-Large-V1" in model_id:
+    if model_type == "bert":
         from lorax_server.models.flash_bert import FlashBert
         return FlashBert(model_id, revision=revision, dtype=dtype)
 

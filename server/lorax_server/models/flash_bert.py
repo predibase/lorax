@@ -8,7 +8,7 @@ from transformers.activations import ACT2FN
 from transformers.models.bert import BertConfig
 
 from lorax_server.models import Model
-from lorax_server.models.types import FlashBatch, GeneratedText
+from lorax_server.models.types import FlashEmbeddingBatch, GeneratedText
 from lorax_server.pb.generate_pb2 import Embedding
 from lorax_server.utils import (
     Weights,
@@ -202,25 +202,30 @@ class FlashBert(Model):
         )
 
     @property
-    def batch_type(self) -> Type[FlashBatch]:
-        return FlashBatch
+    def batch_type(self) -> Type[FlashEmbeddingBatch]:
+        return FlashEmbeddingBatch
 
     @property
     def supports_embeddings(self) -> bool:
         return True
 
-    def warmup(self, batch: FlashBatch, max_new_tokens: int) -> int | None:
-        # return super().warmup(batch, max_new_tokens)
-        return 42  # lol
+    @property
+    def supports_text_generation(self) -> bool:
+        return False
 
-    def generate_token(self, batch: FlashBatch) -> torch.Tuple[List[GeneratedText] | FlashBatch | None]:
+    def warmup(self, batch: FlashEmbeddingBatch, max_new_tokens: int) -> int | None:
+        return 42  # no-op for now
+
+    def generate_token(self, batch: FlashEmbeddingBatch) -> None:
+        if not self.supports_text_generation:
+            raise NotImplementedError("This model does not support text generation")
         return None
 
-    def forward(self, batch: FlashBatch):
+    def forward(self, batch: FlashEmbeddingBatch):
         return self.embed(batch)
 
     @tracer.start_as_current_span("embed")
-    def embed(self, batch: FlashBatch) -> Embedding:
+    def embed(self, batch: FlashEmbeddingBatch) -> Embedding:
         embedding = self.model.forward(
             input_ids=batch.input_ids,
             token_type_ids=batch.token_type_ids,
@@ -232,11 +237,11 @@ class FlashBert(Model):
 
         return Embedding(values=cpu_results[: self.hidden_size])
 
-    def tokenize_to_batch(self, inputs) -> FlashBatch:
+    def tokenize_to_batch(self, inputs) -> FlashEmbeddingBatch:
         tokens = self.tokenizer(inputs, return_token_type_ids=True)
         num_tokens = len(tokens["input_ids"])
         position_ids = range(num_tokens)
-        return FlashBatch(
+        return FlashEmbeddingBatch(
             input_ids=torch.tensor(tokens["input_ids"], dtype=torch.int32, device=self.device),
             token_type_ids=torch.tensor(tokens["token_type_ids"], dtype=torch.int32, device=self.device),
             position_ids=torch.tensor(position_ids, dtype=torch.int32, device=self.device),

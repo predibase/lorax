@@ -92,6 +92,10 @@ class Model(ABC):
         return False
 
     @property
+    def supports_text_generation(self) -> bool:
+        return True
+
+    @property
     @abstractmethod
     def batch_type(self) -> Type[B]:
         raise NotImplementedError
