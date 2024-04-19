@@ -1,4 +1,4 @@
-from typing import List, Optional, Type
+from typing import Optional, Type
 
 import torch
 from opentelemetry import trace
@@ -8,7 +8,7 @@ from transformers.activations import ACT2FN
 from transformers.models.bert import BertConfig
 
 from lorax_server.models import Model
-from lorax_server.models.types import FlashEmbeddingBatch, GeneratedText
+from lorax_server.models.types import FlashEmbeddingBatch
 from lorax_server.pb.generate_pb2 import Embedding
 from lorax_server.utils import (
     Weights,
