@@ -61,6 +61,11 @@ class FlashLlama(FlashCausalLM):
             trust_remote_code=trust_remote_code,
         )
 
+        if tokenizer.eos_token_id == 128001:
+            # TODO(travis): hack to workaround llamam-3 chat template generating the wrong eos_token
+            # https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct/discussions/14
+            tokenizer.eos_token_id = 128009
+
         config = LlamaConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
