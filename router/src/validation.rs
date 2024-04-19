@@ -456,6 +456,8 @@ pub enum ValidationError {
     AdapterIdMissing,
     #[error("number of adapter IDs must match number of adapter weights")]
     AdapterWeightMismatch,
+    #[error("Embedding models don't support text generation")]
+    EmbeddingModel,
 }
 
 #[cfg(test)]

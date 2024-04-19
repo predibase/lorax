@@ -22,6 +22,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
+use clap::error;
 use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
@@ -80,6 +81,16 @@ async fn compat_generate(
     req: Json<CompatGenerateRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
+
+    if info.embedding_model {
+        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+        tracing::error!("Embedding model doesn't support generation");
+        let err = ErrorResponse {
+            error: "Embedding model doesn't support generation".to_string(),
+            error_type: "bad_request".to_string(),
+        };
+        return Err((StatusCode::BAD_REQUEST, Json(err)));
+    }
 
     // default return_full_text given the pipeline_tag
     if req.parameters.return_full_text.is_none() {
@@ -149,6 +160,16 @@ async fn completions_v1(
         req.model = "".to_string();
     }
     let mut gen_req = CompatGenerateRequest::from(req);
+
+    if info.embedding_model {
+        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+        tracing::error!("Embedding model doesn't support generation");
+        let err = ErrorResponse {
+            error: "Embedding model doesn't support generation".to_string(),
+            error_type: "bad_request".to_string(),
+        };
+        return Err((StatusCode::BAD_REQUEST, Json(err)));
+    }
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -230,6 +251,17 @@ async fn chat_completions_v1(
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
     }
+
+    if info.embedding_model {
+        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+        tracing::error!("Embedding model doesn't support generation");
+        let err = ErrorResponse {
+            error: "Embedding model doesn't support generation".to_string(),
+            error_type: "bad_request".to_string(),
+        };
+        return Err((StatusCode::BAD_REQUEST, Json(err)));
+    }
+
     let mut gen_req = CompatGenerateRequest::from(req);
 
     // default return_full_text given the pipeline_tag
@@ -354,6 +386,16 @@ async fn generate(
     metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.0.inputs);
+
+    if info.embedding_model {
+        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+        tracing::error!("Embedding model doesn't support generation");
+        let err = ErrorResponse {
+            error: "Embedding model doesn't support generation".to_string(),
+            error_type: "bad_request".to_string(),
+        };
+        return Err((StatusCode::BAD_REQUEST, Json(err)));
+    }
 
     let compute_characters = req.0.inputs.chars().count();
     let mut add_prompt = None;
@@ -672,151 +714,159 @@ async fn generate_stream_with_callback(
     headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let stream = async_stream::stream! {
-        // Inference
-        let mut end_reached = false;
-        let mut error = false;
-
-        let mut prefill_tokens_length = 0;
-
-        let mut add_prompt = None;
-        if req.0.parameters.return_full_text.unwrap_or(false) {
-            add_prompt = Some(req.0.inputs.clone());
-        }
-        let details = req.0.parameters.details;
-
-        let best_of = req.0.parameters.best_of.unwrap_or(1);
-        if best_of != 1 {
-            let err = InferError::from(ValidationError::BestOfStream);
-            metrics::increment_counter!("lorax_request_failure", "err" => "validation");
-            tracing::error!("{err}");
-            yield Ok(Event::from(err));
-        } else if req.0.parameters.decoder_input_details {
-            let err = InferError::from(ValidationError::PrefillDetailsStream);
-            metrics::increment_counter!("lorax_request_failure", "err" => "validation");
+        if info.embedding_model {
+            let err = InferError::from(ValidationError::EmbeddingModel);
+            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
             tracing::error!("{err}");
             yield Ok(Event::from(err));
         } else {
-            match infer.generate_stream(req.0).instrument(info_span!(parent: &span, "async_stream")).await {
-                // Keep permit as long as generate_stream lives
-                Ok((_permit, mut response_stream)) => {
-                    // Server-Sent Event stream
-                    while let Some(response) = response_stream.next().await {
-                        match response {
-                            Ok(response) => {
-                                match response {
-                                    // Prefill is ignored
-                                    InferStreamResponse::Prefill {
-                                        tokens_length,
-                                        ..
-                                    } => {
-                                        prefill_tokens_length = tokens_length;
-                                    }
-                                    // Yield event for every new token
-                                    InferStreamResponse::Token(token) => {
-                                        tracing::debug!(parent: &span, "Token: {:?}", token);
 
-                                        // StreamResponse
-                                        let stream_token = StreamResponse {
-                                            token,
-                                            generated_text: None,
-                                            details: None,
-                                        };
+            // Inference
+            let mut end_reached = false;
+            let mut error = false;
 
-                                        yield Ok(callback(stream_token))
-                                    }
-                                    // Yield event for last token and compute timings
-                                    InferStreamResponse::End {
-                                        token,
-                                        generated_text,
-                                        start,
-                                        queued,
-                                    } => {
-                                        // Token details
-                                        let details = match details {
-                                            true => Some(StreamDetails {
-                                                finish_reason: FinishReason::from(generated_text.finish_reason),
-                                                prompt_tokens: prefill_tokens_length,
-                                                generated_tokens: generated_text.generated_tokens,
-                                                seed: generated_text.seed,
-                                            }),
-                                            false => None,
-                                        };
+            let mut prefill_tokens_length = 0;
 
-                                        // Timings
-                                        let total_time = start_time.elapsed();
-                                        let validation_time = queued - start_time;
-                                        let queue_time = start - queued;
-                                        let inference_time = Instant::now() - start;
-                                        let time_per_token = inference_time / generated_text.generated_tokens;
-
-                                        // Tracing metadata
-                                        span.record("total_time", format!("{total_time:?}"));
-                                        span.record("validation_time", format!("{validation_time:?}"));
-                                        span.record("queue_time", format!("{queue_time:?}"));
-                                        span.record("inference_time", format!("{inference_time:?}"));
-                                        span.record("time_per_token", format!("{time_per_token:?}"));
-                                        span.record("seed", format!("{:?}", generated_text.seed));
-
-                                        // Metrics
-                                        metrics::increment_counter!("lorax_request_success");
-                                        metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
-                                        metrics::histogram!("lorax_request_validation_duration", validation_time.as_secs_f64());
-                                        metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
-                                        metrics::histogram!("lorax_request_inference_duration", inference_time.as_secs_f64());
-                                        metrics::histogram!("lorax_request_mean_time_per_token_duration", time_per_token.as_secs_f64());
-                                        metrics::histogram!("lorax_request_generated_tokens", generated_text.generated_tokens as f64);
-
-
-
-                                        // StreamResponse
-                                        end_reached = true;
-
-                                        let mut output_text = generated_text.text;
-                                        if let Some(prompt) = add_prompt {
-                                            output_text = prompt + &output_text;
-                                        }
-
-                                        tracing::debug!(parent: &span, "Output: {}", output_text);
-                                        tracing::info!(parent: &span, "Success");
-
-                                        let total_tokens = generated_text.generated_tokens + prefill_tokens_length;
-                                        if info.request_logger_url.is_some() {
-                                            let _ = request_logger_sender.send((total_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
-                                        }
-
-                                        let stream_token = StreamResponse {
-                                            token,
-                                            generated_text: Some(output_text),
-                                            details
-                                        };
-
-                                        yield Ok(callback(stream_token));
-                                        break;
-                                    }
-                                }
-                            }
-                            // yield error
-                            Err(err) => {
-                                error = true;
-                                yield Ok(Event::from(err));
-                                break;
-                            }
-                        }
-                    }
-                },
-                // yield error
-                Err(err) => {
-                    error = true;
-                    yield Ok(Event::from(err));
-                }
+            let mut add_prompt = None;
+            if req.0.parameters.return_full_text.unwrap_or(false) {
+                add_prompt = Some(req.0.inputs.clone());
             }
-            // Check if generation reached the end
-            // Skip if we already sent an error
-            if !end_reached && !error {
-                let err = InferError::IncompleteGeneration;
-                metrics::increment_counter!("lorax_request_failure", "err" => "incomplete");
+            let details = req.0.parameters.details;
+
+            let best_of = req.0.parameters.best_of.unwrap_or(1);
+            if best_of != 1 {
+                let err = InferError::from(ValidationError::BestOfStream);
+                metrics::increment_counter!("lorax_request_failure", "err" => "validation");
                 tracing::error!("{err}");
                 yield Ok(Event::from(err));
+            } else if req.0.parameters.decoder_input_details {
+                let err = InferError::from(ValidationError::PrefillDetailsStream);
+                metrics::increment_counter!("lorax_request_failure", "err" => "validation");
+                tracing::error!("{err}");
+                yield Ok(Event::from(err));
+            } else {
+                match infer.generate_stream(req.0).instrument(info_span!(parent: &span, "async_stream")).await {
+                    // Keep permit as long as generate_stream lives
+                    Ok((_permit, mut response_stream)) => {
+                        // Server-Sent Event stream
+                        while let Some(response) = response_stream.next().await {
+                            match response {
+                                Ok(response) => {
+                                    match response {
+                                        // Prefill is ignored
+                                        InferStreamResponse::Prefill {
+                                            tokens_length,
+                                            ..
+                                        } => {
+                                            prefill_tokens_length = tokens_length;
+                                        }
+                                        // Yield event for every new token
+                                        InferStreamResponse::Token(token) => {
+                                            tracing::debug!(parent: &span, "Token: {:?}", token);
+
+                                            // StreamResponse
+                                            let stream_token = StreamResponse {
+                                                token,
+                                                generated_text: None,
+                                                details: None,
+                                            };
+
+                                            yield Ok(callback(stream_token))
+                                        }
+                                        // Yield event for last token and compute timings
+                                        InferStreamResponse::End {
+                                            token,
+                                            generated_text,
+                                            start,
+                                            queued,
+                                        } => {
+                                            // Token details
+                                            let details = match details {
+                                                true => Some(StreamDetails {
+                                                    finish_reason: FinishReason::from(generated_text.finish_reason),
+                                                    prompt_tokens: prefill_tokens_length,
+                                                    generated_tokens: generated_text.generated_tokens,
+                                                    seed: generated_text.seed,
+                                                }),
+                                                false => None,
+                                            };
+
+                                            // Timings
+                                            let total_time = start_time.elapsed();
+                                            let validation_time = queued - start_time;
+                                            let queue_time = start - queued;
+                                            let inference_time = Instant::now() - start;
+                                            let time_per_token = inference_time / generated_text.generated_tokens;
+
+                                            // Tracing metadata
+                                            span.record("total_time", format!("{total_time:?}"));
+                                            span.record("validation_time", format!("{validation_time:?}"));
+                                            span.record("queue_time", format!("{queue_time:?}"));
+                                            span.record("inference_time", format!("{inference_time:?}"));
+                                            span.record("time_per_token", format!("{time_per_token:?}"));
+                                            span.record("seed", format!("{:?}", generated_text.seed));
+
+                                            // Metrics
+                                            metrics::increment_counter!("lorax_request_success");
+                                            metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+                                            metrics::histogram!("lorax_request_validation_duration", validation_time.as_secs_f64());
+                                            metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+                                            metrics::histogram!("lorax_request_inference_duration", inference_time.as_secs_f64());
+                                            metrics::histogram!("lorax_request_mean_time_per_token_duration", time_per_token.as_secs_f64());
+                                            metrics::histogram!("lorax_request_generated_tokens", generated_text.generated_tokens as f64);
+
+
+
+                                            // StreamResponse
+                                            end_reached = true;
+
+                                            let mut output_text = generated_text.text;
+                                            if let Some(prompt) = add_prompt {
+                                                output_text = prompt + &output_text;
+                                            }
+
+                                            tracing::debug!(parent: &span, "Output: {}", output_text);
+                                            tracing::info!(parent: &span, "Success");
+
+                                            let total_tokens = generated_text.generated_tokens + prefill_tokens_length;
+                                            if info.request_logger_url.is_some() {
+                                                let _ = request_logger_sender.send((total_tokens as i64, api_token.unwrap_or("".to_string()), info.model_id.clone())).await;
+                                            }
+
+                                            let stream_token = StreamResponse {
+                                                token,
+                                                generated_text: Some(output_text),
+                                                details
+                                            };
+
+                                            yield Ok(callback(stream_token));
+                                            break;
+                                        }
+                                    }
+                                }
+                                // yield error
+                                Err(err) => {
+                                    error = true;
+                                    yield Ok(Event::from(err));
+                                    break;
+                                }
+                            }
+                        }
+                    },
+                    // yield error
+                    Err(err) => {
+                        error = true;
+                        yield Ok(Event::from(err));
+                    }
+                }
+                // Check if generation reached the end
+                // Skip if we already sent an error
+                if !end_reached && !error {
+                    let err = InferError::IncompleteGeneration;
+                    metrics::increment_counter!("lorax_request_failure", "err" => "incomplete");
+                    tracing::error!("{err}");
+                    yield Ok(Event::from(err));
+                }
             }
         }
     };
@@ -895,6 +945,7 @@ pub async fn run(
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
     adapter_source: String,
+    embedding_model: bool,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -1084,6 +1135,7 @@ pub async fn run(
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
         request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
+        embedding_model,
     };
 
     DEFAULT_ADAPTER_SOURCE
