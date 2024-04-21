@@ -86,6 +86,10 @@ def _load_and_merge(
 
 def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig"):
     try:
+        if not adapter_config.base_model_name_or_path:
+            # Avoid execuation latency caused by the network connection retrying for AutoConfig.from_pretrained(None)
+            return
+
         expected_config = AutoConfig.from_pretrained(model_id)
         model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
     except Exception as e:
