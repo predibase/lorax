@@ -980,7 +980,7 @@ class FlashCausalLM(Model):
 
         if return_alternatives:
             alternative_token_logprobs, alternative_token_ids = torch.sort(
-                torch.log_softmax(next_token_logprobs, -1), dim=-1, stable=True, descending=True
+                torch.log_softmax(next_token_logits, -1), dim=-1, stable=True, descending=True
             )
 
         if prefill:
