@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple, Union
 
 import torch
+from safetensors import safe_open
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
