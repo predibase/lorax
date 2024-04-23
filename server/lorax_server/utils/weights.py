@@ -11,6 +11,8 @@ from huggingface_hub.utils import EntryNotFoundError, LocalEntryNotFoundError
 from loguru import logger
 from safetensors import safe_open
 
+from lorax_server.utils.adapter import load_module_weight
+
 
 class AbstractWeights(ABC):
     @abstractmethod
@@ -240,9 +242,7 @@ class InMemoryWeights(AbstractWeights):
 
     def get_tensor(self, tensor_name: str) -> torch.Tensor:
         tensor = self.weights[tensor_name]
-        tensor = tensor.to(dtype=self.dtype)
-        tensor = tensor.to(device=self.device)
-        return tensor
+        return load_module_weight(tensor, self.device, self.dtype)
 
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.shape
