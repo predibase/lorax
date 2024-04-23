@@ -158,7 +158,12 @@ def load_module_map(
     adapter_weights = {}
     for filename in adapter_filenames:
         if lazy_load_weights:
-            adapter_weights.update(filename)
+            result = {}
+            # just fetching the layer names of the module
+            with safe_open(filename, framework="pt") as f:
+                for k in f.keys():
+                    result[k] = filename
+            adapter_weights.update(result)
         else:
             adapter_weights.update(load_file(filename))
 
@@ -167,9 +172,13 @@ def load_module_map(
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
 
 
-def load_module_weight(module: Union[torch.Tensor, str], device, dtype):
+def load_module_weight(name: str, module: Union[torch.Tensor, str], device, dtype):
     if isinstance(module, torch.Tensor):
         return module.to(device, dtype)
 
+    if isinstance(device, torch.device) and device.type == "cuda":
+        device = device.index
+
     # module would be just the filename if lazy loading happened before
-    return load_file(module, device=device).to(dtype)
+    with safe_open(module, framework="pt", device=device) as f:
+        return f.get_tensor(name).to(dtype)

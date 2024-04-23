@@ -167,10 +167,10 @@ class LoraWeights(AdapterWeights):
                 return None
 
             lora_a, lora_a_name = module_map[weight_name]["lora_A"]
-            lora_a = load_module_weight(lora_a, base_device, model.dtype)
+            lora_a = load_module_weight(lora_a_name, lora_a, base_device, model.dtype)
 
             lora_b, lora_b_name = module_map[weight_name]["lora_B"]
-            lora_b = load_module_weight(lora_b, base_device, model.dtype)
+            lora_b = load_module_weight(lora_b_name, lora_b, base_device, model.dtype)
 
             scale = get_scaling_factor(
                 config.lora_alpha,

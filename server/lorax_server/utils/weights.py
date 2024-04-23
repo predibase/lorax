@@ -242,7 +242,7 @@ class InMemoryWeights(AbstractWeights):
 
     def get_tensor(self, tensor_name: str) -> torch.Tensor:
         tensor = self.weights[tensor_name]
-        return load_module_weight(tensor, self.device, self.dtype)
+        return load_module_weight(tensor_name, tensor, self.device, self.dtype)
 
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.shape
