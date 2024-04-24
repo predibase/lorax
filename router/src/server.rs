@@ -229,6 +229,7 @@ async fn chat_completions_v1(
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
     }
+
     let mut gen_req = CompatGenerateRequest::from(req);
 
     // default return_full_text given the pipeline_tag
@@ -352,7 +353,7 @@ async fn generate(
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
-    tracing::debug!("Input: {}", req.0.inputs);
+    tracing::info!("Input: {}", req.0.inputs);
 
     let compute_characters = req.0.inputs.chars().count();
     let mut add_prompt = None;
@@ -623,7 +624,7 @@ async fn generate_stream_with_callback(
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
-    tracing::debug!("Input: {}", req.0.inputs);
+    tracing::info!("Input: {}", req.0.inputs);
 
     let compute_characters = req.0.inputs.chars().count();
 
