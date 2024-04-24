@@ -353,7 +353,7 @@ async fn generate(
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
-    tracing::info!("Input: {}", req.0.inputs);
+    tracing::debug!("Input: {}", req.0.inputs);
 
     let compute_characters = req.0.inputs.chars().count();
     let mut add_prompt = None;
@@ -624,7 +624,7 @@ async fn generate_stream_with_callback(
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
-    tracing::info!("Input: {}", req.0.inputs);
+    tracing::debug!("Input: {}", req.0.inputs);
 
     let compute_characters = req.0.inputs.chars().count();
 
