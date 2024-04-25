@@ -8,6 +8,7 @@ from lorax_server.utils.sgmv import (
     lora_b_sgmv_cutlass,
     has_sgmv,
     pad_rank,
+    segment_matmul,
     use_cutlass_shrink,
 )
 
@@ -25,25 +26,28 @@ def lora_ref_impl(
     for i in range(len(wa)):
         if s_end[i] - s_start[i] <= 0:
             continue
-        
-        xi = x[s_start[i]:s_end[i]]
+
+        xi = x[s_start[i] : s_end[i]]
         wai = wa[i][layer_idx, :, :]
         wbi = wb[i][layer_idx, :, :]
 
         if not use_cutlass_shrink(lora_rank):
             wai = wai.t()
 
-        yi = y[s_start[i]:s_end[i]]
-        tmp = (xi @ wai)
-        y[s_start[i]:s_end[i]] = (yi + tmp @ wbi)
+        yi = y[s_start[i] : s_end[i]]
+        tmp = xi @ wai
+        y[s_start[i] : s_end[i]] = yi + tmp @ wbi
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_sgmv(), reason="SGMV not available")
-@pytest.mark.parametrize("segments", [
-    ([0, 2], [1, 3]),
-    ([0, -1], [1, -1]),
-])
+@pytest.mark.parametrize(
+    "segments",
+    [
+        ([0, 2], [1, 3]),
+        ([0, -1], [1, -1]),
+    ],
+)
 @pytest.mark.parametrize("lora_rank", [8, 16, 32, 64, 128])
 def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     torch.manual_seed(42)
@@ -54,7 +58,7 @@ def test_add_lora_sgmv(lora_rank: int, segments: Tuple[List[int], List[int]]):
     nlayers = 2
 
     device = torch.device("cuda:0")
-    
+
     y = torch.zeros((B, H), dtype=torch.float16, device=device)
     x = torch.randn((B, H), dtype=torch.float16, device=device)
     wa = torch.randn(nlayers, r, H, dtype=torch.float16, device=device)
@@ -116,7 +120,7 @@ def test_pad_rank(lora_rank: int, world_size: int):
 
     lora_a_padded = pad_rank(lora_a, dim=1, world_size=world_size)
     lora_b_padded = pad_rank(lora_b, dim=0, world_size=world_size)
-    
+
     assert lora_a_padded.size(1) == lora_b_padded.size(0)
     assert lora_a_padded.size(1) >= lora_a.size(1)
     assert lora_b_padded.size(0) >= lora_b.size(0)
@@ -124,3 +128,24 @@ def test_pad_rank(lora_rank: int, world_size: int):
     expected = x @ lora_a @ lora_b
     actual = x @ lora_a_padded @ lora_b_padded
     assert torch.allclose(expected, actual)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("dtype", [torch.float, torch.bfloat16])
+def test_segment_matmul(dtype):
+    device = torch.device("cuda")
+    if device.type == "cuda" and dtype == torch.bfloat16:
+        pytest.skip("CUDA does not support bfloat16")
+
+    inputs = torch.randn((8, 16), requires_grad=True, device=device, dtype=dtype)
+    ptr = torch.tensor([0, 5, 8]).to(torch.device(device))
+    other = torch.randn((2, 16, 32), requires_grad=True, device=device, dtype=dtype)
+    bias = torch.randn((2, 32), requires_grad=True, device=device, dtype=dtype)
+    out = segment_matmul(inputs, ptr, other, bias)
+    assert out.size() == (8, 32)
+
+    out1 = inputs[ptr[0] : ptr[1]] @ other[0] + bias[0]
+    assert torch.allclose(out[ptr[0] : ptr[1]], out1, atol=1e-6)
+
+    out2 = inputs[ptr[1] : ptr[2]] @ other[1] + bias[1]
+    assert torch.allclose(out[ptr[1] : ptr[2]], out2, atol=1e-6)

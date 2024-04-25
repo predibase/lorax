@@ -1,7 +1,7 @@
 import os
 import warnings
 from functools import lru_cache
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -215,3 +215,42 @@ def add_lora_b_bgmv(
     layer_idx: int,
 ):
     _kernels.dispatch_bgmv(y, v, wb_T_all, indicies, layer_idx, 1.0)
+
+
+def segment_matmul(
+    inputs: torch.Tensor, ptr: torch.Tensor, other: torch.Tensor, bias: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+    r"""Performs dense-dense matrix multiplication according to segments along
+    the first dimension of :obj:`inputs` as given by :obj:`ptr`, utilizing
+    dedicated kernels that effectively parallelize over groups.
+
+    .. code-block:: python
+
+        inputs = torch.randn(8, 16)
+        ptr = torch.tensor([0, 5, 8])
+        other = torch.randn(2, 16, 32)
+
+        out = pyg_lib.ops.segment_matmul(inputs, ptr, other)
+        assert out.size() == (8, 32)
+        assert out[0:5] == inputs[0:5] @ other[0]
+        assert out[5:8] == inputs[5:8] @ other[1]
+
+    Args:
+        input (torch.Tensor): The left operand 2D matrix of shape
+            :obj:`[N, K]`.
+        ptr (torch.Tensor): Compressed vector of shape :obj:`[B + 1]`, holding
+            the boundaries of segments.
+            For best performance, given as a CPU tensor.
+        other (torch.Tensor): The right operand 3D tensor of shape
+            :obj:`[B, K, M]`.
+        bias (torch.Tensor, optional): Optional bias term of shape
+            :obj:`[B, M]` (default: :obj:`None`)
+
+    Returns:
+        torch.Tensor: The 2D output matrix of shape :obj:`[N, M]`.
+    """
+    out = _kernels.segment_matmul(inputs, ptr, other)
+    if bias is not None:
+        for i in range(ptr.numel() - 1):
+            out[ptr[i] : ptr[i + 1]] += bias[i]
+    return out
