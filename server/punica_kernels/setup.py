@@ -11,10 +11,10 @@ root = pathlib.Path(__name__).parent
 
 def remove_unwanted_pytorch_nvcc_flags():
     REMOVE_NVCC_FLAGS = [
-        '-D__CUDA_NO_HALF_OPERATORS__',
-        '-D__CUDA_NO_HALF_CONVERSIONS__',
-        '-D__CUDA_NO_BFLOAT16_CONVERSIONS__',
-        '-D__CUDA_NO_HALF2_OPERATORS__',
+        "-D__CUDA_NO_HALF_OPERATORS__",
+        "-D__CUDA_NO_HALF_CONVERSIONS__",
+        "-D__CUDA_NO_BFLOAT16_CONVERSIONS__",
+        "-D__CUDA_NO_HALF2_OPERATORS__",
     ]
     for flag in REMOVE_NVCC_FLAGS:
         try:
@@ -71,9 +71,7 @@ def generate_flashinfer_cu() -> List[str]:
         with open(root / prefix / fname, "w") as f:
             f.write('#include "../flashinfer_decl.h"\n\n')
             f.write(f'#include "flashinfer/{func}.cuh"\n\n')
-            f.write(
-                f"INST_Batch{func.capitalize()}({dtypes[dtype]}, {page_size}, {group_size}, {head_dim})\n"
-            )
+            f.write(f"INST_Batch{func.capitalize()}({dtypes[dtype]}, {page_size}, {group_size}, {head_dim})\n")
 
     return files
 
@@ -90,8 +88,11 @@ setuptools.setup(
                 "punica_kernels/rms_norm/rms_norm_cutlass.cu",
                 "punica_kernels/sgmv/sgmv_cutlass.cu",
                 "punica_kernels/sgmv_flashinfer/sgmv_all.cu",
-            ] + generate_flashinfer_cu(),
+                "punica_kernels/segment_matmul/matmul_kernel.cu",
+            ]
+            + generate_flashinfer_cu(),
             include_dirs=[
+                str(root.resolve() / "third_party/cutlass/tools/util/include"),
                 str(root.resolve() / "third_party/cutlass/include"),
                 str(root.resolve() / "third_party/flashinfer/include"),
             ],
