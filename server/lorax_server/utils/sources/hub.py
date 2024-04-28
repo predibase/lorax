@@ -187,7 +187,7 @@ class HubModelSource(BaseModelSource):
 
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         try:
-            return Path(hf_hub_download(self.model_id, revision=None, filename=filename))
+            return Path(hf_hub_download(self.model_id, revision=None, filename=filename, token=self.api_token))
         except Exception as e:
             if ignore_errors:
                 return None
