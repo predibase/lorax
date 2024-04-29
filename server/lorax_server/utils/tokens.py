@@ -192,7 +192,7 @@ class StoppingCriteria:
         tokenizer: PreTrainedTokenizerBase,
     ) -> "StoppingCriteria":
         stop_sequence_criterias = [StopSequenceCriteria(sequence) for sequence in pb.stop_sequences]
-        eos_token_id = getattr(tokenizer, "eos_token_ids", tokenizer.eos_token_id)
+        eos_token_id = getattr(tokenizer, "_eos_token_ids", tokenizer.eos_token_id)
         return StoppingCriteria(
             eos_token_id,
             stop_sequence_criterias,

@@ -67,7 +67,7 @@ class FlashPhi3(FlashCausalLM):
             )
 
             if isinstance(generation_config.eos_token_id, (list, set)):
-                tokenizer.eos_token_ids = set(generation_config.eos_token_id)
+                tokenizer._eos_token_ids = set(generation_config.eos_token_id)
         except Exception:
             pass
 
