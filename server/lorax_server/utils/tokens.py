@@ -175,6 +175,11 @@ class StoppingCriteria:
         if self.current_tokens >= self.max_new_tokens:
             return True, FinishReason.FINISH_REASON_LENGTH
 
+        # If the last token is a tensor, convert it to an integer
+        # Otherwise the set membership check will fail
+        if isinstance(last_token, torch.Tensor):
+            last_token = last_token.item()
+
         if not self.ignore_eos_token and last_token in self.eos_token_ids:
             return True, FinishReason.FINISH_REASON_EOS_TOKEN
 
