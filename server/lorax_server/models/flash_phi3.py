@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, GenerationConfig
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_phi3_modeling import (
@@ -57,6 +57,19 @@ class FlashPhi3(FlashCausalLM):
             truncation_side="left",
             trust_remote_code=trust_remote_code,
         )
+
+        try:
+            # Override the tokenizer's eos_token_id with the one from the generation_config
+            # if it is a list or set. We need to do this by adding a new property as the tokenizer
+            # does not officially support multiple eos_token_ids.
+            generation_config = GenerationConfig.from_pretrained(
+                model_id, revision=revision, trust_remote_code=trust_remote_code
+            )
+
+            if isinstance(generation_config.eos_token_id, (list, set)):
+                tokenizer.eos_token_ids = set(generation_config.eos_token_id)
+        except Exception:
+            pass
 
         config = Phi3Config.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
