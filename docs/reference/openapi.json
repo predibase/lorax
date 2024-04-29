@@ -969,6 +969,14 @@
           "stream": {
             "type": "boolean",
             "default": "false"
+          },
+          "adapter_source": {
+            "type": "string",
+            "nullable": true
+          },
+          "api_token": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -1028,6 +1036,14 @@
           "stream": {
             "type": "boolean",
             "default": "false"
+          },
+          "adapter_source": {
+            "type": "string",
+            "nullable": true
+          },
+          "api_token": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -1085,8 +1101,14 @@
       "ChatCompletionStreamResponseChoice": {
         "type": "object",
         "properties": {
-          "index": { "type": "integer", "format": "int32" },
-          "delta": { "type": "object", "$ref": "#/components/schemas/ChatCompletionResponseMessage" },
+          "index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "delta": {
+            "type": "object",
+            "$ref": "#/components/schemas/ChatCompletionResponseMessage"
+          },
           "finish_reason": {
             "type": "string",
             "nullable": true
@@ -1096,9 +1118,15 @@
       "ChatCompletionResponseChoice": {
         "type": "object",
         "properties": {
-          "index": { "type": "integer", "format": "int32" },
-          "message": { "type": "object", "$ref": "#/components/schemas/ChatCompletionResponseMessage" },
-          "finish_reason": { 
+          "index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "object",
+            "$ref": "#/components/schemas/ChatCompletionResponseMessage"
+          },
+          "finish_reason": {
             "type": "string",
             "nullable": true
           }
@@ -1107,8 +1135,12 @@
       "ChatCompletionResponseMessage": {
         "type": "object",
         "properties": {
-          "role": { "type": "string" },
-          "content": { "type": "string" }
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
         }
       },
       "CompletionResponse": {
@@ -1141,14 +1173,19 @@
       "CompletionResponseChoice": {
         "type": "object",
         "properties": {
-          "index": { "type": "integer", "format": "int32" },
-          "text": { "type": "string" },
-          "logprobs": { 
+          "index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "text": {
+            "type": "string"
+          },
+          "logprobs": {
             "type": "object",
             "nullable": true,
             "$ref": "#/components/schemas/LogProbs"
           },
-          "finish_reason": { 
+          "finish_reason": {
             "type": "string",
             "nullable": true
           }
@@ -1157,15 +1194,26 @@
       "CompletionStreamResponse": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "object": { "type": "string" },
-          "created": { "type": "integer", "format": "int64" },
-          "model": { "type": "string" },
-          "choices": { 
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/CompletionResponseStreamChoice" }
+          "id": {
+            "type": "string"
           },
-          "usage": { 
+          "object": {
+            "type": "string"
+          },
+          "created": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompletionResponseStreamChoice"
+            }
+          },
+          "usage": {
             "type": "object",
             "nullable": true,
             "$ref": "#/components/schemas/UsageInfo"
@@ -1175,14 +1223,19 @@
       "CompletionResponseStreamChoice": {
         "type": "object",
         "properties": {
-          "index": { "type": "integer", "format": "int32" },
-          "text": { "type": "string" },
-          "logprobs": { 
+          "index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "text": {
+            "type": "string"
+          },
+          "logprobs": {
             "type": "object",
             "nullable": true,
             "$ref": "#/components/schemas/LogProbs"
           },
-          "finish_reason": { 
+          "finish_reason": {
             "type": "string",
             "nullable": true
           }
@@ -1191,24 +1244,36 @@
       "LogProbs": {
         "type": "object",
         "properties": {
-          "text_offset": { 
+          "text_offset": {
             "type": "array",
-            "items": { "type": "integer", "format": "int32" }
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
           },
-          "token_logprobs": { 
+          "token_logprobs": {
             "type": "array",
-            "items": { "type": "number", "format": "float", "nullable": true }
+            "items": {
+              "type": "number",
+              "format": "float",
+              "nullable": true
+            }
           },
-          "tokens": { 
+          "tokens": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
-          "top_logprobs": { 
+          "top_logprobs": {
             "type": "array",
-            "items": { 
+            "items": {
               "type": "object",
               "nullable": true,
-              "additionalProperties": { "type": "number", "format": "float" }
+              "additionalProperties": {
+                "type": "number",
+                "format": "float"
+              }
             },
             "nullable": true
           }
@@ -1217,9 +1282,15 @@
       "UsageInfo": {
         "type": "object",
         "properties": {
-          "prompt_tokens": { "type": "integer", "format": "uint32" },
-          "total_tokens": { "type": "integer", "format": "uint32" },
-          "completion_tokens": { 
+          "prompt_tokens": {
+            "type": "integer",
+            "format": "uint32"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "format": "uint32"
+          },
+          "completion_tokens": {
             "type": "integer",
             "format": "uint32",
             "nullable": true
