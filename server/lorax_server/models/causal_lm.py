@@ -647,7 +647,7 @@ class CausalLM(Model):
                 next_token_text,
             )
 
-            # advance grammar state
+            # advance FSM state
             next_token_chooser.next_state(next_token_id_squeezed)
 
             if not stop:
