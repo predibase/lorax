@@ -434,6 +434,10 @@ class HeterogeneousNextTokenChooser:
 
         return self
 
+    def next_state(self, batch_idx: int, next_token_id: int):
+        if self.schema_processor is not None:
+            self.schema_processor.next_state(batch_idx, next_token_id)
+
     @classmethod
     def from_pb(
         cls,

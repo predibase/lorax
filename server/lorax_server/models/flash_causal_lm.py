@@ -1233,6 +1233,10 @@ class FlashCausalLM(Model):
 
                 generations.append(generation)
 
+            # advance the grammar for each accepted token (as we may have more than one from speculative decoding)
+            for next_token_id in accepted_token_ids:
+                batch.next_token_chooser.next_state(i, next_token_id)
+
             # Update values
             batch.input_lengths[i] = input_length + num_accepted_ids.item()
             if batch.input_lengths[i] > batch.max_seqlen:
