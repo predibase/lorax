@@ -14,7 +14,7 @@ from transformers import (
 )
 
 try:
-    from outlines.fsm.fsm import FSMState, RegexFSM
+    from outlines.fsm.fsm import RegexFSM
     from outlines.fsm.json_schema import build_regex_from_schema
 
     HAS_OUTLINES = True
@@ -465,43 +465,20 @@ class OutlinesLogitsProcessor(LogitsProcessor):
 
         self.tokenizer = OutlinesLogitsProcessor.adapt_tokenizer(tokenizer)
         self.fsm = OutlinesLogitsProcessor.compile_fsm(schema, self.tokenizer)
-
-        self.fsm_state = FSMState(0)
-        self.is_first_token = True
+        self.fsm_state = 0
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
-        """Use the FSM to bias the logits before sampling the next token."""
-
-        if self.is_first_token or self.fsm is None:
+        if self.fsm_state == -1 or self.fsm is None:
             return scores
 
         allowed_tokens = self.fsm.allowed_token_ids(self.fsm_state)
-        mask = torch.full_like(scores, -math.inf)
+        mask = torch.full_like(scores, -math.inf, device=scores.device)
         mask[:, allowed_tokens] = 0
         biased_scores = scores + mask
         return biased_scores
 
-        # if self.is_first_token:
-        #     # For the very first token generated, we want to select the allowed tokens from the FSM's initial state.
-        #     self.is_first_token = False
-        # else:
-        #     last_token = input_ids[0][-1].item()
-        #     self.fsm_state = self.fsm.next_state(self.fsm_state, last_token)
-
-        # allowed_tokens = self.fsm.allowed_token_ids(self.fsm_state)
-        # print("allowed_tokens", allowed_tokens)
-
-        # mask = torch.full((scores.shape[-1],), -math.inf, device=scores.device)
-        # mask[allowed_tokens] = 0
-        # biased_scores = scores + mask
-
-        # return biased_scores
-
     def next_state(self, next_token_id: int):
-        """Get the next state of the FSM given the input tokens."""
-        if self.is_first_token:
-            self.is_first_token = False
-        else:
+        if self.fsm_state != -1:
             self.fsm_state = self.fsm.next_state(self.fsm_state, next_token_id)
 
     @staticmethod
