@@ -1,4 +1,5 @@
 import math
+from contextlib import contextmanager
 from functools import lru_cache
 from typing import Dict, List, Optional, Union
 
@@ -422,7 +423,17 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
 
     def next_state(self, batch_idx: int, next_token_id: int):
         if self.sequence_processors[batch_idx] is not None:
-            return self.sequence_processors[batch_idx].next_state(next_token_id)
+            self.sequence_processors[batch_idx].next_state(next_token_id)
+
+    @contextmanager
+    def restore_state(self):
+        states = [processor.fsm_state if processor is not None else None for processor in self.sequence_processors]
+        try:
+            yield
+        finally:
+            for i, state in enumerate(states):
+                if state is not None:
+                    self.sequence_processors[i].fsm_state = state
 
     @classmethod
     def from_schemas(

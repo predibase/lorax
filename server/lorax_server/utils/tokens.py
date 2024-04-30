@@ -1,4 +1,5 @@
 import re
+from contextlib import nullcontext
 from typing import List, Optional, Set, Tuple, Union
 
 import torch
@@ -340,21 +341,28 @@ class HeterogeneousNextTokenChooser:
         scores = scores.view(B, S, -1)
 
         next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
-        for j in range(S):
-            scores_j = scores[:, j]
-            if self.watermark_processor is not None:
-                scores_j = self.watermark_processor(input_ids, scores_j)
-            if self.repetition_processor is not None:
-                scores_j = self.repetition_processor(input_ids, scores_j)
-            if self.schema_processor is not None:
-                scores_j = self.schema_processor(input_ids, scores_j)
+        with self.schema_processor.restore_state() if self.schema_processor is not None else nullcontext():
+            for j in range(S):
+                scores_j = scores[:, j]
+                if self.watermark_processor is not None:
+                    scores_j = self.watermark_processor(input_ids, scores_j)
+                if self.repetition_processor is not None:
+                    scores_j = self.repetition_processor(input_ids, scores_j)
+                if self.schema_processor is not None:
+                    scores_j = self.schema_processor(input_ids, scores_j)
 
-            for warper in self.warpers:
-                scores_j = warper(input_ids, scores_j)
+                for warper in self.warpers:
+                    scores_j = warper(input_ids, scores_j)
 
-            next_ids_j = self.choice(scores_j)
-            scores[:, j] = scores_j
-            next_ids[:, j] = next_ids_j
+                next_ids_j = self.choice(scores_j)
+                scores[:, j] = scores_j
+                next_ids[:, j] = next_ids_j
+
+                # need to update schema processor state for next_ids_j before the next loop iteration
+                # can revert this at the end of the loop
+                if self.schema_processor is not None:
+                    for batch_idx in range(B):
+                        self.schema_processor.next_state(batch_idx, next_ids_j[batch_idx].item())
 
         next_ids = next_ids.view(B * S)
         scores = scores.view(B * S, -1)

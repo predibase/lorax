@@ -1233,7 +1233,7 @@ class FlashCausalLM(Model):
 
                 generations.append(generation)
 
-            # advance the grammar for each accepted token (as we may have more than one from speculative decoding)
+            # advance the FSM for each accepted token (as we may have more than one from speculative decoding)
             for next_token_id in accepted_token_ids:
                 batch.next_token_chooser.next_state(i, next_token_id)
 
