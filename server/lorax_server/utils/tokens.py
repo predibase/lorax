@@ -86,7 +86,7 @@ class NextTokenChooser:
         if self.repetition_processor is not None:
             scores = self.repetition_processor(input_ids, scores)
         if self.schema_processor is not None:
-            scores = self.schema_processor(input_ids, scores)
+            scores = self.schema_processor(scores)
 
         if self.static_warper is None:
             next_logprob = torch.log_softmax(scores, -1)
@@ -96,6 +96,10 @@ class NextTokenChooser:
         next_id = self.choice(scores[-1]).view(1, 1)
 
         return next_id, next_logprob
+
+    def next_state(self, next_token_id: int):
+        if self.schema_processor is not None:
+            self.schema_processor.next_state(next_token_id)
 
     @classmethod
     def from_pb(
