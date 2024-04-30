@@ -411,7 +411,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in enumerate(self.sequence_processors):
             if processor is not None:
-                scores[i : i + 1] = processor(input_ids[i : i + 1], scores[i : i + 1])
+                scores[i : i + 1] = processor(scores[i : i + 1])
         return scores
 
     def filter(self, indices):
@@ -467,7 +467,7 @@ class OutlinesLogitsProcessor(LogitsProcessor):
         self.fsm = OutlinesLogitsProcessor.compile_fsm(schema, self.tokenizer)
         self.fsm_state = 0
 
-    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
+    def __call__(self, scores: torch.Tensor) -> torch.Tensor:
         if self.fsm_state == -1 or self.fsm is None:
             return scores
 
