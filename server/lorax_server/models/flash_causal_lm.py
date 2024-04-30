@@ -770,7 +770,7 @@ class FlashCausalLM(Model):
                         _, batch = self.generate_token(batch, is_warmup=True)
                         new_seqlen = batch.max_seqlen
                         pbar.update(new_seqlen - cur_seqlen)
-                        if new_seqlen >= max_total_tokens:
+                        if new_seqlen >= max_total_tokens - get_speculative_tokens():
                             break
                 logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
@@ -1232,6 +1232,10 @@ class FlashCausalLM(Model):
                 )
 
                 generations.append(generation)
+
+            # advance the FSM for each accepted token (as we may have more than one from speculative decoding)
+            for next_token_id in accepted_token_ids:
+                batch.next_token_chooser.next_state(i, next_token_id)
 
             # Update values
             batch.input_lengths[i] = input_length + num_accepted_ids.item()
