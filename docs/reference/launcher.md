@@ -12,6 +12,11 @@ Options:
           [env: MODEL_ID=]
           [default: mistralai/Mistral-7B-Instruct-v0.1]
 
+      --env <HUGGING_FACE_HUB_TOKEN>
+          Your Hugging Face API token to authenticate access to private or gated models on the Hugging Face Hub. This token can be set as an environment variable or passed directly through the command line
+
+        [env: HUGGING_FACE_HUB_TOKEN=]
+
       --adapter-id <ADAPTER_ID>
           The name of the adapter to load. Can be a MODEL_ID as listed on <https://hf.co/models> or it can be a local directory containing the necessary files as saved by `save_pretrained(...)` methods of transformers. Should be compatible with the model specified in `model_id`
           
