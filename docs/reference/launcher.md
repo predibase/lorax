@@ -90,7 +90,7 @@ Options:
           This is the maximum allowed value for clients to set `stop_sequences`. Stop sequences are used to allow the model to stop on more than just the EOS token, and enable more complex "prompting" where users can preprompt the model in a specific way and define their "own" stop token aligned with their prompt
           
           [env: MAX_STOP_SEQUENCES=]
-          [default: 4]
+          [default: 10]
 
       --max-input-length <MAX_INPUT_LENGTH>
           This is the maximum allowed input length (expressed in number of tokens) for users. The larger this value, the longer prompt users can send which can impact the overall memory required to handle the load. Please note that some models have a finite range of sequence they can handle
@@ -110,7 +110,7 @@ Options:
           This setting is only applied if there is room in the batch as defined by `max_batch_total_tokens`.
           
           [env: WAITING_SERVED_RATIO=]
-          [default: 1.2]
+          [default: 0.3]
 
       --max-batch-prefill-tokens <MAX_BATCH_PREFILL_TOKENS>
           Limits the number of tokens for the prefill operation. Since this operation take the most memory and is compute bound, it is interesting to limit the number of requests that can be sent
