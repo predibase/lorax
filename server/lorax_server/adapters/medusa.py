@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import torch
 import torch.distributed
@@ -8,10 +8,14 @@ from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.layers import FastLinear, TensorParallelColumnLinear
+from lorax_server.utils.sgmv import segmented_matmul
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model
+
+
+EMPTY_TENSOR = torch.tensor([])
 
 
 @dataclass
@@ -62,6 +66,14 @@ class MedusaConfig(AdapterConfig):
         )
 
 
+@dataclass
+class MedusaSegments:
+    w: List[torch.Tensor]
+    b: List[torch.Tensor]
+    s_start: torch.Tensor
+    s_end: torch.Tensor
+
+
 class ResBlock(torch.nn.Module):
     def __init__(self, config: MedusaConfig, prefix: str, weights: AbstractWeights):
         super().__init__()
@@ -96,7 +108,7 @@ class MedusaV1(torch.nn.Module):
             [MedusaHead(config, prefix=f"{i}", weights=weights) for i in range(config.medusa_num_heads)]
         )
 
-    def forward(self, x, lm_head):
+    def forward(self, x, lm_head, segments: Optional[MedusaSegments] = None):
         logits = lm_head(x)
         speculative_logits = torch.stack([head(x) for head in self.heads], dim=1)
         return logits, speculative_logits
@@ -121,7 +133,7 @@ class MedusaV2(torch.nn.Module):
 
         self.act = torch.nn.SiLU()
 
-    def forward(self, x, lm_head):
+    def forward(self, x, lm_head, segments: Optional[MedusaSegments] = None):
         # If we have too many tokens, we skip speculative logits
         if x.shape[0] > 128:
             logits = lm_head(x)
@@ -134,8 +146,23 @@ class MedusaV2(torch.nn.Module):
 
         x_block = x[:, start:stop]
 
+        if segments is not None:
+            # Multi-Medusa
+            # TODO(travis)L custom kernel similar to SGMV
+            y = torch.empty_like(x)
+            segmented_matmul(
+                y,
+                x,
+                segments.w,
+                segments.b,
+                segments.s_start,
+                segments.s_end,
+            )
+        else:
+            y = self.linear(x)
+
         # Compute all medusa heads at the same time, then reshape and move the n_medusa_heads dim to dim 1
-        medusa_res = self.act(self.linear(x)).reshape(*x_block.shape[:-1], self.n_medusa_heads, x_block.shape[-1])
+        medusa_res = self.act(y).reshape(*x_block.shape[:-1], self.n_medusa_heads, x_block.shape[-1])
 
         # Apply all residual medusa heads
         output = x[:, start:stop].unsqueeze(-2) + medusa_res
@@ -167,14 +194,15 @@ class MedusaModel(torch.nn.Module):
         else:
             self.medusa = MedusaV2(config, weights)
 
-    def forward(self, x, lm_head):
-        return self.medusa(x, lm_head)
+    def forward(self, x, lm_head, segments: Optional[MedusaSegments] = None):
+        return self.medusa(x, lm_head, segments)
 
 
 class MedusaWeights(AdapterWeights):
     def __init__(self, config: MedusaConfig, module_map: ModuleMap, model: "Model"):
         self.config = config
         self.model = MedusaModel(config, InMemoryWeights(module_map, model.device, model.dtype, model.process_group))
+        self.process_group = model.process_group
 
     @classmethod
     def get_batch_type(cls) -> BatchAdapterWeights:
@@ -202,6 +230,7 @@ class MedusaWeights(AdapterWeights):
 class BatchMedusaWeights(BatchAdapterWeights):
     adapter_to_medusa: Dict[int, MedusaWeights]
     default_medusa: Optional[MedusaWeights] = None
+    segments: Optional[MedusaSegments] = None
 
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_to_medusa
@@ -209,6 +238,11 @@ class BatchMedusaWeights(BatchAdapterWeights):
     @classmethod
     def key(cls) -> str:
         return MEDUSA
+
+    def __call__(self, x, lm_head):
+        if self.default_medusa:
+            return self.default_medusa.model(x, lm_head, self.segments)
+        return lm_head(x)
 
     @classmethod
     def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchMedusaWeights":
@@ -219,4 +253,16 @@ class BatchMedusaWeights(BatchAdapterWeights):
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_to_medusa,
             default_medusa=adapter_weights.get(0),
+            segments=MedusaSegments(
+                w=[
+                    (adapter_weights[idx].model.medusa.medusa.linear.weight if idx in adapter_weights else EMPTY_TENSOR)
+                    for idx in meta.segment_indices
+                ],
+                b=[
+                    (adapter_weights[idx].model.medusa.medusa.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
+                    for idx in meta.segment_indices
+                ],
+                segment_starts=meta.adapter_segments[meta.segment_indices],
+                segment_ends=meta.adapter_segments[[i + 1 for i in meta.segment_indices]],
+            ),
         )
