@@ -22,6 +22,7 @@ EMPTY_TENSOR = torch.tensor([])
 class MedusaConfig(AdapterConfig):
     medusa_num_heads: int
     medusa_num_layers: int
+    version: int
 
     @property
     def quantize(self) -> Optional[str]:
@@ -43,10 +44,10 @@ class MedusaConfig(AdapterConfig):
         unused_weight_names: Set[str],
         dynamic: bool,
     ) -> Optional[AdapterWeights]:
-        if dynamic:
+        if dynamic and self.version < 2:
             raise ValueError(
-                "Dynamic adapter loading is not supported for Medusa at this time. "
-                "Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every request."
+                f"Dynamic adapter loading is not supported for Medusa version {self.version} at this time. "
+                f"Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every request."
             )
 
         return MedusaWeights.load(
@@ -63,6 +64,7 @@ class MedusaConfig(AdapterConfig):
             base_model_name_or_path=config["base_model_name_or_path"],
             medusa_num_heads=config["medusa_num_heads"],
             medusa_num_layers=config["medusa_num_layers"],
+            version=config.get("version", 1),
         )
 
 
