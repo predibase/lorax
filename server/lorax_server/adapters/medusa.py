@@ -64,7 +64,7 @@ class MedusaConfig(AdapterConfig):
             base_model_name_or_path=config["base_model_name_or_path"],
             medusa_num_heads=config["medusa_num_heads"],
             medusa_num_layers=config["medusa_num_layers"],
-            version=config.get("version", 1),
+            version=float(config.get("version", 1)),
         )
 
 
@@ -251,6 +251,8 @@ class BatchMedusaWeights(BatchAdapterWeights):
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
 
         adapter_to_medusa = {idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights}
+
+        print("meta.segment_indices", meta.segment_indices, "meta.adapter_segments", meta.adapter_segments)
 
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_to_medusa,
