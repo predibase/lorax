@@ -249,10 +249,8 @@ class BatchMedusaWeights(BatchAdapterWeights):
     @classmethod
     def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchMedusaWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
-
         adapter_to_medusa = {idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights}
-
-        print("meta.segment_indices", meta.segment_indices, "meta.adapter_segments", meta.adapter_segments)
+        indices = [idx for idx, s in enumerate(meta.segment_indices) if s in adapter_to_medusa]
 
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_to_medusa,
@@ -266,7 +264,7 @@ class BatchMedusaWeights(BatchAdapterWeights):
                     (adapter_weights[idx].model.medusa.linear.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
                     for idx in meta.segment_indices
                 ],
-                s_start=meta.adapter_segments[meta.segment_indices],
-                s_end=meta.adapter_segments[[i + 1 for i in meta.segment_indices]],
+                s_start=meta.adapter_segments[indices],
+                s_end=meta.adapter_segments[[i + 1 for i in indices]],
             ),
         )
