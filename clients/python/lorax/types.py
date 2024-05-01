@@ -127,7 +127,7 @@ class Parameters(BaseModel):
     @field_validator("adapter_source")
     def valid_adapter_source(cls, v):
         if v is not None and v not in ADAPTER_SOURCES:
-            raise ValidationError(f"`adapter_source` must be one of {ADAPTER_SOURCES}")
+            raise ValidationError(f"`adapter_source={v}` must be one of {ADAPTER_SOURCES}")
         return v
 
     @field_validator("best_of")
