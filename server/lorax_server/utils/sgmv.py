@@ -232,4 +232,4 @@ def segmented_matmul(
         xi = x[s_start[i] : s_end[i]]
         wi = w[i]
         bi = b[i]
-        y[s_start[i] : s_end[i]] = xi @ wi + bi
+        y[s_start[i] : s_end[i]] = F.linear(xi, wi, bi)

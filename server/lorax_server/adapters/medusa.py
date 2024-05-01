@@ -148,8 +148,8 @@ class MedusaV2(torch.nn.Module):
 
         if segments is not None:
             # Multi-Medusa
-            # TODO(travis)L custom kernel similar to SGMV
-            y = torch.empty_like(x)
+            # TODO(travis): custom kernel similar to SGMV
+            y = torch.empty((x.shape[0], self.n_medusa_heads * x_block.shape[-1]), device=x.device, dtype=x.dtype)
             segmented_matmul(
                 y,
                 x,
