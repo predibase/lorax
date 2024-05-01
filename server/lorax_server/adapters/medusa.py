@@ -255,14 +255,14 @@ class BatchMedusaWeights(BatchAdapterWeights):
             default_medusa=adapter_weights.get(0),
             segments=MedusaSegments(
                 w=[
-                    (adapter_weights[idx].model.medusa.medusa.linear.weight if idx in adapter_weights else EMPTY_TENSOR)
+                    (adapter_weights[idx].model.medusa.linear.linear.weight if idx in adapter_weights else EMPTY_TENSOR)
                     for idx in meta.segment_indices
                 ],
                 b=[
-                    (adapter_weights[idx].model.medusa.medusa.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
+                    (adapter_weights[idx].model.medusa.linear.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
                     for idx in meta.segment_indices
                 ],
-                segment_starts=meta.adapter_segments[meta.segment_indices],
-                segment_ends=meta.adapter_segments[[i + 1 for i in meta.segment_indices]],
+                s_start=meta.adapter_segments[meta.segment_indices],
+                s_end=meta.adapter_segments[[i + 1 for i in meta.segment_indices]],
             ),
         )
