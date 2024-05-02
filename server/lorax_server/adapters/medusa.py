@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 EMPTY_TENSOR = torch.tensor([])
 
+_MEDUSA_ENABLED = False
+
 
 @dataclass
 class MedusaConfig(AdapterConfig):
@@ -45,12 +47,19 @@ class MedusaConfig(AdapterConfig):
         unused_weight_names: Set[str],
         dynamic: bool,
     ) -> Optional[AdapterWeights]:
+        global _MEDUSA_ENABLED
         if dynamic:
+            if not _MEDUSA_ENABLED:
+                raise ValueError(
+                    "Medusa adapters can only be loaded at request time when LoRAX was initialized with a default "
+                    "Medusa adapter."
+                )
+
             if self.version < 2:
                 raise ValueError(
                     f"Dynamic adapter loading is not supported for Medusa version {self.version} at this time. "
                     f"Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every "
-                    f"request."
+                    f"request, or migrate to a v2 adapter."
                 )
 
             if get_speculative_tokens() != self.medusa_num_heads:
@@ -58,7 +67,10 @@ class MedusaConfig(AdapterConfig):
                     f"Cannot load a Medusa adapter dynamically with a different number of heads "
                     f"({self.medusa_num_heads}) from the default speculative tokens ({get_speculative_tokens()})."
                 )
+        else:
+            _MEDUSA_ENABLED = True
 
+        # TODO(travis): load to GPU and offload to CPU in accordance with lorax scheduler
         return MedusaWeights.load(
             self,
             model,
