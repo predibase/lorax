@@ -1,5 +1,38 @@
 # Adapters
 
+## Types
+
+### LoRA
+
+[LoRA](./lora.md) is a popular parameter efficient fine-tuning method to improve response quality.
+
+LoRAX can load any LoRA adapter dynamically at runtime per request, and batch many different LoRAs together at once
+for high throughput.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "predibase/conllpp"
+}
+```
+
+### Medusa
+
+[Medusa](./medusa.md) is a speculative decoding method that speeds up next-token generation by attempting to generate
+more than one token at a time.
+
+LoRAX can load Medusa adapters dynamically at runtime per request provided that the LoRAX server was initialized with a
+default Medusa adapter.
+
+Usage:
+
+```json
+"parameters": {
+    "adapter_id": "predibase/Mistral-7B-Instruct-v0.2-magicoder-medusa"
+}
+```
+
 ## Source
 
 You can provide an adapter from the HuggingFace Hub, a local file path, or S3. 
