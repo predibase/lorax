@@ -687,7 +687,7 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
         if data is not None and data.default_medusa is not None:
             forward = super().forward
             lm_head = lambda x: forward(x, adapter_data)  # noqa: E731
-            logits, speculative_logits = data.default_medusa.model(input, lm_head)
+            logits, speculative_logits = data(input, lm_head)
 
             # TODO(travis): support multiple medusa adapters with masking:
             # for adapter_index in adapter_data.meta.adapter_set:
