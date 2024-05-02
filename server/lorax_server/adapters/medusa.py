@@ -281,7 +281,6 @@ class BatchMedusaWeights(BatchAdapterWeights):
             segment_indices = [idx if idx in adapter_weights else 0 for idx in meta.segment_indices]
 
         indices = [idx for idx, s in enumerate(segment_indices) if s in adapter_weights]
-        print(f"{segment_indices=} {indices=}")
 
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_weights,
