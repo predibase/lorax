@@ -256,7 +256,8 @@ class BatchMedusaWeights(BatchAdapterWeights):
     segments: Optional[MedusaSegments] = None
 
     def has_adapter(self, adapter_index: int) -> bool:
-        return adapter_index in self.adapter_to_medusa
+        # If we have a default Medusa, we always have an adapter
+        return self.default_medusa is not None or adapter_index in self.adapter_to_medusa
 
     @classmethod
     def key(cls) -> str:
@@ -270,20 +271,28 @@ class BatchMedusaWeights(BatchAdapterWeights):
     @classmethod
     def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchMedusaWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
-        adapter_to_medusa = {idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights}
-        indices = [idx for idx, s in enumerate(meta.segment_indices) if s in adapter_to_medusa]
+        default_medusa = adapter_weights.get(0)
+
+        segment_indices = meta.segment_indices
+        if default_medusa is not None:
+            # Replace all non-existent segment indices with 0 (default medusa)
+            # This happens when the segment corresponds to a different adapter type (like LoRA) but we still wish
+            # to apply the default Medusa adapter
+            segment_indices = [idx if idx in adapter_weights else 0 for idx in meta.segment_indices]
+
+        indices = [idx for idx, s in enumerate(segment_indices) if s in adapter_weights]
 
         return BatchMedusaWeights(
-            adapter_to_medusa=adapter_to_medusa,
-            default_medusa=adapter_weights.get(0),
+            adapter_to_medusa=adapter_weights,
+            default_medusa=default_medusa,
             segments=MedusaSegments(
                 w=[
                     (adapter_weights[idx].model.medusa.linear.linear.weight if idx in adapter_weights else EMPTY_TENSOR)
-                    for idx in meta.segment_indices
+                    for idx in segment_indices
                 ],
                 b=[
                     (adapter_weights[idx].model.medusa.linear.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
-                    for idx in meta.segment_indices
+                    for idx in segment_indices
                 ],
                 s_start=meta.adapter_segments[indices],
                 s_end=meta.adapter_segments[[i + 1 for i in indices]],
