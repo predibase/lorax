@@ -9,6 +9,7 @@ from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.layers import FastLinear, TensorParallelColumnLinear
 from lorax_server.utils.sgmv import segmented_matmul
+from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 
 if TYPE_CHECKING:
@@ -44,11 +45,19 @@ class MedusaConfig(AdapterConfig):
         unused_weight_names: Set[str],
         dynamic: bool,
     ) -> Optional[AdapterWeights]:
-        if dynamic and self.version < 2:
-            raise ValueError(
-                f"Dynamic adapter loading is not supported for Medusa version {self.version} at this time. "
-                f"Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every request."
-            )
+        if dynamic:
+            if self.version < 2:
+                raise ValueError(
+                    f"Dynamic adapter loading is not supported for Medusa version {self.version} at this time. "
+                    f"Instead, initialize the LoRAX server with the Medusa adapter and it will be applied to every "
+                    f"request."
+                )
+
+            if get_speculative_tokens() != self.medusa_num_heads:
+                raise ValueError(
+                    f"Cannot load a Medusa adapter dynamically with a different number of heads "
+                    f"({self.medusa_num_heads}) from the default speculative tokens ({get_speculative_tokens()})."
+                )
 
         return MedusaWeights.load(
             self,
