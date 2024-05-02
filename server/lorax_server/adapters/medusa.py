@@ -271,7 +271,13 @@ class BatchMedusaWeights(BatchAdapterWeights):
     def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchMedusaWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
         adapter_to_medusa = {idx: adapter_weights[idx] for idx in meta.segment_indices if idx in adapter_weights}
-        indices = [idx for idx, s in enumerate(meta.segment_indices) if s in adapter_to_medusa]
+
+        # Replace all non-existent segment indices with 0 (default medusa)
+        # This happens when the segment corresponds to a different adapter type (like LoRA) but we still wish
+        # to apply the default Medusa adapter
+        segment_indices = [s if s in adapter_to_medusa else 0 for s in meta.segment_indices]
+
+        indices = [idx for idx, s in enumerate(segment_indices) if s in adapter_to_medusa]
 
         return BatchMedusaWeights(
             adapter_to_medusa=adapter_to_medusa,
@@ -279,11 +285,11 @@ class BatchMedusaWeights(BatchAdapterWeights):
             segments=MedusaSegments(
                 w=[
                     (adapter_weights[idx].model.medusa.linear.linear.weight if idx in adapter_weights else EMPTY_TENSOR)
-                    for idx in meta.segment_indices
+                    for idx in segment_indices
                 ],
                 b=[
                     (adapter_weights[idx].model.medusa.linear.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
-                    for idx in meta.segment_indices
+                    for idx in segment_indices
                 ],
                 s_start=meta.adapter_segments[indices],
                 s_end=meta.adapter_segments[[i + 1 for i in indices]],
