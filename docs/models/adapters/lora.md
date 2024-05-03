@@ -4,12 +4,25 @@
 
 LoRAX supports LoRA adapters trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
 
+## How it works
+
+``` mermaid
+graph BT
+  I[X] --> W;
+  I[X] --> A[/LoRA A\];
+  A --> B[\LoRA B/];
+  W --> P((+));
+  B--> P;
+  P --> O[Y]
+```
+
+LoRA works by targeting specific layers of the base model and inserting a new low-rank pair of weights `LoRA A` and `LoRA B` alongside each base model
+param `W`. The input `X` is passed through both the original weights and the LoRA weights, and then the activations are summed together
+to produce the final layer output `Y`.
+
 ## Target Modules
 
-LoRA works by targeting specific layers of the base model and inserting a new low-rank pair of weights alongside each base model
-param.
-
-When training a LoRA adapter, you can typically specify which of these layers (or "modules") you wish to target for adaptation. Typically
+When training a LoRA adapter, you can specify which of these layers (or "modules") you wish to target for adaptation. Typically
 these are the projection layers in the attention blocks (`q` and `v`, sometimes `k` and `o` as well for LLaMA like models), but can
 usually be any linear layer.
 
@@ -123,3 +136,17 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `dense_h_to_4h`
 - `dense_4h_to_h`
 - `lm_head`
+
+## How to train
+
+LoRA is a very popular fine-tuning method for LLMs, and as such there are a number of options for creating them
+from your data, including the following (non-exhaustive) options.
+
+### Open Source
+
+- [PEFT](https://github.com/huggingface/peft)
+- [Ludwig](https://ludwig.ai/)
+
+### Commercial
+
+- [Predibase](https://predibase.com/)

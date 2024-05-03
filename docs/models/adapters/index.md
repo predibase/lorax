@@ -1,5 +1,8 @@
 # Adapters
 
+Adapters are small model fragments that can be loaded on top of base models in LoRAX -- either during server initialization
+or at runtime as part of the request parameters.
+
 ## Types
 
 ### LoRA
