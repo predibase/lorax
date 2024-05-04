@@ -9,6 +9,8 @@
 - 🔄 [Mixtral](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1)
 - 💎 [Gemma](https://blog.google/technology/developers/gemma-open-models/)
 - 🏛️ [Phi](https://huggingface.co/microsoft/phi-2)
+- 🧱 [DBRX](https://huggingface.co/databricks/dbrx-base)
+- ⌨️ [Command-R](https://huggingface.co/CohereForAI/c4ai-command-r-v01)
 - 🔮 [Qwen](https://huggingface.co/Qwen)
 - 🤖 [GPT2](https://huggingface.co/gpt2)
 - 🔆 [Solar](https://huggingface.co/upstage/SOLAR-10.7B-v1.0)
