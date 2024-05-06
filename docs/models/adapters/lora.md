@@ -8,19 +8,21 @@ LoRAX supports LoRA adapters trained using frameworks like [PEFT](https://github
 
 ``` mermaid
 graph BT
-  I[X] --> W;
-  I[X] --> A[/LoRA A\];
+  I{{X}} --> W;
+  I --> A[/LoRA A\];
   A --> B[\LoRA B/];
   W --> P((+));
   B--> P;
-  P --> O[Y]
+  P --> O{{Y}}
 ```
 
 LoRA works by targeting specific layers of the base model and inserting a new low-rank pair of weights `LoRA A` and `LoRA B` alongside each base model
 param `W`. The input `X` is passed through both the original weights and the LoRA weights, and then the activations are summed together
 to produce the final layer output `Y`.
 
-## Target Modules
+## Usage
+
+### Supported Target Modules
 
 When training a LoRA adapter, you can specify which of these layers (or "modules") you wish to target for adaptation. Typically
 these are the projection layers in the attention blocks (`q` and `v`, sometimes `k` and `o` as well for LLaMA like models), but can
@@ -29,7 +31,7 @@ usually be any linear layer.
 Here is a list of supported target modules for each architecture in LoRAX. Note that in cases where your adapter contains target
 modules that LoRAX does not support, LoRAX will ignore those layers and emit a warning on the backend.
 
-### Llama
+#### Llama
 
 - `q_proj`
 - `k_proj`
@@ -40,7 +42,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `down_proj`
 - `lm_head`
 
-### Mistral
+#### Mistral
 
 - `q_proj`
 - `k_proj`
@@ -51,7 +53,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `down_proj`
 - `lm_head`
 
-### Mixtral
+#### Mixtral
 
 - `q_proj`
 - `k_proj`
@@ -59,7 +61,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `o_proj`
 - `lm_head`
 
-### Gemma
+#### Gemma
 
 - `q_proj`
 - `k_proj`
@@ -69,7 +71,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `up_proj`
 - `down_proj`
 
-### Phi-3
+#### Phi-3
 
 - `qkv_proj`
 - `o_proj`
@@ -77,7 +79,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `down_proj`
 - `lm_head`
 
-### Phi-2
+#### Phi-2
 
 - `q_proj`
 - `k_proj`
@@ -87,7 +89,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `fc2`
 - `lm_head`
 
-### Qwen2
+#### Qwen2
 
 - `q_proj`
 - `k_proj`
@@ -98,7 +100,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `down_proj`
 - `lm_head`
 
-### Qwen
+#### Qwen
 
 - `c_attn`
 - `c_proj`
@@ -106,7 +108,7 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `w2`
 - `lm_head`
 
-### Command-R
+#### Command-R
 
 - `q_proj`
 - `k_proj`
@@ -117,19 +119,19 @@ modules that LoRAX does not support, LoRAX will ignore those layers and emit a w
 - `down_proj`
 - `lm_head`
 
-### DBRX
+#### DBRX
 
 - `Wqkv`
 - `out_proj`
 - `lm_head`
 
-### GPT2
+#### GPT2
 
 - `c_attn`
 - `c_proj`
 - `c_fc`
 
-### Bloom
+#### Bloom
 
 - `query_key_value`
 - `dense`
