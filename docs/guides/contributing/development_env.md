@@ -16,12 +16,12 @@ Pull and run the latest LoRAX docker image, mounting the directory containing yo
 # we will assume the lorax repo is found at ~/data/lorax
 volume=~/data
 
-docker pull ghcr.io/predibase/lorax:latest
+docker pull ghcr.io/predibase/lorax:main
 docker run \
     --cap-add=SYS_PTRACE \
     --gpus all --shm-size 1g \
     -v $volume:/data \
-    -itd --entrypoint /bin/bash ghcr.io/predibase/lorax:latest
+    -itd --entrypoint /bin/bash ghcr.io/predibase/lorax:main
 ```
 
 !!! note

@@ -11,7 +11,7 @@ model=mistralai/Mistral-7B-Instruct-v0.1
 volume=$PWD/data  # share a volume with the container as a weight cache
 
 docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
-    ghcr.io/predibase/lorax:latest --model-id $model
+    ghcr.io/predibase/lorax:main --model-id $model
 ```
 !!! note
     

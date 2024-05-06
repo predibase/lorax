@@ -53,7 +53,7 @@ Example:
 
 ```bash
 docker run --gpus all --shm-size 1g -p 8080:80 -v $PWD:/data \
-    ghcr.io/predibase/lorax:latest \
+    ghcr.io/predibase/lorax:main \
     --model-id mistralai/Mistral-7B-Instruct-v0.2 \
     --adapter-id predibase/Mistral-7B-Instruct-v0.2-medusa
 ```
@@ -173,7 +173,7 @@ Launch a LoRAX server:
 
 ```bash
 docker run --gpus all --shm-size 1g -p 8080:80 -v $PWD:/data \
-    ghcr.io/predibase/lorax:latest \
+    ghcr.io/predibase/lorax:main \
     --model-id mistralai/Mistral-7B-Instruct-v0.2 \
     --adapter-id predibase/Mistral-7B-Instruct-v0.2-medusa
 ```
