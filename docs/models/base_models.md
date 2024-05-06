@@ -8,8 +8,10 @@
     - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
 - 🔄 [Mixtral](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1)
 - 💎 [Gemma](https://blog.google/technology/developers/gemma-open-models/)
-- 🏛️ [Phi](https://huggingface.co/microsoft/phi-2)
-- 🔮 [Qwen](https://huggingface.co/Qwen)
+- 🏛️ [Phi-3](https://azure.microsoft.com/en-us/blog/introducing-phi-3-redefining-whats-possible-with-slms/) / [Phi-2](https://huggingface.co/microsoft/phi-2)
+- 🔮 [Qwen2 / Qwen](https://huggingface.co/Qwen)
+- 🗣️ [Command-R](https://docs.cohere.com/docs/command-r)
+- 🧱 [DBRX](https://www.databricks.com/blog/introducing-dbrx-new-state-art-open-llm)
 - 🤖 [GPT2](https://huggingface.co/gpt2)
 - 🌸 [Bloom](https://huggingface.co/bigscience/bloom)
 

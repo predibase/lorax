@@ -1,82 +1,40 @@
 # Adapters
 
-LoRAX currently supports LoRA adapters, which can be trained using frameworks like [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/).
+Adapters are small model fragments that can be loaded on top of base models in LoRAX -- either during server initialization
+or at runtime as part of the request parameters.
 
-## Target Modules
+## Types
 
-Any combination of linear layers can be targeted in the adapters, which corresponds to the following target modules for each base model.
+### LoRA
 
-### Llama
+[LoRA](./lora.md) is a popular parameter efficient fine-tuning method to improve response quality.
 
-- `q_proj`
-- `k_proj`
-- `v_proj`
-- `o_proj`
-- `gate_proj`
-- `up_proj`
-- `down_proj`
-- `lm_head`
+LoRAX can load any LoRA adapter dynamically at runtime per request, and batch many different LoRAs together at once
+for high throughput.
 
-### Mistral
+Usage:
 
-- `q_proj`
-- `k_proj`
-- `v_proj`
-- `o_proj`
-- `gate_proj`
-- `up_proj`
-- `down_proj`
-- `lm_head`
+```json
+"parameters": {
+    "adapter_id": "predibase/conllpp"
+}
+```
 
-### Mixtral
+### Medusa
 
-- `q_proj`
-- `k_proj`
-- `v_proj`
-- `o_proj`
-- `lm_head`
+[Medusa](./medusa.md) is a speculative decoding method that speeds up next-token generation by attempting to generate
+more than one token at a time.
 
-### Gemma
+LoRAX can load Medusa adapters dynamically at runtime per request provided that the LoRAX server was initialized with a
+default Medusa adapter.
 
-- `q_proj`
-- `k_proj`
-- `v_proj`
-- `o_proj`
-- `gate_proj`
-- `up_proj`
-- `down_proj`
+Usage:
 
-### Phi
-
-- `q_proj`
-- `k_proj`
-- `v_proj`
-- `dense`
-- `fc1`
-- `fc2`
-- `lm_head`
-
-### Qwen
-
-- `c_attn`
-- `c_proj`
-- `w1`
-- `w2`
-- `lm_head`
-
-### GPT2
-
-- `c_attn`
-- `c_proj`
-- `c_fc`
-
-### Bloom
-
-- `query_key_value`
-- `dense`
-- `dense_h_to_4h`
-- `dense_4h_to_h`
-- `lm_head`
+```json
+"parameters": {
+    "adapter_id": "predibase/Mistral-7B-Instruct-v0.2-magicoder-medusa"
+}
+```
 
 ## Source
 

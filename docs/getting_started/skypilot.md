@@ -28,7 +28,7 @@ envs:
 
 run: |
   docker run --gpus all --shm-size 1g -p 8080:80 -v ~/data:/data \
-    ghcr.io/predibase/lorax:latest \
+    ghcr.io/predibase/lorax:main \
     --model-id $MODEL_ID
 ```
 

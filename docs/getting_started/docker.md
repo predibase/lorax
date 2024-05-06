@@ -11,8 +11,14 @@ model=mistralai/Mistral-7B-Instruct-v0.1
 volume=$PWD/data  # share a volume with the container as a weight cache
 
 docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
-    ghcr.io/predibase/lorax:latest --model-id $model
+    ghcr.io/predibase/lorax:main --model-id $model
 ```
+
+!!! note
+    
+    The `main` tag will use the image built from the HEAD of the main branch of the repo. For the latest stable image (built from a 
+    tagged version) use the `latest` tag.
+
 !!! note
     
     The LoRAX server in the pre-built Docker image is configured to listen on port 80 (instead of on the default port number, which is 3000).
