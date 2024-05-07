@@ -3,9 +3,9 @@
 ## Supported Architectures
 
 - 🦙 [Llama](https://huggingface.co/meta-llama)
-    - [CodeLlama](https://huggingface.co/codellama)
+  - [CodeLlama](https://huggingface.co/codellama)
 - 🌬️[Mistral](https://huggingface.co/mistralai)
-    - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
+  - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
 - 🔄 [Mixtral](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1)
 - 💎 [Gemma](https://blog.google/technology/developers/gemma-open-models/)
 - 🏛️ [Phi-3](https://azure.microsoft.com/en-us/blog/introducing-phi-3-redefining-whats-possible-with-slms/) / [Phi-2](https://huggingface.co/microsoft/phi-2)
@@ -13,6 +13,7 @@
 - 🗣️ [Command-R](https://docs.cohere.com/docs/command-r)
 - 🧱 [DBRX](https://www.databricks.com/blog/introducing-dbrx-new-state-art-open-llm)
 - 🤖 [GPT2](https://huggingface.co/gpt2)
+- 🔆 [Solar](https://huggingface.co/upstage/SOLAR-10.7B-v1.0)
 - 🌸 [Bloom](https://huggingface.co/bigscience/bloom)
 
 Other architectures are supported on a best effort basis, but do not support dynamic adapter loading.
