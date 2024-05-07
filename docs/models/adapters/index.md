@@ -131,6 +131,29 @@ Usage:
 }
 ```
 
+If you prefer not to include the token in the request body, you can include it in the "Authorization" header:
+
+=== "Python"
+
+    ```python
+    headers = {
+        "Authorization": f"Bearer {api_token}"
+    }
+    client = Client("http://127.0.0.1:8080", headers=headers)
+    ```
+
+=== "REST"
+
+    ```bash
+    curl http://127.0.0.1:8080/generate \
+        -X POST \
+        -d '{
+            "inputs": "..."
+        }' \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer ${API_TOKEN}"
+    ```
+
 The authorization check is performed per-request in the background (prior to batching to prevent slowing down inference) every time, so even if the
 adapter is cachd locally or the authorization token has been invalidated, the check will be performed and handled appropriately.
 
