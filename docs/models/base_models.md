@@ -28,6 +28,25 @@ Usage:
 lorax-launcher --model-id mistralai/Mistral-7B-v0.1 ...
 ```
 
+## Private Models
+
+You can access private base models from HuggingFace by setting the `HUGGING_FACE_HUB_TOKEN` environment variable:
+
+```bash
+export HUGGING_FACE_HUB_TOKEN=<YOUR READ TOKEN>
+```
+
+Using Docker:
+
+```bash
+docker run --gpus all \
+  --shm-size 1g \
+  -p 8080:80 \
+  -e HUGGING_FACE_HUB_TOKEN=$HUGGING_FACE_HUB_TOKEN \
+  ghcr.io/predibase/lorax:main \
+  --model-id $MODEL_ID
+```
+
 ## Quantization
 
 LoRAX supports loading the base model with quantization to reduce memory overhead, while loading adapters in
