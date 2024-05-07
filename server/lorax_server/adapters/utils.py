@@ -1,8 +1,7 @@
 from typing import Optional
 
-from huggingface_hub import HfApi
-
 from lorax_server.utils.sources import HUB, PBASE, S3, get_model_source, map_pbase_model_id_to_s3
+from lorax_server.utils.sources.hub import get_hub_api
 from lorax_server.utils.weights import download_weights
 
 
@@ -17,7 +16,7 @@ def download_adapter(
 
     if adapter_source == HUB:
         # Quick auth check on the repo against the token
-        HfApi(token=api_token).model_info(adapter_id, revision=None)
+        get_hub_api(token=api_token).model_info(adapter_id, revision=None)
 
     # fail fast if ID is not an adapter (i.e. it is a full model)
     source = get_model_source(adapter_source, adapter_id, extension=".safetensors", api_token=api_token)

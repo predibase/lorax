@@ -161,3 +161,15 @@ For details on generating API tokens, see:
 
 - [HuggingFace docs](https://huggingface.co/docs/hub/security-tokens)
 - [Predibase docs](https://docs.predibase.com/)
+
+### Fallback to Global HuggingFace Token
+
+In some cases, you may want LoRAX to use the global `HUGGING_FACE_HUB_TOKEN` set in the environment for all adapter
+requests by default. To enable this, set the following in your environment:
+
+```bash
+export LORAX_USE_GLOBAL_HF_TOKEN=1
+```
+
+It is suggested to only enable this if you are comfortable with external callers to your server being able to access
+all of the adapters in your private HF repo.
