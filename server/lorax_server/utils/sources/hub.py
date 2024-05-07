@@ -30,7 +30,6 @@ def weight_hub_files(
     api_token: Optional[str] = None,
 ) -> List[str]:
     """Get the weights filenames on the hub"""
-    print("API TOKEN", api_token, type(api_token))
     api = get_hub_api(token=api_token)
     info = api.model_info(model_id, revision=revision)
     filenames = [
