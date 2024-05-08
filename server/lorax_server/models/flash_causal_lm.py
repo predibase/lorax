@@ -855,16 +855,6 @@ class FlashCausalLM(Model):
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
-        print(
-            "!!! check graph compat",
-            self.model_graph_wrapper is not None,
-            not prefill,
-            (
-                self.model_graph_wrapper.can_use_graph(batch, adapter_data)
-                if self.model_graph_wrapper is not None
-                else None
-            ),
-        )
         if (
             self.model_graph_wrapper is not None
             and not prefill

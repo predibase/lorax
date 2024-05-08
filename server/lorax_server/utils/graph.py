@@ -325,8 +325,6 @@ class GraphCache:
         # Only allow LoRA adapters for now
         adapter_keys = set(adapter_data.adapter_keys())
 
-        print(f"!!! can use graph {batch_size=}, {max_s=}, {max_rank=}, {nranks=}, {adapter_keys=}")
-
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
             torch.cuda.is_available()
