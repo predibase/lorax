@@ -106,8 +106,8 @@ class AdapterBatchData:
             if lora_data is None:
                 continue
 
-            for rank_data in lora_data.lora_data.values():
-                ranks.update(rank_data.rank)
+            for rank_data in lora_data.rank_data.values():
+                ranks.add(rank_data.rank)
 
         return ranks
 

@@ -4,7 +4,6 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-import time
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -253,7 +252,6 @@ class GraphWrapper:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
-        t0 = time.time()
         pad_and_fill(self.input_state.input_ids, input_ids, 0)
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
@@ -263,6 +261,7 @@ class GraphWrapper:
         self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
+            # TODO(travis): generalize this to support other adapter types
             lora_data = weight_data[LORA]
             if layer_name not in adapter_data.data:
                 # zero out all the segments
@@ -271,7 +270,7 @@ class GraphWrapper:
                     rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                 continue
 
-            source_data = adapter_data.data[layer_name]
+            source_data = adapter_data.data[layer_name][LORA]
             dest_data = lora_data
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
@@ -285,11 +284,8 @@ class GraphWrapper:
                     SEGMENT_PAD_VALUE,
                 )
                 pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
-        print(f"!!! Data copy took {time.time() - t0:.2f} seconds")
 
-        t0 = time.time()
         self.graph.replay()
-        print(f"!!! Graph replay took {time.time() - t0:.2f} seconds")
 
         return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 
