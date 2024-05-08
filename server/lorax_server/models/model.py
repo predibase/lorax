@@ -58,7 +58,7 @@ class Model(ABC):
 
         # This may be set to False in the subclass constructor
         self.dynamic_adapter_loading_enabled = dynamic_adapter_loading_enabled
-        self.batched_lora_weights: Dict[str, LayerAdapterWeights] = defaultdict(LayerAdapterWeights)
+        self.layer_to_adapter_weights: Dict[str, LayerAdapterWeights] = defaultdict(LayerAdapterWeights)
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
@@ -162,7 +162,7 @@ class Model(ABC):
     @property
     def max_speculative_tokens(self) -> int:
         return max(
-            [layer_weights.max_speculative_tokens for layer_weights in self.batched_lora_weights.values()],
+            [weights.max_speculative_tokens for weights in self.layer_to_adapter_weights.values()],
             default=0,
         )
 
@@ -224,8 +224,8 @@ class Model(ABC):
             if adapter_weights is None:
                 continue
 
-            batched_weights = self.batched_lora_weights[layer_name]
-            batched_weights.add_adapter(adapter_index, adapter_weights)
+            layer_weights = self.layer_to_adapter_weights[layer_name]
+            layer_weights.add_adapter(adapter_index, adapter_weights)
 
         if len(unused_weight_names) > 0:
             logger.warning(f"{','.join(adapter_parameters.adapter_ids)} unused adapter weights: {unused_weight_names}")
@@ -273,7 +273,7 @@ class Model(ABC):
             )
 
         for layer_name in self.adapter_layers:
-            if layer_name in self.batched_lora_weights:
-                self.batched_lora_weights[layer_name].remove_adapter(adapter_index)
+            if layer_name in self.layer_to_adapter_weights:
+                self.layer_to_adapter_weights[layer_name].remove_adapter(adapter_index)
 
         self.loaded_adapters.remove(adapter_index)

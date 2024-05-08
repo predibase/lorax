@@ -588,7 +588,7 @@ class CausalLM(Model):
 
         # Assign pointers to LoRA weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.batched_lora_weights)
+        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.layer_to_adapter_weights)
 
         logits, past = self.forward(
             batch.input_ids,

@@ -855,6 +855,16 @@ class FlashCausalLM(Model):
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
+        print(
+            "!!! check graph compat",
+            self.model_graph_wrapper is not None,
+            not prefill,
+            (
+                self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+                if self.model_graph_wrapper is not None
+                else None
+            ),
+        )
         if (
             self.model_graph_wrapper is not None
             and not prefill
@@ -951,7 +961,7 @@ class FlashCausalLM(Model):
 
         # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
+        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.layer_to_adapter_weights)
 
         out, speculative_logits = self._try_generate_token(batch, adapter_data)
 

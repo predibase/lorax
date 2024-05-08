@@ -4,6 +4,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
+import time
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
@@ -252,6 +253,7 @@ class GraphWrapper:
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> None:
+        t0 = time.time()
         pad_and_fill(self.input_state.input_ids, input_ids, 0)
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
@@ -283,8 +285,11 @@ class GraphWrapper:
                     SEGMENT_PAD_VALUE,
                 )
                 pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
+        print(f"!!! Data copy took {time.time() - t0:.2f} seconds")
 
+        t0 = time.time()
         self.graph.replay()
+        print(f"!!! Graph replay took {time.time() - t0:.2f} seconds")
 
         return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 
@@ -322,7 +327,9 @@ class GraphCache:
         max_s = batch.max_seqlen
 
         # Only allow LoRA adapters for now
-        adapter_keys = set(adapter_data.data.keys())
+        adapter_keys = set(adapter_data.adapter_keys())
+
+        print(f"!!! can use graph {batch_size=}, {max_s=}, {max_rank=}, {nranks=}, {adapter_keys=}")
 
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
