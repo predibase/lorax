@@ -11,6 +11,8 @@ from torch.nn import functional as F
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.gptq.quant_linear import QuantLinear
 from lorax_server.utils.sgmv import (
+    add_lora_a_bgmv,
+    add_lora_b_bgmv,
     has_sgmv,
     lora_a_sgmv_cutlass,
     lora_b_sgmv_cutlass,
@@ -529,18 +531,38 @@ class LoraLinear(nn.Module):
                 proj = result
 
             for r, rank_segments in data.rank_data.items():
-                lora_a_ptr = rank_segments.lora_a_ptr
-                lora_b_ptr = rank_segments.lora_b_ptr
-                if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v = lora_a_sgmv_cutlass(
+                lora_a_t_ptr = rank_segments.lora_a_t_ptr
+                lora_b_t_ptr = rank_segments.lora_b_t_ptr
+                if lora_a_t_ptr is not None and lora_b_t_ptr is not None:
+                    v = torch.zeros((input.size(0), r), dtype=input.dtype, device=input.device)
+                    add_lora_a_bgmv(
+                        v,
                         input,
-                        rank_segments.tmp_shrink,
-                        lora_a_ptr,
-                        rank_segments.segment_starts,
-                        rank_segments.segment_ends,
+                        lora_a_t_ptr,
+                        rank_segments.indices,
                         self.layer_id,
-                        r,
                     )
+
+                    add_lora_b_bgmv(
+                        proj,
+                        input,
+                        lora_b_t_ptr,
+                        rank_segments.indices,
+                        self.layer_id,
+                    )
+
+                # lora_a_ptr = rank_segments.lora_a_ptr
+                # lora_b_ptr = rank_segments.lora_b_ptr
+                # if lora_a_ptr is not None and lora_b_ptr is not None:
+                #     v = lora_a_sgmv_cutlass(
+                #         input,
+                #         rank_segments.tmp_shrink,
+                #         lora_a_ptr,
+                #         rank_segments.segment_starts,
+                #         rank_segments.segment_ends,
+                #         self.layer_id,
+                #         r,
+                #     )
 
                 #     if self.process_group.size() > 1:
                 #         v = self.collect_lora_a(v)
