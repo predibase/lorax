@@ -272,8 +272,8 @@ class GraphWrapper:
             if layer_name not in adapter_data.data:
                 # zero out all the segments
                 for rank_data in lora_data.rank_data.values():
-                    rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
-                    rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
+                    # rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
+                    # rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                     rank_data.indices.fill_(SEGMENT_PAD_VALUE)
                 continue
 
@@ -286,15 +286,15 @@ class GraphWrapper:
                 #     f"Copying rank {rank} data for {layer_name} --> {dest_rank_data.lora_a_ptr.shape} {dest_rank_data.lora_b_ptr.shape} {dest_rank_data.segment_starts.shape} {dest_rank_data.segment_ends.shape}"
                 # )
 
-                pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
-                pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
+                # pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
+                # pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
 
-                pad_and_fill(
-                    dest_rank_data.segment_starts,
-                    source_rank_data.segment_starts,
-                    SEGMENT_PAD_VALUE,
-                )
-                pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
+                # pad_and_fill(
+                #     dest_rank_data.segment_starts,
+                #     source_rank_data.segment_starts,
+                #     SEGMENT_PAD_VALUE,
+                # )
+                # pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
 
                 pad_and_fill(dest_rank_data.lora_a_t_ptr, source_rank_data.lora_a_t_ptr, 0)
                 pad_and_fill(dest_rank_data.lora_b_t_ptr, source_rank_data.lora_b_t_ptr, 0)

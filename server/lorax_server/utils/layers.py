@@ -524,6 +524,9 @@ class LoraLinear(nn.Module):
         data = adapter_data.data.get(layer_type)
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
 
+        if layer_type != "q_proj" and layer_type != "v_proj":
+            return result
+
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
@@ -531,52 +534,57 @@ class LoraLinear(nn.Module):
                 proj = result
 
             for r, rank_segments in data.rank_data.items():
-                lora_a_t_ptr = rank_segments.lora_a_t_ptr
-                lora_b_t_ptr = rank_segments.lora_b_t_ptr
-                if lora_a_t_ptr is not None and lora_b_t_ptr is not None:
-                    v = torch.zeros((input.size(0), r), dtype=input.dtype, device=input.device)
-                    add_lora_a_bgmv(
-                        v,
-                        input,
-                        lora_a_t_ptr,
-                        rank_segments.indices,
-                        self.layer_id,
-                    )
+                if adapter_data.prefill:
+                    # Use SGMV for prefill
+                    lora_a_ptr = rank_segments.lora_a_ptr
+                    lora_b_ptr = rank_segments.lora_b_ptr
+                    if lora_a_ptr is not None and lora_b_ptr is not None:
+                        v = lora_a_sgmv_cutlass(
+                            input,
+                            rank_segments.tmp_shrink,
+                            lora_a_ptr,
+                            rank_segments.segment_starts,
+                            rank_segments.segment_ends,
+                            self.layer_id,
+                            r,
+                        )
 
-                    # print(f"!!! {input.shape=} {v.shape=} {proj.shape=}")
-                    add_lora_b_bgmv(
-                        proj,
-                        v,
-                        lora_b_t_ptr,
-                        rank_segments.indices,
-                        self.layer_id,
-                    )
+                        if self.process_group.size() > 1:
+                            v = self.collect_lora_a(v)
 
-                # lora_a_ptr = rank_segments.lora_a_ptr
-                # lora_b_ptr = rank_segments.lora_b_ptr
-                # if lora_a_ptr is not None and lora_b_ptr is not None:
-                #     v = lora_a_sgmv_cutlass(
-                #         input,
-                #         rank_segments.tmp_shrink,
-                #         lora_a_ptr,
-                #         rank_segments.segment_starts,
-                #         rank_segments.segment_ends,
-                #         self.layer_id,
-                #         r,
-                #     )
+                        lora_b_sgmv_cutlass(
+                            proj,
+                            v,
+                            rank_segments.tmp_expand,
+                            lora_b_ptr,
+                            rank_segments.segment_starts,
+                            rank_segments.segment_ends,
+                            self.layer_id,
+                        )
+                else:
+                    # Use BGMV for decode
+                    lora_a_t_ptr = rank_segments.lora_a_t_ptr
+                    lora_b_t_ptr = rank_segments.lora_b_t_ptr
+                    if lora_a_t_ptr is not None and lora_b_t_ptr is not None:
+                        v = torch.zeros((input.size(0), r), dtype=input.dtype, device=input.device)
+                        add_lora_a_bgmv(
+                            v,
+                            input,
+                            lora_a_t_ptr,
+                            rank_segments.indices,
+                            self.layer_id,
+                        )
 
-                #     if self.process_group.size() > 1:
-                #         v = self.collect_lora_a(v)
+                        if self.process_group.size() > 1:
+                            v = self.collect_lora_a(v)
 
-                #     lora_b_sgmv_cutlass(
-                #         proj,
-                #         v,
-                #         rank_segments.tmp_expand,
-                #         lora_b_ptr,
-                #         rank_segments.segment_starts,
-                #         rank_segments.segment_ends,
-                #         self.layer_id,
-                #     )
+                        add_lora_b_bgmv(
+                            proj,
+                            v,
+                            lora_b_t_ptr,
+                            rank_segments.indices,
+                            self.layer_id,
+                        )
 
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj

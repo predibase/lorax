@@ -45,7 +45,9 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
+    def load(
+        cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata", prefill: bool
+    ) -> "BatchAdapterWeights":
         pass
 
 
@@ -70,7 +72,7 @@ class LayerAdapterWeights:
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0
 
-    def get_data(self, meta: AdapterBatchMetadata) -> Dict[str, BatchAdapterWeights]:
+    def get_data(self, meta: AdapterBatchMetadata, prefill: bool) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
         for adapter_index, adapter_weights in self.adapter_weights.items():
@@ -78,7 +80,7 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta)
+            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta, prefill)
         return batch_data
 
 
@@ -89,14 +91,18 @@ class AdapterBatchData:
     # layer type -> adapter type -> batch weight data
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
+    prefill: bool
+
     @staticmethod
-    def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]) -> "AdapterBatchData":
+    def from_meta(
+        meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights], prefill: bool
+    ) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            data[k] = v.get_data(meta)
-        return AdapterBatchData(meta=meta, data=data)
+            data[k] = v.get_data(meta, prefill)
+        return AdapterBatchData(meta=meta, data=data, prefill=prefill)
 
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation

@@ -269,7 +269,9 @@ class BatchMedusaWeights(BatchAdapterWeights):
         return lm_head(x)
 
     @classmethod
-    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchMedusaWeights":
+    def load(
+        cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata", prefill: bool
+    ) -> "BatchMedusaWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
         default_medusa = adapter_weights.get(0)
 
