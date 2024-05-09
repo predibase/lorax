@@ -545,7 +545,7 @@ class LoraLinear(nn.Module):
 
                     add_lora_b_bgmv(
                         proj,
-                        input,
+                        v,
                         lora_b_t_ptr,
                         rank_segments.indices,
                         self.layer_id,

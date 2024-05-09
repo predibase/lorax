@@ -255,7 +255,7 @@ class BatchLoraWeights(BatchAdapterWeights):
             tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
 
             rank_indices = set(indices)
-            batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices]
+            batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]
             batch_indices = [idx if idx in rank_indices else -1 for idx in batch_indices]
             batch_indices = torch.tensor(batch_indices, dtype=torch.int64, device=device)
 
