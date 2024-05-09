@@ -94,6 +94,9 @@ class LoraWeights(AdapterWeights):
         # [num_layers, r, hidden_size]
         self.weights_b = torch.stack(weights_b)
 
+        self.weights_a_t = self.weights_a.transpose(1, 2).contiguous()
+        self.weights_b_t = self.weights_b.transpose(1, 2).contiguous()
+
         self.adapter_config = adapter_config
 
     @classmethod
@@ -168,6 +171,9 @@ class RankSegments:
     lora_b_ptr: torch.Tensor
     segment_starts: torch.Tensor
     segment_ends: torch.Tensor
+    lora_a_t_ptr: torch.Tensor
+    lora_b_t_ptr: torch.Tensor
+    indices: torch.Tensor
 
 
 @dataclass
@@ -204,6 +210,15 @@ class BatchLoraWeights(BatchAdapterWeights):
             dtype=torch.int64,
             device=device,
         )
+        lora_a_t_ptr = torch.tensor(
+            [
+                (adapter_weights[idx].weights_a_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
+                for idx in segment_indices
+            ],
+            dtype=torch.int64,
+            device=device,
+        )
+
         lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
         lora_b_ptr = torch.tensor(
             [
@@ -213,10 +228,20 @@ class BatchLoraWeights(BatchAdapterWeights):
             dtype=torch.int64,
             device=device,
         )
+        lora_b_t_ptr = torch.tensor(
+            [
+                (adapter_weights[idx].weights_b_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
+                for idx in segment_indices
+            ],
+            dtype=torch.int64,
+            device=device,
+        )
 
         adapter_index_configs = {
             idx: adapter_weights[idx].adapter_config for idx in segment_indices if idx in adapter_weights
         }
+
+        adapter_to_segment = {v: k for k, v in enumerate(segment_indices)}
 
         rank_indices = defaultdict(list)
         for segment_idx, adapter_idx in enumerate(segment_indices):
@@ -229,6 +254,11 @@ class BatchLoraWeights(BatchAdapterWeights):
             lora_a_ptr_indices = lora_a_ptr[indices]
             tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
 
+            rank_indices = set(indices)
+            batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices]
+            batch_indices = [idx if idx in rank_indices else -1 for idx in batch_indices]
+            batch_indices = torch.tensor(batch_indices, dtype=torch.int64, device=device)
+
             rank_data[rank] = RankSegments(
                 rank=rank,
                 tmp_shrink=tmp_shrink,
@@ -237,6 +267,9 @@ class BatchLoraWeights(BatchAdapterWeights):
                 lora_b_ptr=lora_b_ptr[indices],
                 segment_starts=meta.adapter_segments[indices],
                 segment_ends=meta.adapter_segments[[i + 1 for i in indices]],
+                lora_a_t_ptr=lora_a_t_ptr[indices],
+                lora_b_t_ptr=lora_b_t_ptr[indices],
+                indices=batch_indices,
             )
 
         return BatchLoraWeights(

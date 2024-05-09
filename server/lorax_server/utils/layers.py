@@ -542,18 +542,18 @@ class LoraLinear(nn.Module):
                         r,
                     )
 
-                    if self.process_group.size() > 1:
-                        v = self.collect_lora_a(v)
+                #     if self.process_group.size() > 1:
+                #         v = self.collect_lora_a(v)
 
-                    lora_b_sgmv_cutlass(
-                        proj,
-                        v,
-                        rank_segments.tmp_expand,
-                        lora_b_ptr,
-                        rank_segments.segment_starts,
-                        rank_segments.segment_ends,
-                        self.layer_id,
-                    )
+                #     lora_b_sgmv_cutlass(
+                #         proj,
+                #         v,
+                #         rank_segments.tmp_expand,
+                #         lora_b_ptr,
+                #         rank_segments.segment_starts,
+                #         rank_segments.segment_ends,
+                #         self.layer_id,
+                #     )
 
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
