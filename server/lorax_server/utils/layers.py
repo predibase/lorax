@@ -534,10 +534,11 @@ class LoraLinear(nn.Module):
                 proj = result
 
             for r, rank_segments in data.rank_data.items():
+                lora_a_ptr = rank_segments.lora_a_ptr
+                lora_b_ptr = rank_segments.lora_b_ptr
+
                 if adapter_data.prefill:
                     # Use SGMV for prefill
-                    lora_a_ptr = rank_segments.lora_a_ptr
-                    lora_b_ptr = rank_segments.lora_b_ptr
                     if lora_a_ptr is not None and lora_b_ptr is not None:
                         v = lora_a_sgmv_cutlass(
                             input,
@@ -563,14 +564,12 @@ class LoraLinear(nn.Module):
                         )
                 else:
                     # Use BGMV for decode
-                    lora_a_t_ptr = rank_segments.lora_a_t_ptr
-                    lora_b_t_ptr = rank_segments.lora_b_t_ptr
-                    if lora_a_t_ptr is not None and lora_b_t_ptr is not None:
+                    if lora_a_ptr is not None and lora_b_ptr is not None:
                         v = torch.zeros((input.size(0), r), dtype=input.dtype, device=input.device)
                         add_lora_a_bgmv(
                             v,
                             input,
-                            lora_a_t_ptr,
+                            lora_a_ptr,
                             rank_segments.indices,
                             self.layer_id,
                         )
@@ -581,7 +580,7 @@ class LoraLinear(nn.Module):
                         add_lora_b_bgmv(
                             proj,
                             v,
-                            lora_b_t_ptr,
+                            lora_b_ptr,
                             rank_segments.indices,
                             self.layer_id,
                         )

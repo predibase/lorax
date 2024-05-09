@@ -267,6 +267,8 @@ class BatchLoraWeights(BatchAdapterWeights):
             if prefill:
                 lora_a_ptr_indices = lora_a_ptr[indices]
                 tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+                segment_starts = meta.adapter_segments[indices]
+                segment_ends = meta.adapter_segments[[i + 1 for i in indices]]
             else:
                 rank_indices = set(indices)
                 batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]

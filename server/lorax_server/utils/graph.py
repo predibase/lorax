@@ -112,8 +112,6 @@ def get_max_graph_state(
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
                     segment_ends=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
-                    lora_a_t_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    lora_b_t_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                 ),
             },
@@ -196,8 +194,6 @@ class GraphWrapper:
                                 lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
                                 segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
                                 segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
-                                lora_a_t_ptr=weight_data.rank_data[MAX_RANK].lora_a_t_ptr[:segment_size],
-                                lora_b_t_ptr=weight_data.rank_data[MAX_RANK].lora_b_t_ptr[:segment_size],
                                 indices=weight_data.rank_data[MAX_RANK].indices[:batch_size],
                             ),
                         }
@@ -286,8 +282,8 @@ class GraphWrapper:
                 #     f"Copying rank {rank} data for {layer_name} --> {dest_rank_data.lora_a_ptr.shape} {dest_rank_data.lora_b_ptr.shape} {dest_rank_data.segment_starts.shape} {dest_rank_data.segment_ends.shape}"
                 # )
 
-                # pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
-                # pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
+                pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
+                pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
 
                 # pad_and_fill(
                 #     dest_rank_data.segment_starts,
@@ -296,12 +292,10 @@ class GraphWrapper:
                 # )
                 # pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
 
-                pad_and_fill(dest_rank_data.lora_a_t_ptr, source_rank_data.lora_a_t_ptr, 0)
-                pad_and_fill(dest_rank_data.lora_b_t_ptr, source_rank_data.lora_b_t_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
                 # print(
-                #     f"!!! replay {layer_name} {rank} {dest_rank_data.lora_a_t_ptr=} {dest_rank_data.lora_b_t_ptr=} {dest_rank_data.indices=}"
+                #     f"!!! replay {layer_name} {rank} {dest_rank_data.lora_a_ptr=} {dest_rank_data.lora_b_ptr=} {dest_rank_data.indices=}"
                 # )
 
         self.graph.replay()
