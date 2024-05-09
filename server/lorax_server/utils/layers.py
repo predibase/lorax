@@ -543,6 +543,7 @@ class LoraLinear(nn.Module):
                         self.layer_id,
                     )
 
+                    print(f"!!! {input.shape=} {v.shape=} {proj.shape=}")
                     add_lora_b_bgmv(
                         proj,
                         v,
