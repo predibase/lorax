@@ -271,9 +271,10 @@ class GraphWrapper:
             lora_data = weight_data[LORA]
             if layer_name not in adapter_data.data:
                 # zero out all the segments
-                # for rank_data in lora_data.rank_data.values():
-                #     rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
-                #     rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
+                for rank_data in lora_data.rank_data.values():
+                    rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
+                    rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
+                    rank_data.indices.fill_(SEGMENT_PAD_VALUE)
                 continue
 
             source_data = adapter_data.data[layer_name][LORA]
@@ -281,9 +282,9 @@ class GraphWrapper:
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
 
-                print(
-                    f"Copying rank {rank} data for {layer_name} --> {dest_rank_data.lora_a_ptr.shape} {dest_rank_data.lora_b_ptr.shape} {dest_rank_data.segment_starts.shape} {dest_rank_data.segment_ends.shape}"
-                )
+                # print(
+                #     f"Copying rank {rank} data for {layer_name} --> {dest_rank_data.lora_a_ptr.shape} {dest_rank_data.lora_b_ptr.shape} {dest_rank_data.segment_starts.shape} {dest_rank_data.segment_ends.shape}"
+                # )
 
                 pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
@@ -298,6 +299,10 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_a_t_ptr, source_rank_data.lora_a_t_ptr, 0)
                 pad_and_fill(dest_rank_data.lora_b_t_ptr, source_rank_data.lora_b_t_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
+
+                # print(
+                #     f"!!! replay {layer_name} {rank} {dest_rank_data.lora_a_t_ptr=} {dest_rank_data.lora_b_t_ptr=} {dest_rank_data.indices=}"
+                # )
 
         self.graph.replay()
 
