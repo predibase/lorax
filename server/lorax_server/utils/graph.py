@@ -110,9 +110,9 @@ def get_max_graph_state(
                     tmp_expand=tmp_expand,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
-                    segment_ends=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
                     indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                    segment_starts=None,
+                    segment_ends=None,
                 ),
             },
         )
@@ -131,6 +131,7 @@ def get_max_graph_state(
                 segment_indices=[],
             ),
             data=adapter_weight_data,
+            prefill=False,
         ),
     )
 
@@ -192,9 +193,9 @@ class GraphWrapper:
                                 tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
                                 lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
                                 lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
-                                segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
-                                segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
                                 indices=weight_data.rank_data[MAX_RANK].indices[:batch_size],
+                                segment_starts=None,
+                                segment_ends=None,
                             ),
                         }
                         if max_rank > 0
@@ -217,6 +218,7 @@ class GraphWrapper:
                     segment_indices=max_input_state.adapter_data.meta.segment_indices,
                 ),
                 data=adapter_weight_data,
+                prefill=False,
             ),
         )
 
