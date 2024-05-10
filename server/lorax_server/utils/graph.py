@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -161,6 +161,7 @@ class GraphWrapper:
         memory_pool: Tuple[int, int],
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
+        traced_adapter_layer_names: Optional[Set[str]] = None,
     ) -> "GraphWrapper":
         max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
@@ -171,8 +172,13 @@ class GraphWrapper:
         # But we need to investigate further.
         segment_size = next_pow_2(batch_size)
 
+        traced_adapter_layer_names = traced_adapter_layer_names or set()
+
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
+            if layer_name not in traced_adapter_layer_names:
+                continue
+
             adapter_weight_data[layer_name] = {
                 LORA: BatchLoraWeights(
                     lora_a={},

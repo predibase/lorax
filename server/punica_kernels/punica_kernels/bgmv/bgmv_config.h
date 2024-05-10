@@ -75,6 +75,8 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
     FOR_BGMV_WIDE(f, T, 8) \
     FOR_BGMV_WIDE(f, T, 16) \
     FOR_BGMV_WIDE(f, T, 32) \
-    FOR_BGMV_WIDE(f, T, 64)
+    FOR_BGMV_WIDE(f, T, 64) \
+    FOR_BGMV_WIDE(f, T, 96) \
+    FOR_BGMV_WIDE(f, T, 128)
 
 // clang-format on
