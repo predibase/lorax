@@ -15,7 +15,7 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.models.cache_manager import BLOCK_SIZE, get_cache_manager
-from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
+from lorax_server.utils.sgmv import get_tmp_tensors
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
@@ -173,13 +173,6 @@ class GraphWrapper:
 
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
-            tmp_expand_size = get_tmp_expand_size(segment_size)
-
-            tmp_shrink = weight_data.rank_data[MAX_RANK].tmp_shrink
-            if use_cutlass_shrink(max_rank):
-                # cutlass shrink uses a custom temp buffer per rank
-                tmp_shrink = tmp_shrink[:tmp_expand_size]
-
             adapter_weight_data[layer_name] = {
                 LORA: BatchLoraWeights(
                     lora_a={},
@@ -189,13 +182,13 @@ class GraphWrapper:
                         {
                             max_rank: RankSegments(
                                 rank=max_rank,
-                                tmp_shrink=tmp_shrink,
-                                tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
                                 lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
                                 lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
                                 indices=weight_data.rank_data[MAX_RANK].indices[:batch_size],
                                 segment_starts=None,
                                 segment_ends=None,
+                                tmp_shrink=None,
+                                tmp_expand=None,
                             ),
                         }
                         if max_rank > 0
@@ -270,8 +263,6 @@ class GraphWrapper:
             if layer_name not in adapter_data.data:
                 # zero out all the segments
                 for rank_data in lora_data.rank_data.values():
-                    # rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
-                    # rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
                     rank_data.indices.fill_(SEGMENT_PAD_VALUE)
                 continue
 
@@ -279,26 +270,9 @@ class GraphWrapper:
             dest_data = lora_data
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
-
-                # print(
-                #     f"Copying rank {rank} data for {layer_name} --> {dest_rank_data.lora_a_ptr.shape} {dest_rank_data.lora_b_ptr.shape} {dest_rank_data.segment_starts.shape} {dest_rank_data.segment_ends.shape}"
-                # )
-
                 pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
-
-                # pad_and_fill(
-                #     dest_rank_data.segment_starts,
-                #     source_rank_data.segment_starts,
-                #     SEGMENT_PAD_VALUE,
-                # )
-                # pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
-
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
-
-                # print(
-                #     f"!!! replay {layer_name} {rank} {dest_rank_data.lora_a_ptr=} {dest_rank_data.lora_b_ptr=} {dest_rank_data.indices=}"
-                # )
 
         self.graph.replay()
 
