@@ -64,6 +64,12 @@ void bgmv_kernel(T *__restrict__ Y, const T *__restrict__ X,
     f(T, narrow, 64000) \
     f(T, narrow, 64256) \
     f(T, narrow, 64512) \
+    f(T, narrow, 102400) \
+    f(T, narrow, 102656) \
+    f(T, narrow, 102912) \
+    f(T, narrow, 128000) \
+    f(T, narrow, 128256) \
+    f(T, narrow, 128512) \
 
 #define FOR_BGMV_WIDE_NARROW(f, T) \
     FOR_BGMV_WIDE(f, T, 8) \
