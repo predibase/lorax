@@ -9,7 +9,7 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank
+from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank, use_cutlass_shrink
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model
@@ -87,17 +87,48 @@ class LoraWeights(AdapterWeights):
         self.lora_a_r = weights_a[0].size(1) if len(weights_a) > 0 else 1
         self.lora_b_r = weights_b[0].size(0) if len(weights_a) > 0 else 1
 
+        self._use_cutlass_shrink = use_cutlass_shrink(self.lora_a_r)
+        self._is_transposed = False
+
         # [num_layers, hidden_size, r]
         weights_a = [orient_for_rank(w, w.size(1)).contiguous() for w in weights_a]
-        self.weights_a = torch.stack(weights_a)
+        self._weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
-        self.weights_b = torch.stack(weights_b)
-
-        self.weights_a_t = self.weights_a.transpose(1, 2).contiguous()
-        self.weights_b_t = self.weights_b.transpose(1, 2).contiguous()
+        self._weights_b = torch.stack(weights_b)
 
         self.adapter_config = adapter_config
+
+    @property
+    def weights_a(self) -> torch.Tensor:
+        if self._is_transposed:
+            self._transpose_weights()
+        return self._weights_a
+
+    @property
+    def weights_b(self) -> torch.Tensor:
+        if self._is_transposed:
+            self._transpose_weights()
+        return self._weights_b
+
+    @property
+    def weights_a_t(self) -> torch.Tensor:
+        if not self._is_transposed:
+            self._transpose_weights()
+        return self._weights_a
+
+    @property
+    def weights_b_t(self) -> torch.Tensor:
+        if not self._is_transposed:
+            self._transpose_weights()
+        return self._weights_b
+
+    def _transpose_weights(self):
+        if self._use_cutlass_shrink:
+            # If we're not using the cutlass shrink, then both SGMV and BGMV use the same orientation
+            self._weights_a = self._weights_a.transpose(1, 2).contiguous()
+        self._weights_b = self._weights_b.transpose(1, 2).contiguous()
+        self._is_transposed = not self._is_transposed
 
     @classmethod
     def get_batch_type(cls) -> BatchAdapterWeights:
