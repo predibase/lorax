@@ -135,6 +135,7 @@ def get_max_graph_state(
             data=adapter_weight_data,
             prefill=False,
         ),
+        traced_adapter_layer_names=set(adapter_layers),
     )
 
 
