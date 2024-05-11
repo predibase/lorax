@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import TYPE_CHECKING, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -19,6 +19,7 @@ from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
+    from lorax_server.models.model import Model
 
 
 # TODO(travis): make this configurable by model / user
@@ -75,6 +76,7 @@ class GraphState:
     slots: torch.Tensor
     input_lengths: torch.Tensor
     adapter_data: AdapterBatchData
+    traced_adapter_layer_names: Set[str]
 
 
 @lru_cache(maxsize=1)
@@ -219,6 +221,7 @@ class GraphWrapper:
                 data=adapter_weight_data,
                 prefill=False,
             ),
+            traced_adapter_layer_names=traced_adapter_layer_names,
         )
 
         torch.cuda.synchronize(device)
@@ -291,7 +294,7 @@ class GraphWrapper:
 class GraphCache:
     def __init__(
         self,
-        model: nn.Module,
+        model: "Model",
         device: torch.device,
         adapter_layers: List[str],
         max_total_tokens: int,
@@ -301,7 +304,7 @@ class GraphCache:
         self.device = device
         self.adapter_layers = tuple(adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
-        self.cache = {}
+        self.cache: Dict[Tuple[int, int], GraphState] = {}
         self.max_total_tokens = max_total_tokens
         self.sliding_window_blocks = sliding_window_blocks
 
@@ -394,7 +397,7 @@ class GraphCache:
                         pool,
                         self.max_total_tokens,
                         self.sliding_window_blocks,
-                        self.model.default_traced_adapter_layers,
+                        set(self.model.default_traced_adapter_layers),
                     )
                     self.cache[key] = graph
                     pool = graph.memory_pool
@@ -418,17 +421,20 @@ class GraphCache:
         max_rank = adapter_data.max_rank
 
         key = (batch_size, max_rank)
-        if key not in self.cache:
-            self.cache[key] = GraphWrapper.trace(
+        graph = self.cache.get(key)
+        if graph is None or not graph.traced_adapter_layer_names.issuperset(adapter_data.adapter_keys()):
+            graph = GraphWrapper.trace(
                 self.model,
                 self.device,
                 self.adapter_layers,
                 batch_size,
                 max_rank,
                 self.memory_pool,
+                adapter_data.adapter_keys(),
             )
+            self.cache[key] = graph
 
-        output_states = self.cache[key].forward(
+        output_states = graph.forward(
             input_ids=input_ids,
             position_ids=position_ids,
             cu_seqlen_prefill=cu_seqlen_prefill,
