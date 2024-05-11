@@ -9,7 +9,14 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank, use_cutlass_shrink
+from lorax_server.utils.sgmv import (
+    BGMV_MAX_RANK,
+    MAX_RANK_CUSTOM,
+    get_tmp_tensors,
+    orient_for_rank,
+    pad_rank,
+    use_cutlass_shrink,
+)
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model
@@ -240,7 +247,9 @@ class BatchLoraWeights(BatchAdapterWeights):
         lora_a = {idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights}
         lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
 
-        if prefill:
+        max_rank = max(adapter_weights[idx].lora_a_r for idx in segment_indices if idx in adapter_weights)
+
+        if prefill or max_rank > BGMV_MAX_RANK:
             lora_a_ptr = torch.tensor(
                 [
                     (adapter_weights[idx].weights_a.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())

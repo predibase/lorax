@@ -15,7 +15,7 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.models.cache_manager import BLOCK_SIZE, get_cache_manager
-from lorax_server.utils.sgmv import get_tmp_tensors
+from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 # TODO(travis): make this configurable by model / user
 MAX_BATCH_SIZE = 256
-MAX_RANK = 64
+MAX_RANK = BGMV_MAX_RANK
 
 SLOT_PAD_VALUE = -1
 SEGMENT_PAD_VALUE = -1
@@ -37,6 +37,8 @@ CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
 CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
 _allowed_ranks = set(CACHED_MAX_RANKS)
+
+assert all([r <= BGMV_MAX_RANK for r in _allowed_ranks]), f"Invalid ranks: {_allowed_ranks}"
 
 MAX_SAMPLES = 3
 
@@ -95,8 +97,6 @@ def get_max_graph_state(
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
-    tmp_shrink, tmp_expand = get_tmp_tensors(MAX_BATCH_SIZE, MAX_RANK, device)
-
     adapter_weight_data = {}
     for layer_name in adapter_layers:
         adapter_weight_data[layer_name] = BatchLoraWeights(
@@ -106,13 +106,13 @@ def get_max_graph_state(
             rank_data={
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
-                    tmp_shrink=tmp_shrink,
-                    tmp_expand=tmp_expand,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     segment_starts=None,
                     segment_ends=None,
+                    tmp_shrink=None,
+                    tmp_expand=None,
                 ),
             },
         )
