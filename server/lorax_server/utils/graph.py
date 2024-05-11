@@ -354,6 +354,7 @@ class GraphCache:
                 pool,
                 self.max_total_tokens,
                 self.sliding_window_blocks,
+                self.adapter_layers,  # estimate memory assuming all adapters are traced
             )
             tmp_cache[key] = graph
             pool = graph.memory_pool
@@ -393,6 +394,7 @@ class GraphCache:
                         pool,
                         self.max_total_tokens,
                         self.sliding_window_blocks,
+                        self.model.default_traced_adapter_layers,
                     )
                     self.cache[key] = graph
                     pool = graph.memory_pool

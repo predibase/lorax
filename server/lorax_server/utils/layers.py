@@ -524,9 +524,6 @@ class LoraLinear(nn.Module):
         data = adapter_data.data.get(layer_type)
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
 
-        if layer_type != "q_proj" and layer_type != "v_proj":
-            return result
-
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])

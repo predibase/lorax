@@ -153,6 +153,10 @@ class Model(ABC):
     def adapter_layers(self) -> List[str]:
         return []
 
+    @property
+    def default_traced_adapter_layers(self) -> List[str]:
+        return []
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 0
 
