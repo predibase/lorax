@@ -167,6 +167,9 @@ class GraphWrapper:
         sliding_window_blocks: Optional[int] = None,
         traced_adapter_layer_names: Optional[Set[str]] = None,
     ) -> "GraphWrapper":
+        print(
+            "!!! adapter_layers", adapter_layers, type(adapter_layers), device, max_total_tokens, sliding_window_blocks
+        )
         max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
         # WARNING: for some reason the SGMV kernel can hang if we don't use a power of 2
@@ -309,7 +312,7 @@ class GraphCache:
         self.adapter_layers = tuple(adapter_layers)
         self.default_traced_adapter_layers = set(default_traced_adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
-        self.cache: Dict[Tuple[int, int], GraphState] = {}
+        self.cache: Dict[Tuple[int, int], GraphWrapper] = {}
         self.max_total_tokens = max_total_tokens
         self.sliding_window_blocks = sliding_window_blocks
 
@@ -427,7 +430,7 @@ class GraphCache:
 
         key = (batch_size, max_rank)
         graph = self.cache.get(key)
-        if graph is None or not graph.traced_adapter_layer_names.issuperset(adapter_data.adapter_keys()):
+        if graph is None or not graph.input_state.traced_adapter_layer_names.issuperset(adapter_data.layer_names()):
             graph = GraphWrapper.trace(
                 self.model,
                 self.device,
@@ -435,7 +438,9 @@ class GraphCache:
                 batch_size,
                 max_rank,
                 self.memory_pool,
-                adapter_data.adapter_keys(),
+                self.max_total_tokens,
+                self.sliding_window_blocks,
+                adapter_data.layer_names(),
             )
             self.cache[key] = graph
 

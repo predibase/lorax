@@ -117,6 +117,9 @@ class AdapterBatchData:
 
         return ranks
 
+    def layer_names(self) -> Set[str]:
+        return set(self.data.keys())
+
     def adapter_keys(self) -> Set[str]:
         adapter_keys = set()
         for layer_data in self.data.values():
