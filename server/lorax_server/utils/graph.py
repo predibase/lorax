@@ -203,6 +203,7 @@ class GraphWrapper:
                         if max_rank > 0
                         else {}
                     ),
+                    use_sgmv=False,  # bgmv during decode
                 )
             }
 
