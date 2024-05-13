@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
+from loguru import logger
 from torch import nn
 from tqdm import tqdm
 
@@ -167,9 +168,6 @@ class GraphWrapper:
         sliding_window_blocks: Optional[int] = None,
         traced_adapter_layer_names: Optional[Set[str]] = None,
     ) -> "GraphWrapper":
-        print(
-            "!!! adapter_layers", adapter_layers, type(adapter_layers), device, max_total_tokens, sliding_window_blocks
-        )
         max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
         # WARNING: for some reason the SGMV kernel can hang if we don't use a power of 2
@@ -431,6 +429,11 @@ class GraphCache:
         key = (batch_size, max_rank)
         graph = self.cache.get(key)
         if graph is None or not graph.input_state.traced_adapter_layer_names.issuperset(adapter_data.layer_names()):
+            logger.info(
+                "Retrace graph with new adapter layers: {} -> {}",
+                graph.input_state.traced_adapter_layer_names,
+                adapter_data.layer_names(),
+            )
             graph = GraphWrapper.trace(
                 self.model,
                 self.device,
