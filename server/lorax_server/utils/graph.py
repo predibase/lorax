@@ -298,12 +298,14 @@ class GraphCache:
         model: "Model",
         device: torch.device,
         adapter_layers: List[str],
+        default_traced_adapter_layers: List[str],
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
     ):
         self.model = model
         self.device = device
         self.adapter_layers = tuple(adapter_layers)
+        self.default_traced_adapter_layers = set(default_traced_adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache: Dict[Tuple[int, int], GraphState] = {}
         self.max_total_tokens = max_total_tokens
@@ -398,7 +400,7 @@ class GraphCache:
                         pool,
                         self.max_total_tokens,
                         self.sliding_window_blocks,
-                        set(self.model.default_traced_adapter_layers),
+                        self.default_traced_adapter_layers,
                     )
                     self.cache[key] = graph
                     pool = graph.memory_pool

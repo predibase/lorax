@@ -796,6 +796,7 @@ class FlashCausalLM(Model):
                 self.model,
                 self.device,
                 self.adapter_layers,
+                self.default_traced_adapter_layers,
                 max_total_tokens,
                 self.sliding_window_blocks,
             )
