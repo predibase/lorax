@@ -117,6 +117,7 @@ def get_max_graph_state(
                     tmp_expand=None,
                 ),
             },
+            use_sgmv=False,  # bgmv during decode
         )
 
     return GraphState(
