@@ -796,6 +796,7 @@ class FlashCausalLM(Model):
                 self.model,
                 self.device,
                 self.adapter_layers,
+                self.default_traced_adapter_layers,
                 max_total_tokens,
                 self.sliding_window_blocks,
             )
@@ -951,7 +952,7 @@ class FlashCausalLM(Model):
 
         # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
+        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.layer_to_adapter_weights, prefill)
 
         out, speculative_logits = self._try_generate_token(batch, adapter_data)
 

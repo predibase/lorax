@@ -4,10 +4,11 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
+from loguru import logger
 from torch import nn
 from tqdm import tqdm
 
@@ -15,15 +16,16 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.models.cache_manager import BLOCK_SIZE, get_cache_manager
-from lorax_server.utils.sgmv import get_tmp_expand_size, get_tmp_tensors, use_cutlass_shrink
+from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
+    from lorax_server.models.model import Model
 
 
 # TODO(travis): make this configurable by model / user
 MAX_BATCH_SIZE = 256
-MAX_RANK = 64
+MAX_RANK = BGMV_MAX_RANK
 
 SLOT_PAD_VALUE = -1
 SEGMENT_PAD_VALUE = -1
@@ -37,6 +39,8 @@ CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
 CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
 _allowed_ranks = set(CACHED_MAX_RANKS)
+
+assert all([r <= BGMV_MAX_RANK for r in _allowed_ranks]), f"Invalid ranks: {_allowed_ranks}"
 
 MAX_SAMPLES = 3
 
@@ -56,7 +60,7 @@ def get_cached_batch_size(batch_size: int) -> int:
 
 
 def pad_and_fill(dest: torch.Tensor, src: torch.Tensor, pad_value: int):
-    dest[: src.shape[0]] = src
+    dest[: src.shape[0]].copy_(src, non_blocking=True)
     dest[src.shape[0] :].fill_(pad_value)
 
 
@@ -73,6 +77,7 @@ class GraphState:
     slots: torch.Tensor
     input_lengths: torch.Tensor
     adapter_data: AdapterBatchData
+    traced_adapter_layer_names: Set[str]
 
 
 @lru_cache(maxsize=1)
@@ -95,8 +100,6 @@ def get_max_graph_state(
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
-    tmp_shrink, tmp_expand = get_tmp_tensors(MAX_BATCH_SIZE, MAX_RANK, device)
-
     adapter_weight_data = {}
     for layer_name in adapter_layers:
         adapter_weight_data[layer_name] = BatchLoraWeights(
@@ -106,14 +109,16 @@ def get_max_graph_state(
             rank_data={
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
-                    tmp_shrink=tmp_shrink,
-                    tmp_expand=tmp_expand,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    segment_starts=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
-                    segment_ends=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device),
+                    indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                    segment_starts=None,
+                    segment_ends=None,
+                    tmp_shrink=None,
+                    tmp_expand=None,
                 ),
             },
+            use_sgmv=False,  # bgmv during decode
         )
 
     return GraphState(
@@ -130,7 +135,9 @@ def get_max_graph_state(
                 segment_indices=[],
             ),
             data=adapter_weight_data,
+            prefill=False,
         ),
+        traced_adapter_layer_names=set(adapter_layers),
     )
 
 
@@ -159,6 +166,7 @@ class GraphWrapper:
         memory_pool: Tuple[int, int],
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
+        traced_adapter_layer_names: Optional[Set[str]] = None,
     ) -> "GraphWrapper":
         max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
@@ -169,14 +177,12 @@ class GraphWrapper:
         # But we need to investigate further.
         segment_size = next_pow_2(batch_size)
 
+        traced_adapter_layer_names = traced_adapter_layer_names or set()
+
         adapter_weight_data = {}
         for layer_name, weight_data in max_input_state.adapter_data.data.items():
-            tmp_expand_size = get_tmp_expand_size(segment_size)
-
-            tmp_shrink = weight_data.rank_data[MAX_RANK].tmp_shrink
-            if use_cutlass_shrink(max_rank):
-                # cutlass shrink uses a custom temp buffer per rank
-                tmp_shrink = tmp_shrink[:tmp_expand_size]
+            if layer_name not in traced_adapter_layer_names:
+                continue
 
             adapter_weight_data[layer_name] = {
                 LORA: BatchLoraWeights(
@@ -187,17 +193,19 @@ class GraphWrapper:
                         {
                             max_rank: RankSegments(
                                 rank=max_rank,
-                                tmp_shrink=tmp_shrink,
-                                tmp_expand=weight_data.rank_data[MAX_RANK].tmp_expand[:tmp_expand_size],
                                 lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
                                 lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
-                                segment_starts=weight_data.rank_data[MAX_RANK].segment_starts[:segment_size],
-                                segment_ends=weight_data.rank_data[MAX_RANK].segment_ends[:segment_size],
+                                indices=weight_data.rank_data[MAX_RANK].indices[:batch_size],
+                                segment_starts=None,
+                                segment_ends=None,
+                                tmp_shrink=None,
+                                tmp_expand=None,
                             ),
                         }
                         if max_rank > 0
                         else {}
                     ),
+                    use_sgmv=False,  # bgmv during decode
                 )
             }
 
@@ -215,7 +223,9 @@ class GraphWrapper:
                     segment_indices=max_input_state.adapter_data.meta.segment_indices,
                 ),
                 data=adapter_weight_data,
+                prefill=False,
             ),
+            traced_adapter_layer_names=traced_adapter_layer_names,
         )
 
         torch.cuda.synchronize(device)
@@ -261,28 +271,21 @@ class GraphWrapper:
         self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
+            # TODO(travis): generalize this to support other adapter types
             lora_data = weight_data[LORA]
             if layer_name not in adapter_data.data:
                 # zero out all the segments
                 for rank_data in lora_data.rank_data.values():
-                    rank_data.segment_starts.fill_(SEGMENT_PAD_VALUE)
-                    rank_data.segment_ends.fill_(SEGMENT_PAD_VALUE)
+                    rank_data.indices.fill_(SEGMENT_PAD_VALUE)
                 continue
 
-            source_data = adapter_data.data[layer_name]
+            source_data = adapter_data.data[layer_name][LORA]
             dest_data = lora_data
             for rank, source_rank_data in source_data.rank_data.items():
                 dest_rank_data = dest_data.rank_data[rank]
-
                 pad_and_fill(dest_rank_data.lora_a_ptr, source_rank_data.lora_a_ptr, 0)
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
-
-                pad_and_fill(
-                    dest_rank_data.segment_starts,
-                    source_rank_data.segment_starts,
-                    SEGMENT_PAD_VALUE,
-                )
-                pad_and_fill(dest_rank_data.segment_ends, source_rank_data.segment_ends, SEGMENT_PAD_VALUE)
+                pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
         self.graph.replay()
 
@@ -295,17 +298,19 @@ class GraphWrapper:
 class GraphCache:
     def __init__(
         self,
-        model: nn.Module,
+        model: "Model",
         device: torch.device,
         adapter_layers: List[str],
+        default_traced_adapter_layers: List[str],
         max_total_tokens: int,
         sliding_window_blocks: Optional[int] = None,
     ):
         self.model = model
         self.device = device
         self.adapter_layers = tuple(adapter_layers)
+        self.default_traced_adapter_layers = set(default_traced_adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
-        self.cache = {}
+        self.cache: Dict[Tuple[int, int], GraphWrapper] = {}
         self.max_total_tokens = max_total_tokens
         self.sliding_window_blocks = sliding_window_blocks
 
@@ -322,7 +327,7 @@ class GraphCache:
         max_s = batch.max_seqlen
 
         # Only allow LoRA adapters for now
-        adapter_keys = set(adapter_data.data.keys())
+        adapter_keys = set(adapter_data.adapter_keys())
 
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
@@ -358,6 +363,7 @@ class GraphCache:
                 pool,
                 self.max_total_tokens,
                 self.sliding_window_blocks,
+                self.adapter_layers,  # estimate memory assuming all adapters are traced
             )
             tmp_cache[key] = graph
             pool = graph.memory_pool
@@ -397,6 +403,7 @@ class GraphCache:
                         pool,
                         self.max_total_tokens,
                         self.sliding_window_blocks,
+                        self.default_traced_adapter_layers,
                     )
                     self.cache[key] = graph
                     pool = graph.memory_pool
@@ -420,17 +427,27 @@ class GraphCache:
         max_rank = adapter_data.max_rank
 
         key = (batch_size, max_rank)
-        if key not in self.cache:
-            self.cache[key] = GraphWrapper.trace(
+        graph = self.cache.get(key)
+        if graph is None or not graph.input_state.traced_adapter_layer_names.issuperset(adapter_data.layer_names()):
+            logger.info(
+                "Retrace graph with new adapter layers: {} -> {}",
+                graph.input_state.traced_adapter_layer_names,
+                adapter_data.layer_names(),
+            )
+            graph = GraphWrapper.trace(
                 self.model,
                 self.device,
                 self.adapter_layers,
                 batch_size,
                 max_rank,
                 self.memory_pool,
+                self.max_total_tokens,
+                self.sliding_window_blocks,
+                adapter_data.layer_names(),
             )
+            self.cache[key] = graph
 
-        output_states = self.cache[key].forward(
+        output_states = graph.forward(
             input_ids=input_ids,
             position_ids=position_ids,
             cu_seqlen_prefill=cu_seqlen_prefill,

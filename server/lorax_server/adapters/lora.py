@@ -9,7 +9,14 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.sgmv import MAX_RANK_CUSTOM, get_tmp_tensors, orient_for_rank, pad_rank
+from lorax_server.utils.sgmv import (
+    BGMV_MAX_RANK,
+    MAX_RANK_CUSTOM,
+    get_tmp_tensors,
+    orient_for_rank,
+    pad_rank,
+    use_cutlass_shrink,
+)
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model
@@ -87,14 +94,48 @@ class LoraWeights(AdapterWeights):
         self.lora_a_r = weights_a[0].size(1) if len(weights_a) > 0 else 1
         self.lora_b_r = weights_b[0].size(0) if len(weights_a) > 0 else 1
 
+        self._use_cutlass_shrink = use_cutlass_shrink(self.lora_a_r)
+        self._is_transposed = False
+
         # [num_layers, hidden_size, r]
         weights_a = [orient_for_rank(w, w.size(1)).contiguous() for w in weights_a]
-        self.weights_a = torch.stack(weights_a)
+        self._weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
-        self.weights_b = torch.stack(weights_b)
+        self._weights_b = torch.stack(weights_b)
 
         self.adapter_config = adapter_config
+
+    @property
+    def weights_a(self) -> torch.Tensor:
+        if self._is_transposed:
+            self._transpose_weights()
+        return self._weights_a
+
+    @property
+    def weights_b(self) -> torch.Tensor:
+        if self._is_transposed:
+            self._transpose_weights()
+        return self._weights_b
+
+    @property
+    def weights_a_t(self) -> torch.Tensor:
+        if not self._is_transposed:
+            self._transpose_weights()
+        return self._weights_a
+
+    @property
+    def weights_b_t(self) -> torch.Tensor:
+        if not self._is_transposed:
+            self._transpose_weights()
+        return self._weights_b
+
+    def _transpose_weights(self):
+        if self._use_cutlass_shrink:
+            # If we're not using the cutlass shrink, then both SGMV and BGMV use the same orientation
+            self._weights_a = self._weights_a.transpose(1, 2).contiguous()
+        self._weights_b = self._weights_b.transpose(1, 2).contiguous()
+        self._is_transposed = not self._is_transposed
 
     @classmethod
     def get_batch_type(cls) -> BatchAdapterWeights:
@@ -162,12 +203,18 @@ class LoraWeights(AdapterWeights):
 @dataclass
 class RankSegments:
     rank: int
-    tmp_shrink: torch.Tensor
-    tmp_expand: torch.Tensor
+
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
+
+    # prefill (sgmv)
+    tmp_shrink: torch.Tensor
+    tmp_expand: torch.Tensor
     segment_starts: torch.Tensor
     segment_ends: torch.Tensor
+
+    # decode (bgmv)
+    indices: torch.Tensor
 
 
 @dataclass
@@ -176,6 +223,7 @@ class BatchLoraWeights(BatchAdapterWeights):
     lora_b: Dict[int, torch.Tensor]
     adapter_index_configs: Dict[int, LoraConfig]
     rank_data: Dict[int, RankSegments]
+    use_sgmv: bool
 
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
@@ -188,7 +236,9 @@ class BatchLoraWeights(BatchAdapterWeights):
         return LORA
 
     @classmethod
-    def load(self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata) -> "BatchLoraWeights":
+    def load(
+        self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata, prefill: bool
+    ) -> "BatchLoraWeights":
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
 
         first_weights = list(adapter_weights.values())[0]
@@ -196,27 +246,52 @@ class BatchLoraWeights(BatchAdapterWeights):
         segment_indices = meta.segment_indices
 
         lora_a = {idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights}
-        lora_a_ptr = torch.tensor(
-            [
-                (adapter_weights[idx].weights_a.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                for idx in segment_indices
-            ],
-            dtype=torch.int64,
-            device=device,
-        )
         lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
-        lora_b_ptr = torch.tensor(
-            [
-                (adapter_weights[idx].weights_b.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                for idx in segment_indices
-            ],
-            dtype=torch.int64,
-            device=device,
-        )
+
+        max_rank = max(adapter_weights[idx].lora_a_r for idx in segment_indices if idx in adapter_weights)
+
+        if prefill or max_rank > BGMV_MAX_RANK:
+            use_sgmv = True
+            lora_a_ptr = torch.tensor(
+                [
+                    (adapter_weights[idx].weights_a.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
+                    for idx in segment_indices
+                ],
+                dtype=torch.int64,
+                device=device,
+            )
+            lora_b_ptr = torch.tensor(
+                [
+                    (adapter_weights[idx].weights_b.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
+                    for idx in segment_indices
+                ],
+                dtype=torch.int64,
+                device=device,
+            )
+        else:
+            use_sgmv = False
+            lora_a_ptr = torch.tensor(
+                [
+                    (adapter_weights[idx].weights_a_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
+                    for idx in segment_indices
+                ],
+                dtype=torch.int64,
+                device=device,
+            )
+            lora_b_ptr = torch.tensor(
+                [
+                    (adapter_weights[idx].weights_b_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
+                    for idx in segment_indices
+                ],
+                dtype=torch.int64,
+                device=device,
+            )
 
         adapter_index_configs = {
             idx: adapter_weights[idx].adapter_config for idx in segment_indices if idx in adapter_weights
         }
+
+        adapter_to_segment = {v: k for k, v in enumerate(segment_indices)}
 
         rank_indices = defaultdict(list)
         for segment_idx, adapter_idx in enumerate(segment_indices):
@@ -226,17 +301,32 @@ class BatchLoraWeights(BatchAdapterWeights):
 
         rank_data = {}
         for rank, indices in rank_indices.items():
-            lora_a_ptr_indices = lora_a_ptr[indices]
-            tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+            tmp_shrink = None
+            tmp_expand = None
+            segment_starts = None
+            segment_ends = None
+            batch_indices = None
+
+            if use_sgmv:
+                lora_a_ptr_indices = lora_a_ptr[indices]
+                tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+                segment_starts = meta.adapter_segments[indices]
+                segment_ends = meta.adapter_segments[[i + 1 for i in indices]]
+            else:
+                rank_indices = set(indices)
+                batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]
+                batch_indices = [idx if idx in rank_indices else -1 for idx in batch_indices]
+                batch_indices = torch.tensor(batch_indices, dtype=torch.int64, device=device)
 
             rank_data[rank] = RankSegments(
                 rank=rank,
                 tmp_shrink=tmp_shrink,
                 tmp_expand=tmp_expand,
-                lora_a_ptr=lora_a_ptr_indices,
+                lora_a_ptr=lora_a_ptr[indices],
                 lora_b_ptr=lora_b_ptr[indices],
-                segment_starts=meta.adapter_segments[indices],
-                segment_ends=meta.adapter_segments[[i + 1 for i in indices]],
+                segment_starts=segment_starts,
+                segment_ends=segment_ends,
+                indices=batch_indices,
             )
 
         return BatchLoraWeights(
@@ -244,6 +334,7 @@ class BatchLoraWeights(BatchAdapterWeights):
             lora_b=lora_b,
             adapter_index_configs=adapter_index_configs,
             rank_data=rank_data,
+            use_sgmv=use_sgmv,
         )
 
 
