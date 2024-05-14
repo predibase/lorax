@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from typing import List, Optional, Set, Tuple, Union
 
 import torch
+import warnings
 from transformers import (
     PreTrainedTokenizerBase,
     RepetitionPenaltyLogitsProcessor,
@@ -67,8 +68,10 @@ class NextTokenChooser:
 
         self.schema_processor = OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
 
+        # Temperature = 1 does not change logits; do not use warper
+        # Temperature = 0 invokes determinstic token choosing; do not warp
         has_warpers = (
-            (temperature is not None and temperature != 1.0)
+            (temperature is not None and temperature != 1.0 and temperature != 0)
             or (top_k is not None and top_k != 0)
             or (top_p is not None and top_p < 1.0)
             or (typical_p is not None and typical_p < 1.0)
@@ -79,6 +82,13 @@ class NextTokenChooser:
             self.static_warper = None
 
         sampling = do_sample or has_warpers
+
+        # do not sample if temperature is 0, even if do_sample flag is set True
+        # warn user about deterministic sampling
+        if sampling and temperature == 0:
+            sampling = False
+            warnings.warn("Temperature is set to 0, token sampling will be disabled")
+
         self.choice = Sampling(seed, device) if sampling else Greedy()
 
     def __call__(self, input_ids, scores):
@@ -283,8 +293,10 @@ class HeterogeneousNextTokenChooser:
                 HeterogeneousSchemaLogitsProcessor.from_schemas(schemas, tokenizers) if any(schemas) else None
             )
 
-        if any([x != 1.0 for x in temperature]):
-            do_sample = [sample or x != 1.0 for x, sample in zip(temperature, do_sample)]
+        if any([(x != 1.0 and x != 0) for x in temperature]):
+            # set sample flags for each index
+            # do not sample this index if temperature is 0 or 1
+            do_sample = [sample or (x != 1.0 and x != 0) for x, sample in zip(temperature, do_sample)]
             warpers.append(HeterogeneousTemperatureLogitsWarper(temperature, dtype, device))
 
         if any([x != 0 for x in top_k]):
@@ -302,8 +314,10 @@ class HeterogeneousNextTokenChooser:
         self.warpers = warpers
 
         if any(do_sample):
+            # sample tokens from distribution if any sample flags are set True
             self.choice = HeterogeneousSampling(do_sample, seeds, device)
         else:
+            # sampling for all requests is set false, do Greedy / deterministic sampling
             self.choice = Greedy()
 
         self.seeds = seeds

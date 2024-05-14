@@ -35,7 +35,7 @@ class StaticWarper:
     ):
         self.warpers = []
 
-        if temperature is not None and temperature != 1.0:
+        if temperature is not None and temperature != 1.0 and temperature != 0:
             temperature = float(temperature)
             self.warpers.append(TemperatureLogitsWarper(temperature))
         if top_k is not None and top_k != 0:
