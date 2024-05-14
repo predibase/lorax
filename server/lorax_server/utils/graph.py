@@ -61,6 +61,7 @@ def get_cached_batch_size(batch_size: int) -> int:
 
 def pad_and_fill(dest: torch.Tensor, src: torch.Tensor, pad_value: int):
     dest[: src.shape[0]].copy_(src, non_blocking=True)
+    dest[src.shape[0] :].fill_(pad_value)
 
 
 def next_pow_2(x: int) -> int:
