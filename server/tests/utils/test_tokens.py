@@ -79,7 +79,9 @@ def test_deterministic_tokens_temperature_zero(default_causal_lm, default_causal
 
     attention_mask = batch.attention_mask[:, : -batch.padding_right_offset]
 
-    adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, default_causal_lm.batched_lora_weights)
+    adapter_data = AdapterBatchData.from_meta(
+        batch.adapter_meta, default_causal_lm.layer_to_adapter_weights, prefill=True
+    )
 
     logits, _ = default_causal_lm.forward(
         batch.input_ids,
