@@ -322,6 +322,7 @@ class Client:
         )
 
         if resp.status_code != 200:
+            print(resp.headers.items, file=sys.stderr)
             raise parse_error(resp.status_code, resp.json())
 
         # Parse ServerSentEvents
