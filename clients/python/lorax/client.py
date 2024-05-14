@@ -1,5 +1,6 @@
 import json
 import requests
+import sys
 
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
@@ -196,6 +197,8 @@ class Client:
             payload = {"message": e.msg}
 
         if resp.status_code != 200:
+            # Print headers to stderr
+            print(resp.headers.items, file=sys.stderr)
             raise parse_error(resp.status_code, payload)
 
         return Response(**payload[0])
