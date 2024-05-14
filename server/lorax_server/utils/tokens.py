@@ -1,9 +1,9 @@
 import re
+import warnings
 from contextlib import nullcontext
 from typing import List, Optional, Set, Tuple, Union
 
 import torch
-import warnings
 from transformers import (
     PreTrainedTokenizerBase,
     RepetitionPenaltyLogitsProcessor,
