@@ -205,10 +205,6 @@ COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-31
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir
 
-# Install the pip requirements 
-COPY server/requirements.txt .
-RUN pip install -r requirements.txt
-
 # Install server
 COPY proto proto
 COPY server server
@@ -216,6 +212,7 @@ COPY server/Makefile server/Makefile
 
 RUN cd server && \
     make gen-server && \
+    pip install -r requirements.txt && \
     pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
 
 # Install router
