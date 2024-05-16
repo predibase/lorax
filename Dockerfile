@@ -40,7 +40,7 @@ FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 as pytorch-install
 ARG PYTORCH_VERSION=2.3.0
 ARG PYTHON_VERSION=3.10
 ARG CUDA_VERSION=12.1
-ARG MAMBA_VERSION=23.1.1-1
+ARG MAMBA_VERSION=23.3.1-1
 ARG CUDA_CHANNEL=nvidia
 ARG INSTALL_CHANNEL=pytorch
 # Automatically set by buildx
