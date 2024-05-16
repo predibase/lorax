@@ -8,6 +8,7 @@ from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.layers import FastLinear, TensorParallelColumnLinear
+from lorax_server.utils.segments import find_segments
 from lorax_server.utils.sgmv import segmented_matmul
 from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
@@ -275,12 +276,14 @@ class BatchMedusaWeights(BatchAdapterWeights):
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
         default_medusa = adapter_weights.get(0)
 
+        segments = meta.adapter_segments
         segment_indices = meta.segment_indices
         if default_medusa is not None:
             # Replace all non-existent segment indices with 0 (default medusa)
             # This happens when the segment corresponds to a different adapter type (like LoRA) but we still wish
             # to apply the default Medusa adapter
-            segment_indices = [idx if idx in adapter_weights else 0 for idx in meta.segment_indices]
+            adapter_indices = [idx if idx in adapter_weights else 0 for idx in meta.adapter_indices.cpu().tolist()]
+            segments, segment_indices = find_segments(adapter_indices)
 
         indices = [idx for idx, s in enumerate(segment_indices) if s in adapter_weights]
 
@@ -296,7 +299,7 @@ class BatchMedusaWeights(BatchAdapterWeights):
                     (adapter_weights[idx].model.medusa.linear.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
                     for idx in segment_indices
                 ],
-                s_start=meta.adapter_segments[indices],
-                s_end=meta.adapter_segments[[i + 1 for i in indices]],
+                s_start=segments[indices],
+                s_end=segments[[i + 1 for i in indices]],
             ),
         )
