@@ -3,7 +3,7 @@ name = "lorax-client"
 packages = [
     {include = "lorax"}
 ]
-version = "0.5.0"
+version = "0.5.1"
 description = "LoRAX Python Client"
 license = "Apache-2.0"
 authors = ["Travis Addair <travis@predibase.com>", "Olivier Dehaene <olivier@huggingface.co>"]
