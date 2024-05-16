@@ -80,10 +80,10 @@ RUN case ${TARGETPLATFORM} in \
 # CUDA kernels builder image
 FROM pytorch-install as kernel-builder
 
-ARG MAX_JOBS=8
+# ARG MAX_JOBS=8
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ninja-build \
+    ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Build Flash Attention CUDA kernels
