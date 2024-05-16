@@ -127,6 +127,7 @@ RUN /opt/conda/bin/conda install packaging
 WORKDIR /usr/src
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
+ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
 RUN make build-vllm
 
 # Build megablocks kernels
