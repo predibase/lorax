@@ -438,7 +438,7 @@ class DbrxAttention(torch.nn.Module):
                 query,
                 kv_cache[0],
                 kv_cache[1],
-                self.kv_head_mapping,
+                self.num_key_value_heads,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,
