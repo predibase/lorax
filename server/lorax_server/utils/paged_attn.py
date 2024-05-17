@@ -5,7 +5,7 @@ import torch
 try:
     # Hack to ignore ray warnings from vLLM, which are not relevant to us.
     logging.disable(logging.WARNING)
-    from vllm import attention_ops, cache_ops
+    from vllm._C import cache_ops, ops as attention_ops
 finally:
     logging.disable(logging.NOTSET)
 
@@ -20,7 +20,7 @@ def reshape_and_cache(
     value_cache: torch.Tensor,  # [num_blocks, num_heads, head_size, block_size]
     slot_mapping: torch.Tensor,  # [num_tokens]
 ):
-    cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slot_mapping)
+    cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slot_mapping, "auto", 1.0)
 
 
 # Source: https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/attention.py
@@ -91,4 +91,6 @@ def single_query_cached_kv_attention(
             block_size,
             max_s,
             None,
+            "auto",
+            1.0,
         )
