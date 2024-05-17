@@ -284,6 +284,11 @@ class BatchMedusaWeights(BatchAdapterWeights):
             # to apply the default Medusa adapter
             adapter_indices = [idx if idx in adapter_weights else 0 for idx in meta.adapter_indices.cpu().tolist()]
             segments, segment_indices = find_segments(adapter_indices)
+            segments = torch.tensor(
+                segments,
+                dtype=torch.int32,
+                device=meta.adapter_segments.device,
+            )
 
         indices = [idx for idx, s in enumerate(segment_indices) if s in adapter_weights]
 
