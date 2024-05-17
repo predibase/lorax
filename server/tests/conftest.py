@@ -4,6 +4,7 @@ from transformers import AutoTokenizer
 
 from lorax_server.models.causal_lm import CausalLM, CausalLMBatch
 from lorax_server.pb import generate_pb2
+from lorax_server.utils.dist import FakeGroup
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -61,7 +62,9 @@ def schema_constrained_pb_parameters(default_json_schema):
 
 @pytest.fixture(scope="session")
 def default_causal_lm():
-    return CausalLM("gpt2")
+    model = CausalLM("gpt2")
+    model.process_group = FakeGroup(0, 1)
+    return model
 
 
 @pytest.fixture(scope="session")
