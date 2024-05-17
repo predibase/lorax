@@ -29,7 +29,7 @@ def single_query_cached_kv_attention(
     query: torch.Tensor,  # [num_tokens, num_heads, head_size]
     key_cache: torch.Tensor,  # [num_blocks, num_heads, head_size/x, block_size, x]
     value_cache: torch.Tensor,  # [num_blocks, num_heads, head_size, block_size]
-    kv_head_mapping: torch.Tensor,
+    num_key_value_heads: int,
     softmax_scale: float,
     block_tables: torch.Tensor,  # [num_blocks, block_size]
     input_lengths: torch.Tensor,  # [num_blocks]
@@ -54,13 +54,15 @@ def single_query_cached_kv_attention(
             query,
             key_cache,
             value_cache,
-            kv_head_mapping,
+            num_key_value_heads,
             softmax_scale,
             block_tables,
             input_lengths,
             block_size,
             max_s,
             None,
+            "auto",
+            1.0,
         )
     else:
         # Run PagedAttention V2.
@@ -84,7 +86,7 @@ def single_query_cached_kv_attention(
             query,
             key_cache,
             value_cache,
-            kv_head_mapping,
+            num_key_value_heads,
             softmax_scale,
             block_tables,
             input_lengths,

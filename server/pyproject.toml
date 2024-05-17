@@ -39,6 +39,8 @@ urllib3 = "<=1.26.18"
 hqq = { version = "^0.1.2", optional = true }
 stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
 outlines = { version = "^0.0.40", optional = true }
+prometheus-client = "^0.20.0"
+py-cpuinfo = "^9.0.0"
 
 [tool.poetry.extras]
 torch = ["torch"]
