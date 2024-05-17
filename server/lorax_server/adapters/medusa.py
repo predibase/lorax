@@ -282,13 +282,18 @@ class BatchMedusaWeights(BatchAdapterWeights):
             # Replace all non-existent segment indices with 0 (default medusa)
             # This happens when the segment corresponds to a different adapter type (like LoRA) but we still wish
             # to apply the default Medusa adapter
-            adapter_indices = [idx if idx in adapter_weights else 0 for idx in meta.adapter_indices.cpu().tolist()]
-            segments, segment_indices = find_segments(adapter_indices)
-            segments = torch.tensor(
-                segments,
-                dtype=torch.int32,
-                device=meta.adapter_segments.device,
-            )
+            if len(segment_indices) > 1:
+                # merge segments
+                adapter_indices = [idx if idx in adapter_weights else 0 for idx in meta.adapter_indices.cpu().tolist()]
+                segments, segment_indices = find_segments(adapter_indices)
+                segments = torch.tensor(
+                    segments,
+                    dtype=torch.int32,
+                    device=meta.adapter_segments.device,
+                )
+            else:
+                # update segment in place
+                segment_indices = [idx if idx in adapter_weights else 0 for idx in meta.segment_indices]
 
         indices = [idx for idx, s in enumerate(segment_indices) if s in adapter_weights]
 
