@@ -162,6 +162,7 @@ class LoraWeights(AdapterWeights):
 @dataclass
 class RankSegments:
     rank: int
+    indices: List[int]
     tmp_shrink: torch.Tensor
     tmp_expand: torch.Tensor
     lora_a_ptr: torch.Tensor
@@ -231,6 +232,7 @@ class BatchLoraWeights(BatchAdapterWeights):
 
             rank_data[rank] = RankSegments(
                 rank=rank,
+                indices=indices,
                 tmp_shrink=tmp_shrink,
                 tmp_expand=tmp_expand,
                 lora_a_ptr=lora_a_ptr_indices,
