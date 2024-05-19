@@ -90,8 +90,8 @@ def check_architectures(model_id: str, adapter_id: str, adapter_config: "Adapter
             # Avoid execuation latency caused by the network connection retrying for AutoConfig.from_pretrained(None)
             return
 
-        expected_config = AutoConfig.from_pretrained(model_id)
-        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
+        expected_config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, trust_remote_code=True)
     except Exception as e:
         warnings.warn(
             f"Unable to check architecture compatibility for adapter '{adapter_id}' "
@@ -130,7 +130,7 @@ def load_module_map(
         check_architectures(model_id, adapter_id, adapter_config)
 
     try:
-        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token)
+        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token, trust_remote_code=True)
     except Exception:
         # Adapter does not have a tokenizer, so fallback to base model tokenizer
         adapter_tokenizer = None
