@@ -90,22 +90,31 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 FROM kernel-builder as flash-att-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att Makefile
-
-# Build specific version of flash attention
 RUN make build-flash-attention
+
 # Build Flash Attention v2 CUDA kernels
 FROM kernel-builder as flash-att-v2-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att-v2 Makefile
-# Build specific version of flash attention v2
-RUN make build-flash-attention-v2
+RUN make build-flash-attention-v2-cuda
 
-# Build Transformers exllamav2 kernels
+# Build Transformers exllama kernels
 FROM kernel-builder as exllama-kernels-builder
 WORKDIR /usr/src
-COPY server/exllamav2_kernels/ .
-# Build specific version of transformers
+COPY server/exllama_kernels/ .
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+
+# Build Transformers exllama kernels
+FROM kernel-builder as exllamav2-kernels-builder
+WORKDIR /usr/src
+COPY server/exllamav2_kernels/ .
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+
+# Build Transformers awq kernels
+FROM kernel-builder as awq-kernels-builder
+WORKDIR /usr/src
+COPY server/Makefile-awq Makefile
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
 
 
 # Build Transformers CUDA kernels
@@ -181,6 +190,10 @@ COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86
 COPY --from=custom-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 # Copy build artifacts from exllama kernels builder
 COPY --from=exllama-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# Copy build artifacts from exllamav2 kernels builder
+COPY --from=exllamav2-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# Copy build artifacts from awq kernels builder
+COPY --from=awq-kernels-builder /usr/src/llm-awq/awq/kernels/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 # Copy builds artifacts from vllm builder
 COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
