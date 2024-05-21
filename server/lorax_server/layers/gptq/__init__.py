@@ -18,17 +18,17 @@ if os.getenv("DISABLE_EXLLAMA") == "True":
 elif CAN_EXLLAMA:
     try:
         if V2:
-            from text_generation_server.layers.gptq.exllamav2 import (
+            from lorax_server.layers.gptq.exllamav2 import (
                 QuantLinear as ExllamaQuantLinear,
             )
-            from text_generation_server.layers.gptq.exllamav2 import (
+            from lorax_server.layers.gptq.exllamav2 import (
                 create_exllama_buffers,
                 set_device,
             )
 
             HAS_EXLLAMA = "2"
         else:
-            from text_generation_server.layers.gptq.exllama import (
+            from lorax_server.layers.gptq.exllama import (
                 Ex4bitLinear as ExllamaQuantLinear,  # noqa
             )
             from text_generation_server.layers.gptq.exllama import (
@@ -41,4 +41,4 @@ elif CAN_EXLLAMA:
     except ImportError:
         pass
 
-from text_generation_server.layers.gptq.quant_linear import QuantLinear # noqa
+from lorax_server.layers.gptq.quant_linear import QuantLinear # noqa
