@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
 from peft import LoraConfig as _LoraConfig
@@ -138,8 +138,8 @@ class LoraWeights(AdapterWeights):
         self._is_transposed = not self._is_transposed
 
     @classmethod
-    def get_batch_type(cls) -> BatchAdapterWeights:
-        return BatchLoraWeights
+    def get_batch_types(cls) -> List[Type[BatchAdapterWeights]]:
+        return [BatchLoraWeights]
 
     @classmethod
     def load(

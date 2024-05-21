@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
 import torch
 import torch.distributed
@@ -229,8 +229,8 @@ class MedusaWeights(AdapterWeights):
         self.process_group = model.process_group
 
     @classmethod
-    def get_batch_type(cls) -> BatchAdapterWeights:
-        return BatchMedusaWeights
+    def get_batch_types(cls) -> List[Type[BatchAdapterWeights]]:
+        return [BatchMedusaWeights]
 
     @property
     def speculative_tokens(self) -> int:
