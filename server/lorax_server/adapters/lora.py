@@ -314,7 +314,6 @@ class BatchLoraWeights(BatchAdapterWeights):
                     prefill_head_segment_ends.append(prefill_head_segment_ends[-1] + 1)
                     j += 1
 
-
         rank_data = {}
         for rank, indices in rank_indices.items():
             tmp_shrink = None

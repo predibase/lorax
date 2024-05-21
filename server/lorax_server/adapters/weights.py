@@ -1,7 +1,7 @@
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Set, Type, Optional
+from typing import Dict, List, Optional, Set, Type
 
 import torch
 
