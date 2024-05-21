@@ -3,7 +3,7 @@ import torch
 
 def is_xpu_available():
     try:
-        import intel_extension_for_pytorch
+        import intel_extension_for_pytorch # noqa
     except ImportError:
         return False
 

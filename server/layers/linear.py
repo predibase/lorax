@@ -1,6 +1,6 @@
 import torch
-from server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
-from server.layers.gptq.quant_linear import QuantLinear
+from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
+from lorax_server.layers.gptq.quant_linear import QuantLinear
 from torch.nn import functional as F
 
 from lorax_server.utils.import_utils import SYSTEM
@@ -101,11 +101,11 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
     if quantize is None:
         linear = FastLinear(weight, bias)
     elif quantize == "fp8":
-        from server.layers.fp8 import Fp8Linear
+        from lorax_server.layers.fp8 import Fp8Linear
         linear = Fp8Linear(weight, bias)
 
     elif quantize == "bitsandbytes":
-        from server.layers.bnb import Linear8bitLt
+        from lorax_server.layers.bnb import Linear8bitLt
 
         linear = Linear8bitLt(
             weight,
@@ -116,21 +116,21 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         if bias is not None:
             linear.bias = nn.Parameter(bias)
     elif quantize == "bitsandbytes-nf4":
-        from server.layers.bnb import Linear4bit
+        from lorax_server.layers.bnb import Linear4bit
         linear = Linear4bit(
             weight,
             bias,
             quant_type="nf4",
         )
     elif quantize == "bitsandbytes-fp4":
-        from server.layers.bnb import Linear4bit
+        from lorax_server.layers.bnb import Linear4bit
         linear = Linear4bit(
             weight,
             bias,
             quant_type="fp4",
         )
     elif quantize == "eetq":
-        from server.layers.eetq import EETQLinear
+        from lorax_server.layers.eetq import EETQLinear
         linear = EETQLinear(weight, bias)
     elif quantize == "gptq":
         try:
@@ -155,7 +155,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
             raise NotImplementedError("The passed weight is not compatible with `awq`")
-        from server.lorax_server.utils.awq.awq import AWQLinear
+        from lorax_server.lorax_server.utils.awq.awq import AWQLinear
         linear = AWQLinear(
             w_bit=bits,
             group_size=groupsize,
@@ -165,7 +165,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             bias=bias,
         )
     elif "hqq-" in quantize:
-        from server.layers.hqq import get_hqq_linear
+        from lorax_server.layers.hqq import get_hqq_linear
         linear = get_hqq_linear(quantize, weight, bias)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")

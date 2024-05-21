@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Optional, Tuple
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
-from server.layers.linear import get_linear
-from server.layers.tensor_parallel import SuperLayer
+from lorax_server.layers.linear import get_linear
+from lorax_server.layers.tensor_parallel import SuperLayer
 from torch import nn
 from torch.nn import functional as F
 
