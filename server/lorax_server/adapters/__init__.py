@@ -5,6 +5,7 @@ from typing import Dict, Optional
 from lorax_server.adapters.config import AdapterConfig
 from lorax_server.adapters.lora import LoraConfig
 from lorax_server.adapters.medusa import MedusaConfig
+from lorax_server.adapters.medusa_lora import MedusaLoraConfig
 from lorax_server.adapters.weights import AdapterBatchData, AdapterBatchMetadata
 
 

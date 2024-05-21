@@ -1,20 +1,12 @@
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
-from lorax_server.adapters.lora import BatchLoraWeights, LoraConfig, LoraWeights
-from lorax_server.adapters.medusa import BatchMedusaWeights, MedusaConfig, MedusaWeights
 import torch
-from torch.distributed import ProcessGroup
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
-from lorax_server.adapters.types import LORA
-from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.sgmv import (
-    BGMV_MAX_RANK,
-    MAX_RANK_CUSTOM,
-    get_tmp_tensors,
-)
+from lorax_server.adapters.lora import BatchLoraWeights, LoraConfig, LoraWeights
+from lorax_server.adapters.medusa import BatchMedusaWeights, MedusaConfig, MedusaWeights
+from lorax_server.adapters.weights import AdapterWeights, BatchAdapterWeights
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model
@@ -51,18 +43,10 @@ class MedusaLoraConfig(AdapterConfig):
         dynamic: bool,
     ) -> Optional[AdapterWeights]:
         lora_weights = self.lora_config.load_batched_adapter_weights(
-            model,
-            module_map.lora_module_map,
-            layer_type,
-            unused_weight_names,
-            dynamic
+            model, module_map.lora_module_map, layer_type, unused_weight_names, dynamic
         )
         medusa_weights = self.medusa_config.load_batched_adapter_weights(
-            model,
-            module_map.medusa_module_map,
-            layer_type,
-            unused_weight_names,
-            dynamic
+            model, module_map.medusa_module_map, layer_type, unused_weight_names, dynamic
         )
         return MedusaLoraWeights.load(
             lora_weights,
@@ -91,7 +75,7 @@ class MedusaLoraWeights(AdapterWeights):
     @classmethod
     def get_batch_types(cls) -> List[Type[BatchAdapterWeights]]:
         return [BatchLoraWeights, BatchMedusaWeights]
-    
+
     @property
     def speculative_tokens(self) -> int:
         return self.medusa_weights.speculative_tokens
