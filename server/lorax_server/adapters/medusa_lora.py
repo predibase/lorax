@@ -58,6 +58,7 @@ class MedusaLoraConfig(AdapterConfig):
         lora_config = LoraConfig.load(adapter_id, api_token)
         medusa_config = MedusaConfig.load(config)
         return cls(
+            base_model_name_or_path=lora_config.base_model_name_or_path,
             lora_config=lora_config,
             medusa_config=medusa_config,
         )

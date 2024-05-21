@@ -238,9 +238,11 @@ class BatchLoraWeights(BatchAdapterWeights):
     @classmethod
     def load(
         self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata, prefill: bool
-    ) -> "BatchLoraWeights":
+    ) -> Optional["BatchLoraWeights"]:
         adapter_weights = {k: _convert_lora(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
+        if not adapter_weights:
+            return None
 
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device

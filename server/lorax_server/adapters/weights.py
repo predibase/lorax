@@ -1,7 +1,7 @@
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Set, Type
+from typing import Dict, List, Optional, Set, Type
 
 import torch
 
@@ -47,7 +47,7 @@ class BatchAdapterWeights(ABC):
     @abstractclassmethod
     def load(
         cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata", prefill: bool
-    ) -> "BatchAdapterWeights":
+    ) -> Optional["BatchAdapterWeights"]:
         pass
 
 
@@ -81,7 +81,9 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta, prefill)
+            batched_weights = batch_type.load(adapter_weights, meta, prefill)
+            if batched_weights is not None:
+                batch_data[batch_type.key()] = batched_weights
         return batch_data
 
 
