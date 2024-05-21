@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'main'
+      - "main"
+      - "synctgi"
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-and-push-image:
@@ -41,8 +42,8 @@ jobs:
       - name: Install soci
         uses: lerentis/soci-installer@v1.0.1
         with:
-          soci-release: 'v0.4.0'
-      
+          soci-release: "v0.4.0"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2.10.0
 
@@ -51,7 +52,7 @@ jobs:
         with:
           config-inline: |
             version = 2
-            
+
             # persistent data location
             root = "/runner/build/containerd"
 
@@ -62,11 +63,8 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=,suffix=,format=short
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-      
+            type=raw,value=synctgi
+
       - name: Create a hash from tags
         env:
           tags: ${{ steps.meta.outputs.tags }}
@@ -93,7 +91,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile  # Path to your Dockerfile
+          file: ./Dockerfile # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           outputs: type=oci,compression=gzip,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar.gz
@@ -124,7 +122,7 @@ jobs:
             echo "Pushing $tag to GHCR"
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
-      
+
       - name: Create and push soci index
         env:
           tags: ${{ steps.meta.outputs.tags }}
@@ -151,4 +149,3 @@ jobs:
 
           # Delete the SHA image(s) from containerd store
           sudo ctr i rm $(sudo ctr i ls -q)
-  
