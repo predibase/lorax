@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Optional, Tuple
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
-from lorax_server.layers.linear import get_linear
-from lorax_server.layers.tensor_parallel import SuperLayer
 from torch import nn
 from torch.nn import functional as F
 
 from lorax_server.adapters.types import LORA, MEDUSA
+from lorax_server.layers.linear import get_linear
+from lorax_server.layers.tensor_parallel import SuperLayer
 from lorax_server.utils.sgmv import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,

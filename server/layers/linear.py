@@ -1,8 +1,8 @@
 import torch
-from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
-from lorax_server.layers.gptq.quant_linear import QuantLinear
 from torch.nn import functional as F
 
+from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
+from lorax_server.layers.gptq.quant_linear import QuantLinear
 from lorax_server.utils.import_utils import SYSTEM
 
 if SYSTEM == "rocm":
