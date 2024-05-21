@@ -1,26 +1,27 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import torch
 
 
-def find_segments(adapter_indices: torch.Tensor) -> Tuple[List[int], List[int]]:
+def find_segments(adapter_indices: Union[torch.Tensor, List[int]]) -> Tuple[List[int], List[int]]:
     segments = [0]
     segment_indices = []
 
-    # Calling .item() repeatedly on CUDA tensor is very slow, so we move it to CPU first
-    adapter_indices = adapter_indices.cpu()
+    if isinstance(adapter_indices, torch.Tensor):
+        # Calling .item() repeatedly on CUDA tensor is very slow, so we move it to CPU first
+        adapter_indices = adapter_indices.cpu().tolist()
 
     start_index = 0
-    for i in range(1, adapter_indices.shape[0]):
+    for i in range(1, len(adapter_indices)):
         if adapter_indices[i] != adapter_indices[i - 1]:
             segments.append(i)
-            segment_indices.append(adapter_indices[i - 1].item())
+            segment_indices.append(adapter_indices[i - 1])
             start_index = i
 
     # Handle the last segment
     if start_index < len(adapter_indices):
         segments.append(len(adapter_indices))
-        segment_indices.append(adapter_indices[-1].item())
+        segment_indices.append(adapter_indices[-1])
 
     return segments, segment_indices
 

@@ -46,10 +46,12 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def load(cls,
+    def load(
+        cls,
         adapter_weights: Dict[int, AdapterWeights],
         meta: "AdapterBatchMetadata",
-        prefill_head_indices: torch.Tensor
+        prefill: bool,
+        prefill_head_indices: torch.Tensor,
     ) -> "BatchAdapterWeights":
         pass
 
@@ -75,9 +77,8 @@ class LayerAdapterWeights:
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0
 
-    def get_data(self,
-        meta: AdapterBatchMetadata,
-        prefill_head_indices: Optional[torch.Tensor],
+    def get_data(
+        self, meta: AdapterBatchMetadata, prefill: bool, prefill_head_indices: Optional[torch.Tensor],
     ) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
@@ -86,7 +87,7 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta, prefill_head_indices)
+            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
         return batch_data
 
 
@@ -97,26 +98,43 @@ class AdapterBatchData:
     # layer type -> adapter type -> batch weight data
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
+    prefill: bool
+
     @staticmethod
     def from_meta(
         meta: AdapterBatchMetadata,
         weights: Dict[str, LayerAdapterWeights],
+        prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            data[k] = v.get_data(meta, prefill_head_indices if k == LM_HEAD else None)
-        return AdapterBatchData(meta=meta, data=data)
+            data[k] = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+        return AdapterBatchData(meta=meta, data=data, prefill=prefill)
 
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation
-        lora_data = self.data.get(LORA)
-        if lora_data is None:
-            return set()
+        ranks = set()
+        for layer_data in self.data.values():
+            lora_data = layer_data.get(LORA)
+            if lora_data is None:
+                continue
 
-        return set(rank_data.rank for layer_data in self.data.values() for rank_data in lora_data.rank_data.values())
+            for rank_data in lora_data.rank_data.values():
+                ranks.add(rank_data.rank)
+
+        return ranks
+
+    def layer_names(self) -> Set[str]:
+        return set(self.data.keys())
+
+    def adapter_keys(self) -> Set[str]:
+        adapter_keys = set()
+        for layer_data in self.data.values():
+            adapter_keys.update(layer_data.keys())
+        return adapter_keys
 
     @property
     def max_rank(self) -> int:

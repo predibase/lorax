@@ -31,8 +31,7 @@ def test_parameters_validation():
 
     # Test temperature
     Parameters(temperature=1)
-    with pytest.raises(ValidationError):
-        Parameters(temperature=0)
+    Parameters(temperature=0)
     with pytest.raises(ValidationError):
         Parameters(temperature=-1)
 
