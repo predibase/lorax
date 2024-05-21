@@ -1,3 +1,4 @@
+import math
 import os
 
 import torch
@@ -67,10 +68,6 @@ class PositionRotaryEmbedding(nn.Module):
 
             # Inplace operation, updating query and key.
             ops.rotary_embedding(query, key, head_size, cos, sin, True)
-        elif SYSTEM == "xpu":
-            ipex.llm.functional.rotary_embedding(
-                query, key, sin, cos, query.size(-1), True
-            )
         else:
             raise ValueError(
                 "Your system seem to be not supported. Please check your install or open an issue at https://github.com/huggingface/text-generation-inference/issues with a clear reproduction."
@@ -313,9 +310,6 @@ class DynamicPositionRotaryEmbedding(PositionRotaryEmbedding):
             self._cos_cached = torch.cos(freqs).to(dtype)
             self._sin_cached = torch.sin(freqs).to(dtype)
 
-
-# Inverse dim formula to find dim based on number of rotations
-import math
 
 
 def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):

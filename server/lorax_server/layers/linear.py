@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 from torch.nn import functional as F
 
 from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
