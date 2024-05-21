@@ -1,7 +1,7 @@
 import os
 
 import torch
-from text_generation_server.utils.import_utils import (
+from lorax_server.utils.import_utils import (
     SYSTEM,
 )
 
