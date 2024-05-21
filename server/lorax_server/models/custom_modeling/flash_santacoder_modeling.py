@@ -5,7 +5,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 
-from lorax_server.utils import flash_attn, paged_attn
+from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
     TensorParallelColumnLinear,
@@ -231,7 +231,7 @@ class FlashMQAttention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         key_value = key_value.view(-1, 2, 1, self.head_size)
 
-        paged_attn.reshape_and_cache(key_value[:, 0], key_value[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(key_value[:, 0], key_value[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output
         attn_output = torch.empty_like(query)
@@ -251,7 +251,7 @@ class FlashMQAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, 1, head_size, block_size]
-            paged_attn.single_query_cached_kv_attention(
+            paged_attention.attention(
                 attn_output,
                 query,
                 kv_cache[0],
