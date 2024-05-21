@@ -107,12 +107,6 @@ COPY server/exllamav2_kernels/ .
 # Build specific version of transformers
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
-# Build awq kernels
-FROM kernel-builder as awq-kernels-builder
-WORKDIR /usr/src
-COPY server/awq_kernels/ .
-# Build specific version of transformers
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
