@@ -273,6 +273,7 @@ class BatchMedusaWeights(BatchAdapterWeights):
     def load(
         cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata", prefill: bool
     ) -> "BatchMedusaWeights":
+        adapter_weights = {k: _convert_medusa(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
         default_medusa = adapter_weights.get(0)
 
@@ -313,3 +314,9 @@ class BatchMedusaWeights(BatchAdapterWeights):
                 s_end=segments[[i + 1 for i in indices]],
             ),
         )
+
+
+def _convert_medusa(v: AdapterWeights) -> AdapterWeights:
+    if hasattr(v, "medusa_weights"):
+        return v.medusa_weights
+    return v

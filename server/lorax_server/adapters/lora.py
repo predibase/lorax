@@ -239,6 +239,7 @@ class BatchLoraWeights(BatchAdapterWeights):
     def load(
         self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata, prefill: bool
     ) -> "BatchLoraWeights":
+        adapter_weights = {k: _convert_lora(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
 
         first_weights = list(adapter_weights.values())[0]
@@ -347,3 +348,9 @@ def get_scaling_factor(
     if uses_rslora:
         return lora_alpha / (r**0.5)
     return lora_alpha / r
+
+
+def _convert_lora(v: AdapterWeights) -> AdapterWeights:
+    if hasattr(v, "lora_weights"):
+        return v.lora_weights
+    return v
