@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+
 HAS_HQQ = True
 try:
     from hqq.core.quantize import BaseQuantizeConfig, HQQLinear

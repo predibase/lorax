@@ -1,7 +1,10 @@
+from typing import List
+
 import torch
 from torch.nn import functional as F
-from typing import List
-from lorax_server.layers.linear import get_linear, FastLinear
+
+from lorax_server.layers.linear import FastLinear, get_linear
+
 
 class SuperLayer(torch.nn.Module):
     def __init__(self, linear):

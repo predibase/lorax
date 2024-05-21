@@ -1,14 +1,15 @@
 from pathlib import Path
+
 import pytest
 import torch
-from lorax_server.utils.sources.hub import (
-    download_weights,
-    weight_hub_files,
-    weight_files,
-)
 
 from lorax_server.utils.convert import convert_files
 from lorax_server.utils.errors import NanWeightsError
+from lorax_server.utils.sources.hub import (
+    download_weights,
+    weight_files,
+    weight_hub_files,
+)
 
 
 def test_convert_files():

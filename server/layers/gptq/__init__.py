@@ -1,4 +1,5 @@
 import os
+
 import torch
 from text_generation_server.utils.import_utils import (
     SYSTEM,
@@ -19,6 +20,8 @@ elif CAN_EXLLAMA:
         if V2:
             from text_generation_server.layers.gptq.exllamav2 import (
                 QuantLinear as ExllamaQuantLinear,
+            )
+            from text_generation_server.layers.gptq.exllamav2 import (
                 create_exllama_buffers,
                 set_device,
             )
@@ -27,6 +30,8 @@ elif CAN_EXLLAMA:
         else:
             from text_generation_server.layers.gptq.exllama import (
                 Ex4bitLinear as ExllamaQuantLinear,
+            )
+            from text_generation_server.layers.gptq.exllama import (
                 create_exllama_buffers,
                 set_device,
             )

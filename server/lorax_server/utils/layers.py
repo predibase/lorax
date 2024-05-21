@@ -1,10 +1,12 @@
 import math
 import os
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
+from server.layers.linear import get_linear
+from server.layers.tensor_parallel import SuperLayer
 from torch import nn
 from torch.nn import functional as F
 
@@ -18,10 +20,6 @@ from lorax_server.utils.sgmv import (
     orient_for_rank,
 )
 from lorax_server.utils.state import is_warmup
-
-from server.layers.linear import get_linear
-from server.layers.tensor_parallel import SuperLayer
-
 
 if TYPE_CHECKING:
     from lorax_server.adapters import AdapterBatchData

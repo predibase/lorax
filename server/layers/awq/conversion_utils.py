@@ -1,6 +1,6 @@
-import torch
 from typing import List
 
+import torch
 
 AWQ_PACK_ORDER = [0, 2, 4, 6, 1, 3, 5, 7]
 REVERSE_AWQ_PACK_ORDER = [0, 4, 1, 5, 2, 6, 3, 7]

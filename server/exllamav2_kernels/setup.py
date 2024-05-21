@@ -1,6 +1,6 @@
+import torch
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-import torch
 
 extra_cuda_cflags = ["-lineinfo", "-O3"]
 

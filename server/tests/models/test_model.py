@@ -1,6 +1,5 @@
 import pytest
 import torch
-
 from transformers import AutoTokenizer
 
 from lorax_server.models.model import Model

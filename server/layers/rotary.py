@@ -1,11 +1,11 @@
 import os
+
 import torch
 from torch import nn
 
 from lorax_server.utils.import_utils import SYSTEM
 
 if SYSTEM == "cuda":
-    from flash_attn.layers.rotary import RotaryEmbedding
     import rotary_emb
 elif SYSTEM == "rocm":
     from vllm._C import ops

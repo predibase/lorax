@@ -1,5 +1,5 @@
-from accelerate import init_empty_weights
 import torch
+from accelerate import init_empty_weights
 
 
 @classmethod

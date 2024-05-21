@@ -1,4 +1,5 @@
 import torch
+
 from lorax_server.utils.import_utils import SYSTEM
 
 _PARTITION_SIZE = 512
@@ -7,8 +8,7 @@ if SYSTEM == "xpu":
     import intel_extension_for_pytorch as ipex
 else:
     try:
-        from vllm._C import cache_ops
-        from vllm._C import ops
+        from vllm._C import cache_ops, ops
     except Exception as e:
         raise ImportError(
             f"Could not import vllm paged attention. Make sure your installation is correct. Complete error: {e}"

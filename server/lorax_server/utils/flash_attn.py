@@ -1,11 +1,10 @@
 import os
+
 import torch
-
 from loguru import logger
-import math
 
-from lorax_server.utils.import_utils import SYSTEM
 from lorax_server.utils.flash_attn_triton import triton_attention
+from lorax_server.utils.import_utils import SYSTEM
 
 if os.getenv("USE_FLASH_ATTENTION", "").lower() == "false":
     raise ImportError("`USE_FLASH_ATTENTION` is false.")

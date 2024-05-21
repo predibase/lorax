@@ -2,7 +2,6 @@ import torch
 
 
 def fp8_quantize(weight, qdtype=torch.float8_e4m3fn):
-    device = weight.device
     # weight, scale = quant_weights(weight, torch.int8, False)
     finfo = torch.finfo(qdtype)
     # Calculate the scale as dtype max divided by absmax

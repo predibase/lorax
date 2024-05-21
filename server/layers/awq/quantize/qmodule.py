@@ -1,10 +1,8 @@
 # Copied logic from https://github.com/mit-han-lab/llm-awq/blob/f084f40bd996f3cf3a0633c1ad7d9d476c318aaa/awq/quantize/qmodule.py
 
-import math
+import awq_inference_engine  # with CUDA kernels
 import torch
 import torch.nn as nn
-import awq_inference_engine  # with CUDA kernels
-
 
 # class ScaledActivation(nn.Module):
 #     def __init__(self, module, scales):

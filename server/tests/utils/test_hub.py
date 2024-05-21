@@ -1,15 +1,14 @@
 import pytest
-
 from huggingface_hub.utils import (
-    LocalEntryNotFoundError,
     EntryNotFoundError,
+    LocalEntryNotFoundError,
     RevisionNotFoundError,
 )
 
 from lorax_server.utils.sources.hub import (
-    weight_hub_files,
     download_weights,
     weight_files,
+    weight_hub_files,
 )
 
 

@@ -1,10 +1,10 @@
 from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.models.causal_lm import CausalLMBatch
 from lorax_server.utils.tokens import (
-    NextTokenChooser,
-    StopSequenceCriteria,
-    StoppingCriteria,
     FinishReason,
+    NextTokenChooser,
+    StoppingCriteria,
+    StopSequenceCriteria,
 )
 
 

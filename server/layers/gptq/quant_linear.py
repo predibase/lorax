@@ -1,11 +1,12 @@
 import math
+
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import custom_fwd
-
 import triton
 import triton.language as tl
+from torch.cuda.amp import custom_fwd
+
 from . import custom_autotune
 
 
@@ -206,10 +207,8 @@ def matmul248(input, qweight, scales, qzeros, g_idx, bits, maxq):
         output = torch.empty(
             (input.shape[0], qweight.shape[1]), device=input.device, dtype=torch.float16
         )
-        grid = lambda META: (
-            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"])
-            * triton.cdiv(qweight.shape[1], META["BLOCK_SIZE_N"]),
-        )
+        def grid(META):
+            return triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"]) * triton.cdiv(qweight.shape[1], META["BLOCK_SIZE_N"]),
         matmul_248_kernel[grid](
             input,
             qweight,

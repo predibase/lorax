@@ -1,6 +1,7 @@
 import torch
-from torch import nn
 from accelerate import init_empty_weights
+from torch import nn
+
 from lorax_server.utils.import_utils import (
     SYSTEM,
 )

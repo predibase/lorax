@@ -1,12 +1,13 @@
 from typing import List, Tuple
+
 import pytest
 import torch
 
 from lorax_server.utils.sgmv import (
     get_tmp_tensors,
+    has_sgmv,
     lora_a_sgmv_cutlass,
     lora_b_sgmv_cutlass,
-    has_sgmv,
     pad_rank,
     use_cutlass_shrink,
 )
