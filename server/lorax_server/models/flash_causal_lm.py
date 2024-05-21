@@ -951,7 +951,7 @@ class FlashCausalLM(Model):
 
         # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
+        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights, batch.prefill_head_indices)
 
         out, speculative_logits = self._try_generate_token(batch, adapter_data)
 

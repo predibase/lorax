@@ -29,8 +29,6 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.adapters.lora import LoraWeights
-from lorax_server.adapters.types import LORA
 from lorax_server.utils import flash_attn, paged_attn
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
 from lorax_server.utils.layers import (
@@ -590,30 +588,5 @@ class FlashMistralForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-            update_segments_for_lm_head(adapter_data, lm_head_indices)
         logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
         return logits, speculative_logits
-
-
-# only call if all conditions below are true
-# 1. lm_head_indices is not None
-# 2. len(adapter_data.meta.adapter_set) > 0
-# 3. LM_HEAD in adapter_data.data
-# 4. LORA in adapter_data.data[LM_HEAD]
-def update_segments_for_lm_head(adapter_data: AdapterBatchData, lm_head_indices: torch.Tensor) -> None:
-    if len(adapter_data.meta.adapter_set) and LM_HEAD in adapter_data.data and LORA in adapter_data.data[LM_HEAD]:
-        j, segment_inds = 1, adapter_data.meta.adapter_segments
-        starts, ends = [0], [0]
-        for lm_head_index in lm_head_indices:
-            # j cannot go out of bounds as that would mean there are tokens without corresponding adapters
-            if lm_head_index < segment_inds[j]:
-                ends[-1] += 1
-            else:
-                starts.append(ends[-1])
-                ends.append(ends[-1] + 1)
-                j += 1
-
-        for _, rank_segment in adapter_data.data[LM_HEAD][LORA].rank_data.items():
-            for i, segment_index in enumerate(rank_segment.indices):
-                rank_segment.segment_starts[i] = starts[segment_index]
-                rank_segment.segment_ends[i] = ends[segment_index]

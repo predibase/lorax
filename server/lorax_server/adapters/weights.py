@@ -1,11 +1,12 @@
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Set, Type
+from typing import Dict, List, Set, Type, Optional
 
 import torch
 
 from lorax_server.adapters.types import LORA
+from lorax_server.utils.lora import LM_HEAD
 
 
 @dataclass
@@ -45,7 +46,11 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
+    def load(cls,
+        adapter_weights: Dict[int, AdapterWeights],
+        meta: "AdapterBatchMetadata",
+        prefill_head_indices: torch.Tensor
+    ) -> "BatchAdapterWeights":
         pass
 
 
@@ -70,7 +75,10 @@ class LayerAdapterWeights:
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0
 
-    def get_data(self, meta: AdapterBatchMetadata) -> Dict[str, BatchAdapterWeights]:
+    def get_data(self,
+        meta: AdapterBatchMetadata,
+        prefill_head_indices: Optional[torch.Tensor],
+    ) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
         for adapter_index, adapter_weights in self.adapter_weights.items():
@@ -78,7 +86,7 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta)
+            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta, prefill_head_indices)
         return batch_data
 
 
@@ -90,12 +98,16 @@ class AdapterBatchData:
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
     @staticmethod
-    def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]) -> "AdapterBatchData":
+    def from_meta(
+        meta: AdapterBatchMetadata,
+        weights: Dict[str, LayerAdapterWeights],
+        prefill_head_indices: Optional[torch.Tensor],
+    ) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            data[k] = v.get_data(meta)
+            data[k] = v.get_data(meta, prefill_head_indices if k == LM_HEAD else None)
         return AdapterBatchData(meta=meta, data=data)
 
     def ranks(self) -> Set[int]:
