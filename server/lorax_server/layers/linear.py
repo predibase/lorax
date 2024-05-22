@@ -2,8 +2,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
-from lorax_server.layers.gptq.quant_linear import QuantLinear
 from lorax_server.utils.import_utils import SYSTEM
 
 if SYSTEM == "rocm":
@@ -140,8 +138,10 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             raise NotImplementedError("The passed weight is not `gptq` compatible, loader needs to be updated.")
 
         if use_exllama:
+            from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
             linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
         else:
+            from lorax_server.layers.gptq.quant_linear import QuantLinear
             linear = QuantLinear(
                 qweight,
                 qzeros,
