@@ -331,12 +331,13 @@ class FlashLlamaAttention(torch.nn.Module):
                 query,
                 kv_cache[0],
                 kv_cache[1],
-                self.num_key_value_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,
                 max_s,
             )
+
 
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
