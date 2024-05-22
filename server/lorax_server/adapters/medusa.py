@@ -7,7 +7,7 @@ import torch.distributed
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.layers import FastLinear, TensorParallelColumnLinear
+from lorax_server.layers import FastLinear, TensorParallelColumnLinear
 from lorax_server.utils.segments import find_segments
 from lorax_server.utils.sgmv import segmented_matmul
 from lorax_server.utils.state import get_speculative_tokens
