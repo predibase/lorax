@@ -30,12 +30,11 @@ elif CAN_EXLLAMA:
             HAS_EXLLAMA = "2"
         else:
             from lorax_server.layers.gptq.exllama import (
+                Ex4bitLinear as ExllamaQuantLinear,  # noqa
+            )
+            from lorax_server.layers.gptq.exllama import (
                 create_exllama_buffers,  # noqa
                 set_device,  # noqa
-            )
-
-            from lorax_server.layers.gptq.exllama import (
-                Ex4bitLinear as ExllamaQuantLinear,  # noqa
             )
 
             HAS_EXLLAMA = "1"

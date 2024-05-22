@@ -2,6 +2,7 @@ import json
 from typing import Optional, Tuple
 
 import torch
+
 from lorax_server.layers.medusa import MedusaHeadV1, MedusaHeadV2
 from lorax_server.layers.mlp import MLPSpeculatorHead
 from lorax_server.layers.tensor_parallel import TensorParallelHead
