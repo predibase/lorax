@@ -156,7 +156,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             qweight, qzeros, scales, _, bits, groupsize, _ = weight
         except Exception:
             raise NotImplementedError("The passed weight is not compatible with `awq`")
-        from lorax_server.lorax_server.utils.awq.awq import AWQLinear
+        from lorax_server.utils.awq.awq import AWQLinear
         linear = AWQLinear(
             w_bit=bits,
             group_size=groupsize,
