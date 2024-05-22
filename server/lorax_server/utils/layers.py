@@ -10,7 +10,7 @@ from torch.nn import functional as F
 
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import get_linear
-from lorax_server.layers.tensor_parallel import SuperLayer
+from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
 from lorax_server.utils.sgmv import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
