@@ -2,7 +2,7 @@ import json
 import os
 from abc import abstractmethod
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig
