@@ -29,7 +29,7 @@ elif CAN_EXLLAMA:
 
             HAS_EXLLAMA = "2"
         else:
-            from text_generation_server.layers.gptq.exllama import (
+            from lorax_server.layers.gptq.exllama import (
                 create_exllama_buffers,  # noqa
                 set_device,  # noqa
             )

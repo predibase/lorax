@@ -2,9 +2,9 @@ import json
 from typing import Optional, Tuple
 
 import torch
-from text_generation_server.layers.medusa import MedusaHeadV1, MedusaHeadV2
-from text_generation_server.layers.mlp import MLPSpeculatorHead
-from text_generation_server.layers.tensor_parallel import TensorParallelHead
+from lorax_server.layers.medusa import MedusaHeadV1, MedusaHeadV2
+from lorax_server.layers.mlp import MLPSpeculatorHead
+from lorax_server.layers.tensor_parallel import TensorParallelHead
 
 
 class SpeculativeHead(torch.nn.Module):
