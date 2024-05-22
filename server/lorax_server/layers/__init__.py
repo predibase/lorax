@@ -6,7 +6,6 @@ from lorax_server.layers.linear import (
     FastLinear, # noqa
     get_linear, # noqa
 )
-from lorax_server.layers.speculative import SpeculativeHead # noqa
 from lorax_server.layers.tensor_parallel import (
     TensorParallelColumnLinear, # noqa
     TensorParallelEmbedding, # noqa
