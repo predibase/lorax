@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
 from peft import LoraConfig as _LoraConfig
@@ -138,8 +138,8 @@ class LoraWeights(AdapterWeights):
         self._is_transposed = not self._is_transposed
 
     @classmethod
-    def get_batch_type(cls) -> BatchAdapterWeights:
-        return BatchLoraWeights
+    def get_batch_types(cls) -> List[Type[BatchAdapterWeights]]:
+        return [BatchLoraWeights]
 
     @classmethod
     def load(
@@ -238,8 +238,11 @@ class BatchLoraWeights(BatchAdapterWeights):
     @classmethod
     def load(
         self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata, prefill: bool
-    ) -> "BatchLoraWeights":
+    ) -> Optional["BatchLoraWeights"]:
+        adapter_weights = {k: _convert_lora(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
+        if not adapter_weights:
+            return None
 
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device
@@ -347,3 +350,9 @@ def get_scaling_factor(
     if uses_rslora:
         return lora_alpha / (r**0.5)
     return lora_alpha / r
+
+
+def _convert_lora(v: AdapterWeights) -> AdapterWeights:
+    if hasattr(v, "lora_weights"):
+        return v.lora_weights
+    return v
