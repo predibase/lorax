@@ -196,7 +196,7 @@ impl Infer {
             .tokenize(inputs, truncate)
             .await
             .map_err(|err| {
-                tracing::error!("Error occured during tokenization. {err}");
+                tracing::error!("Error occurred during tokenization. {err}");
                 err
             })?;
 
