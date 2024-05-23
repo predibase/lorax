@@ -28,7 +28,7 @@ class AdapterBatchMetadata:
 
 class AdapterWeights(ABC):
     @abstractclassmethod
-    def get_batch_type(cls) -> "BatchAdapterWeights":
+    def get_batch_types(cls) -> List[Type["BatchAdapterWeights"]]:
         pass
 
     @property
@@ -52,7 +52,7 @@ class BatchAdapterWeights(ABC):
         meta: "AdapterBatchMetadata",
         prefill: bool,
         prefill_head_indices: torch.Tensor,
-    ) -> "BatchAdapterWeights":
+    ) -> Optional["BatchAdapterWeights"]:
         pass
 
 
@@ -83,11 +83,14 @@ class LayerAdapterWeights:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
         for adapter_index, adapter_weights in self.adapter_weights.items():
-            adapter_batch_types[adapter_weights.get_batch_type()][adapter_index] = adapter_weights
+            for batch_type in adapter_weights.get_batch_types():
+                adapter_batch_types[batch_type][adapter_index] = adapter_weights
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
+            batched_weights = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
+            if batched_weights is not None:
+                batch_data[batch_type.key()] = batched_weights
         return batch_data
 
 
