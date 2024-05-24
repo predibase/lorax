@@ -770,7 +770,7 @@ class FlashCausalLM(Model):
                         _, batch = self.generate_token(batch, is_warmup=True)
                         new_seqlen = batch.max_seqlen
                         pbar.update(new_seqlen - cur_seqlen)
-                        if new_seqlen >= max_total_tokens:
+                        if new_seqlen >= max_total_tokens - get_speculative_tokens():
                             break
                 logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
@@ -796,6 +796,7 @@ class FlashCausalLM(Model):
                 self.model,
                 self.device,
                 self.adapter_layers,
+                self.default_traced_adapter_layers,
                 max_total_tokens,
                 self.sliding_window_blocks,
             )
@@ -951,7 +952,12 @@ class FlashCausalLM(Model):
 
         # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.batched_lora_weights)
+        adapter_data = AdapterBatchData.from_meta(
+            adapter_meta,
+            self.layer_to_adapter_weights,
+            prefill,
+            batch.prefill_head_indices
+        )
 
         out, speculative_logits = self._try_generate_token(batch, adapter_data)
 
@@ -980,7 +986,7 @@ class FlashCausalLM(Model):
 
         if return_alternatives:
             alternative_token_logprobs, alternative_token_ids = torch.sort(
-                torch.log_softmax(next_token_logprobs, -1), dim=-1, stable=True, descending=True
+                torch.log_softmax(next_token_logits, -1), dim=-1, stable=True, descending=True
             )
 
         if prefill:
@@ -1232,6 +1238,10 @@ class FlashCausalLM(Model):
                 )
 
                 generations.append(generation)
+
+            # advance the FSM for each accepted token (as we may have more than one from speculative decoding)
+            for next_token_id in accepted_token_ids:
+                batch.next_token_chooser.next_state(i, next_token_id)
 
             # Update values
             batch.input_lengths[i] = input_length + num_accepted_ids.item()

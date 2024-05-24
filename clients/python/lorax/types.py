@@ -127,7 +127,7 @@ class Parameters(BaseModel):
     @field_validator("adapter_source")
     def valid_adapter_source(cls, v):
         if v is not None and v not in ADAPTER_SOURCES:
-            raise ValidationError(f"`adapter_source` must be one of {ADAPTER_SOURCES}")
+            raise ValidationError(f"`adapter_source={v}` must be one of {ADAPTER_SOURCES}")
         return v
 
     @field_validator("best_of")
@@ -163,8 +163,8 @@ class Parameters(BaseModel):
 
     @field_validator("temperature")
     def valid_temp(cls, v):
-        if v is not None and v <= 0:
-            raise ValidationError("`temperature` must be strictly positive")
+        if v is not None and v < 0:
+            raise ValidationError("`temperature` must be non-negative")
         return v
 
     @field_validator("top_k")

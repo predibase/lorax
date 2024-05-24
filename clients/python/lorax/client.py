@@ -44,6 +44,7 @@ class Client:
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         timeout: int = 60,
+        session: Optional[requests.Session] = None,
     ):
         """
         Args:
@@ -55,12 +56,15 @@ class Client:
                 Cookies to include in the requests
             timeout (`int`):
                 Timeout in seconds
+            session (`Optional[requests.Session]`):
+                HTTP requests session object to reuse
         """
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
+        self.session = session or requests.Session()
 
     def generate(
         self,
@@ -181,7 +185,7 @@ class Client:
         )
         request = Request(inputs=prompt, stream=False, parameters=parameters)
 
-        resp = requests.post(
+        resp = self.session.post(
             self.base_url,
             json=request.dict(by_alias=True),
             headers=self.headers,
@@ -312,7 +316,7 @@ class Client:
         )
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 
-        resp = requests.post(
+        resp = self.session.post(
             self.base_url,
             json=request.dict(by_alias=True),
             headers=self.headers,

@@ -36,11 +36,9 @@ per adapter will vary based on the order/rate of requests hitting the server.
 import collections
 import concurrent.futures
 import json
-import random
 import time
 from urllib.request import Request, urlopen
 
-import numpy as np
 
 
 def query_lorax(args):

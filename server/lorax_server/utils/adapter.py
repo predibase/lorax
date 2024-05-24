@@ -84,10 +84,14 @@ def _load_and_merge(
     return module_map, adapter_config, merged_weight_names, tokenizer
 
 
-def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig", api_token: str):
+def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig"):
     try:
-        expected_config = AutoConfig.from_pretrained(model_id, token=api_token)
-        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, token=api_token)
+        if not adapter_config.base_model_name_or_path:
+            # Avoid execuation latency caused by the network connection retrying for AutoConfig.from_pretrained(None)
+            return
+
+        expected_config = AutoConfig.from_pretrained(model_id)
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
     except Exception as e:
         warnings.warn(
             f"Unable to check architecture compatibility for adapter '{adapter_id}' "
@@ -123,7 +127,7 @@ def load_module_map(
     config_path = get_config_path(adapter_id, adapter_source)
     adapter_config = source.load_config()
     if adapter_config.base_model_name_or_path != model_id:
-        check_architectures(model_id, adapter_id, adapter_config, api_token)
+        check_architectures(model_id, adapter_id, adapter_config)
 
     try:
         adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token)

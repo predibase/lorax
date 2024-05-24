@@ -1,7 +1,7 @@
 import os
 import warnings
 from functools import lru_cache
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -20,6 +20,7 @@ MIN_SGMV_RANK = 8
 MIN_RANK_CUSTOM = 16
 MAX_RANK_CUSTOM = 128
 SGMV_BLOCK_SIZE = 16
+BGMV_MAX_RANK = 64
 
 
 def has_sgmv() -> bool:
@@ -215,3 +216,21 @@ def add_lora_b_bgmv(
     layer_idx: int,
 ):
     _kernels.dispatch_bgmv(y, v, wb_T_all, indicies, layer_idx, 1.0)
+
+
+def segmented_matmul(
+    y: torch.Tensor,
+    x: torch.Tensor,
+    w: List[torch.Tensor],
+    b: List[torch.Tensor],
+    s_start: torch.IntTensor,
+    s_end: torch.IntTensor,
+):
+    for i in range(len(w)):
+        if s_end[i] - s_start[i] <= 0:
+            continue
+
+        xi = x[s_start[i] : s_end[i]]
+        wi = w[i]
+        bi = b[i]
+        y[s_start[i] : s_end[i]] = F.linear(xi, wi, bi)

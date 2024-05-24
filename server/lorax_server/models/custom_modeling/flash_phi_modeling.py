@@ -17,7 +17,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn, paged_attn
+from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
     MultiAdapterHead,
@@ -157,7 +157,7 @@ class FlashPhiAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
-        paged_attn.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -177,7 +177,7 @@ class FlashPhiAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attn.single_query_cached_kv_attention(
+            paged_attention.attention(
                 attn_output,
                 query,
                 kv_cache[0],

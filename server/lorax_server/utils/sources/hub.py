@@ -30,7 +30,7 @@ def weight_hub_files(
     api_token: Optional[str] = None,
 ) -> List[str]:
     """Get the weights filenames on the hub"""
-    api = HfApi(token=api_token)
+    api = get_hub_api(token=api_token)
     info = api.model_info(model_id, revision=revision)
     filenames = [
         s.rfilename
@@ -187,8 +187,15 @@ class HubModelSource(BaseModelSource):
 
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         try:
-            return Path(hf_hub_download(self.model_id, revision=None, filename=filename))
+            return Path(hf_hub_download(self.model_id, revision=None, filename=filename, token=self.api_token))
         except Exception as e:
             if ignore_errors:
                 return None
             raise e
+
+
+def get_hub_api(token: Optional[str] = None) -> HfApi:
+    if token == "" and bool(os.environ.get("LORAX_USE_GLOBAL_HF_TOKEN", 0)):
+        # User initialized LoRAX to fallback to global HF token if request token is empty
+        token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    return HfApi(token=token)

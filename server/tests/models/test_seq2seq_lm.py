@@ -1,12 +1,11 @@
-import pytest
-import torch
-
 from copy import copy
 
+import pytest
+import torch
 from transformers import AutoTokenizer
 
-from lorax_server.pb import generate_pb2
 from lorax_server.models.seq2seq_lm import Seq2SeqLM, Seq2SeqLMBatch
+from lorax_server.pb import generate_pb2
 from lorax_server.utils.tokenizer import TokenizerManager
 
 

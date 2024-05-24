@@ -1,4 +1,5 @@
 import math
+from contextlib import contextmanager
 from functools import lru_cache
 from typing import Dict, List, Optional, Union
 
@@ -14,7 +15,7 @@ from transformers import (
 )
 
 try:
-    from outlines.fsm.fsm import FSMState, RegexFSM
+    from outlines.fsm.fsm import RegexFSM
     from outlines.fsm.json_schema import build_regex_from_schema
 
     HAS_OUTLINES = True
@@ -34,7 +35,7 @@ class StaticWarper:
     ):
         self.warpers = []
 
-        if temperature is not None and temperature != 1.0:
+        if temperature is not None and temperature != 1.0 and temperature != 0:
             temperature = float(temperature)
             self.warpers.append(TemperatureLogitsWarper(temperature))
         if top_k is not None and top_k != 0:
@@ -411,7 +412,7 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
         for i, processor in enumerate(self.sequence_processors):
             if processor is not None:
-                scores[i : i + 1] = processor(input_ids[i : i + 1], scores[i : i + 1])
+                scores[i : i + 1] = processor(scores[i : i + 1])
         return scores
 
     def filter(self, indices):
@@ -419,6 +420,20 @@ class HeterogeneousSchemaLogitsProcessor(LogitsProcessor):
         if any([x is not None for x in self.sequence_processors]):
             return self
         return None
+
+    def next_state(self, batch_idx: int, next_token_id: int):
+        if self.sequence_processors[batch_idx] is not None:
+            self.sequence_processors[batch_idx].next_state(next_token_id)
+
+    @contextmanager
+    def restore_state(self):
+        states = [processor.fsm_state if processor is not None else None for processor in self.sequence_processors]
+        try:
+            yield
+        finally:
+            for i, state in enumerate(states):
+                if state is not None:
+                    self.sequence_processors[i].fsm_state = state
 
     @classmethod
     def from_schemas(
@@ -459,33 +474,38 @@ class OutlinesLogitsProcessor(LogitsProcessor):
         if not HAS_OUTLINES:
             raise ImportError("Unable to enforce JSON schema: `outlines` is not installed.")
 
-        self.tokenizer = self.adapt_tokenizer(tokenizer)
+        self.tokenizer = OutlinesLogitsProcessor.adapt_tokenizer(tokenizer)
+        self.fsm = OutlinesLogitsProcessor.compile_fsm(schema, self.tokenizer)
+        self.fsm_state = 0
 
-        regex_string = build_regex_from_schema(schema)
-        self.fsm = RegexFSM(regex_string, tokenizer)
-
-        self.fsm_state = FSMState(0)
-        self.is_first_token = True
-
-    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
-        """Use the FSM to bias the logits before sampling the next token."""
-
-        if self.is_first_token:
-            # For the very first token generated, we want to select the allowed tokens from the FSM's initial state.
-            self.is_first_token = False
-        else:
-            last_token = input_ids[0][-1].item()
-            self.fsm_state = self.fsm.next_state(self.fsm_state, last_token)
+    def __call__(self, scores: torch.Tensor) -> torch.Tensor:
+        if self.fsm_state == -1 or self.fsm is None:
+            return scores
 
         allowed_tokens = self.fsm.allowed_token_ids(self.fsm_state)
 
-        mask = torch.full((scores.shape[-1],), -math.inf, device=scores.device)
-        mask[allowed_tokens] = 0
-        biased_scores = scores + mask
+        # Filter out tokens that are out of bounds
+        # TODO(travis): figure out why this happens
+        allowed_tokens = [t for t in allowed_tokens if t < scores.shape[-1]]
 
+        mask = torch.full_like(scores, -math.inf, device=scores.device)
+        mask[:, allowed_tokens] = 0
+        biased_scores = scores + mask
         return biased_scores
 
-    def adapt_tokenizer(self, tokenizer: PreTrainedTokenizerBase):
+    def next_state(self, next_token_id: int):
+        if self.fsm_state != -1:
+            self.fsm_state = self.fsm.next_state(self.fsm_state, next_token_id)
+
+    @staticmethod
+    @lru_cache(maxsize=32, typed=True)
+    def compile_fsm(schema, tokenizer):
+        regex_string = build_regex_from_schema(schema)
+        return RegexFSM(regex_string, tokenizer)
+
+    @staticmethod
+    @lru_cache(maxsize=32, typed=True)
+    def adapt_tokenizer(tokenizer: PreTrainedTokenizerBase):
         """Adapt the HF tokenizer to use to compile the FSM.
 
         The API of Outlines tokenizers is slightly different to that of

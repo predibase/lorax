@@ -48,6 +48,8 @@
         "numeric": "cpp",
         "tuple": "cpp",
         "type_traits": "cpp",
-        "atomic": "cpp"
+        "atomic": "cpp",
+        "__locale": "cpp",
+        "ios": "cpp"
     }
 }

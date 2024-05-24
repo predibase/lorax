@@ -1,5 +1,7 @@
 import re
-from typing import List, Optional, Tuple
+import warnings
+from contextlib import nullcontext
+from typing import List, Optional, Set, Tuple, Union
 
 import torch
 from transformers import (
@@ -66,8 +68,10 @@ class NextTokenChooser:
 
         self.schema_processor = OutlinesLogitsProcessor(schema, tokenizer) if schema and tokenizer else None
 
+        # Temperature = 1 does not change logits; do not use warper
+        # Temperature = 0 invokes determinstic token choosing; do not warp
         has_warpers = (
-            (temperature is not None and temperature != 1.0)
+            (temperature is not None and temperature != 1.0 and temperature != 0)
             or (top_k is not None and top_k != 0)
             or (top_p is not None and top_p < 1.0)
             or (typical_p is not None and typical_p < 1.0)
@@ -78,6 +82,13 @@ class NextTokenChooser:
             self.static_warper = None
 
         sampling = do_sample or has_warpers
+
+        # do not sample if temperature is 0, even if do_sample flag is set True
+        # warn user about deterministic sampling
+        if sampling and temperature == 0:
+            sampling = False
+            warnings.warn("Temperature is set to 0, token sampling will be disabled")
+
         self.choice = Sampling(seed, device) if sampling else Greedy()
 
     def __call__(self, input_ids, scores):
@@ -86,7 +97,7 @@ class NextTokenChooser:
         if self.repetition_processor is not None:
             scores = self.repetition_processor(input_ids, scores)
         if self.schema_processor is not None:
-            scores = self.schema_processor(input_ids, scores)
+            scores = self.schema_processor(scores)
 
         if self.static_warper is None:
             next_logprob = torch.log_softmax(scores, -1)
@@ -96,6 +107,10 @@ class NextTokenChooser:
         next_id = self.choice(scores[-1]).view(1, 1)
 
         return next_id, next_logprob
+
+    def next_state(self, next_token_id: int):
+        if self.schema_processor is not None:
+            self.schema_processor.next_state(next_token_id)
 
     @classmethod
     def from_pb(
@@ -154,12 +169,16 @@ class StoppingCriteria:
 
     def __init__(
         self,
-        eos_token_id: int,
+        eos_token_id: Optional[Union[int, Set[int]]],
         stop_sequence_criterias: List[StopSequenceCriteria],
         max_new_tokens: int = 20,
         ignore_eos_token: bool = False,
     ):
-        self.eos_token_id = eos_token_id
+        self.eos_token_ids = (
+            (eos_token_id if isinstance(eos_token_id, set) else set([eos_token_id]))
+            if eos_token_id is not None
+            else set()
+        )
         self.stop_sequence_criterias = stop_sequence_criterias
         self.max_new_tokens = max_new_tokens
         self.current_tokens = 0
@@ -171,7 +190,12 @@ class StoppingCriteria:
         if self.current_tokens >= self.max_new_tokens:
             return True, FinishReason.FINISH_REASON_LENGTH
 
-        if not self.ignore_eos_token and last_token == self.eos_token_id:
+        # If the last token is a tensor, convert it to an integer
+        # Otherwise the set membership check will fail
+        if isinstance(last_token, torch.Tensor):
+            last_token = last_token.item()
+
+        if not self.ignore_eos_token and last_token in self.eos_token_ids:
             return True, FinishReason.FINISH_REASON_EOS_TOKEN
 
         self.current_output += last_output
@@ -188,8 +212,9 @@ class StoppingCriteria:
         tokenizer: PreTrainedTokenizerBase,
     ) -> "StoppingCriteria":
         stop_sequence_criterias = [StopSequenceCriteria(sequence) for sequence in pb.stop_sequences]
+        eos_token_id = getattr(tokenizer, "eos_token_ids", tokenizer.eos_token_id)
         return StoppingCriteria(
-            tokenizer.eos_token_id,
+            eos_token_id,
             stop_sequence_criterias,
             pb.max_new_tokens,
             pb.ignore_eos_token,
@@ -268,8 +293,10 @@ class HeterogeneousNextTokenChooser:
                 HeterogeneousSchemaLogitsProcessor.from_schemas(schemas, tokenizers) if any(schemas) else None
             )
 
-        if any([x != 1.0 for x in temperature]):
-            do_sample = [sample or x != 1.0 for x, sample in zip(temperature, do_sample)]
+        if any([(x != 1.0 and x != 0) for x in temperature]):
+            # set sample flags for each index
+            # do not sample this index if temperature is 0 or 1
+            do_sample = [sample or (x != 1.0 and x != 0) for x, sample in zip(temperature, do_sample)]
             warpers.append(HeterogeneousTemperatureLogitsWarper(temperature, dtype, device))
 
         if any([x != 0 for x in top_k]):
@@ -287,8 +314,10 @@ class HeterogeneousNextTokenChooser:
         self.warpers = warpers
 
         if any(do_sample):
+            # sample tokens from distribution if any sample flags are set True
             self.choice = HeterogeneousSampling(do_sample, seeds, device)
         else:
+            # sampling for all requests is set false, do Greedy / deterministic sampling
             self.choice = Greedy()
 
         self.seeds = seeds
@@ -326,21 +355,28 @@ class HeterogeneousNextTokenChooser:
         scores = scores.view(B, S, -1)
 
         next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
-        for j in range(S):
-            scores_j = scores[:, j]
-            if self.watermark_processor is not None:
-                scores_j = self.watermark_processor(input_ids, scores_j)
-            if self.repetition_processor is not None:
-                scores_j = self.repetition_processor(input_ids, scores_j)
-            if self.schema_processor is not None:
-                scores_j = self.schema_processor(input_ids, scores_j)
+        with self.schema_processor.restore_state() if self.schema_processor is not None else nullcontext():
+            for j in range(S):
+                scores_j = scores[:, j]
+                if self.watermark_processor is not None:
+                    scores_j = self.watermark_processor(input_ids, scores_j)
+                if self.repetition_processor is not None:
+                    scores_j = self.repetition_processor(input_ids, scores_j)
+                if self.schema_processor is not None:
+                    scores_j = self.schema_processor(input_ids, scores_j)
 
-            for warper in self.warpers:
-                scores_j = warper(input_ids, scores_j)
+                for warper in self.warpers:
+                    scores_j = warper(input_ids, scores_j)
 
-            next_ids_j = self.choice(scores_j)
-            scores[:, j] = scores_j
-            next_ids[:, j] = next_ids_j
+                next_ids_j = self.choice(scores_j)
+                scores[:, j] = scores_j
+                next_ids[:, j] = next_ids_j
+
+                # need to update schema processor state for next_ids_j before the next loop iteration
+                # can revert this at the end of the loop
+                if self.schema_processor is not None:
+                    for batch_idx in range(B):
+                        self.schema_processor.next_state(batch_idx, next_ids_j[batch_idx].item())
 
         next_ids = next_ids.view(B * S)
         scores = scores.view(B * S, -1)
@@ -423,6 +459,10 @@ class HeterogeneousNextTokenChooser:
             self.choice = Greedy()
 
         return self
+
+    def next_state(self, batch_idx: int, next_token_id: int):
+        if self.schema_processor is not None:
+            self.schema_processor.next_state(batch_idx, next_token_id)
 
     @classmethod
     def from_pb(

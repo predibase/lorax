@@ -31,13 +31,13 @@ struct Args {
     max_concurrent_requests: usize,
     #[clap(default_value = "2", long, env)]
     max_best_of: usize,
-    #[clap(default_value = "4", long, env)]
+    #[clap(default_value = "10", long, env)]
     max_stop_sequences: usize,
     #[clap(default_value = "1792", long, env)]
     max_input_length: usize,
     #[clap(default_value = "2048", long, env)]
     max_total_tokens: usize,
-    #[clap(default_value = "1.2", long, env)]
+    #[clap(default_value = "0.3", long, env)]
     waiting_served_ratio: f32,
     #[clap(default_value = "4096", long, env)]
     max_batch_prefill_tokens: u32,

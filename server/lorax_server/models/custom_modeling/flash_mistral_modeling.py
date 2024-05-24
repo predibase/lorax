@@ -29,8 +29,8 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn, paged_attn
-from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2
+from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,
@@ -53,7 +53,7 @@ from lorax_server.utils.lora import (
     V_PROJ,
 )
 
-if not HAS_FLASH_ATTN_V2:
+if not HAS_FLASH_ATTN_V2_CUDA:
     raise ImportError("Mistral model requires flash attn v2")
 
 
@@ -319,7 +319,7 @@ class MistralAttention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attn.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -339,8 +339,7 @@ class MistralAttention(torch.nn.Module):
             )
         # Decode
         else:
-            # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attn.single_query_cached_kv_attention(
+            paged_attention.attention(
                 attn_output,
                 query,
                 kv_cache[0],

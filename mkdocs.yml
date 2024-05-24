@@ -16,7 +16,7 @@ theme:
     # Palette toggle for light mode
     - scheme: default
       toggle:
-        icon: material/brightness-7 
+        icon: material/brightness-7
         name: Switch to dark mode
       primary: deep orange
       accent: deep orange
@@ -38,23 +38,27 @@ nav:
       - Local: getting_started/local.md
   - 🧮 Models:
       - Base Models: models/base_models.md
-      - Adapters: models/adapters.md
+      - Adapters:
+          - Adapters: models/adapters/index.md
+          - LoRA: models/adapters/lora.md
+          - Medusa: models/adapters/medusa.md
   - 📚 Reference:
       - Launcher: reference/launcher.md
       - REST API: reference/rest_api.md
       - Python Client:
-        - Python Client: reference/python_client/index.md
-        - lorax.client: reference/python_client/client.md
+          - Python Client: reference/python_client/index.md
+          - lorax.client: reference/python_client/client.md
         # - lorax.types: reference/python_client/types.md
       - OpenAI Compatible API: reference/openai_api.md
   - 🔬 Guides:
       - Quantization: guides/quantization.md
       - Structured Output (JSON): guides/structured_output.md
+      - Speculative Decoding: guides/speculative_decoding.md
       - CUDA Graph Compilation: guides/cuda_graphs.md
       - Merging Adapters: guides/merging_adapters.md
       - Contributing to LoRAX:
-        - Contributing to LoRAX: guides/contributing/index.md
-        - Development Environment: guides/contributing/development_env.md
+          - Contributing to LoRAX: guides/contributing/index.md
+          - Development Environment: guides/contributing/development_env.md
   #     - GPUs: guides/gpus.md
   #     - Fine-Tuning: guides/fine_tuning.md
   #     - Memory Management: guides/memory_management.md
@@ -67,7 +71,7 @@ copyright: Copyright &copy; 2023 Predibase, Inc.
 extra:
   generator: false
   social:
-    - icon: fontawesome/brands/github 
+    - icon: fontawesome/brands/github
       link: https://github.com/predibase/lorax
     - icon: fontawesome/brands/discord
       link: https://discord.gg/CBgdrGnZjy
@@ -78,6 +82,11 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 plugins:
   - render_swagger

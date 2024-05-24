@@ -1,6 +1,6 @@
 import math
 import os
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import torch
 import torch.distributed
@@ -9,56 +9,17 @@ from torch import nn
 from torch.nn import functional as F
 
 from lorax_server.adapters.types import LORA, MEDUSA
-from lorax_server.utils.gptq.quant_linear import QuantLinear
+from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
+from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
 from lorax_server.utils.sgmv import (
+    add_lora_a_bgmv,
+    add_lora_b_bgmv,
     has_sgmv,
     lora_a_sgmv_cutlass,
     lora_b_sgmv_cutlass,
     orient_for_rank,
 )
 from lorax_server.utils.state import is_warmup
-
-HAS_BITS_AND_BYTES = True
-try:
-    import bitsandbytes as bnb
-    from bitsandbytes.nn import Int8Params, Params4bit
-
-except ImportError:
-    HAS_BITS_AND_BYTES = False
-
-HAS_AWQ = True
-try:
-    from lorax_server.utils.awq.awq import AWQLinear
-except ImportError:
-    HAS_AWQ = False
-
-HAS_EETQ = False
-try:
-    from EETQ import quant_weights, w8_a16_gemm
-
-    HAS_EETQ = True
-except ImportError:
-    pass
-
-HAS_HQQ = True
-try:
-    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
-
-    class HQQLinearLayer(HQQLinear):
-        @property
-        def weight(self) -> torch.Tensor:
-            return self.W_q
-
-except ImportError:
-    HAS_HQQ = False
-
-HAS_EXLLAMA = True
-if os.getenv("DISABLE_EXLLAMA") == "True":
-    HAS_EXLLAMA = False
-try:
-    from lorax_server.utils.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
-except ImportError:
-    HAS_EXLLAMA = False
 
 if TYPE_CHECKING:
     from lorax_server.adapters import AdapterBatchData
@@ -94,413 +55,7 @@ torch.nn.LayerNorm.load = load_layer_norm
 torch.nn.LayerNorm.load_no_bias = load_layer_norm_no_bias
 
 
-class FastLinear(nn.Module):
-    def __init__(
-        self,
-        weight,
-        bias,
-    ) -> None:
-        super().__init__()
-        self.weight = nn.Parameter(weight)
-        if bias is not None:
-            self.bias = nn.Parameter(bias)
-        else:
-            self.bias = None
 
-    @classmethod
-    def load(cls, config, prefix: str, weights, bias: bool):
-        weight = weights.get_tensor(f"{prefix}.weight")
-        if bias:
-            bias = weights.get_tensor(f"{prefix}.bias")
-        else:
-            bias = None
-        return cls(weight, bias)
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return F.linear(input, self.weight, self.bias)
-
-
-class FastConv1D(nn.Module):
-    def __init__(
-        self,
-        weight,
-        bias,
-    ) -> None:
-        super().__init__()
-        self.weight = nn.Parameter(weight)
-        if bias is not None:
-            self.bias = nn.Parameter(bias)
-        else:
-            self.bias = None
-        self.nf = weight.shape[1]
-
-    @classmethod
-    def load(cls, config, prefix: str, weights):
-        weight = weights.get_tensor(f"{prefix}.weight")
-        bias = weights.get_tensor(f"{prefix}.bias")
-        return cls(weight, bias)
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        size_out = input.size()[:-1] + (self.nf,)
-        x = torch.addmm(self.bias, input.view(-1, input.size(-1)), self.weight)
-        x = x.view(size_out)
-        return x
-
-
-class EETQLinear(nn.Module):
-    """
-    EETQLinear module applies quantized linear transformation to the input tensor.
-
-    Args:
-        weight (torch.Tensor): The weight tensor for the linear transformation.
-        bias (torch.Tensor): The bias tensor for the linear transformation.
-
-    Attributes:
-        weight (torch.Tensor): The weight tensor for the linear transformation.
-        scale (torch.Tensor): The scale tensor used for quantization.
-        bias (torch.Tensor): The bias tensor for the linear transformation.
-
-    """
-
-    def __init__(
-        self,
-        weight,
-        bias,
-    ) -> None:
-        super().__init__()
-        # Get the device where the weight tensor is currently stored.
-        device = weight.device
-
-        # Transpose the weight tensor and make a contiguous copy of it on the CPU.
-        # The contiguous() function is used to ensure that the tensor is stored in a contiguous block of memory,
-        # which can improve performance in some cases.
-        weight_transposed = torch.t(weight)
-        weight_contiguous = weight_transposed.contiguous()
-        weight_cpu = weight_contiguous.cpu()
-
-        # Quantize the weights. The quant_weights function is assumed to perform the quantization.
-        # The weights are quantized to int8 format, and the quantization is not performed in place (False).
-        weight_quantized, scale = quant_weights(weight_cpu, torch.int8, False)
-
-        # Move the quantized weights and the scale back to the original device (GPU if available).
-        # The cuda() function is used to move the tensors to the GPU.
-        self.weight = weight_quantized.cuda(device)
-        self.scale = scale.cuda(device)
-
-        # If a bias is present, move it to the GPU as well. If not, set the bias to None.
-        if bias is not None:
-            self.bias = bias.cuda(device)
-        else:
-            self.bias = None
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Performs the forward pass of the layer.
-
-        Args:
-            input (torch.Tensor): The input tensor.
-
-        Returns:
-            torch.Tensor: The output tensor.
-        """
-        # The function w8_a16_gemm performs a matrix multiplication operation between the input and the weight of the layer.
-        # The result is then scaled by a factor (self.scale).
-        gemm_output = w8_a16_gemm(input, self.weight, self.scale)
-
-        # If a bias is present (i.e., self.bias is not None), it is added to the output of the matrix multiplication.
-        # If a bias is not present (i.e., self.bias is None), the output of the matrix multiplication is returned as is.
-        if self.bias is not None:
-            final_output = gemm_output + self.bias
-        else:
-            final_output = gemm_output
-
-        # The final output is returned.
-        return final_output
-
-
-class Linear8bitLt(nn.Module):
-    def __init__(
-        self,
-        weight,
-        bias,
-        has_fp16_weights=True,
-        memory_efficient_backward=False,
-        threshold=0.0,
-        index=None,
-    ):
-        super().__init__()
-        assert (
-            not memory_efficient_backward
-        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
-        self.state = bnb.MatmulLtState()
-        self.index = index
-
-        # Necessary for stacked layers
-        self.state.threshold = threshold
-        self.state.has_fp16_weights = has_fp16_weights
-        self.state.memory_efficient_backward = memory_efficient_backward
-        if threshold > 0.0 and not has_fp16_weights:
-            self.state.use_pool = True
-
-        self.weight = Int8Params(
-            weight.data,
-            has_fp16_weights=has_fp16_weights,
-            requires_grad=has_fp16_weights,
-        )
-        self.weight.cuda(weight.device)
-        self.bias = bias
-
-    def init_8bit_state(self):
-        self.state.CB = self.weight.CB
-        self.state.SCB = self.weight.SCB
-        self.weight.CB = None
-        self.weight.SCB = None
-
-    def forward(self, x: torch.Tensor):
-        self.state.is_training = self.training
-        if self.weight.CB is not None:
-            self.init_8bit_state()
-
-        # weights are cast automatically as Int8Params, but the bias has to be cast manually
-        if self.bias is not None and self.bias.dtype != x.dtype:
-            self.bias.data = self.bias.data.to(x.dtype)
-
-        out = bnb.matmul(x, self.weight, bias=self.bias, state=self.state)
-
-        if not self.state.has_fp16_weights:
-            if self.state.CB is not None and self.state.CxB is not None:
-                # we converted 8-bit row major to turing/ampere format in the first inference pass
-                # we no longer need the row-major weight
-                del self.state.CB
-                self.weight.data = self.state.CxB
-        return out
-
-
-class Linear4bit(nn.Module):
-    def __init__(self, weight, bias, quant_type):
-        super().__init__()
-
-        # Initialize weight with 4-bit quantization
-        self.weight = Params4bit(weight.data, requires_grad=False, compress_statistics=True, quant_type=quant_type)
-        self.weight.cuda(weight.device)
-
-        # Initialize other attributes
-        self.compute_dtype = None
-        self.bias = bias
-
-    def forward(self, x: torch.Tensor):
-        # Ensure bias has the same dtype as input x
-        if self.bias is not None and self.bias.dtype != x.dtype:
-            self.bias.data = self.bias.data.to(x.dtype)
-
-        # Check if quantization state is initialized
-        if getattr(self.weight, "quant_state", None) is None:
-            print(
-                "FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first."
-            )
-
-        # Convert input to compute_dtype if specified
-        inp_dtype = x.dtype
-        if self.compute_dtype is not None:
-            x = x.to(self.compute_dtype)
-
-        # Convert bias to compute_dtype if it exists
-        bias = None if self.bias is None else self.bias.to(self.compute_dtype)
-
-        # Perform 4-bit matrix multiplication
-        out = bnb.matmul_4bit(x, self.weight.t(), bias=bias, quant_state=self.weight.quant_state)
-
-        # Convert output back to the input dtype
-        out = out.to(inp_dtype)
-
-        return out
-
-
-def get_linear(weight, bias, quantize, fan_in_fan_out=False):
-    # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
-    # Set to True if replacing a Conv1D layer with a Linear layer
-    if fan_in_fan_out:
-        weight = weight.T.contiguous()
-
-    if quantize is None:
-        linear = FastLinear(weight, bias)
-    elif quantize == "bitsandbytes":
-        linear = Linear8bitLt(
-            weight,
-            bias,
-            has_fp16_weights=False,
-            threshold=6.0,
-        )
-        if bias is not None:
-            linear.bias = nn.Parameter(bias)
-    elif quantize == "bitsandbytes-nf4":
-        linear = Linear4bit(
-            weight,
-            bias,
-            quant_type="nf4",
-        )
-    elif quantize == "bitsandbytes-fp4":
-        linear = Linear4bit(
-            weight,
-            bias,
-            quant_type="fp4",
-        )
-    elif quantize == "eetq":
-        if HAS_EETQ:
-            linear = EETQLinear(weight, bias)
-        else:
-            raise ImportError("Please install EETQ from https://github.com/NetEase-FuXi/EETQ")
-    elif quantize == "gptq":
-        try:
-            qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama = weight
-        except Exception:
-            raise NotImplementedError("The passed weight is not `gptq` compatible, loader needs to be updated.")
-
-        if use_exllama:
-            linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
-        else:
-            linear = QuantLinear(
-                qweight,
-                qzeros,
-                scales,
-                g_idx,
-                bias,
-                bits,
-                groupsize,
-            )
-    elif quantize == "awq":
-        try:
-            qweight, qzeros, scales, _, bits, groupsize, _ = weight
-        except Exception:
-            raise NotImplementedError("The passed weight is not compatible with `awq`")
-        linear = AWQLinear(
-            w_bit=bits,
-            group_size=groupsize,
-            qweight=qweight,
-            qzeros=qzeros,
-            scales=scales,
-            bias=bias,
-        )
-    elif "hqq-" in quantize:
-        if quantize == "hqq-4bit":
-            quant_config = BaseQuantizeConfig(nbits=4, group_size=64, quant_zero=True, quant_scale=False)
-        elif quantize == "hqq-3bit":
-            quant_config = BaseQuantizeConfig(nbits=3, group_size=64, quant_zero=True, quant_scale=False)
-        elif quantize == "hqq-2bit":
-            quant_config = BaseQuantizeConfig(nbits=2, group_size=16, quant_zero=True, quant_scale=False)
-
-        # init nn.linear from weight and bias
-        layer = nn.Linear(weight.shape[1], weight.shape[0], bias=bias is not None)
-        with torch.no_grad():
-            layer.weight.data = weight
-            if bias is not None:
-                layer.bias.data = bias
-
-        linear = HQQLinearLayer(layer, quant_config, del_orig=True)
-    else:
-        raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")
-    return linear
-
-
-class SuperLayer(nn.Module):
-    def __init__(self, linear):
-        super().__init__()
-        self.linear = linear
-
-    def forward(self, x):
-        return self.linear.forward(x)
-
-
-class TensorParallelHead(SuperLayer):
-    def __init__(self, linear, process_group, should_gather: bool):
-        super().__init__(linear)
-        self.process_group = process_group
-        self.should_gather = should_gather
-
-    @staticmethod
-    def load(config, prefix: str, weights):
-        if weights.process_group.size() > 1:
-            try:
-                weight = weights.get_sharded(f"{prefix}.weight", dim=0)
-                should_gather = True
-            except AssertionError:
-                # If the vocab size is not divisible by number of shards
-                # just load the entire thing.
-                weight = weights.get_tensor(f"{prefix}.weight")
-                should_gather = False
-        else:
-            weight = weights.get_tensor(f"{prefix}.weight")
-            should_gather = False
-
-        if config.quantize in ["gptq", "awq", "eetq"]:
-            quantize = None
-        else:
-            quantize = config.quantize
-        return TensorParallelHead(
-            get_linear(weight, bias=None, quantize=quantize),
-            process_group=weights.process_group,
-            should_gather=should_gather,
-        )
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        world_size = self.process_group.size()
-        # Fast branch for single requests
-        if self.should_gather and len(input.shape) == 2 and isinstance(self.linear, FastLinear) and input.shape[0] == 1:
-            out_dim = self.linear.weight.shape[0]
-
-            world_out = input.new_empty(1, out_dim * world_size)
-            local_out = input.new_empty(1, out_dim)
-
-            torch.mm(input, self.linear.weight.T, out=local_out)
-
-            torch.distributed.all_gather_into_tensor(world_out, local_out, group=self.process_group)
-            return world_out
-
-        output = super().forward(input)
-        if not self.should_gather:
-            return output
-
-        world_output = [torch.empty_like(output) for _ in range(world_size)]
-        torch.distributed.all_gather(world_output, output, group=self.process_group)
-        world_output = torch.cat(world_output, dim=-1)
-        return world_output
-
-
-class TensorParallelColumnLinear(SuperLayer):
-    @classmethod
-    def load_qkv(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out=False):
-        """Specific method when the QKV was joined after the fact"""
-        weight = weights.get_weights_col_packed_qkv(prefix, quantize=config.quantize)
-        if bias:
-            raise NotImplementedError("packed_qkv only implemented for baichuan")
-        else:
-            bias = None
-        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
-        return cls(linear)
-
-    @classmethod
-    def load(cls, config, prefix: str, weights, bias: bool, fan_in_fan_out: bool = False):
-        return cls.load_multi(config, [prefix], weights, bias, dim=0, fan_in_fan_out=fan_in_fan_out)
-
-    @classmethod
-    def load_multi(
-        cls,
-        config,
-        prefixes: List[Union[str, Tuple]],
-        weights,
-        bias: bool,
-        dim: int,
-        fan_in_fan_out=False,
-    ):
-        weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
-
-        if bias:
-            b = weights.get_sharded_list("bias", prefixes, dim=0)
-            bias = torch.cat(b, dim=dim)
-        else:
-            bias = None
-        linear = get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out)
-        return cls(linear)
 
 
 class LoraLinear(nn.Module):
@@ -531,29 +86,54 @@ class LoraLinear(nn.Module):
             for r, rank_segments in data.rank_data.items():
                 lora_a_ptr = rank_segments.lora_a_ptr
                 lora_b_ptr = rank_segments.lora_b_ptr
-                if lora_a_ptr is not None and lora_b_ptr is not None:
-                    v = lora_a_sgmv_cutlass(
-                        input,
-                        rank_segments.tmp_shrink,
-                        lora_a_ptr,
-                        rank_segments.segment_starts,
-                        rank_segments.segment_ends,
-                        self.layer_id,
-                        r,
-                    )
 
-                    if self.process_group.size() > 1:
-                        v = self.collect_lora_a(v)
+                if data.use_sgmv:
+                    # Use SGMV for prefill
+                    if lora_a_ptr is not None and lora_b_ptr is not None:
+                        v = lora_a_sgmv_cutlass(
+                            input,
+                            rank_segments.tmp_shrink,
+                            lora_a_ptr,
+                            rank_segments.segment_starts,
+                            rank_segments.segment_ends,
+                            self.layer_id,
+                            r,
+                        )
 
-                    lora_b_sgmv_cutlass(
-                        proj,
-                        v,
-                        rank_segments.tmp_expand,
-                        lora_b_ptr,
-                        rank_segments.segment_starts,
-                        rank_segments.segment_ends,
-                        self.layer_id,
-                    )
+                        if self.process_group.size() > 1:
+                            v = self.collect_lora_a(v)
+
+                        lora_b_sgmv_cutlass(
+                            proj,
+                            v,
+                            rank_segments.tmp_expand,
+                            lora_b_ptr,
+                            rank_segments.segment_starts,
+                            rank_segments.segment_ends,
+                            self.layer_id,
+                        )
+                else:
+                    # Use BGMV for decode
+                    if lora_a_ptr is not None and lora_b_ptr is not None:
+                        v = torch.zeros((input.size(0), r), dtype=input.dtype, device=input.device)
+                        add_lora_a_bgmv(
+                            v,
+                            input,
+                            lora_a_ptr,
+                            rank_segments.indices,
+                            self.layer_id,
+                        )
+
+                        if self.process_group.size() > 1:
+                            v = self.collect_lora_a(v)
+
+                        add_lora_b_bgmv(
+                            proj,
+                            v,
+                            lora_b_ptr,
+                            rank_segments.indices,
+                            self.layer_id,
+                        )
 
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
@@ -687,7 +267,7 @@ class MultiAdapterHead(TensorParallelAdapterRowLinear):
         if data is not None and data.default_medusa is not None:
             forward = super().forward
             lm_head = lambda x: forward(x, adapter_data)  # noqa: E731
-            logits, speculative_logits = data.default_medusa.model(input, lm_head)
+            logits, speculative_logits = data(input, lm_head)
 
             # TODO(travis): support multiple medusa adapters with masking:
             # for adapter_index in adapter_data.meta.adapter_set:

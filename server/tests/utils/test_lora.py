@@ -1,7 +1,7 @@
 from typing import List
 from unittest import mock
-import pytest
 
+import pytest
 import torch
 from peft import LoraConfig
 
@@ -11,17 +11,20 @@ from lorax_server.adapters.weights import AdapterBatchMetadata, LayerAdapterWeig
 from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 
 
-@pytest.mark.parametrize("lora_ranks", [
-    [8, 16],
-    [32, 64],
-])
+@pytest.mark.parametrize(
+    "lora_ranks",
+    [
+        [8, 16],
+        [32, 64],
+    ],
+)
 def test_batched_lora_weights(lora_ranks: List[int]):
     # batch meta is hardcoded with this assumption below
     assert len(lora_ranks) == 2
 
     batched_weights = LayerAdapterWeights()
     assert batched_weights.is_empty()
-    
+
     h = 1024
     for idx, lora_rank in enumerate(lora_ranks):
         weights = LoraWeights(
@@ -31,9 +34,9 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         )
         assert weights.lora_a_r == lora_rank
         assert weights.lora_b_r == lora_rank
-        
+
         batched_weights.add_adapter(idx, weights)
-    
+
     assert not batched_weights.is_empty()
     assert len(batched_weights.adapter_weights) == 2
 
@@ -45,13 +48,13 @@ def test_batched_lora_weights(lora_ranks: List[int]):
     )
 
     with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
-        data = batched_weights.get_data(meta).get(LORA)
+        data = batched_weights.get_data(meta, prefill=True, prefill_head_indices=None).get(LORA)
 
     assert len(data.lora_a) == 2
     assert data.lora_a.keys() == meta.adapter_set
     assert data.lora_a[0].shape == ((1, h, lora_ranks[0]) if lora_ranks[0] < MIN_RANK_CUSTOM else (1, lora_ranks[0], h))
     assert data.lora_a[1].shape == ((1, h, lora_ranks[1]) if lora_ranks[1] < MIN_RANK_CUSTOM else (1, lora_ranks[1], h))
-    
+
     assert len(data.lora_b) == 2
     assert data.lora_b.keys() == meta.adapter_set
     assert data.lora_b[0].shape == (1, lora_ranks[0], h)

@@ -1,13 +1,25 @@
-vllm_commit := 7d761fe3c12e87df37383467c43c97dec2bb8470
-
-vllm:
+vllm-cuda:
     # Clone vllm
-	git clone https://github.com/vllm-project/vllm.git
+	pip install -U ninja packaging --no-cache-dir
+	git clone https://github.com/Narsil/vllm.git vllm
 
-build-vllm: vllm
-	cd vllm && git fetch && git checkout $(vllm_commit)
+build-vllm-cuda: vllm-cuda
+	cd vllm && git fetch && git checkout b5dfc61db88a81069e45b44f7cc99bd9e62a60fa
 	cd vllm && python setup.py build
 
-install-vllm: build-vllm
+install-vllm-cuda: build-vllm-cuda
+	pip uninstall vllm -y || true
+	cd vllm && python setup.py install
+
+vllm-rocm:
+    # Clone vllm
+	pip install -U ninja packaging --no-cache-dir
+	git clone https://github.com/fxmarty/rocm-vllm.git vllm
+
+build-vllm-rocm: vllm-rocm
+	cd vllm && git fetch && git checkout ca6913b3c2ffacdcb7d15e914dc34adbc6c89479
+	cd vllm && PYTORCH_ROCM_ARCH="gfx90a;gfx942" python setup.py install
+
+install-vllm-rocm: build-vllm-rocm
 	pip uninstall vllm -y || true
 	cd vllm && python setup.py install

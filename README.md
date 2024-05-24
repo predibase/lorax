@@ -79,7 +79,7 @@ model=mistralai/Mistral-7B-Instruct-v0.1
 volume=$PWD/data
 
 docker run --gpus all --shm-size 1g -p 8080:80 -v $volume:/data \
-    ghcr.io/predibase/lorax:latest --model-id $model
+    ghcr.io/predibase/lorax:main --model-id $model
 ```
 
 For a full tutorial including token streaming and the Python client, see [Getting Started - Docker](https://predibase.github.io/lorax/getting_started/docker).

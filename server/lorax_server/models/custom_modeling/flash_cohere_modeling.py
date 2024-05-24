@@ -28,7 +28,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters.weights import AdapterBatchData
-from lorax_server.utils import flash_attn, paged_attn
+from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
     MultiAdapterHead,
@@ -277,7 +277,7 @@ class FlashCohereAttention(torch.nn.Module):
 
         self.rotary_emb(query, key, cos, sin)
 
-        paged_attn.reshape_and_cache(key, value, kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(key, value, kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -296,12 +296,12 @@ class FlashCohereAttention(torch.nn.Module):
             )
         # Decode
         else:
-            paged_attn.single_query_cached_kv_attention(
+            paged_attention.attention(
                 attn_output,
                 query,
                 kv_cache[0],
                 kv_cache[1],
-                self.kv_head_mapping,
+                self.num_key_value_heads,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,

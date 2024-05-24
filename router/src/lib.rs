@@ -504,6 +504,8 @@ struct ChatCompletionRequest {
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
+    adapter_source: Option<String>,
+    api_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -531,6 +533,8 @@ struct CompletionRequest {
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
+    adapter_source: Option<String>,
+    api_token: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -647,9 +651,9 @@ impl From<CompletionRequest> for CompatGenerateRequest {
             inputs: req.prompt,
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
-                adapter_source: None,
+                adapter_source: req.adapter_source,
                 adapter_parameters: None,
-                api_token: None,
+                api_token: req.api_token,
                 best_of: req.best_of.map(|x| x as usize),
                 temperature: req.temperature,
                 repetition_penalty: req.repetition_penalty,
@@ -681,9 +685,9 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
             inputs: serde_json::to_string(&req.messages).unwrap(),
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
-                adapter_source: None,
+                adapter_source: req.adapter_source,
                 adapter_parameters: None,
-                api_token: None,
+                api_token: req.api_token,
                 best_of: req.n.map(|x| x as usize),
                 temperature: req.temperature,
                 repetition_penalty: req.repetition_penalty,

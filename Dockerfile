@@ -35,12 +35,13 @@ RUN cargo build --release
 
 # Python builder
 # Adapted from: https://github.com/pytorch/pytorch/blob/master/Dockerfile
-FROM debian:bullseye-slim as pytorch-install
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 as pytorch-install
 
-ARG PYTORCH_VERSION=2.2.0
+ARG PYTORCH_VERSION=2.3.0
 ARG PYTHON_VERSION=3.10
-ARG CUDA_VERSION=11.8
-ARG MAMBA_VERSION=23.1.0-1
+# Keep in sync with `server/pyproject.toml
+ARG CUDA_VERSION=12.1
+ARG MAMBA_VERSION=24.3.0-0
 ARG CUDA_CHANNEL=nvidia
 ARG INSTALL_CHANNEL=pytorch
 # Automatically set by buildx
@@ -52,7 +53,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     build-essential \
     ca-certificates \
     ccache \
-    sudo \
     curl \
     git && \
     rm -rf /var/lib/apt/lists/*
@@ -73,48 +73,49 @@ RUN chmod +x ~/mambaforge.sh && \
 RUN case ${TARGETPLATFORM} in \
     "linux/arm64")  exit 1 ;; \
     *)              /opt/conda/bin/conda update -y conda &&  \
-    /opt/conda/bin/conda install -y "python=3.10" && \
-    /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}" -y "python=${PYTHON_VERSION}" pytorch==$PYTORCH_VERSION "pytorch-cuda=$(echo $CUDA_VERSION | cut -d'.' -f 1-2)"  ;; \
+    /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}" -y "python=${PYTHON_VERSION}" "pytorch=$PYTORCH_VERSION" "pytorch-cuda=$(echo $CUDA_VERSION | cut -d'.' -f 1-2)"  ;; \
     esac && \
     /opt/conda/bin/conda clean -ya
 
 # CUDA kernels builder image
 FROM pytorch-install as kernel-builder
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ninja-build \
-    && rm -rf /var/lib/apt/lists/*
+ARG MAX_JOBS=2
 
-RUN /opt/conda/bin/conda install -c "nvidia/label/cuda-11.8.0"  cuda==11.8 && \
-    /opt/conda/bin/conda clean -ya
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ninja-build cmake \
+    && rm -rf /var/lib/apt/lists/*
 
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att Makefile
-
-# Build specific version of flash attention
 RUN make build-flash-attention
+
 # Build Flash Attention v2 CUDA kernels
 FROM kernel-builder as flash-att-v2-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att-v2 Makefile
-# Build specific version of flash attention v2
-RUN make build-flash-attention-v2
+RUN make build-flash-attention-v2-cuda
 
-# Build Transformers exllamav2 kernels
+# Build Transformers exllama kernels
 FROM kernel-builder as exllama-kernels-builder
 WORKDIR /usr/src
-COPY server/exllamav2_kernels/ .
-# Build specific version of transformers
+COPY server/exllama_kernels/ .
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
-# Build awq kernels
+# Build Transformers exllama kernels
+FROM kernel-builder as exllamav2-kernels-builder
+WORKDIR /usr/src
+COPY server/exllamav2_kernels/ .
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+
+# Build Transformers awq kernels
 FROM kernel-builder as awq-kernels-builder
 WORKDIR /usr/src
-COPY server/awq_kernels/ .
-# Build specific version of transformers
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+COPY server/Makefile-awq Makefile
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
+
 
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
@@ -125,11 +126,11 @@ RUN python setup.py build
 
 # Build vllm CUDA kernels
 FROM kernel-builder as vllm-builder
-RUN /opt/conda/bin/conda install packaging
 WORKDIR /usr/src
+ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
-RUN make build-vllm
+RUN make build-vllm-cuda
 
 # Build megablocks kernels
 FROM kernel-builder as megablocks-kernels-builder
@@ -154,7 +155,7 @@ COPY server/Makefile-eetq Makefile
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
 
 # LoRAX base image
-FROM nvidia/cuda:11.8.0-base-ubuntu22.04 as base
+FROM nvidia/cuda:12.1.0-base-ubuntu22.04 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
@@ -189,9 +190,10 @@ COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86
 COPY --from=custom-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 # Copy build artifacts from exllama kernels builder
 COPY --from=exllama-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# Copy build artifacts from exllamav2 kernels builder
+COPY --from=exllamav2-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 # Copy build artifacts from awq kernels builder
-COPY --from=awq-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-
+COPY --from=awq-kernels-builder /usr/src/llm-awq/awq/kernels/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 # Copy builds artifacts from vllm builder
 COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
@@ -207,10 +209,6 @@ COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-31
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir
 
-# Install the pip requirements 
-COPY server/requirements.txt .
-RUN pip install -r requirements.txt
-
 # Install server
 COPY proto proto
 COPY server server
@@ -218,6 +216,7 @@ COPY server/Makefile server/Makefile
 
 RUN cd server && \
     make gen-server && \
+    pip install -r requirements.txt && \
     pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
 
 # Install router

@@ -1,11 +1,12 @@
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Set, Type
+from typing import Dict, List, Optional, Set, Type
 
 import torch
 
 from lorax_server.adapters.types import LORA
+from lorax_server.utils.lora import LM_HEAD
 
 
 @dataclass
@@ -27,7 +28,7 @@ class AdapterBatchMetadata:
 
 class AdapterWeights(ABC):
     @abstractclassmethod
-    def get_batch_type(cls) -> "BatchAdapterWeights":
+    def get_batch_types(cls) -> List[Type["BatchAdapterWeights"]]:
         pass
 
     @property
@@ -45,7 +46,13 @@ class BatchAdapterWeights(ABC):
         pass
 
     @abstractclassmethod
-    def load(cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata") -> "BatchAdapterWeights":
+    def load(
+        cls,
+        adapter_weights: Dict[int, AdapterWeights],
+        meta: "AdapterBatchMetadata",
+        prefill: bool,
+        prefill_head_indices: torch.Tensor,
+    ) -> Optional["BatchAdapterWeights"]:
         pass
 
 
@@ -70,15 +77,20 @@ class LayerAdapterWeights:
     def is_empty(self) -> bool:
         return len(self.adapter_weights) == 0
 
-    def get_data(self, meta: AdapterBatchMetadata) -> Dict[str, BatchAdapterWeights]:
+    def get_data(
+        self, meta: AdapterBatchMetadata, prefill: bool, prefill_head_indices: Optional[torch.Tensor],
+    ) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
         for adapter_index, adapter_weights in self.adapter_weights.items():
-            adapter_batch_types[adapter_weights.get_batch_type()][adapter_index] = adapter_weights
+            for batch_type in adapter_weights.get_batch_types():
+                adapter_batch_types[batch_type][adapter_index] = adapter_weights
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batch_data[batch_type.key()] = batch_type.load(adapter_weights, meta)
+            batched_weights = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
+            if batched_weights is not None:
+                batch_data[batch_type.key()] = batched_weights
         return batch_data
 
 
@@ -89,22 +101,43 @@ class AdapterBatchData:
     # layer type -> adapter type -> batch weight data
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
+    prefill: bool
+
     @staticmethod
-    def from_meta(meta: AdapterBatchMetadata, weights: Dict[str, LayerAdapterWeights]) -> "AdapterBatchData":
+    def from_meta(
+        meta: AdapterBatchMetadata,
+        weights: Dict[str, LayerAdapterWeights],
+        prefill: bool,
+        prefill_head_indices: Optional[torch.Tensor],
+    ) -> "AdapterBatchData":
         data = {}
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            data[k] = v.get_data(meta)
-        return AdapterBatchData(meta=meta, data=data)
+            data[k] = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+        return AdapterBatchData(meta=meta, data=data, prefill=prefill)
 
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation
-        lora_data = self.data.get(LORA)
-        if lora_data is None:
-            return set()
+        ranks = set()
+        for layer_data in self.data.values():
+            lora_data = layer_data.get(LORA)
+            if lora_data is None:
+                continue
 
-        return set(rank_data.rank for layer_data in self.data.values() for rank_data in lora_data.rank_data.values())
+            for rank_data in lora_data.rank_data.values():
+                ranks.add(rank_data.rank)
+
+        return ranks
+
+    def layer_names(self) -> Set[str]:
+        return set(self.data.keys())
+
+    def adapter_keys(self) -> Set[str]:
+        adapter_keys = set()
+        for layer_data in self.data.values():
+            adapter_keys.update(layer_data.keys())
+        return adapter_keys
 
     @property
     def max_rank(self) -> int:

@@ -123,6 +123,10 @@ class FlashCohere(FlashCausalLM):
     def adapter_layers(self) -> List[str]:
         return ADAPTER_LAYERS
 
+    @property
+    def default_traced_adapter_layers(self) -> List[str]:
+        return [Q_PROJ, V_PROJ]
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
 

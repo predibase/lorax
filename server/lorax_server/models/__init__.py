@@ -249,6 +249,20 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
+    if model_type == "phi3":
+        from lorax_server.models.flash_phi3 import FlashPhi3
+
+        return FlashPhi3(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
     if model_type == "gemma":
         from lorax_server.models.flash_gemma import FlashGemma
 

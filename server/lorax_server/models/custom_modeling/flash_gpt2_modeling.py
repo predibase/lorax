@@ -28,7 +28,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2Config
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn, paged_attn
+from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
     TensorParallelAdapterRowLinear,
@@ -155,7 +155,7 @@ class FlashGPT2Attention(torch.nn.Module):
         qkv = self.c_attn(hidden_states, adapter_data)
         qkv = qkv.view(-1, 3, self.num_heads, self.head_size)
 
-        paged_attn.reshape_and_cache(qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(qkv[:, 0])
@@ -175,12 +175,12 @@ class FlashGPT2Attention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attn.single_query_cached_kv_attention(
+            paged_attention.attention(
                 attn_output,
                 qkv[:, 0],
                 kv_cache[0],
                 kv_cache[1],
-                self.kv_head_mapping,
+                self.num_key_value_heads,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,
