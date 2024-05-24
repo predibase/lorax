@@ -589,7 +589,12 @@ class CausalLM(Model):
         # Assign pointers to LoRA weights
         # TODO(travis): don't update this if indices haven't changed
         # Use prefill=True in all cases to force use of SGMV, as the batch is heterogenous
-        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.layer_to_adapter_weights, prefill=True)
+        adapter_data = AdapterBatchData.from_meta(
+            batch.adapter_meta,
+            self.layer_to_adapter_weights,
+            prefill=True,
+            prefill_head_indices=None,
+        )
 
         logits, past = self.forward(
             batch.input_ids,

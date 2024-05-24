@@ -2,9 +2,10 @@ import json
 import os
 from abc import abstractmethod
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from lorax_server.adapters.config import AdapterConfig
+if TYPE_CHECKING:
+    from lorax_server.adapters.config import AdapterConfig
 
 
 def try_to_load_from_cache(repo_cache: Path, revision: Optional[str], filename: str) -> Optional[Path]:
@@ -128,7 +129,7 @@ class BaseModelSource:
 
         return total_size
 
-    def load_config(self) -> AdapterConfig:
+    def load_config(self) -> "AdapterConfig":
         from lorax_server.adapters import load_adapter_config
 
         config_path = self.download_file("config.json", ignore_errors=True)

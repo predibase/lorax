@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
 from peft import LoraConfig as _LoraConfig
@@ -138,8 +138,8 @@ class LoraWeights(AdapterWeights):
         self._is_transposed = not self._is_transposed
 
     @classmethod
-    def get_batch_type(cls) -> BatchAdapterWeights:
-        return BatchLoraWeights
+    def get_batch_types(cls) -> List[Type[BatchAdapterWeights]]:
+        return [BatchLoraWeights]
 
     @classmethod
     def load(
@@ -237,9 +237,16 @@ class BatchLoraWeights(BatchAdapterWeights):
 
     @classmethod
     def load(
-        self, adapter_weights: Dict[int, AdapterWeights], meta: AdapterBatchMetadata, prefill: bool
-    ) -> "BatchLoraWeights":
+        self,
+        adapter_weights: Dict[int, AdapterWeights],
+        meta: AdapterBatchMetadata,
+        prefill: bool,
+        prefill_head_indices: Optional[torch.Tensor],
+    ) -> Optional["BatchLoraWeights"]:
+        adapter_weights = {k: _convert_lora(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
+        if not adapter_weights:
+            return None
 
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device
@@ -299,6 +306,17 @@ class BatchLoraWeights(BatchAdapterWeights):
                 continue
             rank_indices[adapter_weights[adapter_idx].lora_a_r].append(segment_idx)
 
+        if prefill_head_indices is not None:
+            j, prefill_head_segment_starts, prefill_head_segment_ends = 1, [0], [0]
+            for head_index in prefill_head_indices:
+                # j cannot go out of bounds as that would mean there are tokens without corresponding adapters
+                if head_index < meta.adapter_segments[j]:
+                    prefill_head_segment_ends[-1] += 1
+                else:
+                    prefill_head_segment_starts.append(prefill_head_segment_ends[-1])
+                    prefill_head_segment_ends.append(prefill_head_segment_ends[-1] + 1)
+                    j += 1
+
         rank_data = {}
         for rank, indices in rank_indices.items():
             tmp_shrink = None
@@ -312,6 +330,10 @@ class BatchLoraWeights(BatchAdapterWeights):
                 tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
                 segment_starts = meta.adapter_segments[indices]
                 segment_ends = meta.adapter_segments[[i + 1 for i in indices]]
+                if prefill_head_indices is not None:
+                    for i, segment_index in enumerate(indices):
+                        segment_starts[i] = prefill_head_segment_starts[segment_index]
+                        segment_ends[i] = prefill_head_segment_ends[segment_index]
             else:
                 rank_indices = set(indices)
                 batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]
@@ -347,3 +369,9 @@ def get_scaling_factor(
     if uses_rslora:
         return lora_alpha / (r**0.5)
     return lora_alpha / r
+
+
+def _convert_lora(v: AdapterWeights) -> AdapterWeights:
+    if hasattr(v, "lora_weights"):
+        return v.lora_weights
+    return v
