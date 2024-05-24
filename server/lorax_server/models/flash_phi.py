@@ -89,6 +89,7 @@ class FlashPhi(FlashCausalLM):
             compile=compile,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            trust_remote_code=trust_remote_code,
         )
 
     @property

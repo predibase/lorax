@@ -72,6 +72,7 @@ class GPTNeoxSharded(CausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            trust_remote_code=trust_remote_code,
         )
 
     def forward(self, input_ids, attention_mask, position_ids, past_key_values: Optional = None):

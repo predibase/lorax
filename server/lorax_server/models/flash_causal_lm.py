@@ -704,6 +704,7 @@ class FlashCausalLM(Model):
         compile: bool = False,
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         adapter_source: str = HUB,
+        trust_remote_code: bool = False,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -725,6 +726,7 @@ class FlashCausalLM(Model):
             adapter_id=adapter_id,
             adapter_source=adapter_source,
             dynamic_adapter_loading_enabled=True,
+            trust_remote_code=trust_remote_code,
         )
 
         if sliding_window is not None:

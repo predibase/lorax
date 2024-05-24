@@ -71,6 +71,7 @@ class SantaCoder(CausalLM):
             requires_padding=True,
             dtype=dtype,
             device=device,
+            trust_remote_code=trust_remote_code,
         )
 
     def decode(self, generated_ids: List[int]) -> str:
