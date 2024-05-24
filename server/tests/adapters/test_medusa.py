@@ -1,13 +1,12 @@
 import torch
 
 from lorax_server.adapters.medusa import BatchMedusaWeights, MedusaConfig
-from lorax_server.adapters.weights import AdapterBatchMetadata
 from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.weights import AdapterBatchMetadata
 from lorax_server.models.causal_lm import CausalLM
 from lorax_server.utils.adapter import load_module_map
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sources import HUB
-
 
 model_id = "mistralai/Mistral-7B-Instruct-v0.2"
 adapter_id = "predibase/Mistral-7B-Instruct-v0.2-medusa"

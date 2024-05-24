@@ -1,0 +1,19 @@
+# LoRAX base image
+FROM ghcr.io/predibase/lorax:latest as base
+
+# Install server
+COPY proto proto
+COPY server server
+COPY server/Makefile server/Makefile
+
+# Final image
+FROM base
+
+COPY container-entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh
+COPY sync.sh sync.sh
+RUN chmod +x sync.sh
+
+# ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["lorax-launcher"]
+CMD ["--json-output"]

@@ -30,6 +30,7 @@ enum Quantization {
     Hqq_4bit,
     Hqq_3bit,
     Hqq_2bit,
+    Fp8,
 }
 
 impl std::fmt::Display for Quantization {
@@ -62,6 +63,9 @@ impl std::fmt::Display for Quantization {
             }
             Quantization::Hqq_2bit => {
                 write!(f, "hqq-2bit")
+            }
+            Quantization::Fp8 => {
+                write!(f, "fp8")
             }
         }
     }

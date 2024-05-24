@@ -1,8 +1,7 @@
 import pytest
 import torch
 
-from lorax_server.utils.segments import find_segments, SegmentConcatBuilder
-
+from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 
 
 @pytest.mark.parametrize(

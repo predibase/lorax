@@ -14,4 +14,4 @@
 
 __version__ = "0.6.0"
 
-from lorax.client import Client, AsyncClient, MergedAdapters
+from lorax.client import Client, AsyncClient, MergedAdapters # noqa
