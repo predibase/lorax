@@ -73,4 +73,5 @@ class FlashRWSharded(FlashCausalLM):
             rank=rank,
             world_size=world_size,
             compile=compile,
+            trust_remote_code=trust_remote_code,
         )

@@ -203,6 +203,7 @@ class GalacticaSharded(CausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
+            trust_remote_code=trust_remote_code,
         )
 
     @property

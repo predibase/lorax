@@ -64,6 +64,7 @@ class RW(CausalLM):
             requires_padding=True,
             dtype=dtype,
             device=device,
+            trust_remote_code=trust_remote_code,
         )
 
     def forward(
