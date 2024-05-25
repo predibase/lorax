@@ -68,6 +68,8 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
     #[schema(nullable = true, example = "http://localhost:8899")]
     pub request_logger_url: Option<String>,
+    #[schema(example = false)]
+    pub embedding_model: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
@@ -631,6 +633,16 @@ pub(crate) enum CompletionFinishReason {
     ContentFilter,
     #[schema(rename = "tool_calls")]
     ToolCalls,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct EmbedRequest {
+    inputs: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct EmbedResponse {
+    embeddings: Vec<f32>,
 }
 
 impl From<CompletionRequest> for CompatGenerateRequest {

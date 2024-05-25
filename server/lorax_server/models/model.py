@@ -95,6 +95,14 @@ class Model(ABC):
     @property
     def sliding_window_blocks(self) -> Optional[int]:
         return None
+    
+    @property
+    def supports_embeddings(self) -> bool:
+        return False
+
+    @property
+    def supports_text_generation(self) -> bool:
+        return True
 
     @property
     @abstractmethod

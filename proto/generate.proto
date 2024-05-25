@@ -15,6 +15,8 @@ service LoraxService {
     rpc Warmup (WarmupRequest) returns (WarmupResponse);
     /// Prefill batch and decode first token
     rpc Prefill (PrefillRequest) returns (PrefillResponse);
+    /// Embed
+    rpc Embed (EmbedRequest) returns (EmbedResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
@@ -230,6 +232,19 @@ message DecodeResponse {
     optional CachedBatch batch = 2;
 }
 
+message EmbedRequest {
+    string inputs = 1;
+}
+
+message Embedding {
+    repeated float values = 1;
+}
+
+message EmbedResponse {
+    Embedding embeddings = 1;
+    string errorMsg = 2;
+}
+
 message WarmupRequest {
     /// Batch to warmup on
     Batch batch = 1;
@@ -309,7 +324,7 @@ message DownloadAdapterResponse {
 
     /// Fraction of the adapter memory limit consumed by the adapter.
     /// If no limit is set, will return 0.
-    /// When the total across all loaded adapters exceeds 
+    /// When the total across all loaded adapters exceeds
     /// the adapter_memory_fraction limit, no more adapters
     /// will be loaded to GPU and LoRAX will begin swapping.
     float memory_fraction = 2;

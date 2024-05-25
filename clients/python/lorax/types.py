@@ -336,6 +336,10 @@ class StreamResponse(BaseModel):
 class DeployedModel(BaseModel):
     model_id: str
     sha: str
-
-    # Suppress pydantic warning over `model_id` field.
+    # Suppress pydantic warning over `model_id` field
     model_config = ConfigDict(protected_namespaces=())
+
+
+class EmbedResponse(BaseModel):
+    # Embeddings
+    embeddings: Optional[List[float]]

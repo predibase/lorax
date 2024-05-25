@@ -64,6 +64,14 @@ impl Client {
         Ok(response)
     }
 
+    /// Embed
+    #[instrument(skip(self))]
+    pub async fn embed(&mut self, inputs: String) -> Result<EmbedResponse> {
+        let request = tonic::Request::new(EmbedRequest { inputs }).inject_context();
+        let response = self.stub.embed(request).await?.into_inner();
+        Ok(response)
+    }
+
     /// Get model health
     #[instrument(skip(self))]
     pub async fn health(&mut self) -> Result<HealthResponse> {

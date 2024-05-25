@@ -10,7 +10,9 @@ from lorax.types import (
     Response,
     Request,
     Parameters,
-    MergedAdapters, ResponseFormat,
+    MergedAdapters,
+    ResponseFormat,
+    EmbedResponse
 )
 from lorax.errors import parse_error
 
@@ -58,6 +60,7 @@ class Client:
                 HTTP requests session object to reuse
         """
         self.base_url = base_url
+        self.embed_endpoint = f"{base_url}/embed"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
@@ -345,6 +348,34 @@ class Client:
                     raise parse_error(resp.status_code, json_payload)
                 yield response
 
+    
+    def embed(self, inputs: str) -> EmbedResponse:
+        """
+        Given inputs, embed the text using the model
+
+        Args:
+            inputs (`str`):
+                Input text
+        
+        Returns: 
+            Embeddings: computed embeddings
+        """
+        request = Request(inputs=inputs)
+
+        resp = requests.post(
+            self.embed_endpoint,
+            json=request.dict(by_alias=True),
+            headers=self.headers,
+            cookies=self.cookies,
+            timeout=self.timeout,
+        )
+
+        payload = resp.json()
+        if resp.status_code != 200:
+            raise parse_error(resp.status_code, resp.json())
+        
+        return EmbedResponse(**payload)
+
 
 class AsyncClient:
     """Asynchronous Client to make calls to a LoRAX instance
@@ -387,6 +418,7 @@ class AsyncClient:
                 Timeout in seconds
         """
         self.base_url = base_url
+        self.embed_endpoint = f"{base_url}/embed"
         self.headers = headers
         self.cookies = cookies
         self.timeout = ClientTimeout(timeout * 60)
@@ -661,3 +693,26 @@ class AsyncClient:
                             # If we failed to parse the payload, then it is an error payload
                             raise parse_error(resp.status, json_payload)
                         yield response
+    
+
+    async def embed(self, inputs: str) -> EmbedResponse:
+        """
+        Given inputs, embed the text using the model
+
+        Args:
+            inputs (`str`):
+                Input text
+        
+        Returns: 
+            Embeddings: computed embeddings
+        """
+        request = Request(inputs=inputs)
+        async with ClientSession(
+            headers=self.headers, cookies=self.cookies, timeout=self.timeout
+        ) as session:
+            async with session.post(self.embed_endpoint, json=request.dict(by_alias=True)) as resp:
+                payload = await resp.json()
+
+                if resp.status != 200:
+                    raise parse_error(resp.status, payload)
+                return EmbedResponse(**payload)

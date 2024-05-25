@@ -92,6 +92,10 @@ def get_model(
             dtypetrust_remote_code=trust_remote_code,
         )
 
+    if model_type == "bert":
+        from lorax_server.models.flash_bert import FlashBert
+        return FlashBert(model_id, revision=revision, dtype=dtype)
+
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded
 
