@@ -542,6 +542,7 @@ class CausalLM(Model):
             requires_padding=True,
             dtype=dtype,
             device=device,
+            trust_remote_code=trust_remote_code,
         )
 
         self.dynamic_adapter_loading_enabled = False

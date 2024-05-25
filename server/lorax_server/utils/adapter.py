@@ -40,12 +40,13 @@ def load_and_merge_adapters(
     adapter_index: int,
     weight_names: Tuple[str],
     api_token: str,
+    trust_remote_code: bool = False,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     if len(adapter_parameters.adapter_ids) == 1:
-        return load_module_map(model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token)
+        return load_module_map(model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token, trust_remote_code)
 
     adapter_params = AdapterParametersContainer(adapter_parameters, adapter_source, adapter_index)
-    return _load_and_merge(model_id, adapter_params, weight_names, api_token)
+    return _load_and_merge(model_id, adapter_params, weight_names, api_token, trust_remote_code)
 
 
 @lru_cache(maxsize=32)
@@ -54,6 +55,7 @@ def _load_and_merge(
     adapter_params: AdapterParametersContainer,
     weight_names: Tuple[str],
     api_token: str,
+    trust_remote_code: bool = False,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     params = adapter_params.adapter_parameters
 
@@ -70,6 +72,7 @@ def _load_and_merge(
             adapter_params.adapter_source,
             weight_names,
             api_token,
+            trust_remote_code,
         )
 
         adapters_to_merge.append((module_map, adapter_config))
@@ -84,14 +87,14 @@ def _load_and_merge(
     return module_map, adapter_config, merged_weight_names, tokenizer
 
 
-def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig"):
+def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig", trust_remote_code: bool = False,):
     try:
         if not adapter_config.base_model_name_or_path:
             # Avoid execuation latency caused by the network connection retrying for AutoConfig.from_pretrained(None)
             return
 
-        expected_config = AutoConfig.from_pretrained(model_id)
-        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path)
+        expected_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, trust_remote_code=trust_remote_code)
     except Exception as e:
         warnings.warn(
             f"Unable to check architecture compatibility for adapter '{adapter_id}' "
@@ -120,6 +123,7 @@ def load_module_map(
     adapter_source: str,
     weight_names: Tuple[str],
     api_token: str,
+    trust_remote_code: bool = False,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     # TODO(geoffrey): refactor this and merge parts of this function with
     # lorax_server/utils/adapter.py::create_merged_weight_files
@@ -127,10 +131,10 @@ def load_module_map(
     config_path = get_config_path(adapter_id, adapter_source)
     adapter_config = source.load_config()
     if adapter_config.base_model_name_or_path != model_id:
-        check_architectures(model_id, adapter_id, adapter_config)
+        check_architectures(model_id, adapter_id, adapter_config, trust_remote_code)
 
     try:
-        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token)
+        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token, trust_remote_code=trust_remote_code)
     except Exception:
         # Adapter does not have a tokenizer, so fallback to base model tokenizer
         adapter_tokenizer = None

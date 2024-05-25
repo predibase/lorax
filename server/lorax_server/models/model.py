@@ -37,6 +37,7 @@ class Model(ABC):
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         adapter_source: str = HUB,
         dynamic_adapter_loading_enabled: bool = True,
+        trust_remote_code: bool = False,
     ):
         self.model_id = model_id
         self.model = model.eval()
@@ -62,6 +63,8 @@ class Model(ABC):
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
+
+        self.trust_remote_code = trust_remote_code
 
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
@@ -213,6 +216,7 @@ class Model(ABC):
             adapter_index,
             weight_names,
             api_token,
+            self.trust_remote_code,
         )
 
         unused_weight_names = adapter_weight_names.copy()
