@@ -14,8 +14,10 @@ else:
             f"Could not import vllm paged attention. Make sure your installation is correct. Complete error: {e}"
         )
 
-fp8_supported = torch.cuda.get_device_capability()[0] >= 9 or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
-
+if torch.cuda.is_available():
+    fp8_supported = torch.cuda.get_device_capability()[0] >= 9 or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
+else:
+    fp8_supported = False
 
 def reshape_and_cache(
     key: torch.Tensor,
