@@ -3,7 +3,7 @@ from torch import nn
 
 HAS_HQQ = True
 try:
-    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear, HQQBackend
+    from hqq.core.quantize import BaseQuantizeConfig, HQQBackend, HQQLinear
     HQQLinear.set_backend(HQQBackend.ATEN)
     class HQQLinearLayer(HQQLinear):
         @property
