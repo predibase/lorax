@@ -101,7 +101,7 @@ def attention(
             block_size,
             max_s,
             None,
-            "auto",
+            "fp8" if fp8_supported else "auto",
             1.0,
         )
     else:
@@ -134,6 +134,6 @@ def attention(
             block_size,
             max_s,
             None,
-            "auto",
+            "fp8" if fp8_supported else "auto",
             1.0,
         )
