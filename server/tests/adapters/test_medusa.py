@@ -42,6 +42,7 @@ def test_batched_medusa_weights(default_causal_lm: CausalLM):
         },
         meta,
         prefill=False,
+        prefill_head_indices=None,
     )
 
     assert batch_medusa_weights is not None
