@@ -125,6 +125,7 @@ class Generation:
             generated_text=self.generated_text.to_pb() if self.generated_text is not None else None,
         )
 
+
 @dataclass
 class FlashEmbeddingBatch(ABC):
     input_ids: torch.Tensor

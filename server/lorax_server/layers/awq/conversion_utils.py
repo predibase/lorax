@@ -44,14 +44,10 @@ def unpack(qmatrix: torch.Tensor, direction: str = "column"):
     shifts = torch.arange(0, 32, 4, device=qmatrix.device)
 
     if direction == "column":
-        imatrix = torch.bitwise_right_shift(
-            qmatrix[:, :, None], shifts[None, None, :]
-        ).view(qmatrix.shape[0], -1)
+        imatrix = torch.bitwise_right_shift(qmatrix[:, :, None], shifts[None, None, :]).view(qmatrix.shape[0], -1)
 
     elif direction == "row":
-        imatrix = torch.bitwise_right_shift(
-            qmatrix[:, None, :], shifts[None, :, None]
-        ).view(-1, qmatrix.shape[-1])
+        imatrix = torch.bitwise_right_shift(qmatrix[:, None, :], shifts[None, :, None]).view(-1, qmatrix.shape[-1])
 
     imatrix = imatrix.to(torch.int8) & 0x0F  # eventually correct overflow
 

@@ -72,9 +72,7 @@ class FastLinearROCm(torch.nn.Module):
                 batched = True
 
             m, k = weight.shape[0], inp_shape[1]
-            out = torch.empty(
-                inp_shape[0], weight.shape[0], dtype=inp.dtype, device="cuda"
-            )
+            out = torch.empty(inp_shape[0], weight.shape[0], dtype=inp.dtype, device="cuda")
             if (k == 8192 and (m == 1280 or m == 7168)) or (k == 3584 and m == 8192):
                 _custom_C.LLMM1(weight, inp, out, 8)
             elif k <= 8192 and k % 8 == 0 and m % 4 == 0:
@@ -89,7 +87,7 @@ class FastLinearROCm(torch.nn.Module):
                 out = out + bias
             return out
         return F.linear(inp, self.weight, self.bias)
-    
+
 
 def get_linear(weight, bias, quantize, fan_in_fan_out=False):
     # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
@@ -101,6 +99,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         linear = FastLinear(weight, bias)
     elif quantize == "fp8":
         from lorax_server.layers.fp8 import Fp8Linear
+
         linear = Fp8Linear(weight, bias)
 
     elif quantize == "bitsandbytes":
@@ -116,6 +115,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
             linear.bias = nn.Parameter(bias)
     elif quantize == "bitsandbytes-nf4":
         from lorax_server.layers.bnb import Linear4bit
+
         linear = Linear4bit(
             weight,
             bias,
@@ -123,6 +123,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         )
     elif quantize == "bitsandbytes-fp4":
         from lorax_server.layers.bnb import Linear4bit
+
         linear = Linear4bit(
             weight,
             bias,
@@ -130,6 +131,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         )
     elif quantize == "eetq":
         from lorax_server.layers.eetq import EETQLinear
+
         linear = EETQLinear(weight, bias)
     elif quantize == "gptq":
         try:
@@ -139,9 +141,11 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
 
         if use_exllama:
             from lorax_server.layers.gptq.exllamav2 import QuantLinear as exllamav2QuantLinear
+
             linear = exllamav2QuantLinear(qweight, qzeros, scales, g_idx, bias, bits, groupsize)
         else:
             from lorax_server.layers.gptq.quant_linear import QuantLinear
+
             linear = QuantLinear(
                 qweight,
                 qzeros,
@@ -157,6 +161,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         except Exception:
             raise NotImplementedError("The passed weight is not compatible with `awq`")
         from lorax_server.utils.awq.awq import AWQLinear
+
         linear = AWQLinear(
             w_bit=bits,
             group_size=groupsize,
@@ -167,6 +172,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False):
         )
     elif "hqq-" in quantize:
         from lorax_server.layers.hqq import get_hqq_linear
+
         linear = get_hqq_linear(quantize, weight, bias)
     else:
         raise NotImplementedError(f"Quantization `{quantize}` is not implemented yet.")

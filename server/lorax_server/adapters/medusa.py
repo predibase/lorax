@@ -271,13 +271,17 @@ class BatchMedusaWeights(BatchAdapterWeights):
 
     @classmethod
     def load(
-        cls, adapter_weights: Dict[int, AdapterWeights], meta: "AdapterBatchMetadata", prefill: bool
+        cls,
+        adapter_weights: Dict[int, AdapterWeights],
+        meta: "AdapterBatchMetadata",
+        prefill: bool,
+        prefill_head_indices: Optional[torch.Tensor],
     ) -> Optional["BatchMedusaWeights"]:
         adapter_weights = {k: _convert_medusa(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, MedusaWeights)}
         if not adapter_weights:
             return None
-        
+
         default_medusa = adapter_weights.get(0)
 
         segments = meta.adapter_segments
