@@ -24,9 +24,7 @@ class Linear8bitLt(torch.nn.Module):
         index=None,
     ):
         super().__init__()
-        assert (
-            not memory_efficient_backward
-        ), "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
+        assert not memory_efficient_backward, "memory_efficient_backward is no longer required and the argument is deprecated in 0.37.0 and will be removed in 0.39.0"
         self.state = bnb.MatmulLtState()
         self.index = index
 
@@ -98,9 +96,7 @@ class Linear4bit(torch.nn.Module):
             x = x.to(self.compute_dtype)
 
         bias = None if self.bias is None else self.bias.to(self.compute_dtype)
-        out = bnb.matmul_4bit(
-            x, self.weight.t(), bias=bias, quant_state=self.weight.quant_state
-        )
+        out = bnb.matmul_4bit(x, self.weight.t(), bias=bias, quant_state=self.weight.quant_state)
 
         out = out.to(inp_dtype)
 

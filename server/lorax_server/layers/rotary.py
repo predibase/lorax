@@ -13,9 +13,7 @@ elif SYSTEM == "rocm":
 
 
 def _create_inv_freq(dim, base, device):
-    inv_freq = 1.0 / (
-        base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
-    )
+    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim))
     return inv_freq
 
 
@@ -94,9 +92,7 @@ class PositionRotaryEmbedding(nn.Module):
                 scaling_factor = rope_scaling["factor"]
                 return YarnPositionRotaryEmbedding(
                     dim=2 * inv_freq.shape[0],
-                    max_position_embeddings=rope_scaling[
-                        "original_max_position_embeddings"
-                    ],
+                    max_position_embeddings=rope_scaling["original_max_position_embeddings"],
                     base=10000.0,
                     device=inv_freq.device,
                     scaling_factor=scaling_factor,
@@ -106,40 +102,22 @@ class PositionRotaryEmbedding(nn.Module):
                     beta_slow=1,
                 )
             elif rope_scaling["type"] == "su":
-                short_factor = torch.tensor(
-                    rope_scaling["short_factor"], dtype=torch.float32, device=device
-                )
+                short_factor = torch.tensor(rope_scaling["short_factor"], dtype=torch.float32, device=device)
                 short_inv_freq = 1.0 / (
-                    short_factor
-                    * base
-                    ** (
-                        torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-                        / dim
-                    )
+                    short_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
                 )
-                long_factor = torch.tensor(
-                    rope_scaling["long_factor"], dtype=torch.float32, device=device
-                )
+                long_factor = torch.tensor(rope_scaling["long_factor"], dtype=torch.float32, device=device)
                 long_inv_freq = 1.0 / (
-                    long_factor
-                    * base
-                    ** (
-                        torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-                        / dim
-                    )
+                    long_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
                 )
 
-                original_max_position_embeddings = (
-                    config.original_max_position_embeddings
-                )
+                original_max_position_embeddings = config.original_max_position_embeddings
                 max_position_embeddings = config.max_position_embeddings
                 if max_position_embeddings <= original_max_position_embeddings:
                     scaling_factor = 1.0
                 else:
                     scale = max_position_embeddings / original_max_position_embeddings
-                    scaling_factor = math.sqrt(
-                        1 + math.log(scale) / math.log(original_max_position_embeddings)
-                    )
+                    scaling_factor = math.sqrt(1 + math.log(scale) / math.log(original_max_position_embeddings))
 
                 return SuRotaryEmbedding(
                     short_inv_freq=short_inv_freq,
@@ -148,9 +126,7 @@ class PositionRotaryEmbedding(nn.Module):
                     original_max_position_embeddings=original_max_position_embeddings,
                 )
             else:
-                raise NotImplementedError(
-                    f"rope scaling type {rope_scaling['type']} is not implemented or invalid"
-                )
+                raise NotImplementedError(f"rope scaling type {rope_scaling['type']} is not implemented or invalid")
         return cls(inv_freq, scaling_factor)
 
     @classmethod
@@ -178,9 +154,7 @@ class PositionRotaryEmbedding(nn.Module):
             elif rope_scaling["type"] == "yarn":
                 return YarnPositionRotaryEmbedding(
                     dim=2 * inv_freq.shape[0],
-                    max_position_embeddings=rope_scaling[
-                        "original_max_position_embeddings"
-                    ],
+                    max_position_embeddings=rope_scaling["original_max_position_embeddings"],
                     base=10000.0,
                     device=inv_freq.device,
                     scaling_factor=scaling_factor,
@@ -190,19 +164,13 @@ class PositionRotaryEmbedding(nn.Module):
                     beta_slow=1,
                 )
             else:
-                raise NotImplementedError(
-                    f"rope scaling type {rope_scaling['type']} is not implemented or invalid"
-                )
+                raise NotImplementedError(f"rope scaling type {rope_scaling['type']} is not implemented or invalid")
         return cls(inv_freq, scaling_factor)
 
     def _update_cos_sin_cache(self, dtype, device, seqlen):
         # Reset the tables if the sequence length has changed,
         # or if we're on a new device (possibly due to tracing for instance)
-        if (
-            seqlen > self._seq_len_cached
-            or self._cos_cached.device != device
-            or self._cos_cached.dtype != dtype
-        ):
+        if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
             self._seq_len_cached = seqlen
             t = torch.arange(seqlen, device=device, dtype=self.inv_freq.dtype)
             if self.scaling_factor is not None:
@@ -256,11 +224,7 @@ class SuRotaryEmbedding(PositionRotaryEmbedding):
     def _update_cos_sin_cache(self, dtype, device, seqlen):
         # Reset the tables if the sequence length has changed,
         # or if we're on a new device (possibly due to tracing for instance)
-        if (
-            seqlen > self._seq_len_cached
-            or self._cos_cached.device != device
-            or self._cos_cached.dtype != dtype
-        ):
+        if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
             self._seq_len_cached = seqlen
             if seqlen > self.original_max_position_embeddings:
                 inv_freq = self.long_inv_freq
@@ -288,19 +252,12 @@ class DynamicPositionRotaryEmbedding(PositionRotaryEmbedding):
     def _update_cos_sin_cache(self, dtype, device, seqlen):
         # Reset the tables if the sequence length has changed,
         # or if we're on a new device (possibly due to tracing for instance)
-        if (
-            seqlen > self._seq_len_cached
-            or self._cos_cached.device != device
-            or self._cos_cached.dtype != dtype
-        ):
+        if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
             if seqlen > self.max_position_embeddings:
                 newbase = self.base * (
-                    (self.scaling_factor * seqlen / self.max_position_embeddings)
-                    - (self.scaling_factor - 1)
+                    (self.scaling_factor * seqlen / self.max_position_embeddings) - (self.scaling_factor - 1)
                 ) ** (self.dim / (self.dim - 2))
-                self.inv_freq = _create_inv_freq(
-                    self.dim, newbase, self.inv_freq.device
-                )
+                self.inv_freq = _create_inv_freq(self.dim, newbase, self.inv_freq.device)
             self._seq_len_cached = seqlen
             t = torch.arange(seqlen, device=device, dtype=self.inv_freq.dtype)
             # Don't do einsum, it converts fp32 to fp16
@@ -311,17 +268,12 @@ class DynamicPositionRotaryEmbedding(PositionRotaryEmbedding):
             self._sin_cached = torch.sin(freqs).to(dtype)
 
 
-
 def find_correction_dim(num_rotations, dim, base=10000, max_position_embeddings=2048):
-    return (dim * math.log(max_position_embeddings / (num_rotations * 2 * math.pi))) / (
-        2 * math.log(base)
-    )
+    return (dim * math.log(max_position_embeddings / (num_rotations * 2 * math.pi))) / (2 * math.log(base))
 
 
 # Find dim range bounds based on rotations
-def find_correction_range(
-    low_rot, high_rot, dim, base=10000, max_position_embeddings=2048
-):
+def find_correction_range(low_rot, high_rot, dim, base=10000, max_position_embeddings=2048):
     low = math.floor(find_correction_dim(low_rot, dim, base, max_position_embeddings))
     high = math.ceil(find_correction_dim(high_rot, dim, base, max_position_embeddings))
     return max(low, 0), min(high, dim - 1)  # Clamp values just in case
@@ -372,15 +324,9 @@ class YarnPositionRotaryEmbedding(PositionRotaryEmbedding):
     def _update_cos_sin_cache(self, dtype, device, seqlen):
         # Reset the tables if the sequence length has changed,
         # or if we're on a new device (possibly due to tracing for instance)
-        if (
-            seqlen > self._seq_len_cached
-            or self._cos_cached.device != device
-            or self._cos_cached.dtype != dtype
-        ):
+        if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
             if seqlen > self.max_position_embeddings:
-                inv_freq_extrapolation = _create_inv_freq(
-                    self.dim, self.base, self.inv_freq.device
-                )
+                inv_freq_extrapolation = _create_inv_freq(self.dim, self.base, self.inv_freq.device)
                 freqs = 1.0 / inv_freq_extrapolation
                 inv_freq_interpolation = 1.0 / (self.scaling_factor * freqs)
                 low, high = find_correction_range(
@@ -393,10 +339,7 @@ class YarnPositionRotaryEmbedding(PositionRotaryEmbedding):
                 inv_freq_mask = (
                     1 - linear_ramp_mask(low, high, self.dim // 2).float().to(device)
                 ) * self.extrapolation_factor  # Get n-d rotational scaling corrected for extrapolation
-                inv_freq = (
-                    inv_freq_interpolation * (1 - inv_freq_mask)
-                    + inv_freq_extrapolation * inv_freq_mask
-                )
+                inv_freq = inv_freq_interpolation * (1 - inv_freq_mask) + inv_freq_extrapolation * inv_freq_mask
 
                 self.inv_freq = inv_freq
                 self.mscale = float(

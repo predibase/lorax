@@ -89,9 +89,7 @@ elif SYSTEM == "xpu":
     class FastLayerNorm(nn.LayerNorm):
         def forward(self, hidden_states, residual=None):
             res_out = hidden_states
-            out = ipex.llm.functional.add_layer_norm(
-                residual, hidden_states, self.weight, self.bias, self.eps, True
-            )
+            out = ipex.llm.functional.add_layer_norm(residual, hidden_states, self.weight, self.bias, self.eps, True)
             if residual is not None:
                 res_out = residual
             return out, res_out
@@ -130,9 +128,7 @@ class FastRMSNorm(nn.Module):
 
             hidden_states = hidden_states.to(torch.float32)
             variance = hidden_states.pow(2).mean(-1, keepdim=True)
-            hidden_states = hidden_states * torch.rsqrt(
-                variance + self.variance_epsilon
-            )
+            hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
 
             # convert into half-precision if necessary
             if self.weight.dtype in [torch.float16, torch.bfloat16]:

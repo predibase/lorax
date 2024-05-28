@@ -66,18 +66,14 @@ class TensorParallelHead(SuperLayer):
 
             torch.mm(input, self.linear.weight.T, out=local_out)
 
-            torch.distributed.all_gather_into_tensor(
-                world_out, gather_input, group=self.process_group
-            )
+            torch.distributed.all_gather_into_tensor(world_out, gather_input, group=self.process_group)
 
             if input.shape[0] == 1:
                 return world_out
             return world_out.T
 
         output = super().forward(input)
-        world_output = [
-            torch.empty_like(output) for _ in range(self.process_group.size())
-        ]
+        world_output = [torch.empty_like(output) for _ in range(self.process_group.size())]
         torch.distributed.all_gather(world_output, output, group=self.process_group)
         world_output = torch.cat(world_output, dim=-1)
         return world_output
@@ -87,9 +83,7 @@ class TensorParallelColumnLinear(SuperLayer):
     @classmethod
     def load_gate_up(cls, config, prefix: str, weights, bias: bool):
         """Specific method when the QKV was joined after the fact"""
-        weight = weights.get_weights_col_packed_gate_up(
-            prefix, quantize=config.quantize
-        )
+        weight = weights.get_weights_col_packed_gate_up(prefix, quantize=config.quantize)
         if bias:
             raise NotImplementedError("packed_gate_up only implemented without bias")
         else:
@@ -114,9 +108,7 @@ class TensorParallelColumnLinear(SuperLayer):
 
     @classmethod
     def load_multi(cls, config, prefixes: List[str], weights, bias: bool, dim: int):
-        weight = weights.get_multi_weights_col(
-            prefixes, quantize=config.quantize, dim=dim
-        )
+        weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 
         if bias:
             b = [weights.get_sharded(f"{p}.bias", dim=0) for p in prefixes]
@@ -167,9 +159,7 @@ class TensorParallelEmbedding(torch.nn.Module):
         block_size = (num_embeddings + world_size - 1) // world_size
         self.min_id = rank * block_size
         self.max_id = min(num_embeddings, (rank + 1) * block_size)
-        self.null_idx = weight.shape[
-            0
-        ]  # Usually block_size, might be less in non even vocab_size.
+        self.null_idx = weight.shape[0]  # Usually block_size, might be less in non even vocab_size.
         self.process_group = weights.process_group
         self.reduce = reduce
 

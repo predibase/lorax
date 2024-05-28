@@ -14,7 +14,9 @@ else:
             f"Could not import vllm paged attention. Make sure your installation is correct. Complete error: {e}"
         )
 
-fp8_supported = torch.cuda.get_device_capability()[0] >= 9 or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
+fp8_supported = torch.cuda.get_device_capability()[0] >= 9 or (
+    torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9
+)
 
 
 def reshape_and_cache(
@@ -25,13 +27,9 @@ def reshape_and_cache(
     slots: torch.Tensor,
 ):
     if SYSTEM == "xpu":
-        ipex.llm.modules.PagedAttention.reshape_and_cache(
-            key, value, key_cache, value_cache, slots
-        )
+        ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
-        cache_ops.reshape_and_cache(
-            key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0
-        )
+        cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0)
 
 
 def attention(
