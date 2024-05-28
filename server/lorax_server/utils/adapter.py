@@ -43,7 +43,9 @@ def load_and_merge_adapters(
     trust_remote_code: bool = False,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     if len(adapter_parameters.adapter_ids) == 1:
-        return load_module_map(model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token, trust_remote_code)
+        return load_module_map(
+            model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token, trust_remote_code
+        )
 
     adapter_params = AdapterParametersContainer(adapter_parameters, adapter_source, adapter_index)
     return _load_and_merge(model_id, adapter_params, weight_names, api_token, trust_remote_code)
@@ -87,14 +89,21 @@ def _load_and_merge(
     return module_map, adapter_config, merged_weight_names, tokenizer
 
 
-def check_architectures(model_id: str, adapter_id: str, adapter_config: "AdapterConfig", trust_remote_code: bool = False,):
+def check_architectures(
+    model_id: str,
+    adapter_id: str,
+    adapter_config: "AdapterConfig",
+    trust_remote_code: bool = False,
+):
     try:
         if not adapter_config.base_model_name_or_path:
             # Avoid execuation latency caused by the network connection retrying for AutoConfig.from_pretrained(None)
             return
 
         expected_config = AutoConfig.from_pretrained(model_id, trust_remote_code=trust_remote_code)
-        model_config = AutoConfig.from_pretrained(adapter_config.base_model_name_or_path, trust_remote_code=trust_remote_code)
+        model_config = AutoConfig.from_pretrained(
+            adapter_config.base_model_name_or_path, trust_remote_code=trust_remote_code
+        )
     except Exception as e:
         warnings.warn(
             f"Unable to check architecture compatibility for adapter '{adapter_id}' "
@@ -134,7 +143,9 @@ def load_module_map(
         check_architectures(model_id, adapter_id, adapter_config, trust_remote_code)
 
     try:
-        adapter_tokenizer = AutoTokenizer.from_pretrained(config_path, token=api_token, trust_remote_code=trust_remote_code)
+        adapter_tokenizer = AutoTokenizer.from_pretrained(
+            config_path, token=api_token, trust_remote_code=trust_remote_code
+        )
     except Exception:
         # Adapter does not have a tokenizer, so fallback to base model tokenizer
         adapter_tokenizer = None

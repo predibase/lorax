@@ -27,7 +27,6 @@ def ext_gemm_half_q_half(x, q_handle, q4_width, force_cuda):
 
 
 def make_group_map(q_groups, num_qrows):
-
     gr = q_groups.tolist()
     group_map = []
     num_groups = len(gr) // 2
@@ -207,7 +206,6 @@ class QuantLinear(nn.Module):
 
 
 class ExLlamaV2DeviceTensors:
-
     device_idx: int
     scratch_bytes: int
     scratch_idx: int
@@ -218,12 +216,9 @@ class ExLlamaV2DeviceTensors:
         self.scratch_bytes = scratch_bytes
 
     def prepare(self):
-        self.scratch = torch.empty(
-            (self.scratch_bytes // 2,), dtype=torch.half, device=self.device
-        )
+        self.scratch = torch.empty((self.scratch_bytes // 2,), dtype=torch.half, device=self.device)
 
     def get_scratch_slice(self, size_bytes):
-
         if self.scratch is None:
             self.prepare()
 

@@ -20,9 +20,7 @@ def load_conv2d(cls, prefix, weights, in_channels, out_channels, kernel_size, st
 
 
 @classmethod
-def load_conv2d_no_bias(
-    cls, prefix, weights, in_channels, out_channels, kernel_size, stride
-):
+def load_conv2d_no_bias(cls, prefix, weights, in_channels, out_channels, kernel_size, stride):
     weight = weights.get_tensor(f"{prefix}.weight")
     with init_empty_weights():
         conv2d = cls(

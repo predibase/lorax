@@ -46,9 +46,7 @@ def dropout_offsets(philox_seed, philox_offset, dropout_p, m, n, stride):
 
 @triton.jit
 def dropout_rng(philox_seed, philox_offset, dropout_p, m, n, stride):
-    rng_offsets = dropout_offsets(
-        philox_seed, philox_offset, dropout_p, m, n, stride
-    ).to(tl.uint32)
+    rng_offsets = dropout_offsets(philox_seed, philox_offset, dropout_p, m, n, stride).to(tl.uint32)
     # TODO: use tl.randint for better performance
     return tl.rand(philox_seed, rng_offsets)
 
@@ -144,9 +142,7 @@ def _attn_fwd_inner(
         # -- compute qk ----
         qk += tl.dot(q, k)
         if bias_ptr is not None:
-            bias = load_fn(
-                bias_ptr, False, MASK_STEPS and (n_extra_tokens != 0), "zero"
-            )
+            bias = load_fn(bias_ptr, False, MASK_STEPS and (n_extra_tokens != 0), "zero")
             # While bias is added after multiplying qk with sm_scale, our
             # optimization to use 2^x instead of e^x results in an additional
             # scale factor of log2(e) which we must also multiply the bias with.
@@ -158,12 +154,7 @@ def _attn_fwd_inner(
         # CAVEAT: Must update l_ij before applying dropout
         l_ij = tl.sum(p, 1)
         if ENABLE_DROPOUT:
-            philox_offset = (
-                batch_philox_offset
-                + start_m * BLOCK_M * actual_seqlen_k
-                + start_n
-                - BLOCK_N
-            )
+            philox_offset = batch_philox_offset + start_m * BLOCK_M * actual_seqlen_k + start_n - BLOCK_N
             keep = dropout_mask(
                 philox_seed,
                 philox_offset,
@@ -203,9 +194,7 @@ def _attn_fwd_inner(
         if bias_ptr is not None:
             bias_ptr = tl.advance(bias_ptr, (0, BLOCK_N))
         if RETURN_ENCODED_SOFTMAX:
-            encoded_softmax_block_ptr = tl.advance(
-                encoded_softmax_block_ptr, (0, BLOCK_N)
-            )
+            encoded_softmax_block_ptr = tl.advance(encoded_softmax_block_ptr, (0, BLOCK_N))
     return acc, l_i, m_i
 
 
@@ -393,18 +382,14 @@ def attn_fwd(
         # the top edge (seqlen_q < seqlen_k) or left edge.
         # This captures the decrease in n_blocks if we have a rectangular attn
         # matrix
-        n_blocks_seqlen = cdiv_fn(
-            (start_m + 1) * BLOCK_M + seqlen_k - seqlen_q, BLOCK_N
-        )
+        n_blocks_seqlen = cdiv_fn((start_m + 1) * BLOCK_M + seqlen_k - seqlen_q, BLOCK_N)
         # This is what adjusts the block_max for the current WG, only
         # if IS_CAUSAL. Otherwise we want to always iterate through all n_blocks
         n_blocks = min(n_blocks, n_blocks_seqlen)
         # If we have no blocks after adjusting for seqlen deltas, this WG is
         # part of the blocks that are all 0. We exit early.
         if n_blocks <= 0:
-            o_offset = (
-                off_z * stride_oz + cu_seqlens_q_start * stride_om + off_h_q * stride_oh
-            )
+            o_offset = off_z * stride_oz + cu_seqlens_q_start * stride_om + off_h_q * stride_oh
             O_block_ptr = tl.make_block_ptr(
                 base=Out + o_offset,
                 shape=(seqlen_q, BLOCK_DMODEL),
@@ -482,9 +467,7 @@ def attn_fwd(
     else:
         bias_ptr = None
     if ENABLE_DROPOUT:
-        batch_philox_offset = (
-            philox_offset_base + (off_z * HQ + off_h_q) * seqlen_q * seqlen_k
-        )
+        batch_philox_offset = philox_offset_base + (off_z * HQ + off_h_q) * seqlen_q * seqlen_k
     else:
         batch_philox_offset = 0
     # We can ask to return the dropout mask without actually doing any dropout.
@@ -579,9 +562,7 @@ def attn_fwd(
         if bias_ptr is not None:
             bias_ptr = tl.advance(bias_ptr, (0, n_full_blocks * BLOCK_N))
         if RETURN_ENCODED_SOFTMAX:
-            encoded_softmax_block_ptr = tl.advance(
-                encoded_softmax_block_ptr, (0, n_full_blocks)
-            )
+            encoded_softmax_block_ptr = tl.advance(encoded_softmax_block_ptr, (0, n_full_blocks))
         acc, l_i, m_i = _attn_fwd_inner(
             acc,
             l_i,
@@ -628,9 +609,7 @@ def attn_fwd(
     acc = acc.to(Out.type.element_ty)
     if IS_CAUSAL:  # noqa: SIM102
         if causal_start_idx > start_m_idx and causal_start_idx < end_m_idx:
-            out_mask_boundary = tl.full(
-                (BLOCK_DMODEL,), causal_start_idx, dtype=tl.int32
-            )
+            out_mask_boundary = tl.full((BLOCK_DMODEL,), causal_start_idx, dtype=tl.int32)
             mask_m_offsets = start_m_idx + tl.arange(0, BLOCK_M)
             out_ptrs_mask = mask_m_offsets[:, None] >= out_mask_boundary[None, :]
             z = 0.0
@@ -699,7 +678,6 @@ def check_args(
 
 
 class _attention(torch.autograd.Function):
-
     @staticmethod
     def forward(
         ctx,

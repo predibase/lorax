@@ -71,9 +71,7 @@ if SYSTEM in {"cuda", "rocm"}:
             logger.info("ROCm: using Flash Attention 2 Triton implementation.")
         else:
             ROCM_USE_FLASH_ATTN_V2_CK = True
-            logger.info(
-                "ROCm: using Flash Attention 2 Composable Kernel implementation."
-            )
+            logger.info("ROCm: using Flash Attention 2 Composable Kernel implementation.")
 
     try:
         try:
@@ -86,14 +84,10 @@ if SYSTEM in {"cuda", "rocm"}:
                 f"or install flash attention v2 with `cd server && make install install-flash-attention-v2{architecture_suffix}`"
             )
         if SYSTEM == "cuda" and not (is_sm8x or is_sm90):
-            raise ImportError(
-                f"GPU with CUDA capability {major} {minor} is not supported for "
-                "Flash Attention V2"
-            )
+            raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported for " "Flash Attention V2")
         elif SYSTEM == "rocm" and not (is_sm8x or is_sm90 or is_sm94):
             raise ImportError(
-                f"AMD GPU with compute capability {major} {minor} is not supported for "
-                "Flash Attention V2"
+                f"AMD GPU with compute capability {major} {minor} is not supported for " "Flash Attention V2"
             )
         HAS_FLASH_ATTN_V2_CUDA = SYSTEM == "cuda"
         HAS_FLASH_ATTN_V2_ROCM = SYSTEM == "rocm"
@@ -108,17 +102,11 @@ if SYSTEM in {"cuda", "rocm"}:
             ) from e
 
         if SYSTEM == "cuda" and not (is_sm75 or is_sm8x or is_sm90):
-            raise ImportError(
-                f"GPU with CUDA capability {major} {minor} is not supported"
-            ) from e
+            raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported") from e
         elif SYSTEM == "rocm":
             for idx in range(torch.cuda.device_count()):
-                if "MI210" not in torch.cuda.get_device_name(
-                    idx
-                ) and "MI250" not in torch.cuda.get_device_name(idx):
-                    raise ImportError(
-                        f"AMD GPU {torch.cuda.get_device_name(idx)} does not support flash-attention"
-                    )
+                if "MI210" not in torch.cuda.get_device_name(idx) and "MI250" not in torch.cuda.get_device_name(idx):
+                    raise ImportError(f"AMD GPU {torch.cuda.get_device_name(idx)} does not support flash-attention")
 
         logger.warning(f"Unable to use Flash Attention V2: {e}")
         HAS_FLASH_ATTN = True
@@ -239,9 +227,7 @@ elif HAS_FLASH_ATTN:
         window_size_left=-1,
     ):
         if window_size_left != -1:
-            raise NotImplementedError(
-                "window_size_left is only available with flash attn v2"
-            )
+            raise NotImplementedError("window_size_left is only available with flash attn v2")
 
         # Flash attention v1 requires q, k and v to have the same number of heads
         if k.shape[1] != q.shape[1]:

@@ -78,7 +78,10 @@ class LayerAdapterWeights:
         return len(self.adapter_weights) == 0
 
     def get_data(
-        self, meta: AdapterBatchMetadata, prefill: bool, prefill_head_indices: Optional[torch.Tensor],
+        self,
+        meta: AdapterBatchMetadata,
+        prefill: bool,
+        prefill_head_indices: Optional[torch.Tensor],
     ) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
