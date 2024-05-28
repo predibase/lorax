@@ -382,30 +382,34 @@ class HeterogeneousNextTokenChooser:
         scores = scores.view(B * S, -1)
 
         if speculated_ids is not None:
-            accepted_ids = []
-            B = next_ids.shape[0] // (speculated_ids.shape[1] + 1)
-            S = speculated_ids.shape[1] + 1
-            indices = []
-            for i in range(B):
-                next_ids_i = next_ids[i * S : (i + 1) * S]
-                speculated_ids_i = speculated_ids[i]
-                validate_speculative = next_ids_i[:-1] == speculated_ids_i
-                index = i * S
-                accepted = 1
-                # First is always valid
-                indices.append(index)
-                for valid in validate_speculative.tolist():
-                    if valid:
-                        index += 1
-                        accepted += 1
-                        indices.append(index)
-                    else:
-                        break
-                accepted_ids.append(accepted)
+            accepted_ids = torch.ones(B, device=input_ids.device, dtype=torch.int32) * S
 
-            accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
-            next_ids = next_ids[indices]
-            scores = scores[indices]
+            # accepted_ids = []
+            # B = next_ids.shape[0] // (speculated_ids.shape[1] + 1)
+            # S = speculated_ids.shape[1] + 1
+            # indices = []
+            # for i in range(B):
+            #     next_ids_i = next_ids[i * S : (i + 1) * S]
+            #     speculated_ids_i = speculated_ids[i]
+            #     validate_speculative = next_ids_i[:-1] == speculated_ids_i
+            #     index = i * S
+            #     accepted = 1
+            #     # First is always valid
+            #     indices.append(index)
+            #     for valid in validate_speculative.tolist():
+            #         if valid:
+            #             index += 1
+            #             accepted += 1
+            #             indices.append(index)
+            #         else:
+            #             break
+            #     accepted_ids.append(accepted)
+
+            # accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
+            # next_ids = next_ids[indices]
+            # scores = scores[indices]
+            # print("!!! accepted_ids", accepted_ids)
+            
             indices = torch.arange(B, device=input_ids.device) * S
             if speculative_scores is not None:
                 speculative_scores = speculative_scores[indices + accepted_ids - 1]

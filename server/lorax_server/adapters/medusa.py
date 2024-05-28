@@ -159,9 +159,9 @@ class MedusaV2(torch.nn.Module):
 
     def forward(self, x, lm_head, segments: Optional[MedusaSegments] = None):
         # If we have too many tokens, we skip speculative logits
-        if x.shape[0] > 128:
-            logits = lm_head(x)
-            return logits, None
+        # if x.shape[0] > 128:
+        #     logits = lm_head(x)
+        #     return logits, None
 
         size = x.shape[-1]
         block_size = (size + self.world_size - 1) // self.world_size
