@@ -319,7 +319,7 @@ impl AdapterQueuesState {
 
     fn get_oldest_active_adapter(&mut self) -> Option<Adapter> {
         // Returns the adapter that maps to the queue whose front entry has the oldest activation timestamp,
-        // but prefer queues that have not ben active past the maximum time limit
+        // but prefer queues that have not been active past the maximum time limit
         let now = Instant::now();
         let mut oldest_adapter = None;
         let mut oldest_ts = Instant::now();
