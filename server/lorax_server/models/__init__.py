@@ -94,6 +94,7 @@ def get_model(
 
     if model_type == "bert":
         from lorax_server.models.flash_bert import FlashBert
+
         return FlashBert(model_id, revision=revision, dtype=dtype)
 
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":

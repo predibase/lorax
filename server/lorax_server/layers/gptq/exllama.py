@@ -8,9 +8,7 @@ none_tensor = torch.empty((1, 1), device="meta")
 
 def ext_make_q4(qweight, qzeros, scales, g_idx, device):
     """Construct Q4Matrix, return handle"""
-    return make_q4(
-        qweight, qzeros, scales, g_idx if g_idx is not None else none_tensor, device
-    )
+    return make_q4(qweight, qzeros, scales, g_idx if g_idx is not None else none_tensor, device)
 
 
 def ext_q4_matmul(x, q4, q4_width):
@@ -47,9 +45,7 @@ def create_exllama_buffers(max_total_tokens: int):
         max_total_tokens = 1
 
     # This temp_state buffer is required to reorder X in the act-order case.
-    temp_state = torch.zeros(
-        (max_total_tokens, MAX_INNER), dtype=torch.float16, device=DEVICE
-    )
+    temp_state = torch.zeros((max_total_tokens, MAX_INNER), dtype=torch.float16, device=DEVICE)
     temp_dq = torch.zeros((1, MAX_DQ), dtype=torch.float16, device=DEVICE)
 
     # This temp_dq buffer is required to dequantize weights when using cuBLAS, typically for the prefill.
@@ -82,9 +78,7 @@ class Ex4bitLinear(torch.nn.Module):
             (self.g_idx == 0).all()
             or torch.equal(
                 g_idx.cpu(),
-                torch.tensor(
-                    [i // groupsize for i in range(g_idx.shape[0])], dtype=torch.int32
-                ),
+                torch.tensor([i // groupsize for i in range(g_idx.shape[0])], dtype=torch.int32),
             )
         ):
             self.empty_g_idx = True
@@ -93,9 +87,7 @@ class Ex4bitLinear(torch.nn.Module):
         assert self.device.type == "cuda"
         assert self.device.index is not None
 
-        self.q4 = ext_make_q4(
-            self.qweight, self.qzeros, self.scales, self.g_idx, self.device.index
-        )
+        self.q4 = ext_make_q4(self.qweight, self.qzeros, self.scales, self.g_idx, self.device.index)
 
         self.height = qweight.shape[0] * 8
         self.width = qweight.shape[1]

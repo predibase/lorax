@@ -55,9 +55,6 @@ torch.nn.LayerNorm.load = load_layer_norm
 torch.nn.LayerNorm.load_no_bias = load_layer_norm_no_bias
 
 
-
-
-
 class LoraLinear(nn.Module):
     def __init__(self, base_layer, layer_id, process_group):
         super().__init__()

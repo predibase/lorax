@@ -42,4 +42,4 @@ elif CAN_EXLLAMA:
     except ImportError:
         pass
 
-from lorax_server.layers.gptq.quant_linear import QuantLinear # noqa
+from lorax_server.layers.gptq.quant_linear import QuantLinear  # noqa
