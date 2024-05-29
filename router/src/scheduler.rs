@@ -1,6 +1,6 @@
 use crate::{
     adapter::Adapter,
-    batch::Entry,
+    batch::{BatchEntries, Entry},
     queue::{AdapterEvent, AdapterQueuesState},
     AdapterLoader,
 };
@@ -250,16 +250,6 @@ impl AdapterSchedulerState {
             }
         }
 
-        // Create span for this batch to add context to inference calls
-        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
-        next_batch_span.follows_from(&Span::current());
-
-        let mut batch_requests = Vec::with_capacity(num_entries);
-        let mut batch_entries =
-            IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
-
-        let mut index_to_adapter = HashMap::with_capacity(queues_state.active_len());
-
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
@@ -274,6 +264,7 @@ impl AdapterSchedulerState {
         );
 
         // Pop entries starting from the front of the queue
+        let batch: Option<Arc<dyn BatchEntries>> = None;
         while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
@@ -319,31 +310,19 @@ impl AdapterSchedulerState {
                 break;
             }
 
-            // Create a new span to link the batch back to this entry
-            let entry_batch_span = info_span!(parent: &entry.span, "infer");
-            // Add relationships
-            next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(&next_batch_span);
-            // Update entry
-            entry.temp_span = Some(entry_batch_span);
+            if batch.is_none() {
+                batch = Some(
+                    entry
+                        .request
+                        .to_batch(num_entries, queues_state.active_len()),
+                );
+            }
 
-            batch_requests.push(Request {
-                id,
-                prefill_logprobs: entry.request.decoder_input_details,
-                inputs: entry.request.inputs.clone(),
-                truncate: entry.request.truncate,
-                parameters: Some(entry.request.parameters.clone()),
-                stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-                adapter_index: adapter.index(),
-                apply_chat_template: entry.request.apply_chat_template,
-            });
-            // Set batch_time
-            entry.batch_time = Some(Instant::now());
-            // Insert in batch_entries IntMap
-            batch_entries.insert(id, entry);
-            // Map from adapter index back to queue in case we need to add back entries below
-            // let queue = queue_map.get_mut(&adapter).unwrap();
-            index_to_adapter.insert(adapter.index(), adapter);
+            if !batch.as_ref().unwrap().add(id, entry, adapter) {
+                // Incompatible entry for this batch. Reinsert and break
+                queues_state.push_front(&adapter, id, entry);
+                break;
+            }
         }
 
         // Empty batch

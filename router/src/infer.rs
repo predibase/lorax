@@ -169,7 +169,7 @@ impl Infer {
         self.adapter_scheduler.process(
             adapter.clone(),
             Entry {
-                request: valid_request,
+                request: Arc::new(valid_request),
                 response_tx,
                 span: Span::current(),
                 temp_span: None,
@@ -382,7 +382,7 @@ async fn batching_task(
 
                 let adapters_in_use = entries
                     .iter()
-                    .map(|(_, entry)| entry.request.adapter.clone())
+                    .map(|(_, entry)| entry.request.adapter())
                     .collect::<HashSet<_>>();
 
                 // Try to get a new batch

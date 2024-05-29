@@ -1,19 +1,22 @@
 use core::fmt::Debug;
-use std::sync::Arc;
+use std::{any::Any, collections::HashMap, sync::Arc};
 
-use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use lorax_client::{NextTokenChooserParameters, Request, StoppingCriteriaParameters};
+use nohash_hasher::{BuildNoHashHasher, IntMap};
 use tokio::time::Instant;
-use tracing::Span;
+use tracing::{info_span, Span};
 
 use crate::{
     adapter::Adapter,
     infer::{InferError, InferStreamResponse},
 };
 
-pub(crate) trait ValidRequest: Sync + Send + Debug {
+pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
     fn input_length(&self) -> u32;
     fn max_new_tokens(&self) -> u32;
-    fn to_batch(&self) -> Arc<dyn BatchEntries>;
+    fn adapter(&self) -> Adapter;
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Arc<dyn BatchEntries>;
+    fn as_any(&self) -> &dyn Any;
 }
 
 impl ValidRequest for ValidGenerateRequest {
@@ -25,8 +28,16 @@ impl ValidRequest for ValidGenerateRequest {
         self.stopping_parameters.max_new_tokens
     }
 
-    fn to_batch(&self) -> Arc<dyn BatchEntries> {
-        Arc::new(GenerateBatchEntries::new())
+    fn adapter(&self) -> Adapter {
+        self.adapter
+    }
+
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Arc<dyn BatchEntries> {
+        Arc::new(GenerateBatchEntries::new(num_entries, queue_len))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -34,6 +45,7 @@ impl ValidRequest for ValidGenerateRequest {
 pub(crate) struct ValidEmbedRequest {
     pub inputs: String,
     pub input_length: u32,
+    pub adapter: Adapter,
 }
 
 impl ValidRequest for ValidEmbedRequest {
@@ -45,8 +57,16 @@ impl ValidRequest for ValidEmbedRequest {
         1
     }
 
-    fn to_batch(&self) -> Arc<dyn BatchEntries> {
+    fn adapter(&self) -> Adapter {
+        self.adapter
+    }
+
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Arc<dyn BatchEntries> {
         Arc::new(EmbedBatchEntries::new())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -80,23 +100,81 @@ pub(crate) struct Entry {
 }
 
 pub(crate) trait BatchEntries {
-    fn add(&mut self, entry: Entry);
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
 }
 
 #[derive(Debug)]
 pub(crate) struct GenerateBatchEntries {
-    pub(crate) entries: Vec<Entry>,
+    pub(crate) batch_requests: Vec<Request>,
+    pub(crate) batch_entries: HashMap<u64, Entry, BuildNoHashHasher<u64>>,
+    pub(crate) index_to_adapter: HashMap<u32, Adapter>,
+    next_batch_span: Span,
 }
 
 impl GenerateBatchEntries {
-    pub(crate) fn new() -> Self {
-        Self { entries: vec![] }
+    pub(crate) fn new(num_entries: usize, queue_len: usize) -> Self {
+        // Create span for this batch to add context to inference calls
+        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
+        next_batch_span.follows_from(&Span::current());
+
+        let mut batch_requests = Vec::with_capacity(num_entries);
+        let mut batch_entries =
+            IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
+
+        let mut index_to_adapter = HashMap::with_capacity(queue_len);
+
+        Self {
+            batch_requests,
+            batch_entries,
+            index_to_adapter,
+            next_batch_span,
+        }
     }
 }
 
 impl BatchEntries for GenerateBatchEntries {
-    fn add(&mut self, entry: Entry) {
-        self.entries.push(entry);
+    fn add(&mut self, id: u64, mut entry: Entry, adapter: Adapter) -> bool {
+        // return false if the entry.request is not of type ValidGenerateRequest
+        let valid_request = entry
+            .request
+            .as_ref()
+            .as_any()
+            .downcast_ref::<ValidGenerateRequest>();
+
+        if valid_request.is_none() {
+            return false;
+        }
+
+        let request = valid_request.unwrap();
+
+        // self.entries.push(entry);
+
+        // Create a new span to link the batch back to this entry
+        let entry_batch_span = info_span!(parent: &entry.span, "infer");
+        // Add relationships
+        self.next_batch_span.follows_from(&entry_batch_span);
+        entry_batch_span.follows_from(&self.next_batch_span);
+        // Update entry
+        entry.temp_span = Some(entry_batch_span);
+
+        self.batch_requests.push(Request {
+            id,
+            prefill_logprobs: request.decoder_input_details,
+            inputs: request.inputs.clone(),
+            truncate: request.truncate,
+            parameters: Some(request.parameters.clone()),
+            stopping_parameters: Some(request.stopping_parameters.clone()),
+            adapter_index: adapter.index(),
+            apply_chat_template: request.apply_chat_template,
+        });
+        // Set batch_time
+        entry.batch_time = Some(Instant::now());
+        // Insert in batch_entries IntMap
+        self.batch_entries.insert(id, entry);
+        // Map from adapter index back to queue in case we need to add back entries below
+        // let queue = queue_map.get_mut(&adapter).unwrap();
+        self.index_to_adapter.insert(adapter.index(), adapter);
+        return true;
     }
 }
 
@@ -112,7 +190,7 @@ impl EmbedBatchEntries {
 }
 
 impl BatchEntries for EmbedBatchEntries {
-    fn add(&mut self, entry: Entry) {
-        self.entries.push(entry);
+    fn add(&mut self, id: u64, mut entry: Entry, adapter: Adapter) -> bool {
+        return false;
     }
 }
