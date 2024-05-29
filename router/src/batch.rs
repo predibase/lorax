@@ -99,7 +99,7 @@ pub(crate) struct Entry {
     pub batch_time: Option<Instant>,
 }
 
-pub(crate) trait BatchEntries {
+pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;

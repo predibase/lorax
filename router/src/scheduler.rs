@@ -264,7 +264,7 @@ impl AdapterSchedulerState {
         );
 
         // Pop entries starting from the front of the queue
-        let batch_entries: Option<Arc<dyn BatchEntries>> = None;
+        let mut batch_entries: Option<Arc<dyn BatchEntries>> = None;
         while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
@@ -274,10 +274,15 @@ impl AdapterSchedulerState {
             }
 
             if self.requires_padding {
+                let mut batch_requests_len = 0;
+                if batch_entries.is_some() {
+                    batch_requests_len = batch_entries.as_ref().unwrap().len();
+                }
+
                 // We pad to max input length in the Python shards
                 // We need to take these padding tokens into the equation
                 max_input_length = max_input_length.max(entry.request.input_length());
-                prefill_tokens = (batch_requests.len() + 1) as u32 * max_input_length
+                prefill_tokens = (batch_requests_len + 1) as u32 * max_input_length
             } else {
                 // pad to block size
                 prefill_tokens += ((entry.request.input_length() + self.block_size - 1)
@@ -341,7 +346,7 @@ impl AdapterSchedulerState {
             // Batch is too small
             if batch_entries.len() < min_size {
                 // Add back entries to the queue in the correct order
-                for (adapter, id, entry) in batch_entries.drain() {
+                for (adapter, id, entry) in batch_entries.as_ref().drain() {
                     queues_state.push_front(&adapter, id, entry);
                 }
 
@@ -349,20 +354,13 @@ impl AdapterSchedulerState {
             }
         }
 
-        // Final batch size
-        let size = batch.len() as u32;
-        next_batch_span.record("batch_size", size);
+        let max_tokens = prefill_tokens + decode_tokens;
+        let batch = batch_entries.create_batch_data(self.next_batch_id, max_tokens);
 
-        let batch = Batch {
-            id: self.next_batch_id,
-            requests: batch_requests,
-            size,
-            max_tokens: (prefill_tokens + decode_tokens),
-        };
         // Increment batch id
         self.next_batch_id += 1;
 
-        metrics::histogram!("lorax_batch_next_size", batch.len() as f64);
+        metrics::histogram!("lorax_batch_next_size", batch_entries.len() as f64);
 
         Some((batch_entries, batch))
     }
