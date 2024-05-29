@@ -285,23 +285,23 @@ impl AdapterSchedulerState {
             if self.requires_padding {
                 // We pad to max input length in the Python shards
                 // We need to take these padding tokens into the equation
-                max_input_length = max_input_length.max(entry.request.input_length);
+                max_input_length = max_input_length.max(entry.request.input_length());
                 prefill_tokens = (batch_requests.len() + 1) as u32 * max_input_length
             } else {
                 // pad to block size
-                prefill_tokens += ((entry.request.input_length + self.block_size - 1)
+                prefill_tokens += ((entry.request.input_length() + self.block_size - 1)
                     / self.block_size)
                     * self.block_size;
             }
 
             if self.requires_padding {
-                decode_tokens += entry.request.stopping_parameters.max_new_tokens;
+                decode_tokens += entry.request.max_new_tokens();
             } else {
                 let max_new_tokens = match self.window_size {
-                    None => entry.request.stopping_parameters.max_new_tokens,
+                    None => entry.request.max_new_tokens(),
                     Some(window_size) => min(
-                        window_size.saturating_sub(entry.request.input_length),
-                        entry.request.stopping_parameters.max_new_tokens,
+                        window_size.saturating_sub(entry.request.input_length()),
+                        entry.request.max_new_tokens(),
                     ),
                 };
 
