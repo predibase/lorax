@@ -341,7 +341,7 @@ async fn batching_task(
         // Get the next batch from the queue
         // This batch might be smaller than the maximum batch size if there are not enough requests
         // waiting in the queue
-        while let Some((mut entries, batch, span)) = adapter_scheduler
+        while let Some((mut batch_entries, batch)) = adapter_scheduler
             .next_batch(
                 HashSet::new(),
                 None,
@@ -379,14 +379,10 @@ async fn batching_task(
                 };
 
                 let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-
-                let adapters_in_use = entries
-                    .iter()
-                    .map(|(_, entry)| entry.request.adapter())
-                    .collect::<HashSet<_>>();
+                let adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                if let Some((mut batch_entries, new_batch)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use,
                         min_size,

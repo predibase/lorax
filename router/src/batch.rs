@@ -1,5 +1,9 @@
 use core::fmt::Debug;
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{
+    any::Any,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use lorax_client::{Batch, NextTokenChooserParameters, Request, StoppingCriteriaParameters};
 use nohash_hasher::{BuildNoHashHasher, IntMap};
@@ -103,6 +107,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
+    fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
 }
@@ -182,6 +187,13 @@ impl BatchEntriesState {
         }
     }
 
+    fn adapters_in_use(&self) -> HashSet<Adapter> {
+        self.batch_entries
+            .iter()
+            .map(|(_, entry)| entry.request.adapter())
+            .collect::<HashSet<_>>()
+    }
+
     fn is_empty(&self) -> bool {
         self.batch_requests.is_empty()
     }
@@ -241,6 +253,10 @@ impl BatchEntries for GenerateBatchEntries {
         self.state.create_batch_data(batch_id, max_tokens)
     }
 
+    fn adapters_in_use(&self) -> HashSet<Adapter> {
+        self.state.adapters_in_use()
+    }
+
     fn is_empty(&self) -> bool {
         self.state.is_empty()
     }
@@ -298,6 +314,10 @@ impl BatchEntries for EmbedBatchEntries {
 
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
         self.state.create_batch_data(batch_id, max_tokens)
+    }
+
+    fn adapters_in_use(&self) -> HashSet<Adapter> {
+        self.state.adapters_in_use()
     }
 
     fn is_empty(&self) -> bool {
