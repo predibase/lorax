@@ -11,8 +11,8 @@ use tracing::{info_span, Span};
 
 use crate::{
     adapter::Adapter,
+    batch::Entry,
     infer::{InferError, InferStreamResponse},
-    validation::ValidGenerateRequest,
 };
 
 #[derive(Debug, PartialEq)]

@@ -1,4 +1,5 @@
 use crate::adapter::Adapter;
+use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};

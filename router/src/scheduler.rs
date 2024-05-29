@@ -1,7 +1,8 @@
 use crate::{
     adapter::Adapter,
+    batch::Entry,
     queue::{AdapterEvent, AdapterQueuesState},
-    AdapterLoader, Entry,
+    AdapterLoader,
 };
 use lorax_client::{Batch, Request, ShardedClient};
 use nohash_hasher::{BuildNoHashHasher, IntMap};
