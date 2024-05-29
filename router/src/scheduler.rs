@@ -1,6 +1,6 @@
 use crate::{
     adapter::Adapter,
-    batch::{BatchEntries, Entry},
+    batch::{self, BatchEntries, Entry},
     queue::{AdapterEvent, AdapterQueuesState},
     AdapterLoader,
 };
@@ -103,7 +103,7 @@ impl AdapterScheduler {
     }
 }
 
-type NextBatch = (IntMap<u64, Entry>, Batch, Span);
+type NextBatch = (Arc<dyn BatchEntries>, Batch);
 
 /// Background task that manages the queues of the various adapters
 /// TODO(geoffrey): add tracing (span object) to the various commands
@@ -264,7 +264,7 @@ impl AdapterSchedulerState {
         );
 
         // Pop entries starting from the front of the queue
-        let batch: Option<Arc<dyn BatchEntries>> = None;
+        let batch_entries: Option<Arc<dyn BatchEntries>> = None;
         while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
@@ -310,37 +310,39 @@ impl AdapterSchedulerState {
                 break;
             }
 
-            if batch.is_none() {
-                batch = Some(
+            if batch_entries.is_none() {
+                batch_entries = Some(
                     entry
                         .request
                         .to_batch(num_entries, queues_state.active_len()),
                 );
             }
 
-            if !batch.as_ref().unwrap().add(id, entry, adapter) {
+            if !batch_entries.as_ref().unwrap().add(id, entry, adapter) {
                 // Incompatible entry for this batch. Reinsert and break
                 queues_state.push_front(&adapter, id, entry);
                 break;
             }
         }
 
+        if batch_entries.is_none() {
+            return None;
+        }
+
+        let batch_entries = batch_entries.unwrap();
+
         // Empty batch
-        if batch_requests.is_empty() {
+        if batch_entries.is_empty() {
             return None;
         }
 
         // Check if our batch is big enough
         if let Some(min_size) = min_size {
             // Batch is too small
-            if batch_requests.len() < min_size {
+            if batch_entries.len() < min_size {
                 // Add back entries to the queue in the correct order
-                for r in batch_requests.into_iter().rev() {
-                    let id = r.id;
-                    let entry = batch_entries.remove(&id).unwrap();
-                    let adapter_index = r.adapter_index;
-                    let adapter = index_to_adapter.get_mut(&adapter_index).unwrap();
-                    queues_state.push_front(adapter, id, entry);
+                for (adapter, id, entry) in batch_entries.drain() {
+                    queues_state.push_front(&adapter, id, entry);
                 }
 
                 return None;
@@ -348,7 +350,7 @@ impl AdapterSchedulerState {
         }
 
         // Final batch size
-        let size = batch_requests.len() as u32;
+        let size = batch.len() as u32;
         next_batch_span.record("batch_size", size);
 
         let batch = Batch {
@@ -360,9 +362,9 @@ impl AdapterSchedulerState {
         // Increment batch id
         self.next_batch_id += 1;
 
-        metrics::histogram!("lorax_batch_next_size", batch.size as f64);
+        metrics::histogram!("lorax_batch_next_size", batch.len() as f64);
 
-        Some((batch_entries, batch, next_batch_span))
+        Some((batch_entries, batch))
     }
 }
 
