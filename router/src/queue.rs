@@ -15,23 +15,6 @@ use crate::{
     validation::ValidGenerateRequest,
 };
 
-/// AdapterLoader entry
-#[derive(Debug)]
-pub(crate) struct Entry {
-    /// Request
-    pub request: ValidGenerateRequest,
-    /// Response sender to communicate between the Infer struct and the batching_task
-    pub response_tx: flume::Sender<Result<InferStreamResponse, InferError>>,
-    /// Span that will live as long as entry
-    pub span: Span,
-    /// Temporary span used as a guard when logging inference, wait times...
-    pub temp_span: Option<Span>,
-    /// Instant when this entry was queued
-    pub queue_time: Instant,
-    /// Instant when this entry was added to a batch
-    pub batch_time: Option<Instant>,
-}
-
 #[derive(Debug, PartialEq)]
 pub(crate) enum AdapterStatus {
     Downloading,

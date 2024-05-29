@@ -396,18 +396,6 @@ type TokenizerRequest = (
     Span,
 );
 
-#[derive(Debug)]
-pub(crate) struct ValidGenerateRequest {
-    pub inputs: String,
-    pub input_length: u32,
-    pub truncate: u32,
-    pub decoder_input_details: bool,
-    pub parameters: NextTokenChooserParameters,
-    pub stopping_parameters: StoppingCriteriaParameters,
-    pub adapter: Adapter,
-    pub apply_chat_template: bool,
-}
-
 #[derive(Error, Debug)]
 pub enum ValidationError {
     #[error("`best_of` must be > 0 and <= {0}. Given: {1}")]
