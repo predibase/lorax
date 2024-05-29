@@ -1,3 +1,4 @@
+use core::fmt::Debug;
 use std::sync::Arc;
 
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
@@ -13,6 +14,15 @@ pub(crate) trait ValidRequest {
     fn input_length(&self) -> u32;
     fn max_new_tokens(&self) -> u32;
     fn to_batch(&self) -> Arc<dyn BatchEntries>;
+}
+
+impl Debug for dyn ValidRequest {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ValidRequest")
+            .field("input_length", &self.input_length())
+            .field("max_new_tokens", &self.max_new_tokens())
+            .finish()
+    }
 }
 
 impl ValidRequest for ValidGenerateRequest {
