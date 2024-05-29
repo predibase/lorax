@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - "OOM_fp8_warmup"
     tags:
       - 'v*'
 
@@ -62,10 +63,7 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=,suffix=,format=short
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=qcache
       
       - name: Create a hash from tags
         env:
