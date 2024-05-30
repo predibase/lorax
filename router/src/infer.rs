@@ -526,18 +526,15 @@ pub(crate) async fn embed(
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
 
     match client.embed(batch).await {
-        Ok((generations, next_batch)) => {
+        Ok((results)) => {
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
             filter_send_generations(generations, entries);
 
-            // Filter next batch and remove requests that were stopped
-            let next_batch = filter_batch(client, next_batch, entries).await;
-
-            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "prefill");
-            metrics::increment_counter!("lorax_batch_inference_success", "method" => "prefill");
-            next_batch
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "embed");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "embed");
+            None
         }
         // If we have an error, we discard the whole batch
         Err(err) => {
@@ -545,7 +542,7 @@ pub(crate) async fn embed(
             generation_health.store(false, Ordering::SeqCst);
             let _ = client.clear_cache(Some(batch_id)).await;
             send_errors(err, entries);
-            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "prefill");
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "embed");
             None
         }
     }

@@ -64,14 +64,6 @@ impl Client {
         Ok(response)
     }
 
-    /// Embed
-    #[instrument(skip(self))]
-    pub async fn embed(&mut self, inputs: String) -> Result<EmbedResponse> {
-        let request = tonic::Request::new(EmbedRequest { inputs }).inject_context();
-        let response = self.stub.embed(request).await?.into_inner();
-        Ok(response)
-    }
-
     /// Get model health
     #[instrument(skip(self))]
     pub async fn health(&mut self) -> Result<HealthResponse> {
@@ -194,6 +186,14 @@ impl Client {
         let request = tonic::Request::new(DecodeRequest { batches }).inject_context();
         let response = self.stub.decode(request).await?.into_inner();
         Ok((response.generations, response.batch))
+    }
+
+    /// Embed
+    #[instrument(skip(self))]
+    pub async fn embed(&mut self, batch: Batch) -> Result<Vec<Embedding>> {
+        let request = tonic::Request::new(EmbedRequest { batch: Some(batch) }).inject_context();
+        let response = self.stub.embed(request).await?.into_inner();
+        Ok(response.embeddings)
     }
 
     /// Downloads the weights for an adapter.
