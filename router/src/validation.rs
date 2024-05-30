@@ -1,10 +1,11 @@
 use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
-use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
-use crate::{GenerateParameters, GenerateRequest};
-use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
+use crate::validation::ValidationError::{AmbiguousSchema, BestOfSampling, BestOfSeed, EmptyInput};
+use crate::{GenerateParameters, GenerateRequest, Tool};
+use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
 use rand::{thread_rng, Rng};
+use serde_json::json;
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
 use tokenizers::TruncationDirection;
@@ -174,6 +175,7 @@ impl Validation {
             return_k_alternatives,
             apply_chat_template,
             response_format,
+            tools,
             ..
         } = request.parameters;
 
@@ -282,6 +284,8 @@ impl Validation {
             return Err(EmptyInput);
         }
 
+        let mut inputs = request.inputs.clone();
+
         // Check if truncate is strictly positive and less than max_input_length
         let truncate = truncate
             .map(|value| {
@@ -294,16 +298,40 @@ impl Validation {
 
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
+        let mut schema: Option<String> = None;
+        if response_format.is_some() && tools.is_some() {
+            return Err(AmbiguousSchema);
+        } else if response_format.is_some() {
+            let response_format_val = response_format.unwrap();
+            schema = Some(response_format_val.schema.to_string());
+        } else if tools.is_some() {
+            let tools_vec = tools.unwrap();
+            let functions_vec: Vec<serde_json::Value> = tools_vec
+                .iter()
+                .filter(|t| matches!(t, Tool::Function { .. }))
+                .map(|t| {
+                    let Tool::Function { function } = t;
+                    function.to_schema()
+                })
+                .collect();
+
+            schema = Some(
+                json!({
+                    "type": "array",
+                    "items": {
+                        "oneOf": functions_vec,
+                    },
+                })
+                .to_string(),
+            );
+
+            inputs.push_str(format!("\n---\nYou will be presented with a JSON schema representing a set of tools.\nJSON Schema:\n{}", schema.as_ref().unwrap()).as_str());
+        }
+
         // Validate inputs
         let (inputs, tokenized_inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
-
-        let mut schema: Option<String> = None;
-        if response_format.is_some() {
-            let response_format_val = response_format.unwrap();
-            schema = Some(response_format_val.schema.to_string())
-        }
 
         let parameters = NextTokenChooserParameters {
             temperature,
@@ -453,6 +481,8 @@ pub enum ValidationError {
     EmbeddingModel,
     #[error("Classify models don't support text generation")]
     ClassifyModelError,
+    #[error("Cannot set both response_format and tools at the same time")]
+    AmbiguousSchema,
 }
 
 #[cfg(test)]

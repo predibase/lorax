@@ -273,6 +273,7 @@ pub(crate) struct GenerateParameters {
         example = json!(r#"{"type": "json_object", "schema": {type": "string", "title": "response"}}"#)
     )]
     pub response_format: Option<ResponseFormat>,
+    pub tools: Option<Vec<Tool>>,
 }
 
 fn default_parameters() -> GenerateParameters {
@@ -300,6 +301,7 @@ fn default_parameters() -> GenerateParameters {
         apply_chat_template: false,
         seed: None,
         response_format: None,
+        tools: None,
     }
 }
 
@@ -562,6 +564,47 @@ impl From<Message> for TextMessage {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+#[serde(tag = "type")]
+enum Tool {
+    #[serde(alias = "function")]
+    Function { function: FunctionSpec },
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct FunctionSpec {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
+
+impl FunctionSpec {
+    fn to_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                },
+                "type": {
+                    "const": "function",
+                },
+                "function": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "const": self.name,
+                        },
+                        "arguments": self.parameters,
+                    },
+                    "required": ["name", "arguments"],
+                },
+            },
+            "required": ["id", "type", "function"],
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<Message>,
@@ -580,6 +623,7 @@ struct ChatCompletionRequest {
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     response_format: Option<ResponseFormat>,
+    tools: Option<Vec<Tool>>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
@@ -797,12 +841,49 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 apply_chat_template: false,
                 seed: req.seed,
                 response_format: None,
+                tools: None,
             },
             stream: req.stream.unwrap_or(false),
         }
     }
 }
 
+impl From<ChatCompletionRequest> for CompatGenerateRequest {
+    fn from(req: ChatCompletionRequest) -> Self {
+        CompatGenerateRequest {
+            inputs: serde_json::to_string(&req.messages).unwrap(),
+            parameters: GenerateParameters {
+                adapter_id: req.model.parse().ok(),
+                adapter_source: req.adapter_source,
+                adapter_parameters: None,
+                api_token: req.api_token,
+                best_of: req.n.map(|x| x as usize),
+                temperature: req.temperature,
+                repetition_penalty: req.repetition_penalty,
+                top_k: req.top_k,
+                top_p: req.top_p,
+                typical_p: None,
+                do_sample: !req.n.is_none(),
+                max_new_tokens: req.max_tokens.map(|x| x as u32),
+                ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
+                return_full_text: None,
+                stop: req.stop,
+                truncate: None,
+                watermark: false,
+                details: true,
+                decoder_input_details: false,
+                return_k_alternatives: None,
+                apply_chat_template: true,
+                seed: req.seed,
+                response_format: req.response_format,
+                tools: req.tools,
+            },
+            stream: req.stream.unwrap_or(false),
+        }
+    }
+}
+
+>>>>>>> 8ee43b8 (feat: Function calling schema)
 impl From<GenerateResponse> for CompletionResponse {
     fn from(resp: GenerateResponse) -> Self {
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
