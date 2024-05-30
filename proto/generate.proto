@@ -233,7 +233,11 @@ message DecodeResponse {
 }
 
 message Embedding {
-    repeated float values = 1;
+    /// Request ID
+    uint64 request_id = 1;
+
+    /// Embedding values
+    repeated float values = 2;
 }
 
 message EmbedRequest {

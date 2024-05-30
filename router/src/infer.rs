@@ -11,7 +11,8 @@ use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
+    Batch, CachedBatch, ClientError, Embedding, GeneratedText, Generation, PrefillTokens,
+    ShardedClient,
 };
 use nohash_hasher::IntMap;
 use std::collections::{HashMap, HashSet};
@@ -23,7 +24,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
-use tracing::{info_span, instrument, Instrument, Span};
+use tracing::{info_span, instrument, Span};
 
 /// Inference struct
 #[derive(Clone)]
@@ -255,6 +256,10 @@ impl Infer {
                     result_generated_text = Some(generated_text);
                     result_start = Some(start);
                     result_queued = Some(queued)
+                }
+                InferStreamResponse::Embed { .. } => {
+                    // This should not happen
+                    tracing::error!("Received an Embed message in generate. This is a bug.");
                 }
             }
         }
@@ -526,11 +531,37 @@ pub(crate) async fn embed(
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
 
     match client.embed(batch).await {
-        Ok((results)) => {
+        Ok(results) => {
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries);
+            results.into_iter().for_each(|embedding| {
+                let id = embedding.request_id;
+                // Get entry
+                // We can `expect` here as the request id should always be in the entries
+                let entry = entries
+                    .get(&id)
+                    .expect("ID not found in entries. This is a bug.");
+
+                // Send generation responses back to the infer task
+                // If the receive an error from the Flume channel, it means that the client dropped the
+                // request and we need to stop generating hence why we unwrap_or(true)
+                let stopped = send_embeddings(embedding, entry)
+                    .map_err(|err| {
+                        if let SendTimeoutError::Timeout(_) = *err {
+                            tracing::error!("Entry response channel timed out.")
+                        }
+
+                        metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
+                        err
+                    })
+                    .unwrap_or(true);
+                if stopped {
+                    entries
+                        .remove(&id)
+                        .expect("ID not found in entries. This is a bug.");
+                }
+            });
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "embed");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "embed");
@@ -706,6 +737,29 @@ fn send_responses(
     Ok(stopped)
 }
 
+/// Send responses through the `entry` response channel
+fn send_embeddings(
+    embedding: Embedding,
+    entry: &Entry,
+) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+    // Return directly if the channel is disconnected
+    if entry.response_tx.is_disconnected() {
+        return Ok(true);
+    }
+
+    entry.response_tx.send_timeout(
+        Ok(InferStreamResponse::Embed {
+            embedding: embedding.clone(),
+            queued: entry.queue_time,
+            start: entry.batch_time.unwrap(),
+        }),
+        Duration::from_millis(10),
+    )?;
+
+    // TODO(travis): redundant as we always return true, just make it return nothing
+    Ok(true)
+}
+
 /// Send errors to Infer for all `entries`
 #[instrument(skip_all)]
 fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
@@ -733,6 +787,12 @@ pub(crate) enum InferStreamResponse {
     },
     // Intermediate messages
     Token(Token),
+    // Embeddings
+    Embed {
+        embedding: Embedding,
+        start: Instant,
+        queued: Instant,
+    },
     // Last message
     End {
         token: Token,
