@@ -24,7 +24,7 @@ pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
     fn input_length(&self) -> u32;
     fn max_new_tokens(&self) -> u32;
     fn adapter(&self) -> Adapter;
-    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Arc<dyn BatchEntries>;
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries>;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -41,8 +41,8 @@ impl ValidRequest for ValidGenerateRequest {
         self.adapter
     }
 
-    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Arc<dyn BatchEntries> {
-        Arc::new(GenerateBatchEntries::new(num_entries, queue_len))
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries> {
+        Box::new(GenerateBatchEntries::new(num_entries, queue_len))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -70,8 +70,8 @@ impl ValidRequest for ValidEmbedRequest {
         self.adapter
     }
 
-    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Arc<dyn BatchEntries> {
-        Arc::new(EmbedBatchEntries::new())
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries> {
+        Box::new(EmbedBatchEntries::new())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -202,13 +202,15 @@ impl BatchEntriesState {
 #[async_trait]
 pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
-    fn extend(&mut self, entries: Arc<dyn BatchEntries>);
+    fn extend(&mut self, entries: Box<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
     fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
     fn state(&self) -> &BatchEntriesState;
+    fn set_span(&mut self, span: Span);
+    fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>);
 
     async fn process_first(
         &mut self,
@@ -268,7 +270,7 @@ impl BatchEntries for GenerateBatchEntries {
         return true;
     }
 
-    fn extend(&mut self, entries: Arc<dyn BatchEntries>) {
+    fn extend(&mut self, entries: Box<dyn BatchEntries>) {
         self.state()
             .batch_entries
             .extend(entries.state().batch_entries);
@@ -296,6 +298,23 @@ impl BatchEntries for GenerateBatchEntries {
 
     fn state(&self) -> &BatchEntriesState {
         &self.state
+    }
+
+    fn set_span(&mut self, span: Span) {
+        self.state.next_batch_span = span;
+    }
+
+    fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
+        let state = self.state();
+        for (_, entry) in self.state.batch_entries.iter_mut() {
+            // Create a new span to link the batch back to this entry
+            let entry_batch_span = create_span_fn(&entry.span);
+            // Add relationships
+            state.next_batch_span.follows_from(&entry_batch_span);
+            entry_batch_span.follows_from(&state.next_batch_span);
+            // Update entry
+            entry.temp_span = Some(entry_batch_span);
+        }
     }
 
     async fn process_first(
@@ -374,7 +393,7 @@ impl BatchEntries for EmbedBatchEntries {
         return true;
     }
 
-    fn extend(&mut self, entries: Arc<dyn BatchEntries>) {
+    fn extend(&mut self, entries: Box<dyn BatchEntries>) {
         self.state()
             .batch_entries
             .extend(entries.state().batch_entries);
@@ -402,6 +421,23 @@ impl BatchEntries for EmbedBatchEntries {
 
     fn state(&self) -> &BatchEntriesState {
         &self.state
+    }
+
+    fn set_span(&mut self, span: Span) {
+        self.state.next_batch_span = span;
+    }
+
+    fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
+        let state = self.state();
+        for (_, entry) in self.state.batch_entries.iter_mut() {
+            // Create a new span to link the batch back to this entry
+            let entry_batch_span = create_span_fn(&entry.span);
+            // Add relationships
+            state.next_batch_span.follows_from(&entry_batch_span);
+            entry_batch_span.follows_from(&state.next_batch_span);
+            // Update entry
+            entry.temp_span = Some(entry_batch_span);
+        }
     }
 
     async fn process_first(

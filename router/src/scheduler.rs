@@ -103,7 +103,7 @@ impl AdapterScheduler {
     }
 }
 
-type NextBatch = (Arc<dyn BatchEntries>, Batch);
+type NextBatch = (Box<dyn BatchEntries>, Batch);
 
 /// Background task that manages the queues of the various adapters
 /// TODO(geoffrey): add tracing (span object) to the various commands
@@ -264,7 +264,7 @@ impl AdapterSchedulerState {
         );
 
         // Pop entries starting from the front of the queue
-        let mut batch_entries: Option<Arc<dyn BatchEntries>> = None;
+        let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
         while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
