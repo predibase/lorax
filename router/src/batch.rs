@@ -2,17 +2,22 @@ use core::fmt::Debug;
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
-use lorax_client::{Batch, NextTokenChooserParameters, Request, StoppingCriteriaParameters};
+use async_trait::async_trait;
+
+use lorax_client::{
+    Batch, CachedBatch, NextTokenChooserParameters, Request, ShardedClient,
+    StoppingCriteriaParameters,
+};
 use nohash_hasher::{BuildNoHashHasher, IntMap};
 use tokio::time::Instant;
-use tracing::{info_span, Span};
+use tracing::{info_span, Instrument, Span};
 
 use crate::{
     adapter::Adapter,
-    infer::{InferError, InferStreamResponse},
+    infer::{decode, embed, prefill, InferError, InferStreamResponse},
 };
 
 pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
@@ -101,15 +106,6 @@ pub(crate) struct Entry {
     pub queue_time: Instant,
     /// Instant when this entry was added to a batch
     pub batch_time: Option<Instant>,
-}
-
-pub(crate) trait BatchEntries: Sync + Send + Debug {
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
-    fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
-    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
-    fn adapters_in_use(&self) -> HashSet<Adapter>;
-    fn is_empty(&self) -> bool;
-    fn len(&self) -> usize;
 }
 
 #[derive(Debug)]
@@ -203,6 +199,30 @@ impl BatchEntriesState {
     }
 }
 
+#[async_trait]
+pub(crate) trait BatchEntries: Sync + Send + Debug {
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
+    fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
+    fn adapters_in_use(&self) -> HashSet<Adapter>;
+    fn is_empty(&self) -> bool;
+    fn len(&self) -> usize;
+
+    async fn process_first(
+        &mut self,
+        client: &mut ShardedClient,
+        batch: Batch,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch>;
+
+    async fn process_next(
+        &mut self,
+        client: &mut ShardedClient,
+        batches: Vec<CachedBatch>,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch>;
+}
+
 #[derive(Debug)]
 pub(crate) struct GenerateBatchEntries {
     pub(crate) state: BatchEntriesState,
@@ -216,6 +236,7 @@ impl GenerateBatchEntries {
     }
 }
 
+#[async_trait]
 impl BatchEntries for GenerateBatchEntries {
     fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool {
         // return false if the entry.request is not of type ValidGenerateRequest
@@ -264,6 +285,38 @@ impl BatchEntries for GenerateBatchEntries {
     fn len(&self) -> usize {
         self.state.len()
     }
+
+    async fn process_first(
+        &mut self,
+        client: &mut ShardedClient,
+        batch: Batch,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch> {
+        prefill(
+            &mut client,
+            batch,
+            &mut self.state.batch_entries,
+            &generation_health,
+        )
+        .instrument(self.state.next_batch_span)
+        .await
+    }
+
+    async fn process_next(
+        &mut self,
+        client: &mut ShardedClient,
+        batches: Vec<CachedBatch>,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch> {
+        decode(
+            &mut client,
+            batches,
+            &mut self.state.batch_entries,
+            &generation_health,
+        )
+        .instrument(self.state.next_batch_span)
+        .await
+    }
 }
 
 #[derive(Debug)]
@@ -279,6 +332,7 @@ impl EmbedBatchEntries {
     }
 }
 
+#[async_trait]
 impl BatchEntries for EmbedBatchEntries {
     fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool {
         // return false if the entry.request is not of type ValidGenerateRequest
@@ -326,5 +380,31 @@ impl BatchEntries for EmbedBatchEntries {
 
     fn len(&self) -> usize {
         self.state.len()
+    }
+
+    async fn process_first(
+        &mut self,
+        client: &mut ShardedClient,
+        batch: Batch,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch> {
+        embed(
+            &mut client,
+            batch,
+            &mut self.state.batch_entries,
+            &generation_health,
+        )
+        .instrument(self.state.next_batch_span)
+        .await
+    }
+
+    async fn process_next(
+        &mut self,
+        client: &mut ShardedClient,
+        batches: Vec<CachedBatch>,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch> {
+        // TODO(travis): send error (programming eroor) if we get here
+        None
     }
 }

@@ -449,7 +449,7 @@ async fn batching_task(
 }
 
 #[instrument(skip_all)]
-async fn prefill(
+pub(crate) async fn prefill(
     client: &mut ShardedClient,
     batch: Batch,
     entries: &mut IntMap<u64, Entry>,
@@ -486,7 +486,7 @@ async fn prefill(
 }
 
 #[instrument(skip_all)]
-async fn decode(
+pub(crate) async fn decode(
     client: &mut ShardedClient,
     batches: Vec<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
@@ -518,6 +518,43 @@ async fn decode(
             }
             send_errors(err, entries);
             metrics::increment_counter!("lorax_batch_inference_failure", "method" => "decode");
+            None
+        }
+    }
+}
+
+#[instrument(skip_all)]
+pub(crate) async fn embed(
+    client: &mut ShardedClient,
+    batch: Batch,
+    entries: &mut IntMap<u64, Entry>,
+    generation_health: &Arc<AtomicBool>,
+) -> Option<CachedBatch> {
+    let start_time = Instant::now();
+    let batch_id = batch.id;
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
+
+    match client.embed(batch).await {
+        Ok((generations, next_batch)) => {
+            // Update health
+            generation_health.store(true, Ordering::SeqCst);
+            // Send generated tokens and filter stopped entries
+            filter_send_generations(generations, entries);
+
+            // Filter next batch and remove requests that were stopped
+            let next_batch = filter_batch(client, next_batch, entries).await;
+
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "prefill");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "prefill");
+            next_batch
+        }
+        // If we have an error, we discard the whole batch
+        Err(err) => {
+            // Update health
+            generation_health.store(false, Ordering::SeqCst);
+            let _ = client.clear_cache(Some(batch_id)).await;
+            send_errors(err, entries);
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "prefill");
             None
         }
     }
