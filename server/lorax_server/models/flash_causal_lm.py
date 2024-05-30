@@ -813,8 +813,7 @@ class FlashCausalLM(Model):
 
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
-        cache_dtype = torch.uint8 if fp8_supported else self.dtype
-        dtype_size = torch.tensor([], dtype=cache_dtype).element_size()
+        dtype_size = torch.tensor([], dtype=self.dtype).element_size()
         cache_block_size = BLOCK_SIZE * self.num_kv_heads * self.head_size
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
