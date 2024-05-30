@@ -350,8 +350,8 @@ async fn batching_task(
             )
             .await
         {
-            let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
-                .instrument(span)
+            let mut cached_batch = batch_entries
+                .process_first(&mut client, batch, &generation_health)
                 .await;
             let mut waiting_tokens = 1;
 
@@ -382,7 +382,7 @@ async fn batching_task(
                 let adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((mut batch_entries, new_batch)) = adapter_scheduler
+                if let Some((mut new_entries, new_batch)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use,
                         min_size,
@@ -410,21 +410,20 @@ async fn batching_task(
                     });
 
                     // Generate one token for this new batch to have the attention past in cache
-                    let new_cached_batch =
-                        prefill(&mut client, new_batch, &mut new_entries, &generation_health)
-                            .instrument(span)
-                            .await;
+                    let new_cached_batch = batch_entries
+                        .process_first(&mut client, new_batch, &generation_health)
+                        .await;
                     // Reset waiting counter
                     waiting_tokens = 1;
                     // Extend current batch with the new batch
                     if let Some(new_cached_batch) = new_cached_batch {
-                        entries.extend(new_entries);
+                        batch_entries.extend(new_entries);
                         batches.push(new_cached_batch);
                     }
                 }
 
                 // Create span for this batch to add context to inference calls
-                let next_batch_size = entries.len();
+                let next_batch_size = batch_entries.len();
                 let next_batch_span =
                     info_span!(parent: None, "batch", batch_size = next_batch_size);
                 entries.iter_mut().for_each(|(_, entry)| {
@@ -437,7 +436,8 @@ async fn batching_task(
                     entry.temp_span = Some(entry_batch_span);
                 });
 
-                cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
+                cached_batch = batch_entries
+                    .process_next(&mut client, batches, &generation_health)
                     .instrument(next_batch_span)
                     .await;
                 waiting_tokens += 1;

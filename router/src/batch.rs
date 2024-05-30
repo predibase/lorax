@@ -202,11 +202,13 @@ impl BatchEntriesState {
 #[async_trait]
 pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
+    fn extend(&mut self, entries: Arc<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
     fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+    fn state(&self) -> &BatchEntriesState;
 
     async fn process_first(
         &mut self,
@@ -266,6 +268,12 @@ impl BatchEntries for GenerateBatchEntries {
         return true;
     }
 
+    fn extend(&mut self, entries: Arc<dyn BatchEntries>) {
+        self.state()
+            .batch_entries
+            .extend(entries.state().batch_entries);
+    }
+
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)> {
         self.state.drain()
     }
@@ -284,6 +292,10 @@ impl BatchEntries for GenerateBatchEntries {
 
     fn len(&self) -> usize {
         self.state.len()
+    }
+
+    fn state(&self) -> &BatchEntriesState {
+        &self.state
     }
 
     async fn process_first(
@@ -362,6 +374,12 @@ impl BatchEntries for EmbedBatchEntries {
         return true;
     }
 
+    fn extend(&mut self, entries: Arc<dyn BatchEntries>) {
+        self.state()
+            .batch_entries
+            .extend(entries.state().batch_entries);
+    }
+
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)> {
         self.state.drain()
     }
@@ -380,6 +398,10 @@ impl BatchEntries for EmbedBatchEntries {
 
     fn len(&self) -> usize {
         self.state.len()
+    }
+
+    fn state(&self) -> &BatchEntriesState {
+        &self.state
     }
 
     async fn process_first(
