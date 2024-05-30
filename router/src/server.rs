@@ -841,6 +841,15 @@ async fn generate_stream_with_callback(
 
                                             yield Ok(callback(stream_token));
                                             break;
+                                        },
+                                        InferStreamResponse::Embed {
+                                            ..
+                                        } => {
+                                            let err = InferError::from(ValidationError::EmbeddingModel);
+                                            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+                                            tracing::error!("{err}");
+                                            yield Ok(Event::from(err));
+                                            break;
                                         }
                                     }
                                 }
