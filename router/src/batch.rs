@@ -159,7 +159,8 @@ impl BatchEntriesState {
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)> {
         let mut entries = Vec::with_capacity(self.batch_requests.len());
 
-        for r in self.batch_requests.into_iter().rev() {
+        // TODO(travis): clone is not ideal, find a way to do this cleanly in place
+        for r in self.batch_requests.clone().into_iter().rev() {
             let id = r.id;
             let entry = self.batch_entries.remove(&id).unwrap();
             let adapter_index = r.adapter_index;
@@ -175,9 +176,10 @@ impl BatchEntriesState {
         let size = self.len() as u32;
         self.next_batch_span.record("batch_size", size);
 
+        // TODO(travis): clone is not ideal, find a way to do this cleanly in place
         Batch {
             id: batch_id,
-            requests: self.batch_requests,
+            requests: self.batch_requests.clone(),
             size,
             max_tokens,
         }
@@ -312,13 +314,13 @@ impl BatchEntries for GenerateBatchEntries {
     }
 
     fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
-        let state = self.state();
+        let next_batch_span = &self.state().next_batch_span;
         for (_, entry) in self.state.batch_entries.iter_mut() {
             // Create a new span to link the batch back to this entry
             let entry_batch_span = create_span_fn(&entry.span);
             // Add relationships
-            state.next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(&state.next_batch_span);
+            next_batch_span.follows_from(&entry_batch_span);
+            entry_batch_span.follows_from(next_batch_span);
             // Update entry
             entry.temp_span = Some(entry_batch_span);
         }
@@ -331,7 +333,7 @@ impl BatchEntries for GenerateBatchEntries {
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         prefill(
-            &mut client,
+            client,
             batch,
             &mut self.state.batch_entries,
             &generation_health,
@@ -347,7 +349,7 @@ impl BatchEntries for GenerateBatchEntries {
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         decode(
-            &mut client,
+            client,
             batches,
             &mut self.state.batch_entries,
             &generation_health,
