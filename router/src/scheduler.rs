@@ -265,7 +265,7 @@ impl AdapterSchedulerState {
 
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
-        while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
+        while let Some((id, entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -323,7 +323,7 @@ impl AdapterSchedulerState {
                 );
             }
 
-            if !batch_entries.as_ref().unwrap().add(id, entry, adapter) {
+            if !batch_entries.unwrap().add(id, entry, adapter) {
                 // Incompatible entry for this batch. Reinsert and break
                 queues_state.push_front(&adapter, id, entry);
                 break;

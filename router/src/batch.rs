@@ -38,7 +38,7 @@ impl ValidRequest for ValidGenerateRequest {
     }
 
     fn adapter(&self) -> Adapter {
-        self.adapter
+        self.adapter.clone()
     }
 
     fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries> {
@@ -67,11 +67,11 @@ impl ValidRequest for ValidEmbedRequest {
     }
 
     fn adapter(&self) -> Adapter {
-        self.adapter
+        self.adapter.clone()
     }
 
     fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries> {
-        Box::new(EmbedBatchEntries::new())
+        Box::new(EmbedBatchEntries::new(num_entries, queue_len))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -122,11 +122,11 @@ impl BatchEntriesState {
         let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
         next_batch_span.follows_from(&Span::current());
 
-        let mut batch_requests = Vec::with_capacity(num_entries);
-        let mut batch_entries =
+        let batch_requests = Vec::with_capacity(num_entries);
+        let batch_entries =
             IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
 
-        let mut index_to_adapter = HashMap::with_capacity(queue_len);
+        let index_to_adapter = HashMap::with_capacity(queue_len);
 
         Self {
             batch_requests,
@@ -356,9 +356,9 @@ pub(crate) struct EmbedBatchEntries {
 }
 
 impl EmbedBatchEntries {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(num_entries: usize, queue_len: usize) -> Self {
         Self {
-            state: BatchEntriesState::new(0, 0),
+            state: BatchEntriesState::new(num_entries, queue_len),
         }
     }
 }
@@ -447,7 +447,7 @@ impl BatchEntries for EmbedBatchEntries {
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         embed(
-            &mut client,
+            client,
             batch,
             &mut self.state.batch_entries,
             &generation_health,
