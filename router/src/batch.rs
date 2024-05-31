@@ -212,6 +212,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
     fn state(&self) -> &BatchEntriesState;
+    fn mut_state(&mut self) -> &mut BatchEntriesState;
     fn set_span(&mut self, span: Span);
     fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>);
 
@@ -279,10 +280,9 @@ impl BatchEntries for GenerateBatchEntries {
         self.state.add(id, entry, adapter, request_proto);
     }
 
-    fn extend(&mut self, entries: Box<dyn BatchEntries>) {
-        self.state()
-            .batch_entries
-            .extend(entries.state().batch_entries);
+    fn extend(&mut self, mut entries: Box<dyn BatchEntries>) {
+        let new_batch_entries = std::mem::take(&mut entries.mut_state().batch_entries);
+        self.state.batch_entries.extend(new_batch_entries);
     }
 
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)> {
@@ -309,12 +309,16 @@ impl BatchEntries for GenerateBatchEntries {
         &self.state
     }
 
+    fn mut_state(&mut self) -> &mut BatchEntriesState {
+        &mut self.state
+    }
+
     fn set_span(&mut self, span: Span) {
         self.state.next_batch_span = span;
     }
 
     fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
-        let next_batch_span = &self.state().next_batch_span;
+        let next_batch_span = &self.state.next_batch_span;
         for (_, entry) in self.state.batch_entries.iter_mut() {
             // Create a new span to link the batch back to this entry
             let entry_batch_span = create_span_fn(&entry.span);
@@ -408,10 +412,9 @@ impl BatchEntries for EmbedBatchEntries {
         self.state.add(id, entry, adapter, request_proto);
     }
 
-    fn extend(&mut self, entries: Box<dyn BatchEntries>) {
-        self.state()
-            .batch_entries
-            .extend(entries.state().batch_entries);
+    fn extend(&mut self, mut entries: Box<dyn BatchEntries>) {
+        let new_batch_entries = std::mem::take(&mut entries.mut_state().batch_entries);
+        self.state.batch_entries.extend(new_batch_entries);
     }
 
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)> {
@@ -438,18 +441,22 @@ impl BatchEntries for EmbedBatchEntries {
         &self.state
     }
 
+    fn mut_state(&mut self) -> &mut BatchEntriesState {
+        &mut self.state
+    }
+
     fn set_span(&mut self, span: Span) {
         self.state.next_batch_span = span;
     }
 
     fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
-        let state = self.state();
+        let next_batch_span = &self.state.next_batch_span;
         for (_, entry) in self.state.batch_entries.iter_mut() {
             // Create a new span to link the batch back to this entry
             let entry_batch_span = create_span_fn(&entry.span);
             // Add relationships
-            state.next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(&state.next_batch_span);
+            next_batch_span.follows_from(&entry_batch_span);
+            entry_batch_span.follows_from(next_batch_span);
             // Update entry
             entry.temp_span = Some(entry_batch_span);
         }

@@ -512,7 +512,7 @@ async fn batching_task(
                 let adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((mut new_entries, new_batch)) = adapter_scheduler
+                if let Some((new_entries, new_batch)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use,
                         min_size,
