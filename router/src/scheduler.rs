@@ -275,8 +275,8 @@ impl AdapterSchedulerState {
 
             if self.requires_padding {
                 let mut batch_requests_len = 0;
-                if batch_entries.is_some() {
-                    batch_requests_len = batch_entries.as_ref().unwrap().len();
+                if let Some(batch_entries) = batch_entries.as_ref() {
+                    batch_requests_len = batch_entries.len();
                 }
 
                 // We pad to max input length in the Python shards
@@ -323,18 +323,20 @@ impl AdapterSchedulerState {
                 );
             }
 
-            if !batch_entries.unwrap().add(id, entry, adapter) {
+            if !batch_entries.as_ref().unwrap().can_add(&entry) {
                 // Incompatible entry for this batch. Reinsert and break
                 queues_state.push_front(&adapter, id, entry);
                 break;
             }
+
+            batch_entries.as_mut().unwrap().add(id, entry, adapter)
         }
 
         if batch_entries.is_none() {
             return None;
         }
 
-        let batch_entries = batch_entries.unwrap();
+        let mut batch_entries = batch_entries.unwrap();
 
         // Empty batch
         if batch_entries.is_empty() {
@@ -346,7 +348,7 @@ impl AdapterSchedulerState {
             // Batch is too small
             if batch_entries.len() < min_size {
                 // Add back entries to the queue in the correct order
-                for (adapter, id, entry) in batch_entries.as_ref().drain() {
+                for (adapter, id, entry) in batch_entries.drain() {
                     queues_state.push_front(&adapter, id, entry);
                 }
 

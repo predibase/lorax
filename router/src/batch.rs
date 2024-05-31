@@ -201,7 +201,8 @@ impl BatchEntriesState {
 
 #[async_trait]
 pub(crate) trait BatchEntries: Sync + Send + Debug {
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool;
+    fn can_add(&self, entry: &Entry) -> bool;
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter);
     fn extend(&mut self, entries: Box<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
@@ -242,7 +243,7 @@ impl GenerateBatchEntries {
 
 #[async_trait]
 impl BatchEntries for GenerateBatchEntries {
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool {
+    fn can_add(&self, entry: &Entry) -> bool {
         // return false if the entry.request is not of type ValidGenerateRequest
         let valid_request = entry
             .request
@@ -250,9 +251,16 @@ impl BatchEntries for GenerateBatchEntries {
             .as_any()
             .downcast_ref::<ValidGenerateRequest>();
 
-        if valid_request.is_none() {
-            return false;
-        }
+        let result = valid_request.is_some();
+        result
+    }
+
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) {
+        let valid_request = entry
+            .request
+            .as_ref()
+            .as_any()
+            .downcast_ref::<ValidGenerateRequest>();
 
         let request = valid_request.unwrap();
         let request_proto = Request {
@@ -267,7 +275,6 @@ impl BatchEntries for GenerateBatchEntries {
         };
 
         self.state.add(id, entry, adapter, request_proto);
-        return true;
     }
 
     fn extend(&mut self, entries: Box<dyn BatchEntries>) {
@@ -365,17 +372,24 @@ impl EmbedBatchEntries {
 
 #[async_trait]
 impl BatchEntries for EmbedBatchEntries {
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) -> bool {
-        // return false if the entry.request is not of type ValidGenerateRequest
+    fn can_add(&self, entry: &Entry) -> bool {
+        // return false if the entry.request is not of type ValidEmbedRequest
         let valid_request = entry
             .request
             .as_ref()
             .as_any()
             .downcast_ref::<ValidEmbedRequest>();
 
-        if valid_request.is_none() {
-            return false;
-        }
+        let result = valid_request.is_some();
+        result
+    }
+
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) {
+        let valid_request = entry
+            .request
+            .as_ref()
+            .as_any()
+            .downcast_ref::<ValidEmbedRequest>();
 
         let request = valid_request.unwrap();
         let request_proto = Request {
@@ -390,7 +404,6 @@ impl BatchEntries for EmbedBatchEntries {
         };
 
         self.state.add(id, entry, adapter, request_proto);
-        return true;
     }
 
     fn extend(&mut self, entries: Box<dyn BatchEntries>) {
