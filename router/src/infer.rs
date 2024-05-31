@@ -1,9 +1,10 @@
 /// Batching and inference logic
 use crate::adapter::{extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID};
+use crate::batch::ValidEmbedRequest;
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
-use crate::{AdapterParameters, AlternativeToken, Entry, Token};
+use crate::{AdapterParameters, AlternativeToken, EmbedRequest, Entry, Token};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -162,6 +163,101 @@ impl Infer {
                 tracing::error!("{err}");
                 err
             })?;
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = flume::unbounded();
+
+        // Process the request by sending it to the queue associated with `adapter`
+        self.adapter_scheduler.process(
+            adapter.clone(),
+            Entry {
+                request: Arc::new(valid_request),
+                response_tx,
+                span: Span::current(),
+                temp_span: None,
+                queue_time: Instant::now(),
+                batch_time: None,
+            },
+        );
+
+        // Return stream
+        Ok((permit, response_rx.into_stream()))
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn embed(
+        &self,
+        request: EmbedRequest,
+    ) -> Result<
+        (
+            OwnedSemaphorePermit,
+            RecvStream<Result<InferStreamResponse, InferError>>,
+        ),
+        InferError,
+    > {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        // TODO(travis): support adapters
+        // let (adapter_source, adapter_parameters) = extract_adapter_params(
+        //     request.parameters.adapter_id.clone(),
+        //     request.parameters.adapter_source.clone(),
+        //     request.parameters.adapter_parameters.clone(),
+        // );
+
+        // let adapter_idx;
+        // {
+        //     // TODO(travis): can optimize concurrency here using RWLock
+        //     let mut adapter_to_index = self.adapter_to_index.lock().await;
+        //     let adapter_key = adapter_parameters.clone();
+        //     if adapter_to_index.contains_key(&adapter_key) {
+        //         adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
+        //     } else {
+        //         adapter_idx = adapter_to_index.len() as u32;
+        //         adapter_to_index.insert(adapter_key, adapter_idx);
+        //     }
+        // }
+
+        let adapter = Adapter::new(
+            AdapterParameters {
+                adapter_ids: vec!["".to_string()],
+                ..Default::default()
+            },
+            "hf".to_string(),
+            0,
+            None,
+        );
+
+        // TODO(travis): robust validation
+        // Validate request
+        // let valid_request = self
+        //     .validation
+        //     .validate(request, adapter.clone())
+        //     .await
+        //     .map_err(|err| {
+        //         metrics::increment_counter!("lorax_request_failure", "err" => "validation");
+        //         tracing::error!("{err}");
+        //         err
+        //     })?;
+
+        let (inputs, input_length) = self
+            .validation
+            .validate_input(request.inputs, None, Some(1))
+            .await?;
+
+        let valid_request = ValidEmbedRequest {
+            inputs: inputs,
+            input_length: input_length as u32,
+            adapter: adapter.clone(),
+        };
 
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = flume::unbounded();

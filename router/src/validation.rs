@@ -87,7 +87,7 @@ impl Validation {
     }
 
     #[instrument(skip(self, inputs))]
-    async fn validate_input(
+    pub(crate) async fn validate_input(
         &self,
         inputs: String,
         truncate: Option<usize>,
