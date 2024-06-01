@@ -103,7 +103,7 @@ impl AdapterScheduler {
     }
 }
 
-type NextBatch = (Box<dyn BatchEntries>, Batch);
+type NextBatch = (Box<dyn BatchEntries>, Batch, Span);
 
 /// Background task that manages the queues of the various adapters
 /// TODO(geoffrey): add tracing (span object) to the various commands
@@ -250,6 +250,10 @@ impl AdapterSchedulerState {
             }
         }
 
+        // Create span for this batch to add context to inference calls
+        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
+        next_batch_span.follows_from(&Span::current());
+
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
@@ -265,7 +269,7 @@ impl AdapterSchedulerState {
 
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
-        while let Some((id, entry, adapter)) = queues_state.next_entry() {
+        while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -329,6 +333,14 @@ impl AdapterSchedulerState {
                 break;
             }
 
+            // Create a new span to link the batch back to this entry
+            let entry_batch_span = info_span!(parent: &entry.span, "infer");
+            // Add relationships
+            next_batch_span.follows_from(&entry_batch_span);
+            entry_batch_span.follows_from(&next_batch_span);
+            // Update entry
+            entry.temp_span = Some(entry_batch_span);
+
             batch_entries.as_mut().unwrap().add(id, entry, adapter)
         }
 
@@ -356,6 +368,7 @@ impl AdapterSchedulerState {
             }
         }
 
+        next_batch_span.record("batch_size", batch_entries.len() as u32);
         let max_tokens = prefill_tokens + decode_tokens;
         let batch = batch_entries.create_batch_data(self.next_batch_id, max_tokens);
 
@@ -364,7 +377,7 @@ impl AdapterSchedulerState {
 
         metrics::histogram!("lorax_batch_next_size", batch_entries.len() as f64);
 
-        Some((batch_entries, batch))
+        Some((batch_entries, batch, next_batch_span))
     }
 }
 

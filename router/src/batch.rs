@@ -13,7 +13,7 @@ use lorax_client::{
 };
 use nohash_hasher::{BuildNoHashHasher, IntMap};
 use tokio::time::Instant;
-use tracing::{info_span, Instrument, Span};
+use tracing::{info_span, span, Instrument, Span};
 
 use crate::{
     adapter::Adapter,
@@ -113,15 +113,10 @@ pub(crate) struct BatchEntriesState {
     pub(crate) batch_requests: Vec<Request>,
     pub(crate) batch_entries: HashMap<u64, Entry, BuildNoHashHasher<u64>>,
     pub(crate) index_to_adapter: HashMap<u32, Adapter>,
-    next_batch_span: Span,
 }
 
 impl BatchEntriesState {
     pub(crate) fn new(num_entries: usize, queue_len: usize) -> Self {
-        // Create span for this batch to add context to inference calls
-        let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
-        next_batch_span.follows_from(&Span::current());
-
         let batch_requests = Vec::with_capacity(num_entries);
         let batch_entries =
             IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
@@ -132,19 +127,10 @@ impl BatchEntriesState {
             batch_requests,
             batch_entries,
             index_to_adapter,
-            next_batch_span,
         }
     }
 
     fn add(&mut self, id: u64, mut entry: Entry, adapter: Adapter, request: Request) {
-        // Create a new span to link the batch back to this entry
-        let entry_batch_span = info_span!(parent: &entry.span, "infer");
-        // Add relationships
-        self.next_batch_span.follows_from(&entry_batch_span);
-        entry_batch_span.follows_from(&self.next_batch_span);
-        // Update entry
-        entry.temp_span = Some(entry_batch_span);
-
         self.batch_requests.push(request);
 
         // Set batch_time
@@ -174,7 +160,6 @@ impl BatchEntriesState {
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
         // Final batch size
         let size = self.len() as u32;
-        self.next_batch_span.record("batch_size", size);
 
         // TODO(travis): clone is not ideal, find a way to do this cleanly in place
         Batch {
@@ -213,13 +198,12 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn len(&self) -> usize;
     fn state(&self) -> &BatchEntriesState;
     fn mut_state(&mut self) -> &mut BatchEntriesState;
-    fn set_span(&mut self, span: Span);
-    fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>);
 
     async fn process_first(
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
 
@@ -227,6 +211,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         &mut self,
         client: &mut ShardedClient,
         batches: Vec<CachedBatch>,
+        span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
 }
@@ -313,27 +298,11 @@ impl BatchEntries for GenerateBatchEntries {
         &mut self.state
     }
 
-    fn set_span(&mut self, span: Span) {
-        self.state.next_batch_span = span;
-    }
-
-    fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
-        let next_batch_span = &self.state.next_batch_span;
-        for (_, entry) in self.state.batch_entries.iter_mut() {
-            // Create a new span to link the batch back to this entry
-            let entry_batch_span = create_span_fn(&entry.span);
-            // Add relationships
-            next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(next_batch_span);
-            // Update entry
-            entry.temp_span = Some(entry_batch_span);
-        }
-    }
-
     async fn process_first(
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         prefill(
@@ -342,7 +311,7 @@ impl BatchEntries for GenerateBatchEntries {
             &mut self.state.batch_entries,
             &generation_health,
         )
-        .instrument(self.state.next_batch_span)
+        .instrument(span)
         .await
     }
 
@@ -350,6 +319,7 @@ impl BatchEntries for GenerateBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batches: Vec<CachedBatch>,
+        span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         decode(
@@ -358,7 +328,7 @@ impl BatchEntries for GenerateBatchEntries {
             &mut self.state.batch_entries,
             &generation_health,
         )
-        .instrument(self.state.next_batch_span)
+        .instrument(span)
         .await
     }
 }
@@ -445,27 +415,11 @@ impl BatchEntries for EmbedBatchEntries {
         &mut self.state
     }
 
-    fn set_span(&mut self, span: Span) {
-        self.state.next_batch_span = span;
-    }
-
-    fn update_entries_span(&mut self, create_span_fn: Box<dyn Fn(&Span) -> Span>) {
-        let next_batch_span = &self.state.next_batch_span;
-        for (_, entry) in self.state.batch_entries.iter_mut() {
-            // Create a new span to link the batch back to this entry
-            let entry_batch_span = create_span_fn(&entry.span);
-            // Add relationships
-            next_batch_span.follows_from(&entry_batch_span);
-            entry_batch_span.follows_from(next_batch_span);
-            // Update entry
-            entry.temp_span = Some(entry_batch_span);
-        }
-    }
-
     async fn process_first(
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         embed(
@@ -474,7 +428,7 @@ impl BatchEntries for EmbedBatchEntries {
             &mut self.state.batch_entries,
             &generation_health,
         )
-        .instrument(self.state.next_batch_span)
+        .instrument(span)
         .await
     }
 
@@ -482,6 +436,7 @@ impl BatchEntries for EmbedBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batches: Vec<CachedBatch>,
+        span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(travis): send error (programming eroor) if we get here

@@ -471,7 +471,7 @@ async fn batching_task(
         // Get the next batch from the queue
         // This batch might be smaller than the maximum batch size if there are not enough requests
         // waiting in the queue
-        while let Some((mut batch_entries, batch)) = adapter_scheduler
+        while let Some((mut batch_entries, batch, span)) = adapter_scheduler
             .next_batch(
                 HashSet::new(),
                 None,
@@ -481,7 +481,7 @@ async fn batching_task(
             .await
         {
             let mut cached_batch = batch_entries
-                .process_first(&mut client, batch, &generation_health)
+                .process_first(&mut client, batch, span, &generation_health)
                 .await;
             let mut waiting_tokens = 1;
 
@@ -512,7 +512,7 @@ async fn batching_task(
                 let adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((new_entries, new_batch)) = adapter_scheduler
+                if let Some((new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use,
                         min_size,
@@ -528,11 +528,24 @@ async fn batching_task(
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded");
                     }
 
-                    batch_entries.update_entries_span(Box::new(create_waiting_span));
+                    batch_entries
+                        .mut_state()
+                        .batch_entries
+                        .iter_mut()
+                        .for_each(|(_, entry)| {
+                            // Create a new span to add the info that this entry is waiting
+                            // because a new batch is being computed
+                            let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                            // Add relationships
+                            span.follows_from(&entry_waiting_span);
+                            entry_waiting_span.follows_from(&span);
+                            // Update entry
+                            entry.temp_span = Some(entry_waiting_span);
+                        });
 
                     // Generate one token for this new batch to have the attention past in cache
                     let new_cached_batch = batch_entries
-                        .process_first(&mut client, new_batch, &generation_health)
+                        .process_first(&mut client, new_batch, span, &generation_health)
                         .await;
                     // Reset waiting counter
                     waiting_tokens = 1;
@@ -547,11 +560,23 @@ async fn batching_task(
                 let next_batch_size = batch_entries.len();
                 let next_batch_span =
                     info_span!(parent: None, "batch", batch_size = next_batch_size);
-                batch_entries.set_span(next_batch_span);
-                batch_entries.update_entries_span(Box::new(create_infer_span));
+
+                batch_entries
+                    .mut_state()
+                    .batch_entries
+                    .iter_mut()
+                    .for_each(|(_, entry)| {
+                        // Create a new span to link the batch back to this entry
+                        let entry_batch_span = info_span!(parent: &entry.span, "infer");
+                        // Add relationships
+                        next_batch_span.follows_from(&entry_batch_span);
+                        entry_batch_span.follows_from(&next_batch_span);
+                        // Update entry
+                        entry.temp_span = Some(entry_batch_span);
+                    });
 
                 cached_batch = batch_entries
-                    .process_next(&mut client, batches, &generation_health)
+                    .process_next(&mut client, batches, next_batch_span, &generation_health)
                     .await;
                 waiting_tokens += 1;
             }
@@ -559,14 +584,6 @@ async fn batching_task(
             metrics::gauge!("lorax_batch_current_max_tokens", 0.0);
         }
     }
-}
-
-fn create_waiting_span(parent: &Span) -> Span {
-    info_span!(parent: parent, "waiting")
-}
-
-fn create_infer_span(parent: &Span) -> Span {
-    info_span!(parent:parent, "infer")
 }
 
 #[instrument(skip_all)]
