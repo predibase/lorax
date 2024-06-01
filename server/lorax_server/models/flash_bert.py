@@ -236,16 +236,3 @@ class FlashBert(Model):
         cpu_results = embedding.view(-1).tolist()
 
         return Embedding(values=cpu_results[: self.hidden_size])
-
-    def batch_from_pb(self, batch: generate_pb2.Batch,) -> FlashEmbeddingBatch:
-        tokens = self.tokenizer(inputs, return_token_type_ids=True)
-        num_tokens = len(tokens["input_ids"])
-        position_ids = range(num_tokens)
-        return FlashEmbeddingBatch(
-            input_ids=torch.tensor(tokens["input_ids"], dtype=torch.int32, device=self.device),
-            token_type_ids=torch.tensor(tokens["token_type_ids"], dtype=torch.int32, device=self.device),
-            position_ids=torch.tensor(position_ids, dtype=torch.int32, device=self.device),
-            cu_seqlens=torch.tensor([0, num_tokens], dtype=torch.int32, device=self.device),
-            max_s=num_tokens,
-            size=1,
-        )

@@ -97,10 +97,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
     async def Embed(self, request: generate_pb2.EmbedRequest, context):
         if not self.model.supports_embeddings:
-            logger.error("Model does not support embeddings")
-            return generate_pb2.EmbedResponse(
-                embeddings=generate_pb2.Embedding(), errorMsg="Model does not support embeddings"
-            )
+            raise ValueError("Model does not support embeddings")
         
         batch = self.model.batch_type.from_pb(
             request.batch,
