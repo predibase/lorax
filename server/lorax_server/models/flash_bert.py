@@ -226,13 +226,14 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("embed")
     def embed(self, batch: FlashEmbeddingBatch) -> Embedding:
-        embedding = self.model.forward(
+        embedding: torch.Tensor = self.model.forward(
             input_ids=batch.input_ids,
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
             cu_seqlens=batch.cu_seqlens,
             max_s=batch.max_s,
         )
-        cpu_results = embedding.view(-1).tolist()
+        embedding = embedding.reshape(embedding.shape[0], -1)[:, : self.hidden_size]
 
-        return Embedding(values=cpu_results[: self.hidden_size])
+        cpu_results = embedding.cpu().tolist()
+        return Embedding(values=cpu_results)
