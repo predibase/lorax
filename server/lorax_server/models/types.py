@@ -136,8 +136,56 @@ class FlashEmbeddingBatch(ABC):
     max_s: int
     size: int
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.size
 
-    def from_pb(self, *args, **kwargs):
-        return None
+    @classmethod
+    def from_pb(
+        self, 
+        pb: generate_pb2.Batch,
+        tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> "FlashEmbeddingBatch":
+        batch_inputs = []
+        max_truncation = 0
+        for r in pb.requests:
+            inputs = tokenizers.get_inputs(r, tokenizer)
+            batch_inputs.append(inputs)
+            max_truncation = max(max_truncation, r.truncate)
+
+        batch_tokenized_inputs = tokenizer(
+            batch_inputs, 
+            return_token_type_ids=True, 
+            truncation=True, 
+            max_length=max_truncation,
+        )
+
+        max_s = 0
+        position_ids = []
+
+        cumulative_length = 0
+        cu_seqlens = [0]
+
+        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
+            tokenized_input = tokenized_input[-r.truncate :]
+
+            input_length = len(tokenized_input)
+            max_s = max(max_s, input_length)
+            cu_seqlens.append(cumulative_length + input_length)
+
+            # Position ids
+            request_position_ids = torch.arange(0, input_length, dtype=torch.int32)
+            position_ids.append(request_position_ids)
+
+            cumulative_length += input_length
+
+        return FlashEmbeddingBatch(
+            input_ids=torch.tensor(batch_tokenized_inputs["input_ids"], dtype=torch.int32, device=device),
+            token_type_ids=torch.tensor(batch_tokenized_inputs["token_type_ids"], dtype=torch.int32, device=device),
+            position_ids=torch.tensor(position_ids, dtype=torch.int32, device=device),
+            cu_seqlens=torch.tensor(cu_seqlens, dtype=torch.int32, device=device),
+            max_s=max_s,
+            size=len(batch_inputs),
+        )

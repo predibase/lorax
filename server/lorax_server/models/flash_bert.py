@@ -237,7 +237,7 @@ class FlashBert(Model):
 
         return Embedding(values=cpu_results[: self.hidden_size])
 
-    def tokenize_to_batch(self, inputs) -> FlashEmbeddingBatch:
+    def batch_from_pb(self, batch: generate_pb2.Batch,) -> FlashEmbeddingBatch:
         tokens = self.tokenizer(inputs, return_token_type_ids=True)
         num_tokens = len(tokens["input_ids"])
         position_ids = range(num_tokens)

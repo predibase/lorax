@@ -101,9 +101,15 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             return generate_pb2.EmbedResponse(
                 embeddings=generate_pb2.Embedding(), errorMsg="Model does not support embeddings"
             )
-        batch = request.inputs
-        tokenised_batch = self.model.tokenize_to_batch(batch)
-        embeddings = self.model.embed(tokenised_batch)
+        
+        batch = self.model.batch_type.from_pb(
+            request.batch,
+            self.model.tokenizer,
+            self.model.tokenizers,
+            self.model.dtype,
+            self.model.device,
+        )
+        embeddings = self.model.embed(batch)
         return generate_pb2.EmbedResponse(embeddings=embeddings)
 
     async def Decode(self, request: generate_pb2.DecodeRequest, context):
