@@ -320,10 +320,10 @@ impl Infer {
 
         let adapter = Adapter::new(
             AdapterParameters {
-                adapter_ids: vec!["".to_string()],
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
                 ..Default::default()
             },
-            "hf".to_string(),
+            "hub".to_string(),
             0,
             None,
         );
