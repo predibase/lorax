@@ -40,3 +40,7 @@ class Fp8Linear(torch.nn.Module):
             bias=self.bias,
         )
         return output
+
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.qweight
