@@ -1,5 +1,6 @@
 import json
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
@@ -64,7 +65,58 @@ class Client:
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
-        self.session = session or requests.Session()
+        self.session = session
+
+    # Create session object with retries on common HTTP error codes
+    def _get_or_create_session(self):
+        if not self.session:
+            self.session = requests.Session()
+
+            retry_strategy = Retry(
+                total=5,
+                backoff_factor=2,
+                status_forcelist=[104, 429, 500, 502, 503, 504],
+            )
+            adapter = HTTPAdapter(
+                max_retries=retry_strategy,
+            )
+            self.session.mount("https://", adapter)
+            self.session.mount("http://", adapter)
+
+        return self.session
+    
+    # Implements post with retries
+    def _post(self, json: dict) -> requests.Response:
+        # Instantiate session if currently None
+        if not self.session:
+            self.session = self._get_or_create_session()
+
+        # Retry upto 2 times with a fresh session for Connection Errors
+        total_retries = 2
+        current_retry_attempt = 0
+        
+        while True:
+            try:
+                resp = self.session.post(
+                    self.base_url,
+                    json=json,
+                    headers=self.headers,
+                    cookies=self.cookies,
+                    timeout=self.timeout,
+                )
+                return resp
+            except requests.exceptions.ConnectionError as e:
+                # Refresh session if there is a ConnectionError
+                self.session = None
+                self.session = self._get_or_create_session()
+                
+                if current_retry_attempt >= total_retries:
+                    raise e
+                
+                current_retry_attempt += 1
+            except Exception as e:
+                # Raise any other exception
+                raise e
 
     def generate(
         self,
@@ -183,15 +235,14 @@ class Client:
             decoder_input_details=decoder_input_details,
             return_k_alternatives=return_k_alternatives
         )
+
+        # Instantiate the request object
         request = Request(inputs=prompt, stream=False, parameters=parameters)
 
-        resp = self.session.post(
-            self.base_url,
+        resp = self._post(
             json=request.dict(by_alias=True),
-            headers=self.headers,
-            cookies=self.cookies,
-            timeout=self.timeout,
         )
+
 
         try:
             payload = resp.json()
@@ -314,9 +365,10 @@ class Client:
             watermark=watermark,
             response_format=response_format,
         )
+        # Instantiate the request and session objects
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 
-        resp = self.session.post(
+        resp = self._post(
             self.base_url,
             json=request.dict(by_alias=True),
             headers=self.headers,
