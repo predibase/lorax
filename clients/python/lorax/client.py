@@ -67,34 +67,46 @@ class Client:
         self.timeout = timeout
         self.session = session
 
-    # Create session object with retries on common HTTP error codes
-    def _get_or_create_session(self):
-        if not self.session:
-            self.session = requests.Session()
+    def _create_session(self):
+        """
+        Create a new session object to make HTTP calls.
+        """
+        self.session = requests.Session()
 
-            retry_strategy = Retry(
-                total=5,
-                backoff_factor=2,
-                status_forcelist=[104, 429, 500, 502, 503, 504],
-            )
-            adapter = HTTPAdapter(
-                max_retries=retry_strategy,
-            )
-            self.session.mount("https://", adapter)
-            self.session.mount("http://", adapter)
-
-        return self.session
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=2,
+            status_forcelist=[104, 429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
     
-    # Implements post with retries
     def _post(self, json: dict, stream: bool = False) -> requests.Response:
+        """
+        Given inputs, make an HTTP POST call
+
+        Args:
+            json (`dict`):
+                HTTP POST request JSON body
+
+            stream (`bool`):
+                Whether to stream the HTTP response or not
+        
+        Returns: 
+            requests.Response: HTTP response object
+        """
         # Instantiate session if currently None
         if not self.session:
-            self.session = self._get_or_create_session()
+            self._create_session()
 
         # Retry upto 2 times with a fresh session for Connection Errors
         total_retries = 2
         current_retry_attempt = 0
         
+        # Make the HTTP POST request
         while True:
             try:
                 resp = self.session.post(
@@ -109,8 +121,9 @@ class Client:
             except requests.exceptions.ConnectionError as e:
                 # Refresh session if there is a ConnectionError
                 self.session = None
-                self.session = self._get_or_create_session()
+                self._create_session()
                 
+                # Raise error if retries have been exhausted
                 if current_retry_attempt >= total_retries:
                     raise e
                 
@@ -243,7 +256,6 @@ class Client:
         resp = self._post(
             json=request.dict(by_alias=True),
         )
-
 
         try:
             payload = resp.json()
