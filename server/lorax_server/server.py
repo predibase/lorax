@@ -96,6 +96,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
 
     async def Embed(self, request: generate_pb2.EmbedRequest, context):
+        print("!!! EMBED")
         if not self.model.supports_embeddings:
             raise ValueError("Model does not support embeddings")
         

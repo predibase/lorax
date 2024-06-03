@@ -100,6 +100,17 @@ curl 127.0.0.1:8080/generate \
     -H 'Content-Type: application/json'
 ```
 
+Embed:
+
+```shell
+curl 127.0.0.1:8080/embed \
+-X POST \
+-d '{
+"inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]"
+}' \
+-H 'Content-Type: application/json'
+```
+
 Prompt a LoRA adapter:
 
 ```shell
