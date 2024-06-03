@@ -1,5 +1,6 @@
 import json
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
@@ -45,6 +46,7 @@ class Client:
         cookies: Optional[Dict[str, str]] = None,
         timeout: int = 60,
         session: Optional[requests.Session] = None,
+        max_session_retries: int = 2,
     ):
         """
         Args:
@@ -58,13 +60,80 @@ class Client:
                 Timeout in seconds
             session (`Optional[requests.Session]`):
                 HTTP requests session object to reuse
+            max_session_retries (`int`):
+                Maximum retries for session refreshing on errors
         """
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
-        self.session = session or requests.Session()
+        self.session = session
+        self.max_session_retries = max_session_retries
+
+    def _create_session(self):
+        """
+        Create a new session object to make HTTP calls.
+        """
+        self.session = requests.Session()
+
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=2,
+            status_forcelist=[104, 429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+    
+    def _post(self, json: dict, stream: bool = False) -> requests.Response:
+        """
+        Given inputs, make an HTTP POST call
+
+        Args:
+            json (`dict`):
+                HTTP POST request JSON body
+
+            stream (`bool`):
+                Whether to stream the HTTP response or not
+        
+        Returns: 
+            requests.Response: HTTP response object
+        """
+        # Instantiate session if currently None
+        if not self.session:
+            self._create_session()
+
+        # Retry if the session is stale and hits a ConnectionError
+        current_retry_attempt = 0
+        
+        # Make the HTTP POST request
+        while True:
+            try:
+                resp = self.session.post(
+                    self.base_url,
+                    json=json,
+                    headers=self.headers,
+                    cookies=self.cookies,
+                    timeout=self.timeout,
+                    stream=stream
+                )
+                return resp
+            except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout) as e:
+                # Refresh session if there is a ConnectionError
+                self.session = None
+                self._create_session()
+                
+                # Raise error if retries have been exhausted
+                if current_retry_attempt >= self.max_session_retries:
+                    raise e
+                
+                current_retry_attempt += 1
+            except Exception as e:
+                # Raise any other exception
+                raise e
 
     def generate(
         self,
@@ -183,14 +252,12 @@ class Client:
             decoder_input_details=decoder_input_details,
             return_k_alternatives=return_k_alternatives
         )
+
+        # Instantiate the request object
         request = Request(inputs=prompt, stream=False, parameters=parameters)
 
-        resp = self.session.post(
-            self.base_url,
+        resp = self._post(
             json=request.dict(by_alias=True),
-            headers=self.headers,
-            cookies=self.cookies,
-            timeout=self.timeout,
         )
 
         try:
@@ -314,14 +381,11 @@ class Client:
             watermark=watermark,
             response_format=response_format,
         )
+        # Instantiate the request and session objects
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 
-        resp = self.session.post(
-            self.base_url,
+        resp = self._post(
             json=request.dict(by_alias=True),
-            headers=self.headers,
-            cookies=self.cookies,
-            timeout=self.timeout,
             stream=True,
         )
 
