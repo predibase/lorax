@@ -46,3 +46,7 @@ class WQLinear(nn.Module):
         )
         out = out + self.bias if self.bias is not None else out
         return out.reshape(out_shape)
+
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.qweight
