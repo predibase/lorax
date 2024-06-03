@@ -46,6 +46,7 @@ class Client:
         cookies: Optional[Dict[str, str]] = None,
         timeout: int = 60,
         session: Optional[requests.Session] = None,
+        max_session_retries: int = 2,
     ):
         """
         Args:
@@ -59,6 +60,8 @@ class Client:
                 Timeout in seconds
             session (`Optional[requests.Session]`):
                 HTTP requests session object to reuse
+            max_session_retries (`int`):
+                Maximum retries for session refreshing on errors
         """
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
@@ -66,6 +69,7 @@ class Client:
         self.cookies = cookies
         self.timeout = timeout
         self.session = session
+        self.max_session_retries = max_session_retries
 
     def _create_session(self):
         """
@@ -102,8 +106,7 @@ class Client:
         if not self.session:
             self._create_session()
 
-        # Retry upto 2 times with a fresh session for Connection Errors
-        total_retries = 2
+        # Retry if the session is stale and hits a ConnectionError
         current_retry_attempt = 0
         
         # Make the HTTP POST request
@@ -124,7 +127,7 @@ class Client:
                 self._create_session()
                 
                 # Raise error if retries have been exhausted
-                if current_retry_attempt >= total_retries:
+                if current_retry_attempt >= self.max_session_retries:
                     raise e
                 
                 current_retry_attempt += 1
