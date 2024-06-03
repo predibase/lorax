@@ -86,7 +86,7 @@ class Client:
         return self.session
     
     # Implements post with retries
-    def _post(self, json: dict) -> requests.Response:
+    def _post(self, json: dict, stream: bool = False) -> requests.Response:
         # Instantiate session if currently None
         if not self.session:
             self.session = self._get_or_create_session()
@@ -103,6 +103,7 @@ class Client:
                     headers=self.headers,
                     cookies=self.cookies,
                     timeout=self.timeout,
+                    stream=stream
                 )
                 return resp
             except requests.exceptions.ConnectionError as e:
@@ -369,11 +370,7 @@ class Client:
         request = Request(inputs=prompt, stream=True, parameters=parameters)
 
         resp = self._post(
-            self.base_url,
             json=request.dict(by_alias=True),
-            headers=self.headers,
-            cookies=self.cookies,
-            timeout=self.timeout,
             stream=True,
         )
 
