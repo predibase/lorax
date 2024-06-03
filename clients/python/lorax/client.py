@@ -118,7 +118,7 @@ class Client:
                     stream=stream
                 )
                 return resp
-            except requests.exceptions.ConnectionError as e:
+            except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout) as e:
                 # Refresh session if there is a ConnectionError
                 self.session = None
                 self._create_session()
