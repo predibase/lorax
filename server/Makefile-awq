@@ -1,6 +1,6 @@
 # Fork that adds only the correct stream to this kernel in order
 # to make cuda graphs work.
-awq_commit := 41d7e704932b7eaf8b3dcfb21e1fe49fd296d894
+awq_commit := f084f40bd996f3cf3a0633c1ad7d9d476c318aaa
 
 awq:
 	rm -rf llm-awq
