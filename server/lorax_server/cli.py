@@ -28,6 +28,7 @@ class Quantization(str, Enum):
 class Dtype(str, Enum):
     float16 = "float16"
     bloat16 = "bfloat16"
+    float8 = "float8"
 
 
 @app.command()

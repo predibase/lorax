@@ -76,6 +76,8 @@ enum Dtype {
     Float16,
     #[clap(name = "bfloat16")]
     BFloat16,
+    #[clap(name = "float8")]
+    Float8,
 }
 
 impl std::fmt::Display for Dtype {
@@ -87,6 +89,9 @@ impl std::fmt::Display for Dtype {
             }
             Dtype::BFloat16 => {
                 write!(f, "bfloat16")
+            }
+            Dtype::Float8 => {
+                write!(f, "float8")
             }
         }
     }

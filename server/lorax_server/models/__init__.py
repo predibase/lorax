@@ -79,6 +79,8 @@ def get_model(
         dtype = torch.float16
     elif dtype == "bfloat16":
         dtype = torch.bfloat16
+    elif dtype == "float8":
+        dtype = torch.float8_e4m3fn
     else:
         raise RuntimeError(f"Unknown dtype {dtype}")
 
