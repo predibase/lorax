@@ -378,6 +378,7 @@ async fn batching_task(
                     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
                 };
 
+                // let token_budget = 10000000 as u32;
                 let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
 
                 let adapters_in_use = entries

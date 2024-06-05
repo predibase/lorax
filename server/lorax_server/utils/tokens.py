@@ -382,6 +382,7 @@ class HeterogeneousNextTokenChooser:
         scores = scores.view(B * S, -1)
 
         if speculated_ids is not None:
+            # accepted_ids = torch.ones(B, device=input_ids.device, dtype=torch.int32) * S
             accepted_ids = []
             B = next_ids.shape[0] // (speculated_ids.shape[1] + 1)
             S = speculated_ids.shape[1] + 1
@@ -406,6 +407,9 @@ class HeterogeneousNextTokenChooser:
             accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
             next_ids = next_ids[indices]
             scores = scores[indices]
+
+            # accepted_ids = torch.ones(B, device=input_ids.device, dtype=torch.int32) * S
+
             indices = torch.arange(B, device=input_ids.device) * S
             if speculative_scores is not None:
                 speculative_scores = speculative_scores[indices + accepted_ids - 1]
