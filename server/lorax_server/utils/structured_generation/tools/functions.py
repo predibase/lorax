@@ -74,3 +74,12 @@ class FunctionDefinition(BaseModel):
 
 def tools_prompt(*args: FunctionDefinition) -> str:
     return _DEFAULT_TOOLS_PROMPT_TEMPLATE % "\n".join(json.dumps(fd) for fd in args)
+
+
+def schema(fns: list[FunctionDefinition]) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": {
+            "oneOf": [f.parameters for f in fns]
+        }
+    }
