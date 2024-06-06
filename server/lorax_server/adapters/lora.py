@@ -251,65 +251,36 @@ class BatchLoraWeights(BatchAdapterWeights):
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device
         segment_indices = meta.segment_indices
+        use_sgmv = prefill or max_rank > BGMV_MAX_RANK
 
-        lora_a = {idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights}
-        lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
-
-        max_rank = max(adapter_weights[idx].lora_a_r for idx in segment_indices if idx in adapter_weights)
-
-        if prefill or max_rank > BGMV_MAX_RANK:
-            use_sgmv = True
-            lora_a_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_a.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-            lora_b_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_b.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-        else:
-            use_sgmv = False
-            lora_a_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_a_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-            lora_b_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_b_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-
-        adapter_index_configs = {
-            idx: adapter_weights[idx].adapter_config for idx in segment_indices if idx in adapter_weights
-        }
-
-        adapter_to_segment = {v: k for k, v in enumerate(segment_indices)}
-
-        rank_indices = defaultdict(list)
+        lora_a, lora_b, adapter_index_configs, adapter_to_segment = {}, {}, {}, {}
+        lora_a_ptr, lora_b_ptr = [], []
+        max_rank, rank_indices = 0, defaultdict(list)
         for segment_idx, adapter_idx in enumerate(segment_indices):
-            if adapter_idx not in adapter_weights:
-                continue
-            rank_indices[adapter_weights[adapter_idx].lora_a_r].append(segment_idx)
+            adapter_to_segment[adapter_idx] = segment_idx
+            if adapter_idx in adapter_weights:
+                adapter_weight = adapter_weights[adapter_idx]
+                adapter_index_configs[adapter_idx] = adapter_weight.config
+                max_rank = max(max_rank, adapter_weight.lora_a_r)
+                rank_indices[adapter_weight.lora_a_r].append(segment_idx)
+                lora_a[adapter_idx] = adapter_weight.weights_a
+                lora_b[adapter_idx] = adapter_weight.weights_b
+                lora_a_ptr.append(
+                    (adapter_weight.weights_a if use_sgmv else adapter_weight.weigths_a_t).data_ptr()
+                )
+                lora_b_ptr.append(
+                    (adapter_weight.weights_b if use_sgmv else adapter_weight.weigths_b_t).data_ptr()
+                )
+            else:
+                lora_a_ptr.append(EMPTY_TENSOR.data_ptr())
+                lora_b_ptr.append(EMPTY_TENSOR.data_ptr())
+        lora_a_ptr = torch.tensor(lora_a_ptr, dtype=torch.int64, device=device)
+        lora_b_ptr = torch.tensor(lora_b_ptr, dtype=torch.int64, device=device)
 
         if prefill_head_indices is not None:
             j, prefill_head_segment_starts, prefill_head_segment_ends = 1, [0], [0]
             for head_index in prefill_head_indices:
-                # j cannot go out of bounds as that would mean there are tokens without corresponding adapters
+                # j cannot go out of bounds as that would mean there are tokens without segments
                 if head_index < meta.adapter_segments[j]:
                     prefill_head_segment_ends[-1] += 1
                 else:
