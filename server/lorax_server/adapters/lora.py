@@ -258,7 +258,7 @@ class BatchLoraWeights(BatchAdapterWeights):
             adapter_to_segment[adapter_idx] = segment_idx
             if adapter_idx in adapter_weights:
                 adapter_weight = adapter_weights[adapter_idx]
-                adapter_index_configs[adapter_idx] = adapter_weight.config
+                adapter_index_configs[adapter_idx] = adapter_weight.adapter_config
                 max_rank = max(max_rank, adapter_weight.lora_a_r)
                 rank_indices[adapter_weight.lora_a_r].append(segment_idx)
                 lora_a[adapter_idx] = adapter_weight.weights_a
