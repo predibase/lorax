@@ -57,7 +57,6 @@ class GeneratedText:
             seed=self.seed,
         )
 
-
 @dataclass
 class PrefillTokens:
     token_ids: List[int]
@@ -129,6 +128,7 @@ class Generation:
 
 @dataclass
 class FlashEmbeddingBatch(ABC):
+    request_ids: List[int]
     input_ids: torch.Tensor
     token_type_ids: torch.Tensor
     position_ids: torch.Tensor
@@ -162,18 +162,23 @@ class FlashEmbeddingBatch(ABC):
             truncation=True, 
             max_length=max_truncation,
         )
+
         batch_tokenized_inputs = batch_inputs["input_ids"]
+        batch_token_type_ids = batch_inputs["token_type_ids"]
 
         all_input_ids = []
         position_ids = []
+        all_token_type_ids = []
         cu_seqlens = [0]
 
         max_s = 0
         cumulative_length = 0
-
-        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
+        
+        for i, (r, tokenized_input, token_type_ids) in enumerate(zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)):
             tokenized_input = tokenized_input[-r.truncate :]
+            token_type_ids = token_type_ids[-r.truncate :]
             all_input_ids.append(tokenized_input)
+            all_token_type_ids.append(token_type_ids)
 
             input_length = len(tokenized_input)
             max_s = max(max_s, input_length)
@@ -187,17 +192,21 @@ class FlashEmbeddingBatch(ABC):
         
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
+            final_token_type_ids = np.concatenate(all_token_type_ids, dtype=np.int64)
             position_ids = torch.cat(position_ids)
         else:
             input_ids = all_input_ids[0]
+            final_token_type_ids = all_token_type_ids[0]
             position_ids = position_ids[0]
         
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
+        final_token_type_ids = torch.tensor(final_token_type_ids, dtype=torch.int64, device=device)
         position_ids = position_ids.to(device)
 
         return FlashEmbeddingBatch(
+            request_ids=[r.id for r in pb.requests],
             input_ids=input_ids,
-            token_type_ids=torch.tensor(batch_inputs["token_type_ids"], dtype=torch.int32, device=device),
+            token_type_ids=final_token_type_ids,
             position_ids=position_ids,
             cu_seqlens=torch.tensor(cu_seqlens, dtype=torch.int32, device=device),
             max_s=max_s,

@@ -240,4 +240,4 @@ class FlashBert(Model):
         embedding = embedding.reshape(embedding.shape[0], -1)[:, : self.hidden_size]
 
         cpu_results = embedding.cpu().tolist()
-        return Embedding(values=cpu_results)
+        return cpu_results
