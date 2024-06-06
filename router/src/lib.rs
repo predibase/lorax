@@ -268,6 +268,7 @@ pub(crate) struct GenerateParameters {
         example = json!(r#"{"type": "json_object", "schema": {type": "string", "title": "response"}}"#)
     )]
     pub response_format: Option<ResponseFormat>,
+    pub tools: Option<Vec<Tool>>,
 }
 
 fn default_parameters() -> GenerateParameters {
@@ -295,6 +296,7 @@ fn default_parameters() -> GenerateParameters {
         apply_chat_template: false,
         seed: None,
         response_format: None,
+        tools: None,
     }
 }
 
@@ -484,6 +486,18 @@ struct ResponseFormat {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+enum ToolType {
+    #[serde(alias = "function")]
+    Function,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct Tool {
+    r#type: ToolType,
+    function: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<std::collections::HashMap<String, String>>,
@@ -502,6 +516,7 @@ struct ChatCompletionRequest {
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     response_format: Option<ResponseFormat>,
+    tools: Option<Vec<Tool>>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
@@ -676,6 +691,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 apply_chat_template: false,
                 seed: req.seed,
                 response_format: None,
+                tools: None,
             },
             stream: req.stream.unwrap_or(false),
         }
@@ -710,6 +726,7 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
                 apply_chat_template: true,
                 seed: req.seed,
                 response_format: req.response_format,
+                tools: req.tools,
             },
             stream: req.stream.unwrap_or(false),
         }
