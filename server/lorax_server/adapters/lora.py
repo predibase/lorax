@@ -251,10 +251,8 @@ class BatchLoraWeights(BatchAdapterWeights):
         first_weights = list(adapter_weights.values())[0]
         device = first_weights.weights_a.device
         segment_indices = meta.segment_indices
-        use_sgmv = prefill or max_rank > BGMV_MAX_RANK
 
         lora_a, lora_b, adapter_index_configs, adapter_to_segment = {}, {}, {}, {}
-        lora_a_ptr, lora_b_ptr = [], []
         max_rank, rank_indices = 0, defaultdict(list)
         for segment_idx, adapter_idx in enumerate(segment_indices):
             adapter_to_segment[adapter_idx] = segment_idx
@@ -265,6 +263,12 @@ class BatchLoraWeights(BatchAdapterWeights):
                 rank_indices[adapter_weight.lora_a_r].append(segment_idx)
                 lora_a[adapter_idx] = adapter_weight.weights_a
                 lora_b[adapter_idx] = adapter_weight.weights_b
+
+        use_sgmv = prefill or max_rank > BGMV_MAX_RANK
+        lora_a_ptr, lora_b_ptr = [], []
+        for segment_idx, adapter_idx in enumerate(segment_indices):
+            if adapter_idx in adapter_weights:
+                adapter_weight = adapter_weights[adapter_idx]
                 lora_a_ptr.append(
                     (adapter_weight.weights_a if use_sgmv else adapter_weight.weigths_a_t).data_ptr()
                 )
