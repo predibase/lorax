@@ -12,5 +12,5 @@ RUN hash -r
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH=$PATH:$HOME/.cargo/bin
 
-ENTRYPOINT ["lorax-launcher"]
-CMD ["--json-output"]
+ENTRYPOINT []
+CMD ["/bin/bash"]
