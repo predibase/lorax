@@ -172,7 +172,8 @@ class FlashBert(Model):
         else:
             raise NotImplementedError("FlashSantacoderSharded is only available on GPU")
 
-        self.device = device
+        # self.device = device
+        self.device = "cpu"
         self.dtype = dtype
 
         tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -214,7 +215,10 @@ class FlashBert(Model):
         return False
 
     def warmup(self, batch: FlashEmbeddingBatch, max_new_tokens: int) -> int | None:
-        return 42  # no-op for now
+        # Note: This is meant to 1) preallocate the memory by doing a forward pass 
+        # and then just returning the max seqlen since for embeddings we are never generating
+        _ = self.embed(batch)
+        return batch.max_s
 
     def generate_token(self, batch: FlashEmbeddingBatch) -> None:
         if not self.supports_text_generation:
