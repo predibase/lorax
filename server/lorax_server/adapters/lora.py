@@ -270,10 +270,10 @@ class BatchLoraWeights(BatchAdapterWeights):
             if adapter_idx in adapter_weights:
                 adapter_weight = adapter_weights[adapter_idx]
                 lora_a_ptr.append(
-                    (adapter_weight.weights_a if use_sgmv else adapter_weight.weigths_a_t).data_ptr()
+                    (adapter_weight.weights_a if use_sgmv else adapter_weight.weights_a_t).data_ptr()
                 )
                 lora_b_ptr.append(
-                    (adapter_weight.weights_b if use_sgmv else adapter_weight.weigths_b_t).data_ptr()
+                    (adapter_weight.weights_b if use_sgmv else adapter_weight.weights_b_t).data_ptr()
                 )
             else:
                 lora_a_ptr.append(EMPTY_TENSOR.data_ptr())
