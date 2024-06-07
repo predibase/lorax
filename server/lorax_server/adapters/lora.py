@@ -310,9 +310,8 @@ class BatchLoraWeights(BatchAdapterWeights):
                         segment_starts[i] = prefill_head_segment_starts[segment_index]
                         segment_ends[i] = prefill_head_segment_ends[segment_index]
             else:
-                rank_indices = set(indices)
                 batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]
-                batch_indices = [idx if idx in rank_indices else -1 for idx in batch_indices]
+                batch_indices = [idx if idx in set(indices) else -1 for idx in batch_indices]
                 batch_indices = torch.tensor(batch_indices, dtype=torch.int64, device=device)
 
             rank_data[rank] = RankSegments(
