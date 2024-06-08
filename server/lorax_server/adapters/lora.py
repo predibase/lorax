@@ -8,6 +8,7 @@ from torch.distributed import ProcessGroup
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
+from lorax_server.utils.lora import EMBED_TOKENS
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.sgmv import (
     BGMV_MAX_RANK,
@@ -40,14 +41,20 @@ class LoraConfig(AdapterConfig):
         adapter_weight_names = set()
         module_map = {}
         for weight_name in weight_names:
-            lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
-            lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
+            if EMBED_TOKENS in weight_name:
+                lora_a_name = f"base_model.model.{weight_name}.lora_embedding_A"
+                lora_b_name = f"base_model.model.{weight_name}.lora_embedding_B"
+            else:
+                lora_a_name = f"base_model.model.{weight_name}.lora_A.weight"
+                lora_b_name = f"base_model.model.{weight_name}.lora_B.weight"
             if lora_a_name not in adapter_weights or lora_b_name not in adapter_weights:
                 continue
 
+            # note(ajinkya): popping the weights so that we know which weights are
+            # can be used as lora weights (supported) and which cannot
             module_map[weight_name] = {
-                "lora_A": (adapter_weights[lora_a_name], lora_a_name),
-                "lora_B": (adapter_weights[lora_b_name], lora_b_name),
+                "lora_A": (adapter_weights.pop(lora_a_name), lora_a_name),
+                "lora_B": (adapter_weights.pop(lora_b_name), lora_b_name),
             }
             adapter_weight_names.add(lora_a_name)
             adapter_weight_names.add(lora_b_name)
@@ -90,6 +97,7 @@ class LoraWeights(AdapterWeights):
         weights_a: List[torch.Tensor],
         weights_b: List[torch.Tensor],
         adapter_config: LoraConfig,
+        is_embed: bool = False,
     ):
         self.lora_a_r = weights_a[0].size(1) if len(weights_a) > 0 else 1
         self.lora_b_r = weights_b[0].size(0) if len(weights_a) > 0 else 1
@@ -98,7 +106,8 @@ class LoraWeights(AdapterWeights):
         self._is_transposed = False
 
         # [num_layers, hidden_size, r]
-        weights_a = [orient_for_rank(w, w.size(1)).contiguous() for w in weights_a]
+        if not is_embed:
+            weights_a = [orient_for_rank(w, w.size(1)).contiguous() for w in weights_a]
         self._weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]
@@ -158,8 +167,10 @@ class LoraWeights(AdapterWeights):
             key = (layer_id, layer_type)
             weight_name, layer = model.target_to_layer[key]
 
-            base_weight = layer.base_layer.linear.weight
-            base_device = base_weight.device
+            if EMBED_TOKENS in layer_type:
+                base_device = layer.base_layer.weight.device
+            else:
+                base_device = layer.base_layer.linear.weight.device
 
             if weight_name not in module_map:
                 # There is no LoRA weight for this layer type in the adapter
@@ -196,13 +207,15 @@ class LoraWeights(AdapterWeights):
 
         return LoraWeights(
             *model.shard_lora_weights(lora_a_list, lora_b_list, layer_type),
-            config,
+            adapter_config=config,
+            is_embed=(layer_type == EMBED_TOKENS),
         )
 
 
 @dataclass
 class RankSegments:
     rank: int
+    adapter_index_map: int
 
     lora_a_ptr: torch.Tensor
     lora_b_ptr: torch.Tensor
@@ -242,6 +255,7 @@ class BatchLoraWeights(BatchAdapterWeights):
         meta: AdapterBatchMetadata,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
+        is_embed: bool,
     ) -> Optional["BatchLoraWeights"]:
         adapter_weights = {k: _convert_lora(v) for k, v in adapter_weights.items()}
         adapter_weights = {k: v for k, v in adapter_weights.items() if isinstance(v, LoraWeights)}
@@ -270,7 +284,7 @@ class BatchLoraWeights(BatchAdapterWeights):
             if adapter_idx in adapter_weights:
                 adapter_weight = adapter_weights[adapter_idx]
                 lora_a_ptr.append(
-                    (adapter_weight.weights_a if use_sgmv else adapter_weight.weights_a_t).data_ptr()
+                    (adapter_weight.weights_a if use_sgmv or is_embed else adapter_weight.weights_a_t).data_ptr()
                 )
                 lora_b_ptr.append(
                     (adapter_weight.weights_b if use_sgmv else adapter_weight.weights_b_t).data_ptr()
@@ -316,6 +330,7 @@ class BatchLoraWeights(BatchAdapterWeights):
 
             rank_data[rank] = RankSegments(
                 rank=rank,
+                adapter_index_map=indices,
                 tmp_shrink=tmp_shrink,
                 tmp_expand=tmp_expand,
                 lora_a_ptr=lora_a_ptr[indices],

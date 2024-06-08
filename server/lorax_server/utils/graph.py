@@ -109,6 +109,7 @@ def get_max_graph_state(
             rank_data={
                 MAX_RANK: RankSegments(
                     rank=MAX_RANK,
+                    adapter_index_map=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
@@ -193,6 +194,7 @@ class GraphWrapper:
                         {
                             max_rank: RankSegments(
                                 rank=max_rank,
+                                adapter_index_map=weight_data.rank_data[MAX_RANK].adapter_index_map[:batch_size],
                                 lora_a_ptr=weight_data.rank_data[MAX_RANK].lora_a_ptr[:segment_size],
                                 lora_b_ptr=weight_data.rank_data[MAX_RANK].lora_b_ptr[:segment_size],
                                 indices=weight_data.rank_data[MAX_RANK].indices[:batch_size],

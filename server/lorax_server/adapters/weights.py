@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Set, Type
 import torch
 
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.lora import LM_HEAD, EMBED_TOKENS
 
 
 @dataclass
@@ -82,6 +82,7 @@ class LayerAdapterWeights:
         meta: AdapterBatchMetadata,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
+        is_embed: bool,
     ) -> Dict[str, BatchAdapterWeights]:
         # bucket adapters by batch class
         adapter_batch_types: Dict[Type[BatchAdapterWeights], Dict[int, AdapterWeights]] = defaultdict(dict)
@@ -91,7 +92,7 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batched_weights = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
+            batched_weights = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices, is_embed)
             if batched_weights is not None:
                 batch_data[batch_type.key()] = batched_weights
         return batch_data
@@ -117,7 +118,7 @@ class AdapterBatchData:
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            data[k] = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+            data[k] = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None, k == EMBED_TOKENS)
         return AdapterBatchData(meta=meta, data=data, prefill=prefill)
 
     def ranks(self) -> Set[int]:

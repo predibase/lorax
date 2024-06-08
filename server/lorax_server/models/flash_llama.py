@@ -24,13 +24,13 @@ from lorax_server.utils.lora import (
     Q_PROJ,
     UP_PROJ,
     V_PROJ,
+    EMBED_TOKENS,
 )
 
 tracer = trace.get_tracer(__name__)
 
 
-# TODO(travis): re-enable LM_HEAD after resolving issues with outputs
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]  # LM_HEAD
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD, EMBED_TOKENS]
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 
@@ -136,6 +136,7 @@ class FlashLlama(FlashCausalLM):
             layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
 
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
+        layer_weights[(0, EMBED_TOKENS)] = ("model.embed_tokens", self.model.model.embed_tokens)
         return layer_weights
 
     @property
@@ -147,7 +148,7 @@ class FlashLlama(FlashCausalLM):
         return [Q_PROJ, V_PROJ]
 
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
+        return 1 if layer_type == LM_HEAD or layer_type == EMBED_TOKENS else len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL

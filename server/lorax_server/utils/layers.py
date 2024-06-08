@@ -349,6 +349,152 @@ class TensorParallelEmbedding(nn.Module):
         return out
 
 
+class LoraEmbedding(nn.Module):
+    def __init__(self, layer_id, process_group):
+        super().__init__()
+        self.layer_id = layer_id
+        self.process_group = process_group
+
+    def forward_layer_type(
+        self,
+        result: torch.Tensor,
+        input: torch.Tensor,
+        adapter_data: "AdapterBatchData",
+        layer_type: str,
+        start_idx: int,
+        end_idx: int,
+    ) -> torch.Tensor:
+        data = adapter_data.data.get(layer_type)
+        data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
+
+        if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
+            if end_idx - start_idx != result.shape[1]:
+                proj = torch.zeros_like(result[:, start_idx:end_idx])
+            else:
+                proj = result
+
+            for r, rank_segments in data.rank_data.items():
+                lora_a_ptr = rank_segments.lora_a_ptr
+                lora_b_ptr = rank_segments.lora_b_ptr
+
+                if data.use_sgmv:
+                    # Use SGMV for prefill
+                    if lora_a_ptr is not None and lora_b_ptr is not None:
+                        # note(ajinkya): loop through all segments for this rank
+                        # and lookup embeddings in each lora `A` matrix.
+                        v = torch.zeros_like(result[:, :r])
+                        for i in range(len(rank_segments.segment_starts)):
+                            v[rank_segments.segment_starts[i]:rank_segments.segment_ends[i], :] = (
+                                torch.nn.functional.embedding(
+                                    input[rank_segments.segment_starts[i]:rank_segments.segment_ends[i]],
+                                    data.lora_a[rank_segments.adapter_index_map[i]][self.layer_id],
+                                )
+                            )
+
+                        if self.process_group.size() > 1:
+                            v = self.collect_lora_a(v)
+
+                        lora_b_sgmv_cutlass(
+                            proj,
+                            v,
+                            rank_segments.tmp_expand,
+                            lora_b_ptr,
+                            rank_segments.segment_starts,
+                            rank_segments.segment_ends,
+                            self.layer_id,
+                        )
+                else:
+                    # Use BGMV for decode
+                    if lora_a_ptr is not None and lora_b_ptr is not None:
+                        # note(ajinkya): there's no segmentation in the batch so just loop
+                        # through each sample in the batch, get the corresponding lora `A`
+                        # matrix, and lookup embeddings
+                        v = torch.zeros_like(result[:, :r])
+                        for i in range(input.shape[0]):
+                            v[i, :] = torch.nn.functional.embedding(
+                                input[i],
+                                data.lora_a[rank_segments.indices[i].item()][self.layer_id]
+                            )
+
+                        if self.process_group.size() > 1:
+                            v = self.collect_lora_a(v)
+
+                        add_lora_b_bgmv(
+                            proj,
+                            v,
+                            lora_b_ptr,
+                            rank_segments.indices,
+                            self.layer_id,
+                        )
+
+            if end_idx - start_idx != result.shape[1]:
+                result[:, start_idx:end_idx] += proj
+        else:
+            for adapter_index in adapter_data.meta.adapter_set:
+                if data is not None and data.has_adapter(adapter_index):
+                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
+                    result[:, start_idx:end_idx] += layer_result
+
+        return result
+
+    def forward_lora(
+        self,
+        input: torch.Tensor,
+        data: "BatchLoraWeights",
+        adapter_index: int,
+        adapter_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        lora_a = data.lora_a[adapter_index][self.layer_id, :, :]
+        lora_b = data.lora_b[adapter_index][self.layer_id, :, :]
+
+        lora_a = orient_for_rank(lora_a, lora_b.size(0))
+
+        a_out = torch.nn.functional.embedding(input, lora_a)
+        if self.process_group.size() > 1:
+            a_out = self.collect_lora_a(a_out)
+
+        result = (a_out @ lora_b) * adapter_mask
+        return result
+
+    def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("Implemented in subclasses")
+
+
+class TensorParallelAdapterRowEmbedding(LoraEmbedding):
+    def __init__(self, base_layer, layer_id, layer_name, process_group):
+        super().__init__(layer_id, process_group)
+        self.base_layer = base_layer
+        self.layer_name = layer_name
+
+    @classmethod
+    def load(cls, base_layer, layer_id, layer_name, process_group):
+        return cls(base_layer, layer_id, layer_name, process_group)
+
+    def forward(self, input: torch.Tensor, adapter_data: "AdapterBatchData") -> torch.Tensor:
+        result = self.base_layer(input)
+
+        # Fused all-gather + all-reduce from S-LoRA paper: https://arxiv.org/abs/2311.03285
+        stride = result.shape[-1] // self.process_group.size()
+        start_idx = self.process_group.rank() * stride
+        end_idx = (self.process_group.rank() + 1) * stride
+
+        self.forward_layer_type(result, input, adapter_data, self.layer_name, start_idx, end_idx)
+
+        return result
+
+    # def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
+    #     # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
+    #     # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
+    #     #
+    #     # TODO(travis): this is not very efficient as we do an all-reduce for every adapter,
+    #     #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
+    #     #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
+    #     #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
+    #     torch.distributed.all_reduce(a_out, group=self.process_group)
+    #     return a_out
+
+
 try:
     import dropout_layer_norm
 

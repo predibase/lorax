@@ -9,3 +9,4 @@ UP_PROJ = "up_proj"
 DOWN_PROJ = "down_proj"
 
 LM_HEAD = "lm_head"
+EMBED_TOKENS = "embed_tokens"

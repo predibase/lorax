@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple
 
+from loguru import logger
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
@@ -158,4 +159,13 @@ def load_module_map(
 
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
     module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
+
+    # note(ajinkya): adapter weights are consumed during above mapping but if some are not then we may not be
+    # supporting all the weights in the adapter which should be an error but for now just logging it
+    if len(adapter_weights) > 0:
+        logger.warning(
+            f"Adapter {adapter_id} for the model {model_id}" + \
+                f" contains unsupported weights: {', '.join(adapter_weights.keys())}"
+        )
+
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
