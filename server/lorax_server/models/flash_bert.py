@@ -172,7 +172,8 @@ class FlashBert(Model):
         else:
             raise NotImplementedError("FlashSantacoderSharded is only available on GPU")
 
-        self.device = device
+        # self.device = device
+        self.device = "cpu"
         self.dtype = dtype
 
         tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -214,7 +215,10 @@ class FlashBert(Model):
         return False
 
     def warmup(self, batch: FlashEmbeddingBatch, max_new_tokens: int) -> int | None:
-        return 42  # no-op for now
+        # Note: This is meant to 1) preallocate the memory by doing a forward pass 
+        # and then just returning the max seqlen since for embeddings we are never generating
+        _ = self.embed(batch)
+        return batch.max_s
 
     def generate_token(self, batch: FlashEmbeddingBatch) -> None:
         if not self.supports_text_generation:
@@ -226,26 +230,14 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("embed")
     def embed(self, batch: FlashEmbeddingBatch) -> Embedding:
-        embedding = self.model.forward(
+        embedding: torch.Tensor = self.model.forward(
             input_ids=batch.input_ids,
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
             cu_seqlens=batch.cu_seqlens,
             max_s=batch.max_s,
         )
-        cpu_results = embedding.view(-1).tolist()
+        embedding = embedding.reshape(embedding.shape[0], -1)[:, : self.hidden_size]
 
-        return Embedding(values=cpu_results[: self.hidden_size])
-
-    def tokenize_to_batch(self, inputs) -> FlashEmbeddingBatch:
-        tokens = self.tokenizer(inputs, return_token_type_ids=True)
-        num_tokens = len(tokens["input_ids"])
-        position_ids = range(num_tokens)
-        return FlashEmbeddingBatch(
-            input_ids=torch.tensor(tokens["input_ids"], dtype=torch.int32, device=self.device),
-            token_type_ids=torch.tensor(tokens["token_type_ids"], dtype=torch.int32, device=self.device),
-            position_ids=torch.tensor(position_ids, dtype=torch.int32, device=self.device),
-            cu_seqlens=torch.tensor([0, num_tokens], dtype=torch.int32, device=self.device),
-            max_s=num_tokens,
-            size=1,
-        )
+        cpu_results = embedding.cpu().tolist()
+        return cpu_results

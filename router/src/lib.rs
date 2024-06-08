@@ -1,5 +1,6 @@
 /// LoRAX Webserver
 mod adapter;
+mod batch;
 mod health;
 mod infer;
 mod loader;
@@ -10,9 +11,9 @@ mod validation;
 use lorax_client::{AdapterParameters as AdapterParametersMessage, AlternativeTokens};
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
+use batch::Entry;
 use infer::Infer;
 use loader::AdapterLoader;
-use queue::Entry;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;

@@ -9,7 +9,7 @@ pub use client::Client;
 pub use pb::generate::v1::HealthResponse;
 pub use pb::generate::v1::InfoResponse as ShardInfo;
 pub use pb::generate::v1::{
-    AdapterParameters, AlternativeTokens, Batch, CachedBatch, DownloadAdapterResponse,
+    AdapterParameters, AlternativeTokens, Batch, CachedBatch, DownloadAdapterResponse, Embedding,
     FinishReason, GeneratedText, Generation, MajoritySignMethod, MergeStrategy,
     NextTokenChooserParameters, NextTokens, PrefillTokens, Request, StoppingCriteriaParameters,
 };

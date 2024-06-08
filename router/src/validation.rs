@@ -1,4 +1,5 @@
 use crate::adapter::Adapter;
+use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
@@ -86,7 +87,7 @@ impl Validation {
     }
 
     #[instrument(skip(self, inputs))]
-    async fn validate_input(
+    pub(crate) async fn validate_input(
         &self,
         inputs: String,
         truncate: Option<usize>,
@@ -395,18 +396,6 @@ type TokenizerRequest = (
     oneshot::Sender<Result<(tokenizers::Encoding, String), ValidationError>>,
     Span,
 );
-
-#[derive(Debug)]
-pub(crate) struct ValidGenerateRequest {
-    pub inputs: String,
-    pub input_length: u32,
-    pub truncate: u32,
-    pub decoder_input_details: bool,
-    pub parameters: NextTokenChooserParameters,
-    pub stopping_parameters: StoppingCriteriaParameters,
-    pub adapter: Adapter,
-    pub apply_chat_template: bool,
-}
 
 #[derive(Error, Debug)]
 pub enum ValidationError {

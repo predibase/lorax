@@ -841,6 +841,15 @@ async fn generate_stream_with_callback(
 
                                             yield Ok(callback(stream_token));
                                             break;
+                                        },
+                                        InferStreamResponse::Embed {
+                                            ..
+                                        } => {
+                                            let err = InferError::from(ValidationError::EmbeddingModel);
+                                            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+                                            tracing::error!("{err}");
+                                            yield Ok(Event::from(err));
+                                            break;
                                         }
                                     }
                                 }
@@ -1333,31 +1342,20 @@ impl From<InferError> for Event {
 )]
 #[instrument(skip_all)]
 async fn embed(
+    infer: Extension<Infer>,
     mut client: Extension<ShardedClient>,
     Json(req): Json<EmbedRequest>,
 ) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let input = req.inputs.clone();
-    let embeddings = client.embed(input).await.unwrap();
-    let embeddings = embeddings.get(0);
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
+    metrics::increment_counter!("lorax_request_count");
 
-    // TODO: better error enums
-    if (!embeddings.unwrap().error_msg.is_empty()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: embeddings.unwrap().error_msg.clone(),
-                error_type: "model doesn't support embeddings".to_string(),
-            }),
-        ));
-    }
+    tracing::debug!("Input: {}", req.inputs);
 
-    let values = embeddings
-        .map(|emb| emb.embeddings.as_ref().map(|emb| emb.values.clone()))
-        .flatten()
-        .unwrap_or_default();
-    Ok(Json(EmbedResponse {
-        embeddings: values.clone(),
-    }))
+    // Inference
+    let response = infer.embed(req).await?;
+
+    Ok(Json(response))
 }
 
 /// Tokenize inputs
