@@ -48,7 +48,7 @@ def test_batched_lora_weights(lora_ranks: List[int]):
     )
 
     with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
-        data = batched_weights.get_data(meta, prefill=True, prefill_head_indices=None).get(LORA)
+        data = batched_weights.get_data(meta, prefill=True, prefill_head_indices=None, is_embed=False).get(LORA)
 
     assert len(data.lora_a) == 2
     assert data.lora_a.keys() == meta.adapter_set
