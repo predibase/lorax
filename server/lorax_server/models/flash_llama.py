@@ -17,6 +17,7 @@ from lorax_server.utils import (
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
+    EMBED_TOKENS,
     GATE_PROJ,
     K_PROJ,
     LM_HEAD,
@@ -24,7 +25,6 @@ from lorax_server.utils.lora import (
     Q_PROJ,
     UP_PROJ,
     V_PROJ,
-    EMBED_TOKENS,
 )
 
 tracer = trace.get_tracer(__name__)

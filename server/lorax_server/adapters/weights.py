@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Set, Type
 import torch
 
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.lora import LM_HEAD, EMBED_TOKENS
+from lorax_server.utils.lora import EMBED_TOKENS, LM_HEAD
 
 
 @dataclass

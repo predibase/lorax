@@ -8,8 +8,8 @@ from torch.distributed import ProcessGroup
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.lora import EMBED_TOKENS
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
+from lorax_server.utils.lora import EMBED_TOKENS
 from lorax_server.utils.sgmv import (
     BGMV_MAX_RANK,
     MAX_RANK_CUSTOM,

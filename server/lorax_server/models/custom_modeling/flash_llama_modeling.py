@@ -33,17 +33,18 @@ from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,
+    TensorParallelAdapterRowEmbedding,
     TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
     TensorParallelHead,
     TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
-    TensorParallelAdapterRowEmbedding,
     get_linear,
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
+    EMBED_TOKENS,
     GATE_PROJ,
     K_PROJ,
     LM_HEAD,
@@ -51,7 +52,6 @@ from lorax_server.utils.lora import (
     Q_PROJ,
     UP_PROJ,
     V_PROJ,
-    EMBED_TOKENS,
 )
 
 
