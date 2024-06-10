@@ -5,15 +5,15 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.distilbert import DistilBertConfig
 
-from lorax_server.models.types import FlashEmbeddingBatch
 from lorax_server.models import Model
+from lorax_server.models.custom_modeling.flash_bert_modeling import DistilBertEmbeddings, DistilBertLayer
+from lorax_server.models.types import FlashEmbeddingBatch
+from lorax_server.pb.generate_pb2 import Embedding
 from lorax_server.utils import (
     Weights,
     initialize_torch_distributed,
     weight_files,
 )
-from lorax_server.pb.generate_pb2 import Embedding
-from lorax_server.models.custom_modeling.flash_bert_modeling import DistilBertEmbeddings, DistilBertLayer
 
 tracer = trace.get_tracer(__name__)
 
@@ -21,13 +21,15 @@ tracer = trace.get_tracer(__name__)
 class DistilBertEncoder:
     def __init__(self, prefix, weights, device, dtype, config: DistilBertConfig):
         self.layers = [
-            DistilBertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config) for i in range(config.num_hidden_layers)
+            DistilBertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config)
+            for i in range(config.num_hidden_layers)
         ]
 
     def forward(self, hidden_states, cu_seqlens, max_s):
         for layer in self.layers:
             hidden_states = layer.forward(hidden_states, cu_seqlens, max_s)
         return hidden_states
+
 
 class FlashDistilBertModel(torch.nn.Module):
     def __init__(self, weights, device, dtype, config: DistilBertConfig):
@@ -98,7 +100,7 @@ class FlashDistilBert(Model):
         return False
 
     def warmup(self, batch: FlashEmbeddingBatch, max_new_tokens: int) -> int | None:
-        # Note: This is meant to 1) preallocate the memory by doing a forward pass 
+        # Note: This is meant to 1) preallocate the memory by doing a forward pass
         # and then just returning the max seqlen since for embeddings we are never generating
         _ = self.embed(batch)
         return batch.max_s
