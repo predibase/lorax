@@ -1,37 +1,19 @@
-from typing import Optional, Type
-
 import torch
-from opentelemetry import trace
-from transformers import AutoTokenizer
-from transformers.models.bert import BertConfig
-
-from lorax_server.models import Model
+from typing import Optional
 from lorax_server.models.types import FlashEmbeddingBatch
-from lorax_server.pb.generate_pb2 import Embedding
+from transformers import AutoTokenizer
+from transformers.models.bert import DistilBertConfig
+from lorax_server.models import Model
+from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertEncoder
 from lorax_server.utils import (
     Weights,
     initialize_torch_distributed,
     weight_files,
 )
-from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
-
-tracer = trace.get_tracer(__name__)
 
 
-class BertEncoder:
-    def __init__(self, prefix, weights, device, dtype, config: BertConfig):
-        self.layers = [
-            BertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config) for i in range(config.num_hidden_layers)
-        ]
-
-    def forward(self, hidden_states, cu_seqlens, max_s):
-        for layer in self.layers:
-            hidden_states = layer.forward(hidden_states, cu_seqlens, max_s)
-        return hidden_states
-
-
-class FlashBertModel(torch.nn.Module):
-    def __init__(self, weights, device, dtype, config: BertConfig):
+class FlashDistilBertModel(torch.nn.Module):
+    def __init__(self, weights, device, dtype, config: DistilBertConfig):
         super().__init__()
         self.embeddings = BertEmbeddings("embeddings", weights, device, dtype, config)
         self.encoder = BertEncoder("encoder", weights, device, dtype, config)
@@ -43,7 +25,7 @@ class FlashBertModel(torch.nn.Module):
         return encoder_outputs[cu_seqlens[:-1]]
 
 
-class FlashBert(Model):
+class FlashDistilBert(Model):
     def __init__(
         self,
         model_id: str,
@@ -63,7 +45,7 @@ class FlashBert(Model):
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         self.tokenizer = tokenizer
 
-        config = BertConfig.from_pretrained(model_id)
+        config = DistilBertConfig.from_pretrained(model_id)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
         weights = Weights(
             filenames,
@@ -71,7 +53,7 @@ class FlashBert(Model):
             dtype,
             process_group=self.process_group,
         )
-        model = FlashBertModel(weights, device, dtype, config)
+        model = FlashDistilBertModel(weights, device, dtype, config)
 
         self.hidden_size = config.hidden_size
 
