@@ -621,6 +621,8 @@ struct ChatCompletionStreamResponse {
     created: i64,
     model: String,
     choices: Vec<ChatCompletionStreamResponseChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage: Option<UsageInfo>,
 }
 
 #[derive(Serialize, ToSchema, PartialEq)]
@@ -824,6 +826,20 @@ impl From<GenerateResponse> for ChatCompletionResponse {
 
 impl From<StreamResponse> for ChatCompletionStreamResponse {
     fn from(resp: StreamResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp.details.as_ref().map(|x| x.generated_tokens);
+        let total_tokens = prompt_tokens + completion_tokens.unwrap_or(0);
+
+        let usage: Option<UsageInfo> = if completion_tokens.is_some() {
+            Some(UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: completion_tokens,
+            })
+        } else {
+            None
+        };
+
         let finish_reason = resp
             .details
             .map(|x| CompletionFinishReason::from(x.finish_reason));
@@ -849,6 +865,7 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                 },
                 finish_reason: finish_reason,
             }],
+            usage: usage,
         }
     }
 }
