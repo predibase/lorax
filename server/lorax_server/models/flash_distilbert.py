@@ -1,22 +1,39 @@
+from typing import Optional, Type
+
 import torch
-from typing import Optional
-from lorax_server.models.types import FlashEmbeddingBatch
+from opentelemetry import trace
 from transformers import AutoTokenizer
-from transformers.models.bert import DistilBertConfig
+from transformers.models.distilbert import DistilBertConfig
+
+from lorax_server.models.types import FlashEmbeddingBatch
 from lorax_server.models import Model
-from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertEncoder
 from lorax_server.utils import (
     Weights,
     initialize_torch_distributed,
     weight_files,
 )
+from lorax_server.pb.generate_pb2 import Embedding
+from lorax_server.models.custom_modeling.flash_bert_modeling import DistilBertEmbeddings, DistilBertLayer
 
+tracer = trace.get_tracer(__name__)
+
+
+class DistilBertEncoder:
+    def __init__(self, prefix, weights, device, dtype, config: DistilBertConfig):
+        self.layers = [
+            DistilBertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config) for i in range(config.num_hidden_layers)
+        ]
+
+    def forward(self, hidden_states, cu_seqlens, max_s):
+        for layer in self.layers:
+            hidden_states = layer.forward(hidden_states, cu_seqlens, max_s)
+        return hidden_states
 
 class FlashDistilBertModel(torch.nn.Module):
     def __init__(self, weights, device, dtype, config: DistilBertConfig):
         super().__init__()
-        self.embeddings = BertEmbeddings("embeddings", weights, device, dtype, config)
-        self.encoder = BertEncoder("encoder", weights, device, dtype, config)
+        self.embeddings = DistilBertEmbeddings("distilbert.embeddings", weights, device, dtype, config)
+        self.encoder = DistilBertEncoder("distilbert.transformer", weights, device, dtype, config)
 
     def forward(self, input_ids, token_type_ids, position_ids, cu_seqlens, max_s):
         embeddings = self.embeddings.forward(input_ids, token_type_ids, position_ids)
@@ -57,7 +74,7 @@ class FlashDistilBert(Model):
 
         self.hidden_size = config.hidden_size
 
-        super(FlashBert, self).__init__(
+        super(FlashDistilBert, self).__init__(
             model_id=model_id,
             model=model,
             tokenizer=tokenizer,
