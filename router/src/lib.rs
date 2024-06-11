@@ -8,6 +8,8 @@ mod queue;
 mod scheduler;
 pub mod server;
 mod validation;
+mod tools;
+
 use lorax_client::{AdapterParameters as AdapterParametersMessage, AlternativeTokens};
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
@@ -486,15 +488,44 @@ struct ResponseFormat {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
-enum ToolType {
+#[serde(tag = "type")]
+enum Tool {
     #[serde(alias = "function")]
-    Function,
+    Function{function: FunctionSpec},
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
-struct Tool {
-    r#type: ToolType,
-    function: serde_json::Value,
+struct FunctionSpec {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
+
+impl FunctionSpec {
+    fn to_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                },
+                "type": {
+                    "const": "function",
+                },
+                "function": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "const": self.name,
+                        }
+                        "arguments": self.parameters,
+                    }
+                    "required": ["name", "arguments"],
+                }
+            },
+            "required": ["id", "type", "function"],
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]

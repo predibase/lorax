@@ -47,6 +47,34 @@ response = client.chat.completions.create(
 )
 
 print(json.dumps(response.choices[0].message.model_dump()['tool_calls'], indent=2))
+
+[
+  {
+    "id": "call_1p75qwks0etzfy1g6noxvsgs",
+    "function": {
+      "arguments": "{\"location\":\"New York, NY\",\"unit\":\"fahrenheit\"}",
+      "name": "get_current_weather"
+    },
+    "type": "function"
+  },
+  {
+    "id": "call_aqjfgn65d0c280fjd3pbzpc6",
+    "function": {
+      "arguments": "{\"location\":\"San Francisco, CA\",\"unit\":\"fahrenheit\"}",
+      "name": "get_current_weather"
+    },
+    "type": "function"
+  },
+  {
+    "id": "call_rsg8muko8hymb4brkycu3dm5",
+    "function": {
+      "arguments": "{\"location\":\"Chicago, IL\",\"unit\":\"fahrenheit\"}",
+      "name": "get_current_weather"
+    },
+    "type": "function"
+  }
+
+
 """
 import json
 from typing import Any, Annotated
