@@ -177,8 +177,11 @@ def load_module_weight(name: str, module: Union[torch.Tensor, str], device, dtyp
     if isinstance(module, torch.Tensor):
         return module.to(device, dtype)
 
-    if isinstance(device, torch.device) and device.type == "cuda":
-        device = device.index
+    if isinstance(device, torch.device):
+        if device.type == "cuda":
+            device = device.index
+        elif device.type == "cpu":
+            device = "cpu"
 
     # module would be just the filename if lazy loading happened before
     with safe_open(module, framework="pt", device=device) as f:
