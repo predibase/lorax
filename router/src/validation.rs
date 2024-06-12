@@ -2,9 +2,10 @@ use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{AmbiguousSchema, BestOfSampling, BestOfSeed, EmptyInput};
-use crate::{GenerateParameters, GenerateRequest, ToolType};
+use crate::{GenerateParameters, GenerateRequest, Tool, ToolType};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
 use rand::{thread_rng, Rng};
+use serde_json::json;
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
 use tokenizers::TruncationDirection;
@@ -305,14 +306,19 @@ impl Validation {
             schema = Some(response_format_val.schema.to_string());
         } else if tools.is_some() {
             let tools_vec = tools.unwrap();
-            let functions_vec: Vec<String> = tools_vec.iter().filter(|t| t.r#type == ToolType::Function).map(|t| t.function.to_string()).collect();
-            let functions_str =  functions_vec.join("")
+            let functions_vec: Vec<serde_json::Value> = tools_vec.
+                iter().
+                filter(|t| matches!(t, Tool::Function)).
+                map(|t| if let Tool::Function(f) = t {f.function.to_schema()}).
+                collect();
 
             // Assemble the schema here
-            schema = Some(format!(r#"{{
-            "type": "array",
-            "items": "",
-            "#))
+            schema = Some(json!({
+                "type": "array",
+                "items": {
+                    "oneOf": functions_vec,
+                },
+            }));
         }
 
         let parameters = NextTokenChooserParameters {
