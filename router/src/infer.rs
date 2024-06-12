@@ -512,7 +512,7 @@ async fn batching_task(
                 let adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((new_entries, new_batch, span)) = adapter_scheduler
+                if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use,
                         min_size,
@@ -544,7 +544,7 @@ async fn batching_task(
                         });
 
                     // Generate one token for this new batch to have the attention past in cache
-                    let new_cached_batch = batch_entries
+                    let new_cached_batch = new_entries
                         .process_first(&mut client, new_batch, span, &generation_health)
                         .await;
                     // Reset waiting counter
