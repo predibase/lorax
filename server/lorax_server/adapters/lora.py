@@ -255,8 +255,11 @@ class BatchLoraWeights(BatchAdapterWeights):
         lora_a = {idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights}
         lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
 
-        max_rank = max(adapter_weights[idx].lora_a_r for idx in segment_indices if idx in adapter_weights)
+        segment_ranks = [adapter_weights[idx].lora_a_r for idx in segment_indices if idx in adapter_weights]
+        if not segment_ranks:
+            return None
 
+        max_rank = max(segment_ranks)
         if prefill or max_rank > BGMV_MAX_RANK:
             use_sgmv = True
             lora_a_ptr = torch.tensor(
