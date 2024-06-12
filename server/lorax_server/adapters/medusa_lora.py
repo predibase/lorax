@@ -75,7 +75,7 @@ class MedusaLoraWeights(AdapterWeights):
 
     @classmethod
     def get_batch_types(cls) -> List[Type[BatchAdapterWeights]]:
-        return [BatchLoraWeights, BatchMedusaWeights]
+        return [BatchMedusaWeights]
 
     @property
     def speculative_tokens(self) -> int:
