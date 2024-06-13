@@ -517,11 +517,11 @@ impl FunctionSpec {
                     "properties": {
                         "name": {
                             "const": self.name,
-                        }
+                        },
                         "arguments": self.parameters,
-                    }
+                    },
                     "required": ["name", "arguments"],
-                }
+                },
             },
             "required": ["id", "type", "function"],
         })

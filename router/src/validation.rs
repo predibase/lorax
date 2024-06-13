@@ -2,7 +2,7 @@ use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{AmbiguousSchema, BestOfSampling, BestOfSeed, EmptyInput};
-use crate::{GenerateParameters, GenerateRequest, Tool, ToolType};
+use crate::{GenerateParameters, GenerateRequest, Tool};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
 use rand::{thread_rng, Rng};
 use serde_json::json;
@@ -308,17 +308,19 @@ impl Validation {
             let tools_vec = tools.unwrap();
             let functions_vec: Vec<serde_json::Value> = tools_vec.
                 iter().
-                filter(|t| matches!(t, Tool::Function)).
-                map(|t| if let Tool::Function(f) = t {f.function.to_schema()}).
+                filter(|t| matches!(t, Tool::Function{..})).
+                map(|t| {
+                    let Tool::Function { function } = t;
+                    function.to_schema()
+                }).
                 collect();
 
-            // Assemble the schema here
             schema = Some(json!({
                 "type": "array",
                 "items": {
                     "oneOf": functions_vec,
                 },
-            }));
+            }).to_string());
         }
 
         let parameters = NextTokenChooserParameters {
