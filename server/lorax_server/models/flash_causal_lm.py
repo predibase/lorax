@@ -986,6 +986,7 @@ class FlashCausalLM(Model):
             speculative_tokens,
             batch.speculative_ids,
             speculative_logits,
+            self.tokenizer,
         )
 
         if return_alternatives:

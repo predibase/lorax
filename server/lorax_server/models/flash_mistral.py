@@ -68,6 +68,7 @@ class FlashMistral(FlashCausalLM):
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
 
+        merged_weight_filenames = None
         if len(adapter_id) > 0:
             logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
             # Need to pass the adapter source here
