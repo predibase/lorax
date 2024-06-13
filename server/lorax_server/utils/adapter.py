@@ -15,7 +15,7 @@ from safetensors.torch import load_file
 from loguru import logger
 from safetensors.torch import load_file, save_file
 import torch
-import tqdm
+from tqdm import tqdm
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
 from lorax_server.pb import generate_pb2
@@ -256,9 +256,9 @@ def create_merged_weight_files(
 
     adapter_path = get_config_path(adapter_id, adapter_source)
     adapter_config = LoraConfig.from_pretrained(adapter_path)
-    if adapter_config.base_model_name_or_path != model_id:
-        raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
-                         f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
+    # if adapter_config.base_model_name_or_path != model_id:
+    #     raise ValueError(f"Adapter '{adapter_id}' is not compatible with model '{model_id}'. "
+    #                      f"Use --model-id '{adapter_config.base_model_name_or_path}' instead.")
     
     # load adapter weights from all shards (should have relatively small memory footprint)
     adapter_weights = {}
