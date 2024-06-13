@@ -84,7 +84,7 @@ class MedusaConfig(AdapterConfig):
     def load(cls, config: dict) -> "MedusaConfig":
         return cls(
             base_model_name_or_path=config["base_model_name_or_path"],
-            medusa_num_heads=config["medusa_num_heads"],
+            medusa_num_heads=1, #config["medusa_num_heads"],
             medusa_num_layers=config["medusa_num_layers"],
             version=float(config.get("version", 1)),
         )
