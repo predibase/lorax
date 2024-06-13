@@ -12,20 +12,21 @@ from lorax import Client
 # Prepare global variables
 JOBS = set()
 TGI_LOCAL_PORT = int(os.environ.get('TGI_LOCAL_PORT', 8080))
-
+url = "http://127.0.0.1:{}".format(TGI_LOCAL_PORT)
 # Create the client
-client = Client("http://127.0.0.1:{}".format(TGI_LOCAL_PORT))
-
+client = Client(url)
+print(url)
 # Wait for the hugging face TGI worker to start running.
 while True:
     try:
-        client.generate("Why is the sky blue?").generated_text
+        client.generate("Why is the sky blue?", max_new_tokens=1).generated_text
         print("Successfully cold booted the hugging face text generation inference server!")
 
         # Break from the while loop
         break
 
     except Exception as e:
+        print(e)
         print("The hugging face text generation inference server is still cold booting...")
         time.sleep(5)
 
@@ -70,12 +71,6 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
         if not response.token.special:
             text_outputs = response.token.text
             ret = {"text": text_outputs}
-
-            # Update the aggregate transformation function
-            runpod.serverless.modules.rp_metrics.metrics_collector.update_stream_aggregate(
-                job_id=job['id'], 
-                aggregate_function=aggregate_function
-            )
 
             yield ret
 
