@@ -12,9 +12,8 @@ RUN /bin/bash /setup.sh && \
 
 # Install Python dependencies (Worker Template)
 # COPY builder/requirements.txt /requirements.txt
-# RUN python3 -m pip install --upgrade pip && \
-#     python3 -m pip install --upgrade -r /requirements.txt --no-cache-dir && \
-#     rm /requirements.txt
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install runpod
 
 # Add src files (Worker Template)
 ADD src .
