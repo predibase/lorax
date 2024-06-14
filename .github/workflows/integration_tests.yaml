@@ -5,7 +5,9 @@ on:
       lorax_tag:
         required: true
         type: string
-
+    secrets:
+      RUNPOD_API_KEY:
+        required: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -14,6 +16,9 @@ jobs:
       - name: Install runpod
         run: |
           wget -qO- cli.runpod.net | sudo bash
+      - name: Config runpod cli 
+        run: |
+          runpodctl config --apiKey ${{ secrets.RUNPOD_API_KEY }}
 
       - uses: actions/setup-python@v4
         with:
