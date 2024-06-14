@@ -1,5 +1,8 @@
 name: integration-tests 
 on:
+  pull_request:
+    branches:
+      - "integration-tests-v1"
   workflow_call:
     inputs:
       lorax_tag:
