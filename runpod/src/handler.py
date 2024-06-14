@@ -31,8 +31,8 @@ while True:
         time.sleep(5)
 
 def concurrency_controller() -> bool:
-    # Handle at most 100 jobs at a time.
-    return len(JOBS) > 20
+    # Handle at most 1024 jobs at a time.
+    return len(JOBS) > 1024
 
 async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]:
     '''
@@ -41,38 +41,19 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     # Get job input
     job_input = job['input']
 
-    # Prompts
-    prompt = job_input['prompt']
-
-    # Validate the inputs
-    sampling_params = job_input.get('sampling_params', {})
-
+    # TODO get stream yes/no and call the client based on that...?
+    # TODO get the auth token or whatever 
+    # TODO figure out how to do auth here - maybe we start it with a secret
+    # and in istio-land we inject the correct secret in requests 
+    # if the user is auth'ed properly for the resource? 
+    # TODO handle key timeouts 
     # Add job to the set.
     JOBS.add(job['id'])
 
-     # Include metrics in the highest level for the job output for aggregrate.
-    def aggregate_function(streamed_outputs):
-        aggregate_output = ""
-        for stream in streamed_outputs:
-            aggregate_output += stream['text']
-
-        # Aggregate metrics to expose to the user
-        # input_tokens = -1 # TBD
-        # output_tokens = -1 # TBD
-
-        return {
-            "text": aggregate_output,
-            # "input_tokens": input_tokens,
-            # "output_tokens": output_tokens,
-        }
-
     # Streaming case
-    for response in client.generate_stream(prompt, **sampling_params):
+    for response in client.generate_stream(**job_input):
         if not response.token.special:
-            text_outputs = response.token.text
-            ret = {"text": text_outputs}
-
-            yield ret
+            yield response
 
     # Remove job from the set.
     JOBS.remove(job['id'])
