@@ -1,0 +1,31 @@
+name: integration-tests 
+on:
+  workflow_call:
+    inputs:
+      lorax_tag:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runpod
+        run: |
+          wget -qO- cli.runpod.net | sudo bash
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+      
+      # Install the client 
+      - run: pip install -e clients/python
+      - name: create the pod and then delete the pod
+        run: |
+          bash tests/create-pod.sh ${{ inputs.lorax_tag }}
+      
+      - name: Delete the pod 
+        run: |
+          POD_ID=`cat pod_name.txt`
+          runpodctl remove pod $POD_ID
