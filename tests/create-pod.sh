@@ -1,7 +1,7 @@
 IMAGE_NAME="$1"
 
 runpodctl create pods \
-  --name lorax-tests-new \
+  --name lorax-tests \
   --gpuType "NVIDIA A40" \
   --imageName "ghcr.io/predibase/lorax:g$IMAGE_NAME" \
   --containerDiskSize 100 \
