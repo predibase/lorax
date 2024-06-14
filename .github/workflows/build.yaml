@@ -152,3 +152,100 @@ jobs:
           # Delete the SHA image(s) from containerd store
           sudo ctr i rm $(sudo ctr i ls -q)
   
+#### new build test
+      - name: Docker meta
+        id: meta1
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/predibase/lorax-runpod
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Create a hash from tags
+        env:
+          tags: ${{ steps.meta1.outputs.tags }}
+        id: vars1
+        run: |
+          tag_hash=$(echo -n "$tags" | md5sum | awk '{print $1}')
+          echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
+          echo "cache_dir=/runner/build/images/cache" >> $GITHUB_OUTPUT
+          echo "image_dir=/runner/build/images" >> $GITHUB_OUTPUT
+          echo "image_path=/runner/build/images/lorax" >> $GITHUB_OUTPUT
+
+      - name: Create and update image/cache directory
+        env:
+          image_dir: ${{ steps.vars1.outputs.image_dir }}
+          cache_dir: ${{ steps.vars1.outputs.cache_dir }}
+        run: |
+          sudo mkdir -p $image_dir
+          sudo chown ubuntu:ubuntu $image_dir
+
+          sudo mkdir -p $cache_dir
+          sudo chown ubuntu:ubuntu $cache_dir
+
+      - name: Export Docker image as OCI
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./runpod/Dockerfile  # Path to your Dockerfile
+          push: false
+          tags: ${{ steps.meta1.outputs.tags }}
+          outputs: type=oci,compression=gzip,dest=${{ steps.vars1.outputs.image_path }}-${{ steps.vars1.outputs.tag_hash }}.tar.gz
+          cache-from: type=local,src=${{ steps.vars1.outputs.cache_dir }}
+          cache-to: type=local,mode=max,image-manifest=true,oci-mediatypes=true,dest=${{ steps.vars1.outputs.cache_dir }}
+
+      - name: Import image in containerd
+        env:
+          tag_hash: ${{ steps.vars1.outputs.tag_hash }}
+          image_path: ${{ steps.vars1.outputs.image_path }}
+        run: |
+          echo "Importing $image_path-$tag_hash to Containerd"
+          sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Push image with containerd
+        env:
+          tags: ${{ steps.meta1.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            echo "Pushing $tag to GHCR"
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+          done
+
+      - name: Create and push soci index
+        env:
+          tags: ${{ steps.meta1.outputs.tags }}
+        run: |
+          export SOCI_PATH=$HOME/.soci/soci
+          for tag in $tags
+          do
+            echo "Creating soci index for $tag"
+            sudo $SOCI_PATH create $tag
+            echo "Pushing soci index for $tag"
+            sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
+          done
+
+      - name: Prune older images
+        env:
+          tag_hash: ${{ steps.vars1.outputs.tag_hash }}
+          image_path: ${{ steps.vars1.outputs.image_path }}
+        run: |
+          # Delete images older than a day from docker store
+          docker image prune -a -f --filter "until=24h"
+
+          # Delete the on disk copy
+          rm -rf "$image_path-$tag_hash.tar.gz"
+
+          # Delete the SHA image(s) from containerd store
+          sudo ctr i rm $(sudo ctr i ls -q)
