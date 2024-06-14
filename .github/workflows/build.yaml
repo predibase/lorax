@@ -190,7 +190,7 @@ jobs:
       - name: Export Docker image as OCI
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./runpod
           file: ./runpod/Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta1.outputs.tags }}
