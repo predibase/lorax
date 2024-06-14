@@ -1,5 +1,4 @@
 IMAGE_NAME="$1"
-IMAGE_NAME=ghcr.io/predibase/lorax:0.10.0
 
 runpodctl create pods \
   --name lorax-tests-new \
