@@ -162,7 +162,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=,suffix=,format=short
+            type=sha,prefix=runpod,suffix=,format=short
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Create a hash from tags
@@ -170,7 +170,7 @@ jobs:
           tags: ${{ steps.meta1.outputs.tags }}
         id: vars1
         run: |
-          tag_hash=runpod-$(echo -n "$tags" | md5sum | awk '{print $1}')
+          tag_hash=$(echo -n "$tags" | md5sum | awk '{print $1}')
           echo "tag_hash=$tag_hash" >> $GITHUB_OUTPUT
           echo "cache_dir=/runner/build/images/cache" >> $GITHUB_OUTPUT
           echo "image_dir=/runner/build/images" >> $GITHUB_OUTPUT
