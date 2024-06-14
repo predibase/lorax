@@ -40,7 +40,11 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     ''' 
     # Get job input
     job_input = job['input']
+    
+    # When we are called with a streaming endpoint, then we should have the field 
+    # _stream = True
 
+    # TODO handle the two openAI compatable endpoints as well...!
     # TODO get stream yes/no and call the client based on that...?
     # TODO get the auth token or whatever 
     # TODO figure out how to do auth here - maybe we start it with a secret
@@ -49,12 +53,18 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     # TODO handle key timeouts 
     # Add job to the set.
     JOBS.add(job['id'])
+    if job_input.get('_stream', False):
+        del job_input['_stream']
+        # Streaming case
+        for response in client.generate_stream(**job_input):
+            if not response.token.special:
+                # Dump the repsonse into a dictionary
+                yield response.model_dump()
+    else:
+        del job_input['_stream']
+        response = client.generate(**job_input)
+        yield response.model_dump()
 
-    # Streaming case
-    for response in client.generate_stream(**job_input):
-        if not response.token.special:
-            # Dump the repsonse into a dictionary
-            yield response.model_dump()
 
     # Remove job from the set.
     JOBS.remove(job['id'])

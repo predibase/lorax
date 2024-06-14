@@ -39,7 +39,7 @@ if [[ -n "${HF_MAX_BATCH_PREFILL_TOKENS}" ]]; then
 fi
 
 # Start the text generation server
-nohup lorax-launcher --port 8080 --model-id      predibase/Mistral-7B-v0.1-dequantized      --adapter-source      hub      --default-adapter-source      pbase      --max-batch-prefill-tokens      32768      --max-total-tokens      8192      --max-input-length      8191      --max-concurrent-requests      1024 &
+nohup lorax-launcher --port 8080 --model-id      predibase/Meta-Llama-3-8B-Instruct-dequantized      --adapter-source      hub      --default-adapter-source      pbase      --max-batch-prefill-tokens      32768      --max-total-tokens      8192      --max-input-length      8191      --max-concurrent-requests      1024 &
 
 # Start the handler using python 3.10
 python3.10 -u /handler.py
