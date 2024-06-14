@@ -53,7 +53,8 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     # Streaming case
     for response in client.generate_stream(**job_input):
         if not response.token.special:
-            yield response
+            # Dump the repsonse into a dictionary
+            yield response.model_dump()
 
     # Remove job from the set.
     JOBS.remove(job['id'])
