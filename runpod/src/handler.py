@@ -46,16 +46,19 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     job_input = job['input']
     # TODO do different things based on the openai_route. Right now, just assume we are calling the openai 
     # chat completions.generate method!
+    print(job_input)
+    print("first print :P")
     use_openai = 'openai_route' in job_input
 
     # Create a new client and pass the token for every handler call
     openai_client = openai.Openai(
         base_url=f"{url}/v1",
     )
-
+    print(use_openai)
     if use_openai:
-        if job_input['stream'] == False:
-            yield openai_client.chat.completions.create(**job_input).model_dump()
+        # if job_input['stream'] == False:
+        print(job_input)
+        yield openai_client.chat.completions.create(**job_input).model_dump()
 
     
     # When we are called with a streaming endpoint, then we should have the field 
