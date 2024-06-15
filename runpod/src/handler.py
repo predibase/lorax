@@ -9,12 +9,16 @@ import time
 # For download the weights
 from lorax import Client
 
+import openai
+
 # Prepare global variables
 JOBS = set()
 TGI_LOCAL_PORT = int(os.environ.get('TGI_LOCAL_PORT', 8080))
 url = "http://127.0.0.1:{}".format(TGI_LOCAL_PORT)
 # Create the client
 client = Client(url)
+
+
 print(url)
 # Wait for the hugging face TGI worker to start running.
 while True:
@@ -40,6 +44,19 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     ''' 
     # Get job input
     job_input = job['input']
+    # TODO do different things based on the openai_route. Right now, just assume we are calling the openai 
+    # chat completions.generate method!
+    use_openai = 'openai_route' in job_input
+
+    # Create a new client and pass the token for every handler call
+    openai_client = openai.Openai(
+        base_url=f"{url}/v1",
+    )
+
+    if use_openai:
+        if job_input['stream'] == False:
+            yield openai_client.chat.completions.create(**job_input)
+
     
     # When we are called with a streaming endpoint, then we should have the field 
     # _stream = True

@@ -70,5 +70,6 @@ RUN if [ "$DOWNLOAD_MODEL" = "1" ]; then \
 # Quick temporary updates
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
 RUN python3.10 -m pip install lorax-client
+RUN python3.10 -m pip install openai 
 
 ENTRYPOINT ["./entrypoint.sh"]
