@@ -55,7 +55,7 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
 
     if use_openai:
         if job_input['stream'] == False:
-            yield openai_client.chat.completions.create(**job_input)
+            yield openai_client.chat.completions.create(**job_input).model_dump()
 
     
     # When we are called with a streaming endpoint, then we should have the field 
