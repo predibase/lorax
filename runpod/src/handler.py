@@ -17,6 +17,7 @@ TGI_LOCAL_PORT = int(os.environ.get('TGI_LOCAL_PORT', 8080))
 url = "http://127.0.0.1:{}".format(TGI_LOCAL_PORT)
 # Create the client
 client = Client(url)
+api_key = os.environ.get("PREDIBASE_API_KEY", "fake")
 
 
 print(url)
@@ -53,7 +54,7 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     # Create a new client and pass the token for every handler call
     openai_client = openai.OpenAI(
         base_url=f"{url}/v1",
-        api_key="fake"
+        api_key=api_key
     )
     JOBS.add(job['id'])
 
