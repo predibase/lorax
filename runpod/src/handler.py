@@ -55,12 +55,26 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
         base_url=f"{url}/v1",
         api_key="fake"
     )
+    JOBS.add(job['id'])
+
     print(use_openai)
     if use_openai:
         # if job_input['stream'] == False:
         print(job_input)
-        yield openai_client.chat.completions.create(**job_input["openai_input"]).model_dump()
-
+        result = openai_client.chat.completions.create(**job_input["openai_input"]).model_dump()
+        yield result
+    else:
+        if job_input.get('_stream', False):
+            del job_input['_stream']
+            # Streaming case
+            for response in client.generate_stream(**job_input):
+                if not response.token.special:
+                    # Dump the repsonse into a dictionary
+                    yield response.model_dump()
+        else:
+            del job_input['_stream']
+            response = client.generate(**job_input)
+            yield response.model_dump()
     # When we are called with a streaming endpoint, then we should have the field 
     # _stream = True
 
@@ -72,20 +86,7 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
     # if the user is auth'ed properly for the resource? 
     # TODO handle key timeouts 
     # Add job to the set.
-    JOBS.add(job['id'])
-    if job_input.get('_stream', False):
-        del job_input['_stream']
-        # Streaming case
-        for response in client.generate_stream(**job_input):
-            if not response.token.special:
-                # Dump the repsonse into a dictionary
-                yield response.model_dump()
-    else:
-        del job_input['_stream']
-        response = client.generate(**job_input)
-        yield response.model_dump()
-
-
+    
     # Remove job from the set.
     JOBS.remove(job['id'])
 
