@@ -40,7 +40,7 @@ We'll be working out of three different terminals during development, each servi
 
 1. **Server** window running the Python LoRAX server.
 2. **Router** window running the Rust LoRAX router.
-3. **Client** window for excuting requests against the running LoRAX instance.
+3. **Client** window for executing requests against the running LoRAX instance.
 
 ## Server window setup
 
