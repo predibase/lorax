@@ -359,7 +359,7 @@ async fn batching_task(
             // all requests have met their stopping criteria)
             while let Some(batch) = cached_batch {
                 // Get current batch info
-                let batch_size = batch.size;
+                let mut batch_size = batch.size;
                 let batch_max_tokens = batch.max_tokens;
                 let mut batches = vec![batch];
                 metrics::gauge!("lorax_batch_current_size", batch_size as f64);
@@ -378,7 +378,15 @@ async fn batching_task(
                     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
                 };
 
-                let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                tracing::info!(
+                    "Batching task: batch_size: {batch_size}, batch_max_tokens: {batch_max_tokens}, min_size: {min_size}, token_budget: {token_budget}, max_batch_total_tokens: {max_batch_total_tokens}",
+                    batch_size = batch_size,
+                    batch_max_tokens = batch_max_tokens,
+                    min_size = min_size.unwrap_or(0),
+                    token_budget = token_budget,
+                    max_batch_total_tokens = max_batch_total_tokens
+                );
 
                 let adapters_in_use = entries
                     .iter()
@@ -386,15 +394,30 @@ async fn batching_task(
                     .collect::<HashSet<_>>();
 
                 // Try to get a new batch
-                if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                while let Some((mut new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
-                        adapters_in_use,
+                        adapters_in_use.clone(),
                         min_size,
                         max_batch_prefill_tokens,
                         token_budget,
                     )
                     .await
                 {
+                    let new_batch_size = new_batch.size;
+                    batch_size += new_batch_size;
+
+                    let new_batch_max_tokens = new_batch.max_tokens;
+                    token_budget = token_budget.saturating_sub(new_batch_max_tokens);
+
+                    tracing::info!(
+                        "Batching task: batch_size: {batch_size}, batch_max_tokens: {batch_max_tokens}, min_size: {min_size}, token_budget: {token_budget}, max_batch_total_tokens: {max_batch_total_tokens}",
+                        batch_size = batch_size,
+                        batch_max_tokens = batch_max_tokens,
+                        min_size = min_size.unwrap_or(0),
+                        token_budget = token_budget,
+                        max_batch_total_tokens = max_batch_total_tokens
+                    );
+
                     // Tracking metrics
                     if min_size.is_some() {
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
