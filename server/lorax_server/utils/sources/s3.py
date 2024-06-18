@@ -13,6 +13,7 @@ from huggingface_hub.utils import (
     LocalEntryNotFoundError,
 )
 from loguru import logger
+from boto3.s3.transfer import S3Transfer
 
 from .source import BaseModelSource, try_to_load_from_cache
 
@@ -112,7 +113,9 @@ def download_files_from_s3(
         model_id_path = Path(model_id)
         bucket_file_name = model_id_path / filename
         logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
-        bucket.download_file(str(bucket_file_name), str(local_file_path))
+        # use CRT? TODO change this? 
+        transfer = S3Transfer(boto3.client('s3', region_name="us-west-2"))
+        transfer.download_file(bucket.name, str(bucket_file_name), str(local_file_path))
         # TODO: add support for revision
         logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
         if not local_file_path.is_file():
