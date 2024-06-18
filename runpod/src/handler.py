@@ -73,7 +73,8 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
                     # Dump the repsonse into a dictionary
                     yield response.model_dump()
         else:
-            del job_input['_stream']
+            if '_stream' in job_input:
+                del job_input['_stream']
             response = client.generate(**job_input)
             yield response.model_dump()
     # When we are called with a streaming endpoint, then we should have the field 
