@@ -369,14 +369,15 @@ async fn batching_task(
                 // TODO(travis): can execute this more efficiently by making it event-driven
                 adapter_scheduler.remove_errored_adapters().await;
 
-                let min_size = if waiting_tokens >= max_waiting_tokens {
-                    // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                    // to add a new batch even though its size might be small
-                    None
-                } else {
-                    // Minimum batch size
-                    Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
-                };
+                let min_size = None;
+                // let min_size = if waiting_tokens >= max_waiting_tokens {
+                //     // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                //     // to add a new batch even though its size might be small
+                //     None
+                // } else {
+                //     // Minimum batch size
+                //     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                // };
 
                 let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
                 tracing::info!(
