@@ -398,8 +398,8 @@ class HeterogeneousNextTokenChooser:
             for i in range(B):
                 next_ids_i = next_ids[i * S : (i + 1) * S]
                 speculated_ids_i = speculated_ids[i]
-                # validate_speculative = next_ids_i[:-1] == speculated_ids_i
-                validate_speculative = torch.rand(speculated_ids_i.shape[0]) < 0.65
+                validate_speculative = next_ids_i[:-1] == speculated_ids_i
+                # validate_speculative = torch.rand(speculated_ids_i.shape[0]) < 0.95
                 index = i * S
                 accepted = 1
                 # First is always valid

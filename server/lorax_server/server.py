@@ -1,6 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
+import time
 from typing import List, Optional
 
 import torch
@@ -87,8 +88,11 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.device,
         )
 
+        t0 = time.time()
+        batch_size = batch.input_ids.shape[0]
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
+        print("!!! PREFILL DURATION", batch_size, time.time() - t0)
 
         return generate_pb2.PrefillResponse(
             generations=[generation.to_pb() for generation in generations],
@@ -125,8 +129,11 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         else:
             batch = batches[0]
 
+        t0 = time.time()
+        batch_size = batch.input_ids.shape[0]
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
+        print("!!! DECODE DURATION", batch_size, time.time() - t0)
 
         return generate_pb2.DecodeResponse(
             generations=[generation.to_pb() for generation in generations],
