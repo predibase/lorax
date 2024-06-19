@@ -64,7 +64,7 @@ def get_model(
             better_model_id, revision=revision, trust_remote_code=trust_remote_code
         )
         logger.info(f"config_dict: {config_dict}")
-        model_id = str(model_path)
+        model_id = better_model_id
     elif source == "hub":
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
