@@ -65,17 +65,18 @@ async def handler_streaming(job: dict) -> Generator[dict[str, list], None, None]
         result = openai_client.chat.completions.create(**job_input["openai_input"]).model_dump()
         yield result
     else:
+        inputs = str(job_input.get('inputs'))
         if job_input.get('_stream', False):
             del job_input['_stream']
             # Streaming case
-            for response in client.generate_stream(**job_input):
+            for response in client.generate_stream(inputs, **job_input.get('parameters', {})):
                 if not response.token.special:
                     # Dump the repsonse into a dictionary
                     yield response.model_dump()
         else:
             if '_stream' in job_input:
                 del job_input['_stream']
-            response = client.generate(**job_input)
+            response = client.generate(inputs, **job_input.get('parameters', {}))
             yield response.model_dump()
     # When we are called with a streaming endpoint, then we should have the field 
     # _stream = True
