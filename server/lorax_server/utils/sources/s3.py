@@ -75,6 +75,8 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
 
 
 def get_s3_model_local_dir(model_id: str):
+    if model_id.startswith(S3_PREFIX):
+        model_id = model_id.replace(S3_PREFIX, "")
     object_id = model_id.replace("/", "--")
     repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
     return repo_cache
@@ -115,7 +117,7 @@ def download_files_from_s3(
         bucket_file_name = model_id_path / filename
         logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
         # use CRT? TODO change this? 
-        transfer = S3Transfer(S3Client(region_name="us-west-2"))
+        transfer = S3Transfer(S3Client(region_name="us-west-2", throughput_target_gbps=50))
         transfer.download_file(bucket.name, str(bucket_file_name), str(local_file_path))
         # TODO: add support for revision
         logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
