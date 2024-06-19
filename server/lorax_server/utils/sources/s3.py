@@ -99,8 +99,9 @@ def download_files_from_s3(
     revision: str = "",
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
+    import threading
 
-    def download_file(filename):
+    def download_file(filename, files):
         repo_cache = get_s3_model_local_dir(model_id)
         local_file = try_to_load_from_cache(repo_cache, revision, filename)
         if local_file is not None:
@@ -119,22 +120,31 @@ def download_files_from_s3(
         logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
         if not local_file_path.is_file():
             raise FileNotFoundError(f"File {local_file_path} not found")
-        return local_file_path
+        files.append(local_file_path)
 
     start_time = time.time()
     files = []
-    for i, filename in enumerate(filenames):
-        # TODO: clean up name creation logic
-        if not filename:
-            continue
-        file = download_file(filename)
+    # for i, filename in enumerate(filenames):
+    #     # TODO: clean up name creation logic
+    #     if not filename:
+    #         continue
+    #     file = download_file(filename)
 
-        elapsed = timedelta(seconds=int(time.time() - start_time))
-        remaining = len(filenames) - (i + 1)
-        eta = (elapsed / (i + 1)) * remaining if remaining > 0 else 0
+    #     elapsed = timedelta(seconds=int(time.time() - start_time))
+    #     remaining = len(filenames) - (i + 1)
+    #     eta = (elapsed / (i + 1)) * remaining if remaining > 0 else 0
 
-        logger.info(f"Download: [{i + 1}/{len(filenames)}] -- ETA: {eta}")
-        files.append(file)
+    #     logger.info(f"Download: [{i + 1}/{len(filenames)}] -- ETA: {eta}")
+    #     files.append(file)
+    threads = []
+    for filename in filenames:
+        t = threading.Thread(target=download_file, args=(filename,files,))
+        threads.append(t)
+        t.start()
+    
+    # Wait for all threads to complete and collect results
+    for t in threads:
+        t.join()
 
     return files
 
