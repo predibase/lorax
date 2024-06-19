@@ -55,7 +55,7 @@ class FlashBert(Model):
             device = torch.device(f"cuda:{rank}")
             dtype = torch.float16 if dtype is None else dtype
         else:
-            raise NotImplementedError("FlashSantacoderSharded is only available on GPU")
+            raise NotImplementedError("FlashBert is only available on GPU")
 
         self.device = device
         self.dtype = dtype

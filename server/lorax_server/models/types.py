@@ -129,6 +129,7 @@ class Generation:
 @dataclass
 class FlashEmbeddingBatch(ABC):
     request_ids: List[int]
+    strings: List[str]
     input_ids: torch.Tensor
     token_type_ids: torch.Tensor
     position_ids: torch.Tensor
@@ -149,19 +150,20 @@ class FlashEmbeddingBatch(ABC):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashEmbeddingBatch":
-        batch_inputs = []
+        batch_strings = []
         max_truncation = 0
         for r in pb.requests:
             inputs = tokenizers.get_inputs(r, tokenizer)
-            batch_inputs.append(inputs)
+            batch_strings.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
         batch_inputs = tokenizer(
-            batch_inputs, 
+            batch_strings, 
             return_token_type_ids=True, 
             truncation=True, 
             max_length=max_truncation,
         )
+        breakpoint()
 
         batch_tokenized_inputs = batch_inputs["input_ids"]
         batch_token_type_ids = batch_inputs["token_type_ids"]
@@ -174,7 +176,7 @@ class FlashEmbeddingBatch(ABC):
         max_s = 0
         cumulative_length = 0
         
-        for i, (r, tokenized_input, token_type_ids) in enumerate(zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)):
+        for (r, tokenized_input, token_type_ids) in zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids):
             tokenized_input = tokenized_input[-r.truncate :]
             token_type_ids = token_type_ids[-r.truncate :]
             all_input_ids.append(tokenized_input)
@@ -205,6 +207,7 @@ class FlashEmbeddingBatch(ABC):
 
         return FlashEmbeddingBatch(
             request_ids=[r.id for r in pb.requests],
+            strings=batch_strings,
             input_ids=input_ids,
             token_type_ids=final_token_type_ids,
             position_ids=position_ids,
