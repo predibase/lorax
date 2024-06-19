@@ -75,7 +75,7 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
 def get_s3_model_local_dir(model_id: str):
     _, model_id = _get_bucket_and_model_id(model_id)
     object_id = model_id.replace("/", "--")
-    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}"
 
     return repo_cache 
 

@@ -58,7 +58,7 @@ def get_model(
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
         logger.info("Using the local files since we are coming from s3")
-        model_path = get_s3_model_local_dir(model_id)
+        model_path = get_s3_model_local_dir(model_id) / "snapshots"
         
         files = os.listdir(model_path.absolute().as_posix())
         logger.info(files)
