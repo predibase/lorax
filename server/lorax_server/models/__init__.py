@@ -58,13 +58,12 @@ def get_model(
         # we can load the config_dict locally
         logger.info("Using the local files since we are coming from s3")
         model_path = get_s3_model_local_dir(model_id)
-        better_model_id = model_path.absolute().as_posix().split("/")[1]
         logger.info(f"model_path: {model_path}")
         config_dict, _ = PretrainedConfig.get_config_dict(
-            better_model_id, revision=revision, trust_remote_code=trust_remote_code
+            model_path, revision=revision, trust_remote_code=trust_remote_code
         )
         logger.info(f"config_dict: {config_dict}")
-        model_id = better_model_id
+        model_id = model_path
     elif source == "hub":
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code

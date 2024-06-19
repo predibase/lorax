@@ -75,8 +75,13 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
 def get_s3_model_local_dir(model_id: str):
     _, model_id = _get_bucket_and_model_id(model_id)
     object_id = model_id.replace("/", "--")
-    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" 
-    return repo_cache
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
+    # We also need to append the other thing to it :/ 
+    files = os.listdir(repo_cache.absolute().as_posix())
+    if len(files) > 1:
+        # Do something. Why we do have multiple snapshots? 
+        return repo_cache
+    return repo_cache / files[0]
 
 
 def weight_s3_files(bucket: Any, model_id: str, extension: str = ".safetensors") -> List[str]:
