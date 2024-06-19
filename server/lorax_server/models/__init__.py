@@ -61,6 +61,7 @@ def get_model(
         model_path = get_s3_model_local_dir(model_id)
         
         files = os.listdir(model_path.absolute().as_posix())
+        logger.info(files)
         if len(files) == 1:
             # Do something. Why we do have multiple snapshots? 
             model_path = model_path / files[0]
