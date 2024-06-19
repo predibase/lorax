@@ -63,7 +63,7 @@ def get_model(
             model_path, revision=revision, trust_remote_code=trust_remote_code
         )
         logger.info(f"config_dict: {config_dict}")
-        model_id = model_path
+        model_id = model_path.absolute().as_posix()
     elif source == "hub":
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
