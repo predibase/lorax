@@ -73,8 +73,7 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
 
 
 def get_s3_model_local_dir(model_id: str):
-    if model_id.startswith(S3_PREFIX):
-        model_id = model_id.replace(S3_PREFIX, "")
+    _, model_id = _get_bucket_and_model_id(model_id)
     object_id = model_id.replace("/", "--")
     repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
     return repo_cache
