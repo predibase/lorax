@@ -3,7 +3,8 @@ import time
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
-
+from boto3.s3.transfer import S3Transfer
+from awscrt.s3 import S3Client
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -114,8 +115,12 @@ def download_files_from_s3(
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         model_id_path = Path(model_id)
         bucket_file_name = model_id_path / filename
+
+        transfer = S3Transfer(S3Client(region="us-west-2", throughput_target_gbps=50))
+        transfer.download_file(bucket.name, str(bucket_file_name), str(local_file_path))
+
         logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
-        bucket.download_file(str(bucket_file_name), str(local_file_path))
+        # bucket.download_file(str(bucket_file_name), str(local_file_path))
         # TODO: add support for revision
         logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
         if not local_file_path.is_file():
