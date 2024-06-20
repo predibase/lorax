@@ -3,8 +3,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
-from boto3.s3.transfer import S3Transfer
-from awscrt.s3 import S3Client
+from s3transfer.crt import CRTTransferManager, create_s3_crt_client
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -117,8 +116,8 @@ def download_files_from_s3(
             model_id_path = Path(model_id)
             bucket_file_name = model_id_path / filename
 
-            transfer = S3Transfer(S3Client(region="us-west-2", throughput_target_gbps=50))
-            transfer.download_file(bucket.name, str(bucket_file_name), str(local_file_path))
+            transfer = CRTTransferManager(create_s3_crt_client(region="us-west-2", target_throughput=50))
+            transfer.download(bucket.name, str(bucket_file_name), str(local_file_path))
 
             logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
             # bucket.download_file(str(bucket_file_name), str(local_file_path))
