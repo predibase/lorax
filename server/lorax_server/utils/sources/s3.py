@@ -103,29 +103,33 @@ def download_files_from_s3(
     import threading
 
     def download_file(filename, files):
-        repo_cache = get_s3_model_local_dir(model_id)
-        local_file = try_to_load_from_cache(repo_cache, revision, filename)
-        if local_file is not None:
-            logger.info(f"File {filename} already present in cache.")
-            return Path(local_file)
-        logger.info(f"Download file: {filename}")
-        start_time = time.time()
-        local_file_path = get_s3_model_local_dir(model_id) / filename
-        # ensure cache dir exists and create it if needed
-        local_file_path.parent.mkdir(parents=True, exist_ok=True)
-        model_id_path = Path(model_id)
-        bucket_file_name = model_id_path / filename
+        try:
+            repo_cache = get_s3_model_local_dir(model_id)
+            local_file = try_to_load_from_cache(repo_cache, revision, filename)
+            if local_file is not None:
+                logger.info(f"File {filename} already present in cache.")
+                return Path(local_file)
+            logger.info(f"Download file: {filename}")
+            start_time = time.time()
+            local_file_path = get_s3_model_local_dir(model_id) / filename
+            # ensure cache dir exists and create it if needed
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+            model_id_path = Path(model_id)
+            bucket_file_name = model_id_path / filename
 
-        transfer = S3Transfer(S3Client(region="us-west-2", throughput_target_gbps=50))
-        transfer.download_file(bucket.name, str(bucket_file_name), str(local_file_path))
+            transfer = S3Transfer(S3Client(region="us-west-2", throughput_target_gbps=50))
+            transfer.download_file(bucket.name, str(bucket_file_name), str(local_file_path))
 
-        logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
-        # bucket.download_file(str(bucket_file_name), str(local_file_path))
-        # TODO: add support for revision
-        logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
-        if not local_file_path.is_file():
-            raise FileNotFoundError(f"File {local_file_path} not found")
-        files.append(local_file_path)
+            logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
+            # bucket.download_file(str(bucket_file_name), str(local_file_path))
+            # TODO: add support for revision
+            logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
+            if not local_file_path.is_file():
+                raise FileNotFoundError(f"File {local_file_path} not found")
+            files.append(local_file_path)
+        except Exception as e:
+            logger.info(e)
+            raise e
 
     start_time = time.time()
     files = []
