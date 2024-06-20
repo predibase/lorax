@@ -171,7 +171,7 @@ def batch_infer(
     tokenizer_name: str = "gpt2",
     prompt_column: str = "prompt",
     input_format: str = "parquet",
-    uds_path: Path = "/tmp/lorax-server",
+    uds_path: Path = "/tmp/lorax-server-0",
 ):
     from lorax_server.batch import run as batch_run
 

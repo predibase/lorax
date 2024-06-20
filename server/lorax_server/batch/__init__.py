@@ -1,6 +1,7 @@
 import time
 import grpc
 from datasets import load_dataset
+from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from lorax_server.pb import generate_pb2, generate_pb2_grpc
@@ -18,7 +19,7 @@ def run(
     uds_path: str,
 ):
     t0 = time.time()
-    with grpc.insecure_channel("unix:///tmp/lorax-server-0") as channel:
+    with grpc.insecure_channel(f"unix://{uds_path}") as channel:
         stub = generate_pb2_grpc.LoraxServiceStub(channel)
 
         # health check to ensure system is up
@@ -46,8 +47,12 @@ def run(
             lambda examples: tokenizer(examples[prompt_column], return_tensors="np"),
             batched=True,
         )
-
         print(tokenized_dataset[0])
+
+        # continuous batching
+        with tqdm(total=len(tokenized_dataset)) as pbar:
+            for i, example in enumerate(tokenized_dataset):
+                pbar.update(1)
 
         # stream out the output parquet file
         # TODO(travis) explore streaing writing: https://stackoverflow.com/questions/64791558/create-parquet-files-from-stream-in-python-in-memory-efficient-manner
