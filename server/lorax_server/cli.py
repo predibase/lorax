@@ -165,6 +165,9 @@ def quantize(
 def batch_infer(
     input_path: str,
     output_path: str,
+    max_input_length: int = 1024,
+    max_batch_prefill_tokens: int = 1024,
+    max_total_tokens: int = 1152,
     tokenizer_name: str = "gpt2",
     prompt_column: str = "prompt",
     input_format: str = "parquet",
@@ -176,6 +179,9 @@ def batch_infer(
     batch_run(
         input_path=input_path,
         output_path=output_path,
+        max_input_length=max_input_length,
+        max_batch_prefill_tokens=max_batch_prefill_tokens,
+        max_total_tokens=max_total_tokens,
         tokenizer_name=tokenizer_name,
         prompt_column=prompt_column,
         input_format=input_format,
