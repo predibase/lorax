@@ -172,7 +172,16 @@ def batch_infer(
     prompt_column: str = "prompt",
     input_format: str = "parquet",
     uds_path: Path = "/tmp/lorax-server-0",
+    debug: bool = False,
 ):
+    if debug:
+        # copy the input file to the output file
+        import shutil
+
+        shutil.copy(input_path, output_path)
+        print("DONE")
+        return
+
     from lorax_server.batch import run as batch_run
 
     print("HERE")
