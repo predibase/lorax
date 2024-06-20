@@ -78,6 +78,10 @@ def run(
                 max_total_tokens=max_total_tokens,
             )
             entries.append(entry)
+
+            # TODO(debugging):
+            if i == 10:
+                break
         
         # continuous batching
         outputs = {}
@@ -231,6 +235,9 @@ def create_entry(
 ) -> Entry:
     # We truncate the input on the server side to be sure that it has the correct size
     effective_max_new_tokens = max_total_tokens - input_length
+    if input_length > max_input_length:
+        raise ValueError(f"Input length {input_length} is greater than max_input_length {max_input_length}")
+
     request = generate_pb2.Request(
         id=request_id,
         inputs=inputs,
@@ -305,6 +312,8 @@ def next_batch(
     global _ID
     next_id = _ID
     _ID += 1
+
+    print(prefill_tokens, decode_tokens)
 
     return generate_pb2.Batch(
         id=next_id,
