@@ -161,5 +161,21 @@ def quantize(
     )
 
 
+@app.command()
+def batch_infer(
+    input_path: str,
+    output_path: str,
+    uds_path: Path = "/tmp/lorax-server",
+):
+    from lorax_server.batch import run as batch_run
+
+    batch_run(
+        input_path=input_path,
+        output_path=output_path,
+        uds_path=uds_path,
+    )
+
+
+
 if __name__ == "__main__":
     app()
