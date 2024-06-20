@@ -3,7 +3,8 @@ import time
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
-from s3transfer.crt import CRTTransferManager, create_s3_crt_client
+from s3transfer.crt import CRTTransferManager, create_s3_crt_client, BotocoreCRTRequestSerializer, BotocoreCRTCredentialsWrapper
+import botocore
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -115,11 +116,16 @@ def download_files_from_s3(
             local_file_path.parent.mkdir(parents=True, exist_ok=True)
             model_id_path = Path(model_id)
             bucket_file_name = model_id_path / filename
-
-            transfer = CRTTransferManager(create_s3_crt_client(region="us-west-2", target_throughput=50))
-            transfer.download(bucket.name, str(bucket_file_name), str(local_file_path))
-
+            session = botocore.session.get_session()
+            request_serializer = BotocoreCRTRequestSerializer(session)
             logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
+            with CRTTransferManager(create_s3_crt_client(
+                "us-west-2", 
+                BotocoreCRTCredentialsWrapper(session.get_credentials()).to_crt_credentials_provider(), target_throughput=50), 
+                request_serializer
+            ) as transfer:
+                future = transfer.download(bucket.name, str(bucket_file_name), str(local_file_path))
+                future.result()
             # bucket.download_file(str(bucket_file_name), str(local_file_path))
             # TODO: add support for revision
             logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
