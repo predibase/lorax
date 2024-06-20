@@ -169,11 +169,13 @@ def batch_infer(
 ):
     from lorax_server.batch import run as batch_run
 
+    print("HERE")
     batch_run(
         input_path=input_path,
         output_path=output_path,
         uds_path=uds_path,
     )
+    print("THERE")
 
 
 
