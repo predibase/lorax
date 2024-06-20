@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 import time
 from typing import Dict, List, Optional, Tuple
@@ -69,37 +68,44 @@ def run(
         # Convert dataset to entries
         entries = []
         for i, example in enumerate(tokenized_dataset):
-                text = example["text"]
-                input_ids = example["input_ids"]
-                entry = create_entry(
-                    inputs=text,
-                    input_length=len(input_ids),
-                    max_input_length=max_input_length,
-                    max_total_tokens=max_total_tokens,
-                )
-                entries.append(entry)
+            text = example["text"]
+            input_ids = example["input_ids"]
+            entry = create_entry(
+                request_id=i,
+                inputs=text,
+                input_length=len(input_ids),
+                max_input_length=max_input_length,
+                max_total_tokens=max_total_tokens,
+            )
+            entries.append(entry)
         
         # continuous batching
-        outputs = defaultdict(list)
+        outputs = {}
         token_budget = max_supported_total_tokens
         with tqdm(total=len(tokenized_dataset)) as pbar:
             while batch := next_batch(entries, max_batch_prefill_tokens, token_budget, BLOCK_SIZE, window_size):
                 # prefill
-                cached_batch, generations = prefill(client, batch)
-                batches = [cached_batch]
-                add_outputs(generations, outputs)
+                cached_batch, stopped_generations = prefill(client, batch)
+                add_outputs(stopped_generations, outputs)
+                pbar.update(len(stopped_generations))
 
-                while new_batch := next_batch(entries, max_batch_prefill_tokens, token_budget, BLOCK_SIZE, window_size):
-                    new_cached_batch = prefill(client, new_batch)
-                    batches.append(new_cached_batch)
-                    add_outputs(generations, outputs)
+                while cached_batch is not None:
+                    batches = [cached_batch]
 
-                # decode
-                cached_batch, generations = decode(client, batches)
-                add_outputs(generations, outputs)
+                    # prefill
+                    while new_batch := next_batch(entries, max_batch_prefill_tokens, token_budget, BLOCK_SIZE, window_size):
+                        new_cached_batch, new_stopped_generations = prefill(client, new_batch)
+                        add_outputs(new_stopped_generations, outputs)
+                        pbar.update(len(new_stopped_generations))
+                        if new_cached_batch is not None:
+                            batches.append(new_cached_batch)
 
-                pbar.update(1)
+                    # decode
+                    cached_batch, stopped_generations = decode(client, batches)
+                    add_outputs(stopped_generations, outputs)
+                    pbar.update(len(stopped_generations))
 
+        print(outputs)
         # stream out the output parquet file
         # TODO(travis) explore streaing writing: https://stackoverflow.com/questions/64791558/create-parquet-files-from-stream-in-python-in-memory-efficient-manner
     
@@ -108,10 +114,10 @@ def run(
 
 def add_outputs(
     generations: List[generate_pb2.Generation],
-    outputs: Dict[int, List[str]],
+    outputs: Dict[int, str],
 ):
     for generation in generations:
-        outputs[generation.request_id].append(generation.generated_text.text)
+        outputs[generation.request_id] = generation.generated_text.text
 
 
 def warmup(
@@ -177,7 +183,7 @@ def prefill(
     batch: generate_pb2.Batch,
 ) -> Tuple[generate_pb2.CachedBatch, List[generate_pb2.Generation]]:
     resp = client.Prefill(batch)
-    return resp.batch, resp.generations
+    return filter_batch(client, resp.batch, resp.generations)
 
 
 def decode(
@@ -185,21 +191,39 @@ def decode(
     batches: List[generate_pb2.CachedBatch],
 ) -> Tuple[generate_pb2.CachedBatch, List[generate_pb2.Generation]]:
     resp = client.Decode(batches)
-    return resp.batch, resp.generations
+    return filter_batch(client, resp.batch, resp.generations)
 
 
 def filter_batch(
     client: generate_pb2_grpc.LoraxServiceStub,
-    next_batch: Optional[generate_pb2.CachedBatch],
-) -> Optional[generate_pb2.CachedBatch]:
-    if next_batch is None:
-        return None
+    batch: generate_pb2.CachedBatch,
+    generations: List[generate_pb2.Generation],
+) -> Tuple[Optional[generate_pb2.CachedBatch], List[generate_pb2.Generation]]:
+    stopped_generations = [
+        generation for generation in generations
+        if generation.generated_text is not None
+    ]
 
-    resp = client.Filter(next_batch)
-    return resp.batch
+    # Retain only requests that are still in entries
+    stopped_request_ids = set(generation.request_id for generation in stopped_generations)
+    batch.request_ids = [id for id in batch.request_ids if id not in stopped_request_ids]
+
+    if len(batch.request_ids) == 0:
+        # All requests have been filtered out
+        # Next batch is now empty
+        # Clear it from the Python shards cache
+        # We unwrap here as we need to panic since we cannot recover if this method fails
+        client.ClearCache(generate_pb2.ClearCacheRequest(id=batch.id))
+        return None
+    
+    # Filter Python shard cache
+    # We unwrap here as we need to panic since we cannot recover if this method fails
+    resp = client.FilterBatch(generate_pb2.FilterBatchRequest(batch_id=batch.id, request_ids=batch.request_ids))
+    return resp.batch, stopped_generations
 
 
 def create_entry(
+    request_id: int,
     inputs: str,
     input_length: int,
     max_input_length: int,
@@ -208,7 +232,7 @@ def create_entry(
     # We truncate the input on the server side to be sure that it has the correct size
     effective_max_new_tokens = max_total_tokens - input_length
     request = generate_pb2.Request(
-        id=0,
+        id=request_id,
         inputs=inputs,
         truncate=max_input_length,
         # Set sampling parameters to also take these ops into account in the max memory
