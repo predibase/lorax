@@ -165,6 +165,9 @@ def quantize(
 def batch_infer(
     input_path: str,
     output_path: str,
+    tokenizer_name: str = "gpt2",
+    prompt_column: str = "prompt",
+    input_format: str = "parquet",
     uds_path: Path = "/tmp/lorax-server",
 ):
     from lorax_server.batch import run as batch_run
@@ -173,6 +176,9 @@ def batch_infer(
     batch_run(
         input_path=input_path,
         output_path=output_path,
+        tokenizer_name=tokenizer_name,
+        prompt_column=prompt_column,
+        input_format=input_format,
         uds_path=uds_path,
     )
     print("THERE")
