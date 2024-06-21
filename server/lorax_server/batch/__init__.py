@@ -89,6 +89,7 @@ def run(
         with tqdm(total=len(tokenized_dataset)) as pbar:
             while batch := next_batch(entries, max_batch_prefill_tokens, token_budget, BLOCK_SIZE, window_size):
                 # prefill
+                print("BATCH", batch)
                 cached_batch, stopped_generations = prefill(client, batch)
                 add_outputs(stopped_generations, outputs)
                 pbar.update(len(stopped_generations))
@@ -186,7 +187,7 @@ def prefill(
     client: generate_pb2_grpc.LoraxServiceStub,
     batch: generate_pb2.Batch,
 ) -> Tuple[generate_pb2.CachedBatch, List[generate_pb2.Generation]]:
-    resp = client.Prefill(batch)
+    resp = client.Prefill(generate_pb2.PrefillRequest(batch=batch))
     return filter_batch(client, resp.batch, resp.generations)
 
 
@@ -194,7 +195,7 @@ def decode(
     client: generate_pb2_grpc.LoraxServiceStub,
     batches: List[generate_pb2.CachedBatch],
 ) -> Tuple[generate_pb2.CachedBatch, List[generate_pb2.Generation]]:
-    resp = client.Decode(batches)
+    resp = client.Decode(generate_pb2.DecodeRequest(batches=batches))
     return filter_batch(client, resp.batch, resp.generations)
 
 
@@ -210,7 +211,8 @@ def filter_batch(
 
     # Retain only requests that are still in entries
     stopped_request_ids = set(generation.request_id for generation in stopped_generations)
-    batch.request_ids = [id for id in batch.request_ids if id not in stopped_request_ids]
+    del batch.request_ids[:]
+    batch.request_ids.extend([id for id in batch.request_ids if id not in stopped_request_ids])
 
     if len(batch.request_ids) == 0:
         # All requests have been filtered out
@@ -218,7 +220,7 @@ def filter_batch(
         # Clear it from the Python shards cache
         # We unwrap here as we need to panic since we cannot recover if this method fails
         client.ClearCache(generate_pb2.ClearCacheRequest(id=batch.id))
-        return None
+        return None, []
     
     # Filter Python shard cache
     # We unwrap here as we need to panic since we cannot recover if this method fails
@@ -235,6 +237,7 @@ def create_entry(
 ) -> Entry:
     # We truncate the input on the server side to be sure that it has the correct size
     effective_max_new_tokens = max_total_tokens - input_length
+    print("max_new_tokens", effective_max_new_tokens, max_total_tokens, input_length)
     if input_length > max_input_length:
         raise ValueError(f"Input length {input_length} is greater than max_input_length {max_input_length}")
 
@@ -286,17 +289,17 @@ def next_batch(
         entry = entries.pop(0)
 
         # update prefill tokens
-        prefill_tokens += ((entry.input_length + block_size - 1) / block_size) * block_size
+        prefill_tokens += int(((entry.input_length + block_size - 1) / block_size) * block_size)
 
         # update decode tokens
-        if window_size is None:
+        if not window_size:
             max_new_tokens = entry.request.stopping_parameters.max_new_tokens
         else:
             max_new_tokens = min(
                 window_size - entry.input_length,
                 entry.request.stopping_parameters.max_new_tokens,
             )
-        decode_tokens += ((max_new_tokens + block_size - 1) / block_size) * block_size
+        decode_tokens += int(((max_new_tokens + block_size - 1) / block_size) * block_size)
 
         if prefill_tokens > max_batch_prefill_tokens or (prefill_tokens + decode_tokens) > token_budget:
             # Entry is over budget
@@ -313,7 +316,7 @@ def next_batch(
     next_id = _ID
     _ID += 1
 
-    print(prefill_tokens, decode_tokens)
+    print(window_size, prefill_tokens, decode_tokens)
 
     return generate_pb2.Batch(
         id=next_id,

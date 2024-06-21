@@ -148,6 +148,7 @@ class FlashCausalLMBatch(Batch):
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
+        print("batch_inputs", batch_inputs, max_truncation)
         batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)["input_ids"]
 
         position_ids = []
