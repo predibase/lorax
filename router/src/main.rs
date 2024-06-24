@@ -85,6 +85,8 @@ struct Args {
     ngrok_edge: Option<String>,
     #[clap(default_value = "hub", long, env)]
     adapter_source: String,
+    #[clap(long, env)]
+    eager_prefill: bool,
 }
 
 #[tokio::main]
@@ -122,6 +124,7 @@ async fn main() -> Result<(), RouterError> {
         ngrok_authtoken,
         ngrok_edge,
         adapter_source,
+        eager_prefill,
     } = args;
 
     init_logging(otlp_endpoint, json_output);
@@ -376,6 +379,7 @@ async fn main() -> Result<(), RouterError> {
         ngrok_edge,
         adapter_source,
         embedding_model,
+        eager_prefill,
     )
     .await?;
     Ok(())
