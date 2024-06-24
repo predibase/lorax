@@ -947,7 +947,7 @@ fn run_batcher(
     status_sender: mpsc::Sender<ShardStatus>,
     running: Arc<AtomicBool>,
 ) -> Result<(), LauncherError> {
-    if args.batch_input_file.is_none() || !args.batch_output_file.is_none() {
+    if args.batch_input_file.is_none() || args.batch_output_file.is_none() {
         return Err(LauncherError::ArgumentValidation("batch-input-file and batch-output-file are required when batch-mode is enabled".to_string()));
     }
 
