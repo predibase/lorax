@@ -55,6 +55,7 @@ impl Infer {
         requires_padding: bool,
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
+        eager_prefill: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -90,6 +91,7 @@ impl Infer {
             adapter_event,
             generation_health,
             adapter_scheduler.clone(),
+            eager_prefill,
         ));
 
         // Inference limit with a semaphore
@@ -462,6 +464,7 @@ async fn batching_task(
     adapter_event: Arc<AdapterEvent>,
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
+    eager_prefill: bool,
 ) {
     // Infinite loop
     loop {
@@ -489,7 +492,7 @@ async fn batching_task(
             // all requests have met their stopping criteria)
             while let Some(batch) = cached_batch {
                 // Get current batch info
-                let batch_size = batch.size;
+                let mut batch_size = batch.size;
                 let batch_max_tokens = batch.max_tokens;
                 let mut batches = vec![batch];
                 metrics::gauge!("lorax_batch_current_size", batch_size as f64);
@@ -499,7 +502,7 @@ async fn batching_task(
                 // TODO(travis): can execute this more efficiently by making it event-driven
                 adapter_scheduler.remove_errored_adapters().await;
 
-                let min_size = if waiting_tokens >= max_waiting_tokens {
+                let min_size = if waiting_tokens >= max_waiting_tokens || eager_prefill {
                     // If we didn't onboard any new requests since >= max_waiting_tokens, we try
                     // to add a new batch even though its size might be small
                     None
@@ -508,19 +511,25 @@ async fn batching_task(
                     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
                 };
 
-                let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
                 let adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                while let Some((mut new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
-                        adapters_in_use,
+                        adapters_in_use.clone(),
                         min_size,
                         max_batch_prefill_tokens,
                         token_budget,
                     )
                     .await
                 {
+                    let new_batch_size = new_batch.size;
+                    batch_size += new_batch_size;
+
+                    let new_batch_max_tokens = new_batch.max_tokens;
+                    token_budget = token_budget.saturating_sub(new_batch_max_tokens);
+
                     // Tracking metrics
                     if min_size.is_some() {
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
@@ -553,6 +562,11 @@ async fn batching_task(
                     if let Some(new_cached_batch) = new_cached_batch {
                         batch_entries.extend(new_entries);
                         batches.push(new_cached_batch);
+                    }
+
+                    if !eager_prefill {
+                        // Do not continue to loop if we are not in eager prefill mode
+                        break;
                     }
                 }
 

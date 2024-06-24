@@ -955,6 +955,7 @@ pub async fn run(
     ngrok_edge: Option<String>,
     adapter_source: String,
     embedding_model: bool,
+    eager_prefill: bool,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -1049,6 +1050,7 @@ pub async fn run(
         shard_info.requires_padding,
         shard_info.window_size,
         generation_health,
+        eager_prefill,
     );
 
     // Duration buckets
@@ -1145,6 +1147,7 @@ pub async fn run(
         docker_label: option_env!("DOCKER_LABEL"),
         request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
         embedding_model,
+        eager_prefill,
     };
 
     DEFAULT_ADAPTER_SOURCE

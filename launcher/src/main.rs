@@ -287,6 +287,12 @@ struct Args {
     #[clap(default_value = "20", long, env)]
     max_waiting_tokens: usize,
 
+    /// Whether to prioritize running prefill before decode to increase batch size during decode (throughput) over
+    /// liveness in earlier requests (latency). For batch use cases that are not latnecy sensitive, this should be set
+    /// to true.
+    #[clap(long, env)]
+    eager_prefill: Option<bool>,
+
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
     #[clap(default_value = "1024", long, env)]
     max_active_adapters: usize,
@@ -1127,6 +1133,10 @@ fn spawn_webserver(
 
     if args.embedding_model.unwrap_or(false) {
         router_args.push("--embedding-model".to_string());
+    }
+
+    if args.eager_prefill.unwrap_or(false) {
+        router_args.push("--eager-prefill".to_string());
     }
 
     // Ngrok
