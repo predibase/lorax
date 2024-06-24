@@ -951,9 +951,16 @@ fn run_batcher(
         return Err(LauncherError::ArgumentValidation("batch-input-file and batch-output-file are required when batch-mode is enabled".to_string()));
     }
 
+    let infile = args.batch_input_file.unwrap();
+    loop {
+        if Path::new(&infile).exists() {
+            break;
+        }
+    }
+
     let mut args = vec![
         "batch-infer".to_string(),
-        args.batch_input_file.unwrap(),
+        infile,
         args.batch_output_file.unwrap(),
         "--debug".to_string(),
     ];
@@ -1387,12 +1394,6 @@ fn main() -> Result<(), LauncherError> {
     let (status_sender, status_receiver) = mpsc::channel();
 
     if args.batch_mode {
-        loop {
-            if Path::new("...").exists() {
-                break;
-            }
-        }
-
         return run_batcher(
             args,
             shutdown.clone(),
