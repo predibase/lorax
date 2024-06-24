@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from loguru import logger
 import time
 from typing import Dict, List, Optional, Tuple
 import grpc
@@ -37,7 +38,8 @@ def run(
 
         # health check to ensure system is up
         resp = client.Health(generate_pb2.HealthRequest())
-        print("HEALTH RESPONSE", resp, type(resp))
+        # print("HEALTH RESPONSE", resp, type(resp))
+        logger.info("Health check successful")
 
         # get deployment info
         info = client.Info(generate_pb2.InfoRequest())
@@ -52,19 +54,20 @@ def run(
             max_total_tokens=max_total_tokens,
         )
         print("WARMUP COMPLETE", max_supported_total_tokens)
+        logger.info(f"Warmup complete, max supported total tokens: {max_supported_total_tokens}")
 
         # stream in the input file
         # TODO(travis): consider enabling streaming
         data_files = {"infer": input_path}
         dataset = load_dataset(input_format, data_files=data_files, split="infer", streaming=False)
-        print(next(iter(dataset)))
+        # print(next(iter(dataset)))
 
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         tokenized_dataset = dataset.map(
             lambda examples: tokenizer(examples[prompt_column], return_tensors="np"),
             batched=True,
         )
-        print(tokenized_dataset[0])
+        # print(tokenized_dataset[0])
 
         # Convert dataset to entries
         entries = []
@@ -88,10 +91,10 @@ def run(
         # continuous batching
         outputs = {}
         token_budget = max_supported_total_tokens
-        with tqdm(total=len(tokenized_dataset)) as pbar:
+        with tqdm(total=len(entries)) as pbar:
             while batch := next_batch(entries, max_batch_prefill_tokens, token_budget, BLOCK_SIZE, window_size):
                 # prefill
-                print("BATCH", batch)
+                # print("BATCH", batch)
                 cached_batch, stopped_generations = prefill(client, batch)
                 add_outputs(stopped_generations, outputs)
                 pbar.update(len(stopped_generations))
@@ -117,6 +120,7 @@ def run(
         # TODO(travis) explore streaing writing: https://stackoverflow.com/questions/64791558/create-parquet-files-from-stream-in-python-in-memory-efficient-manner
     
     print("BATCH RUN COMPLETE", time.time() - t0)
+    print("OUTPUTS", outputs)
 
 
 def add_outputs(
@@ -240,7 +244,7 @@ def create_entry(
 ) -> Entry:
     # We truncate the input on the server side to be sure that it has the correct size
     effective_max_new_tokens = max_new_tokens or (max_total_tokens - input_length)
-    print("max_new_tokens", effective_max_new_tokens, max_total_tokens, input_length)
+    # print("max_new_tokens", effective_max_new_tokens, max_total_tokens, input_length)
     if input_length > max_input_length:
         raise ValueError(f"Input length {input_length} is greater than max_input_length {max_input_length}")
 
@@ -319,7 +323,7 @@ def next_batch(
     next_id = _ID
     _ID += 1
 
-    print(window_size, prefill_tokens, decode_tokens)
+    # print(window_size, prefill_tokens, decode_tokens)
 
     return generate_pb2.Batch(
         id=next_id,
