@@ -25,6 +25,7 @@ def run(
     max_input_length: int,
     max_batch_prefill_tokens: int,
     max_total_tokens: int,
+    max_new_tokens: Optional[int],
     tokenizer_name: str,
     prompt_column: str,
     input_format: str,
@@ -76,6 +77,7 @@ def run(
                 input_length=len(input_ids),
                 max_input_length=max_input_length,
                 max_total_tokens=max_total_tokens,
+                max_new_tokens=max_new_tokens,
             )
             entries.append(entry)
 
@@ -234,9 +236,10 @@ def create_entry(
     input_length: int,
     max_input_length: int,
     max_total_tokens: int,
+    max_new_tokens: Optional[int],
 ) -> Entry:
     # We truncate the input on the server side to be sure that it has the correct size
-    effective_max_new_tokens = max_total_tokens - input_length
+    effective_max_new_tokens = max_new_tokens or (max_total_tokens - input_length)
     print("max_new_tokens", effective_max_new_tokens, max_total_tokens, input_length)
     if input_length > max_input_length:
         raise ValueError(f"Input length {input_length} is greater than max_input_length {max_input_length}")
