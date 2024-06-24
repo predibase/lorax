@@ -3,6 +3,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Type, Union
+import transformer_engine.pytorch as te
 
 import numpy as np
 import torch
@@ -36,6 +37,11 @@ from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.state import get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
+
+from transformer_engine.common.recipe import Format, DelayedScaling
+
+fp8_format = Format.HYBRID  # E4M3 during forward pass, E5M2 during backward pass
+fp8_recipe = DelayedScaling(fp8_format=fp8_format, amax_history_len=16, amax_compute_algo="max")
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
 
@@ -896,19 +902,20 @@ class FlashCausalLM(Model):
             position_ids = new_position_ids
 
         # Model Forward
-        logits = model.forward(
-            input_ids=input_ids,
-            position_ids=position_ids,
-            cu_seqlen_prefill=batch.cu_seqlen_prefill,
-            kv_cache=get_cache_manager().kv_cache,
-            block_tables=block_tables,
-            slots=slots,
-            input_lengths=input_lengths,
-            max_s=max_s,
-            adapter_data=adapter_data,
-            prefill_cache_indices=batch.prefill_cache_indices,
-            lm_head_indices=batch.prefill_head_indices,
-        )
+        with te.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+            logits = model.forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                kv_cache=get_cache_manager().kv_cache,
+                block_tables=block_tables,
+                slots=slots,
+                input_lengths=input_lengths,
+                max_s=max_s,
+                adapter_data=adapter_data,
+                prefill_cache_indices=batch.prefill_cache_indices,
+                lm_head_indices=batch.prefill_head_indices,
+            )
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None
         return logits

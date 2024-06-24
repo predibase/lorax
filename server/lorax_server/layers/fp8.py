@@ -1,4 +1,5 @@
 import torch
+import transformer_engine.pytorch as te
 
 
 def fp8_quantize(weight, qdtype=torch.float8_e4m3fn):
@@ -25,22 +26,31 @@ class Fp8Linear(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.dtype = weight.dtype
-        self.qweight, self.scale = fp8_quantize(weight)
+        self.te_linear = te.Linear(weight.shape[1], weight.shape[0])
 
-        self.bias = bias if bias is not None else None
+        state_dict = self.te_linear.state_dict()
+        state_dict["weight"] = weight
+        state_dict["bias"] = bias
+        self.te_linear.load_state_dict(state_dict)
+
+        # self.qweight, self.scale = fp8_quantize(weight)
+
+        # self.bias = bias if bias is not None else None
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        qinput, scale = fp8_quantize(input)
-        output, _ = torch._scaled_mm(
-            qinput,
-            self.qweight.t(),
-            out_dtype=self.dtype,
-            scale_a=scale,
-            scale_b=self.scale,
-            bias=self.bias,
-        )
-        return output
+        # qinput, scale = fp8_quantize(input)
+        # output, _ = torch._scaled_mm(
+        #     qinput,
+        #     self.qweight.t(),
+        #     out_dtype=self.dtype,
+        #     scale_a=scale,
+        #     scale_b=self.scale,
+        #     bias=self.bias,
+        # )
+        # return output
+        return self.te_linear(input)
 
     @property
     def weight(self) -> torch.Tensor:
-        return self.qweight
+        # return self.qweight
+        return self.te_linear.weight
