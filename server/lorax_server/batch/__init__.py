@@ -72,7 +72,7 @@ def run(
         # Convert dataset to entries
         entries = []
         for i, example in enumerate(tokenized_dataset):
-            text = example["text"]
+            text = example[prompt_column]
             input_ids = example["input_ids"]
             entry = create_entry(
                 request_id=i,
@@ -83,10 +83,6 @@ def run(
                 max_new_tokens=max_new_tokens,
             )
             entries.append(entry)
-
-            # TODO(debugging):
-            if i == 10:
-                break
         
         # continuous batching
         outputs = {}
@@ -98,6 +94,7 @@ def run(
                 cached_batch, stopped_generations = prefill(client, batch)
                 add_outputs(stopped_generations, outputs)
                 pbar.update(len(stopped_generations))
+                print("PREFILL", len(stopped_generations), cached_batch)
 
                 while cached_batch is not None:
                     batches = [cached_batch]
@@ -111,16 +108,16 @@ def run(
                             batches.append(new_cached_batch)
 
                     # decode
+                    print("decode!")
                     cached_batch, stopped_generations = decode(client, batches)
                     add_outputs(stopped_generations, outputs)
                     pbar.update(len(stopped_generations))
 
-        print(outputs)
+        print("OUTPUTS", outputs)
         # stream out the output parquet file
         # TODO(travis) explore streaing writing: https://stackoverflow.com/questions/64791558/create-parquet-files-from-stream-in-python-in-memory-efficient-manner
     
     print("BATCH RUN COMPLETE", time.time() - t0)
-    print("OUTPUTS", outputs)
 
 
 def add_outputs(
@@ -221,13 +218,16 @@ def filter_batch(
     batch.request_ids.extend([id for id in batch.request_ids if id not in stopped_request_ids])
 
     if len(batch.request_ids) == 0:
+        print("!!! return empty batch", stopped_request_ids)
+        print([g.generated_text for g in stopped_generations])
         # All requests have been filtered out
         # Next batch is now empty
         # Clear it from the Python shards cache
         # We unwrap here as we need to panic since we cannot recover if this method fails
         client.ClearCache(generate_pb2.ClearCacheRequest(id=batch.id))
-        return None, []
+        return None, stopped_generations
     
+    print("!!! return filtered batch", stopped_request_ids)
     # Filter Python shard cache
     # We unwrap here as we need to panic since we cannot recover if this method fails
     resp = client.FilterBatch(generate_pb2.FilterBatchRequest(batch_id=batch.id, request_ids=batch.request_ids))
@@ -315,6 +315,7 @@ def next_batch(
             break
 
         batch_requests.append(entry.request)
+        print("!!! add request", entry.request.inputs)
     
     if not batch_requests:
         return None
