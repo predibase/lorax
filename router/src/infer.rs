@@ -512,7 +512,7 @@ async fn batching_task(
                 };
 
                 let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-                let adapters_in_use = batch_entries.adapters_in_use();
+                let mut adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
                 while let Some((mut new_entries, new_batch, span)) = adapter_scheduler
@@ -556,6 +556,9 @@ async fn batching_task(
                     let new_cached_batch = new_entries
                         .process_first(&mut client, new_batch, span, &generation_health)
                         .await;
+
+                    adapters_in_use.extend(new_entries.adapters_in_use());
+
                     // Reset waiting counter
                     waiting_tokens = 1;
                     // Extend current batch with the new batch
