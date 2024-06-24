@@ -38,7 +38,6 @@ def run(
 
         # health check to ensure system is up
         resp = client.Health(generate_pb2.HealthRequest())
-        # print("HEALTH RESPONSE", resp, type(resp))
         logger.info("Health check successful")
 
         # get deployment info
@@ -53,7 +52,6 @@ def run(
             max_batch_prefill_tokens=max_batch_prefill_tokens,
             max_total_tokens=max_total_tokens,
         )
-        print("WARMUP COMPLETE", max_supported_total_tokens)
         logger.info(f"Warmup complete, max supported total tokens: {max_supported_total_tokens}")
 
         # stream in the input file
@@ -94,7 +92,7 @@ def run(
                 cached_batch, stopped_generations = prefill(client, batch)
                 add_outputs(stopped_generations, outputs)
                 pbar.update(len(stopped_generations))
-                print("PREFILL", len(stopped_generations), cached_batch)
+                # print("PREFILL", len(stopped_generations), cached_batch)
 
                 while cached_batch is not None:
                     batches = [cached_batch]
@@ -108,15 +106,22 @@ def run(
                             batches.append(new_cached_batch)
 
                     # decode
-                    print("decode!")
+                    # print("decode!")
                     cached_batch, stopped_generations = decode(client, batches)
                     add_outputs(stopped_generations, outputs)
                     pbar.update(len(stopped_generations))
 
-        print("OUTPUTS", outputs)
-        # stream out the output parquet file
-        # TODO(travis) explore streaing writing: https://stackoverflow.com/questions/64791558/create-parquet-files-from-stream-in-python-in-memory-efficient-manner
-    
+    # print("OUTPUTS", outputs)
+    # stream out the output parquet file
+    # TODO(travis) explore streaing writing: https://stackoverflow.com/questions/64791558/create-parquet-files-from-stream-in-python-in-memory-efficient-manner
+
+    # convert outputs to a single list of values ordered by key
+    output_values = [outputs[key] for key in sorted(outputs.keys())]
+
+    # write to parquet
+    dataset["generated_text"] = output_values
+    dataset.to_parquet(output_path)
+
     print("BATCH RUN COMPLETE", time.time() - t0)
 
 
@@ -190,7 +195,9 @@ def prefill(
     client: generate_pb2_grpc.LoraxServiceStub,
     batch: generate_pb2.Batch,
 ) -> Tuple[generate_pb2.CachedBatch, List[generate_pb2.Generation]]:
+    # print("prefill", batch)
     resp = client.Prefill(generate_pb2.PrefillRequest(batch=batch))
+    # print("prefill response", resp, type(resp))
     return filter_batch(client, resp.batch, resp.generations)
 
 
@@ -209,17 +216,18 @@ def filter_batch(
 ) -> Tuple[Optional[generate_pb2.CachedBatch], List[generate_pb2.Generation]]:
     stopped_generations = [
         generation for generation in generations
-        if generation.generated_text is not None
+        if generation.HasField("generated_text")
     ]
 
     # Retain only requests that are still in entries
     stopped_request_ids = set(generation.request_id for generation in stopped_generations)
+    new_request_ids = [id for id in batch.request_ids if id not in stopped_request_ids]
     del batch.request_ids[:]
-    batch.request_ids.extend([id for id in batch.request_ids if id not in stopped_request_ids])
+    batch.request_ids.extend(new_request_ids)
 
     if len(batch.request_ids) == 0:
-        print("!!! return empty batch", stopped_request_ids)
-        print([g.generated_text for g in stopped_generations])
+        # print("!!! return empty batch", stopped_request_ids)
+        print([(g.generated_text.text, g.generated_text.finish_reason, g.generated_text.generated_tokens) for g in stopped_generations])
         # All requests have been filtered out
         # Next batch is now empty
         # Clear it from the Python shards cache
@@ -227,7 +235,7 @@ def filter_batch(
         client.ClearCache(generate_pb2.ClearCacheRequest(id=batch.id))
         return None, stopped_generations
     
-    print("!!! return filtered batch", stopped_request_ids)
+    # print("!!! return filtered batch", stopped_request_ids)
     # Filter Python shard cache
     # We unwrap here as we need to panic since we cannot recover if this method fails
     resp = client.FilterBatch(generate_pb2.FilterBatchRequest(batch_id=batch.id, request_ids=batch.request_ids))
@@ -244,7 +252,7 @@ def create_entry(
 ) -> Entry:
     # We truncate the input on the server side to be sure that it has the correct size
     effective_max_new_tokens = max_new_tokens or (max_total_tokens - input_length)
-    # print("max_new_tokens", effective_max_new_tokens, max_total_tokens, input_length)
+    # print("max_new_tokens", effective_max_new_tokens, max_total_tokens, input_length, max_new_tokens)
     if input_length > max_input_length:
         raise ValueError(f"Input length {input_length} is greater than max_input_length {max_input_length}")
 
@@ -272,7 +280,7 @@ def create_entry(
             ignore_eos_token=False,
         ),
         adapter_index=0,
-        prefill_logprobs=True,
+        prefill_logprobs=False,
         apply_chat_template=False,
     )
 
@@ -315,7 +323,7 @@ def next_batch(
             break
 
         batch_requests.append(entry.request)
-        print("!!! add request", entry.request.inputs)
+        # print("!!! add request", entry.request.inputs)
     
     if not batch_requests:
         return None
