@@ -391,6 +391,21 @@ struct Args {
     /// Download model weights only
     #[clap(long, env)]
     download_only: bool,
+
+    /// If true, launch in batch mode. The launcher will wait for the presence of
+    /// an input file to process. No webserver will be launched.
+    #[clap(long, env)]
+    batch_mode: bool,
+
+    #[clap(long, env)]
+    batch_input_file: Option<String>,
+
+    #[clap(long, env)]
+    batch_output_file: Option<String>,
+
+    // TODO: for testing and demo, remove
+    #[clap(long, env)]
+    debug: bool,
 }
 
 #[derive(Debug)]
@@ -923,6 +938,50 @@ fn download_convert_model(
     Ok(())
 }
 
+fn run_batcher(
+    args: Args,
+    shutdown: Arc<AtomicBool>,
+    shutdown_receiver: &mpsc::Receiver<()>,
+    shutdown_sender: mpsc::Sender<()>,
+    status_receiver: &mpsc::Receiver<ShardStatus>,
+    status_sender: mpsc::Sender<ShardStatus>,
+    running: Arc<AtomicBool>,
+) -> Result<(), LauncherError> {
+    if args.batch_input_file.is_none() || !args.batch_output_file.is_none() {
+        return Err(LauncherError::ArgumentValidation("batch-input-file and batch-output-file are required when batch-mode is enabled".to_string()));
+    }
+
+    let mut args = vec![
+        "batch-infer".to_string(),
+        args.batch_input_file.unwrap(),
+        args.batch_output_file.unwrap(),
+        "--debug".to_string(),
+    ];
+
+    match Command::new("lorax-server")
+        .args(args)
+        // .envs(envs)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .output()
+    {
+        Ok(p) => return Ok(()),
+        Err(err) => {
+            if err.kind() == io::ErrorKind::NotFound {
+                tracing::error!("lorax-server not found in PATH");
+                tracing::error!("Please install it with `make install-server`")
+            }
+            {
+                tracing::error!("{}", err);
+            }
+
+            status_sender.send(ShardStatus::Failed(0)).unwrap();
+            return Err(LauncherError::ShardCannotStart);
+        }
+    };
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn_shards(
     num_shard: usize,
@@ -1326,6 +1385,24 @@ fn main() -> Result<(), LauncherError> {
 
     // Shared channel to track shard status
     let (status_sender, status_receiver) = mpsc::channel();
+
+    if args.batch_mode {
+        loop {
+            if Path::new("...").exists() {
+                break;
+            }
+        }
+
+        return run_batcher(
+            args,
+            shutdown.clone(),
+            &shutdown_receiver,
+            shutdown_sender,
+            &status_receiver,
+            status_sender,
+            running.clone(),
+        );
+    }
 
     spawn_shards(
         num_shard,
