@@ -138,7 +138,10 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(get_linear(weight, bias=True, quantize=config.quantize))
+    w = [weights.get_sharded(f"{p}.bias", dim=0) for p in [f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"]]
+    bias = torch.cat(w, dim=0).to(dtype=weights.dtype).to(device=weights.device)
+
+    return TensorParallelColumnLinear(get_linear(weight, bias=bias, quantize=config.quantize))
 
 
 class FlashQwen2Attention(torch.nn.Module):

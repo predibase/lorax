@@ -60,6 +60,8 @@ pub struct Info {
     pub max_waiting_tokens: usize,
     #[schema(example = "2")]
     pub validation_workers: usize,
+    #[schema(example = false)]
+    pub eager_prefill: bool,
     /// Router Info
     #[schema(example = "0.5.0")]
     pub version: &'static str,
