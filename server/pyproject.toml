@@ -34,13 +34,14 @@ texttable = { version = "^1.6.7", optional = true }
 datasets = { version = "^2.14.0", optional = true }
 torch = { version = "2.3.0", optional = true }
 peft = { version = "0.4.0", optional = true }
-boto3 = "^1.28.34"
+boto3 = {extras = ["crt"], version = "^1.34.129"}
 urllib3 = "<=1.26.18"
 hqq = { version = "^0.1.7", optional = true }
 stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
 outlines = { version = "^0.0.40", optional = true }
 prometheus-client = "^0.20.0"
 py-cpuinfo = "^9.0.0"
+s3transfer = "0.10.1"
 
 [tool.poetry.extras]
 torch = ["torch"]
