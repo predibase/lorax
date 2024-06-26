@@ -1,7 +1,8 @@
 use crate::{
     adapter::Adapter,
+    batch::{self, BatchEntries, Entry},
     queue::{AdapterEvent, AdapterQueuesState},
-    AdapterLoader, Entry,
+    AdapterLoader,
 };
 use lorax_client::{Batch, Request, ShardedClient};
 use nohash_hasher::{BuildNoHashHasher, IntMap};
@@ -102,7 +103,7 @@ impl AdapterScheduler {
     }
 }
 
-type NextBatch = (IntMap<u64, Entry>, Batch, Span);
+type NextBatch = (Box<dyn BatchEntries>, Batch, Span);
 
 /// Background task that manages the queues of the various adapters
 /// TODO(geoffrey): add tracing (span object) to the various commands
@@ -253,12 +254,6 @@ impl AdapterSchedulerState {
         let next_batch_span = info_span!(parent: None, "batch", batch_size = tracing::field::Empty);
         next_batch_span.follows_from(&Span::current());
 
-        let mut batch_requests = Vec::with_capacity(num_entries);
-        let mut batch_entries =
-            IntMap::with_capacity_and_hasher(num_entries, BuildNoHashHasher::default());
-
-        let mut index_to_adapter = HashMap::with_capacity(queues_state.active_len());
-
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
@@ -273,6 +268,7 @@ impl AdapterSchedulerState {
         );
 
         // Pop entries starting from the front of the queue
+        let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
         while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
@@ -282,25 +278,30 @@ impl AdapterSchedulerState {
             }
 
             if self.requires_padding {
+                let mut batch_requests_len = 0;
+                if let Some(batch_entries) = batch_entries.as_ref() {
+                    batch_requests_len = batch_entries.len();
+                }
+
                 // We pad to max input length in the Python shards
                 // We need to take these padding tokens into the equation
-                max_input_length = max_input_length.max(entry.request.input_length);
-                prefill_tokens = (batch_requests.len() + 1) as u32 * max_input_length
+                max_input_length = max_input_length.max(entry.request.input_length());
+                prefill_tokens = (batch_requests_len + 1) as u32 * max_input_length
             } else {
                 // pad to block size
-                prefill_tokens += ((entry.request.input_length + self.block_size - 1)
+                prefill_tokens += ((entry.request.input_length() + self.block_size - 1)
                     / self.block_size)
                     * self.block_size;
             }
 
             if self.requires_padding {
-                decode_tokens += entry.request.stopping_parameters.max_new_tokens;
+                decode_tokens += entry.request.max_new_tokens();
             } else {
                 let max_new_tokens = match self.window_size {
-                    None => entry.request.stopping_parameters.max_new_tokens,
+                    None => entry.request.max_new_tokens(),
                     Some(window_size) => min(
-                        window_size.saturating_sub(entry.request.input_length),
-                        entry.request.stopping_parameters.max_new_tokens,
+                        window_size.saturating_sub(entry.request.input_length()),
+                        entry.request.max_new_tokens(),
                     ),
                 };
 
@@ -318,6 +319,20 @@ impl AdapterSchedulerState {
                 break;
             }
 
+            if batch_entries.is_none() {
+                batch_entries = Some(
+                    entry
+                        .request
+                        .to_batch(num_entries, queues_state.active_len()),
+                );
+            }
+
+            if !batch_entries.as_ref().unwrap().can_add(&entry) {
+                // Incompatible entry for this batch. Reinsert and break
+                queues_state.push_front(&adapter, id, entry);
+                break;
+            }
+
             // Create a new span to link the batch back to this entry
             let entry_batch_span = info_span!(parent: &entry.span, "infer");
             // Add relationships
@@ -326,61 +341,41 @@ impl AdapterSchedulerState {
             // Update entry
             entry.temp_span = Some(entry_batch_span);
 
-            batch_requests.push(Request {
-                id,
-                prefill_logprobs: entry.request.decoder_input_details,
-                inputs: entry.request.inputs.clone(),
-                truncate: entry.request.truncate,
-                parameters: Some(entry.request.parameters.clone()),
-                stopping_parameters: Some(entry.request.stopping_parameters.clone()),
-                adapter_index: adapter.index(),
-                apply_chat_template: entry.request.apply_chat_template,
-            });
-            // Set batch_time
-            entry.batch_time = Some(Instant::now());
-            // Insert in batch_entries IntMap
-            batch_entries.insert(id, entry);
-            // Map from adapter index back to queue in case we need to add back entries below
-            // let queue = queue_map.get_mut(&adapter).unwrap();
-            index_to_adapter.insert(adapter.index(), adapter);
+            batch_entries.as_mut().unwrap().add(id, entry, adapter)
         }
 
+        if batch_entries.is_none() {
+            return None;
+        }
+
+        let mut batch_entries = batch_entries.unwrap();
+
         // Empty batch
-        if batch_requests.is_empty() {
+        if batch_entries.is_empty() {
             return None;
         }
 
         // Check if our batch is big enough
         if let Some(min_size) = min_size {
             // Batch is too small
-            if batch_requests.len() < min_size {
+            if batch_entries.len() < min_size {
                 // Add back entries to the queue in the correct order
-                for r in batch_requests.into_iter().rev() {
-                    let id = r.id;
-                    let entry = batch_entries.remove(&id).unwrap();
-                    let adapter_index = r.adapter_index;
-                    let adapter = index_to_adapter.get_mut(&adapter_index).unwrap();
-                    queues_state.push_front(adapter, id, entry);
+                for (adapter, id, entry) in batch_entries.drain() {
+                    queues_state.push_front(&adapter, id, entry);
                 }
 
                 return None;
             }
         }
 
-        // Final batch size
-        let size = batch_requests.len() as u32;
-        next_batch_span.record("batch_size", size);
+        next_batch_span.record("batch_size", batch_entries.len() as u32);
+        let max_tokens = prefill_tokens + decode_tokens;
+        let batch = batch_entries.create_batch_data(self.next_batch_id, max_tokens);
 
-        let batch = Batch {
-            id: self.next_batch_id,
-            requests: batch_requests,
-            size,
-            max_tokens: (prefill_tokens + decode_tokens),
-        };
         // Increment batch id
         self.next_batch_id += 1;
 
-        metrics::histogram!("lorax_batch_next_size", batch.size as f64);
+        metrics::histogram!("lorax_batch_next_size", batch_entries.len() as f64);
 
         Some((batch_entries, batch, next_batch_span))
     }

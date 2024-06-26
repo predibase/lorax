@@ -232,16 +232,24 @@ message DecodeResponse {
     optional CachedBatch batch = 2;
 }
 
-message EmbedRequest {
-    string inputs = 1;
+message Embedding {
+    /// Request ID
+    uint64 request_id = 1;
+
+    /// Embedding values
+    repeated float values = 2;
 }
 
-message Embedding {
-    repeated float values = 1;
+message EmbedRequest {
+    /// Batch
+    Batch batch = 1;
 }
 
 message EmbedResponse {
-    Embedding embeddings = 1;
+    /// Embeddings
+    repeated Embedding embeddings = 1;
+
+    /// Error message on failure
     string errorMsg = 2;
 }
 

@@ -3,10 +3,10 @@ from typing import Optional, Type
 import torch
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from transformers.models.bert import BertConfig
+from transformers.models.distilbert import DistilBertConfig
 
 from lorax_server.models import Model
-from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
+from lorax_server.models.custom_modeling.flash_bert_modeling import DistilBertEmbeddings, DistilBertLayer
 from lorax_server.models.types import FlashEmbeddingBatch
 from lorax_server.pb.generate_pb2 import Embedding
 from lorax_server.utils import (
@@ -18,10 +18,11 @@ from lorax_server.utils import (
 tracer = trace.get_tracer(__name__)
 
 
-class BertEncoder:
-    def __init__(self, prefix, weights, device, dtype, config: BertConfig):
+class DistilBertEncoder:
+    def __init__(self, prefix, weights, device, dtype, config: DistilBertConfig):
         self.layers = [
-            BertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config) for i in range(config.num_hidden_layers)
+            DistilBertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config)
+            for i in range(config.num_hidden_layers)
         ]
 
     def forward(self, hidden_states, cu_seqlens, max_s):
@@ -30,11 +31,11 @@ class BertEncoder:
         return hidden_states
 
 
-class FlashBertModel(torch.nn.Module):
-    def __init__(self, weights, device, dtype, config: BertConfig):
+class FlashDistilBertModel(torch.nn.Module):
+    def __init__(self, weights, device, dtype, config: DistilBertConfig):
         super().__init__()
-        self.embeddings = BertEmbeddings("embeddings", weights, device, dtype, config)
-        self.encoder = BertEncoder("encoder", weights, device, dtype, config)
+        self.embeddings = DistilBertEmbeddings("distilbert.embeddings", weights, device, dtype, config)
+        self.encoder = DistilBertEncoder("distilbert.transformer", weights, device, dtype, config)
 
     def forward(self, input_ids, token_type_ids, position_ids, cu_seqlens, max_s):
         embeddings = self.embeddings.forward(input_ids, token_type_ids, position_ids)
@@ -43,7 +44,7 @@ class FlashBertModel(torch.nn.Module):
         return encoder_outputs[cu_seqlens[:-1]]
 
 
-class FlashBert(Model):
+class FlashDistilBert(Model):
     def __init__(
         self,
         model_id: str,
@@ -63,7 +64,7 @@ class FlashBert(Model):
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         self.tokenizer = tokenizer
 
-        config = BertConfig.from_pretrained(model_id)
+        config = DistilBertConfig.from_pretrained(model_id)
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
         weights = Weights(
             filenames,
@@ -71,11 +72,11 @@ class FlashBert(Model):
             dtype,
             process_group=self.process_group,
         )
-        model = FlashBertModel(weights, device, dtype, config)
+        model = FlashDistilBertModel(weights, device, dtype, config)
 
         self.hidden_size = config.hidden_size
 
-        super(FlashBert, self).__init__(
+        super(FlashDistilBert, self).__init__(
             model_id=model_id,
             model=model,
             tokenizer=tokenizer,

@@ -1,5 +1,6 @@
 /// LoRAX Webserver
 mod adapter;
+mod batch;
 mod health;
 mod infer;
 mod loader;
@@ -10,9 +11,9 @@ mod validation;
 use lorax_client::{AdapterParameters as AdapterParametersMessage, AlternativeTokens};
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
+use batch::Entry;
 use infer::Infer;
 use loader::AdapterLoader;
-use queue::Entry;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
@@ -59,6 +60,8 @@ pub struct Info {
     pub max_waiting_tokens: usize,
     #[schema(example = "2")]
     pub validation_workers: usize,
+    #[schema(example = false)]
+    pub eager_prefill: bool,
     /// Router Info
     #[schema(example = "0.5.0")]
     pub version: &'static str,
@@ -620,6 +623,8 @@ struct ChatCompletionStreamResponse {
     created: i64,
     model: String,
     choices: Vec<ChatCompletionStreamResponseChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage: Option<UsageInfo>,
 }
 
 #[derive(Serialize, ToSchema, PartialEq)]
@@ -823,6 +828,20 @@ impl From<GenerateResponse> for ChatCompletionResponse {
 
 impl From<StreamResponse> for ChatCompletionStreamResponse {
     fn from(resp: StreamResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp.details.as_ref().map(|x| x.generated_tokens);
+        let total_tokens = prompt_tokens + completion_tokens.unwrap_or(0);
+
+        let usage: Option<UsageInfo> = if completion_tokens.is_some() {
+            Some(UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: completion_tokens,
+            })
+        } else {
+            None
+        };
+
         let finish_reason = resp
             .details
             .map(|x| CompletionFinishReason::from(x.finish_reason));
@@ -848,6 +867,7 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                 },
                 finish_reason: finish_reason,
             }],
+            usage: usage,
         }
     }
 }
