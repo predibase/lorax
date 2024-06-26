@@ -78,7 +78,7 @@ class FlashCausalLMBatch(Batch):
     # tensor of indices of the currently used slots, length = \sum_{i=0}^{b} s_i in prefill, length = b in decode
     slot_indices: torch.Tensor
     # List of tuple of ints representing the number of blocks and slots needed by each sequence
-    needed_blocks_slots: Optional[List[Tuple[int, int]]]
+    needed_blocks_slots: Optional[List[Tuple[int, int, List[int]]]]
 
     # Set in prefill by the CacheManager
     # list of length b of list of length s_i // block_size
@@ -227,7 +227,15 @@ class FlashCausalLMBatch(Batch):
                 needed_blocks = max(needed_blocks, SLIDING_WINDOW_BLOCKS)
             blocks += needed_blocks
 
-            needed_blocks_slots.append((needed_blocks, total_tokens))
+            # compute a unique key for this block from the sequence prefix and the adapter index
+            block_keys = []
+            tokenized_input_tuple = tuple(tokenized_input)
+            for j in range(0, input_length, BLOCK_SIZE):
+                block_prefix_ids = tokenized_input_tuple[: j + BLOCK_SIZE]
+                block_key = hash((block_prefix_ids, r.adapter_index))
+                block_keys.append(block_key)
+
+            needed_blocks_slots.append((needed_blocks, total_tokens, block_keys))
             start_slots.append(cumulative_max_length)
 
             request_slot_indices = torch.arange(
@@ -932,7 +940,7 @@ class FlashCausalLM(Model):
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
-            block_tables, block_tables_tensor, slots = get_cache_manager().allocate(
+            block_tables, block_tables_tensor, slots, computed_block_lens = get_cache_manager().allocate(
                 batch.needed_blocks_slots,
                 batch.blocks,
                 batch.max_blocks,
@@ -942,6 +950,16 @@ class FlashCausalLM(Model):
             batch.block_tables = block_tables
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
+        
+        if sum(computed_block_lens) > 0:
+            # None this out to force using paged attention instead of flash attention
+            batch.cu_seqlen_prefill = None
+
+            # Update input lengths
+            for i, computed_block_len in enumerate(computed_block_lens):
+                batch.input_ids[i] = batch.input_ids[i, computed_block_len :]
+                batch.position_ids[i] = batch.position_ids[i, computed_block_len :]
+            
 
         # Update adapter indices for speculative tokens (if present)
         adapter_meta = batch.adapter_meta

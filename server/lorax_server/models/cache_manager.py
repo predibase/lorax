@@ -43,14 +43,28 @@ class CacheManager:
         ]
         self.free_block_mask = torch.ones(num_blocks, dtype=torch.int32, device="cpu")
         self.slots = torch.arange(0, num_blocks * self.block_size, dtype=torch.int64).view(num_blocks, self.block_size)
+        self.computed_block_ids = {}
 
     def allocate(
         self,
-        needed_blocks_slots: List[Tuple[int, int]],
+        needed_blocks_slots: List[Tuple[int, int, List[int]]],
         blocks: int,
         max_blocks: int,
         device: torch.device,
     ):
+        n_computed_blocks = 0
+        all_computed_blocks = []
+        computed_block_lens = []
+        for _, _, block_keys in needed_blocks_slots:
+            computed_blocks = [self.computed_block_ids[key] for key in block_keys if key in self.computed_block_ids]
+            computed_blocks = torch.tensor(computed_blocks, device=device)
+            n_computed_blocks += len(computed_blocks)
+            all_computed_blocks.append(computed_blocks)
+            computed_block_lens.append(len(computed_blocks))
+            self.free_block_mask[computed_blocks] = 0
+        
+        blocks -= n_computed_blocks
+
         # Get free blocks indices by finding values in mask that are not set to 0
         free_block_indices = self.free_block_mask.nonzero()
         assert (
@@ -68,9 +82,21 @@ class CacheManager:
         cumulative_blocks = 0
         slots = []
         block_tables = []
-        for i, (needed_blocks, needed_slots) in enumerate(needed_blocks_slots):
+        for i, (needed_blocks, needed_slots, block_keys) in enumerate(needed_blocks_slots):
+            computed_blocks = all_computed_blocks[i]
+            remaining_blocks = needed_blocks - len(computed_blocks)
+
             # Get allocated blocks for this sequence
-            allocated_blocks = block_indices[cumulative_blocks : cumulative_blocks + needed_blocks]
+            allocated_blocks = block_indices[cumulative_blocks : cumulative_blocks + remaining_blocks]
+
+            # Insert block keys into the compute block ids for every allocated block
+            # TODO(travis): do this after completing the attention to support continuous batching
+            for block, key in zip(allocated_blocks, block_keys[:remaining_blocks]):
+                self.computed_block_ids[key] = block.item()
+
+            # Add computed blocks
+            allocated_blocks = torch.cat([computed_blocks, allocated_blocks])
+
             # Get slots for the allocated blocks
             all_slots = self.slots[allocated_blocks].flatten()
 
@@ -84,7 +110,7 @@ class CacheManager:
             slots.append(allocated_slots)
             block_tables.append(allocated_blocks.tolist())
             block_tables_tensor[i, :needed_blocks] = allocated_blocks
-            cumulative_blocks += needed_blocks
+            cumulative_blocks += remaining_blocks
 
         block_tables = block_tables
         block_tables_tensor = block_tables_tensor.to(device)
@@ -93,7 +119,7 @@ class CacheManager:
         # Allocate the required number of blocks by setting the mask to 0
         self.free_block_mask[block_indices] = 0
 
-        return block_tables, block_tables_tensor, slots
+        return block_tables, block_tables_tensor, slots, computed_block_lens
 
     def free(self, block_indices: Optional[List[int]]):
         if block_indices is not None and block_indices:
