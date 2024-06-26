@@ -278,22 +278,10 @@ class BatchLoraWeights(BatchAdapterWeights):
                 lora_a[adapter_idx] = adapter_weight.weights_a
                 lora_b[adapter_idx] = adapter_weight.weights_b
 
+        if not max_rank:
+            return None
+
         use_sgmv = prefill or max_rank > BGMV_MAX_RANK
-        lora_a_ptr, lora_b_ptr = [], []
-        for segment_idx, adapter_idx in enumerate(segment_indices):
-            if adapter_idx in adapter_weights:
-                adapter_weight = adapter_weights[adapter_idx]
-                lora_a_ptr.append(
-                    (adapter_weight.weights_a if use_sgmv or is_embed else adapter_weight.weights_a_t).data_ptr()
-                )
-                lora_b_ptr.append(
-                    (adapter_weight.weights_b if use_sgmv else adapter_weight.weights_b_t).data_ptr()
-                )
-            else:
-                lora_a_ptr.append(EMPTY_TENSOR.data_ptr())
-                lora_b_ptr.append(EMPTY_TENSOR.data_ptr())
-        lora_a_ptr = torch.tensor(lora_a_ptr, dtype=torch.int64, device=device)
-        lora_b_ptr = torch.tensor(lora_b_ptr, dtype=torch.int64, device=device)
 
         if prefill_head_indices is not None:
             j, prefill_head_segment_starts, prefill_head_segment_ends = 1, [0], [0]
@@ -313,28 +301,46 @@ class BatchLoraWeights(BatchAdapterWeights):
             segment_starts = None
             segment_ends = None
             batch_indices = None
+            lora_a_ptr_indices = []
+            lora_b_ptr_indices = []
 
             if use_sgmv:
-                lora_a_ptr_indices = lora_a_ptr[indices]
+                for segment_idx in indices:
+                    adapter_weight = adapter_weights[segment_indices[segment_idx]]
+                    lora_a_ptr_indices.append(adapter_weight.weights_a.data_ptr())
+                    lora_b_ptr_indices.append(adapter_weight.weights_b.data_ptr())
                 tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
                 segment_starts = meta.adapter_segments[indices]
                 segment_ends = meta.adapter_segments[[i + 1 for i in indices]]
                 if prefill_head_indices is not None:
-                    for i, segment_index in enumerate(indices):
-                        segment_starts[i] = prefill_head_segment_starts[segment_index]
-                        segment_ends[i] = prefill_head_segment_ends[segment_index]
+                    for i, segment_idx in enumerate(indices):
+                        segment_starts[i] = prefill_head_segment_starts[segment_idx]
+                        segment_ends[i] = prefill_head_segment_ends[segment_idx]
             else:
-                batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]
-                batch_indices = [idx if idx in set(indices) else -1 for idx in batch_indices]
-                batch_indices = torch.tensor(batch_indices, dtype=torch.int64, device=device)
+                adapter_indices = {}
+                for segment_idx in indices:
+                    adapter_idx = segment_indices[segment_idx]
+                    adapter_weight = adapter_weights[adapter_idx]
+                    if adapter_idx not in adapter_indices:
+                        lora_a_ptr_indices.append(
+                            (adapter_weight.weights_a if is_embed else adapter_weight.weights_a_t).data_ptr()
+                        )
+                        lora_b_ptr_indices.append(adapter_weight.weights_b_t.data_ptr())
+                        adapter_indices[adapter_idx] = len(lora_a_ptr_indices) - 1
+                batch_indices = torch.tensor([
+                    adapter_indices.get(adapter_idx, -1) for adapter_idx in meta.adapter_indices.tolist()
+                ], dtype=torch.int64, device=device)
+
+            lora_a_ptr_indices = torch.tensor(lora_a_ptr_indices, dtype=torch.int64, device=device)
+            lora_b_ptr_indices = torch.tensor(lora_b_ptr_indices, dtype=torch.int64, device=device)
 
             rank_data[rank] = RankSegments(
                 rank=rank,
                 adapter_index_map=indices,
                 tmp_shrink=tmp_shrink,
                 tmp_expand=tmp_expand,
-                lora_a_ptr=lora_a_ptr[indices],
-                lora_b_ptr=lora_b_ptr[indices],
+                lora_a_ptr=lora_a_ptr_indices,
+                lora_b_ptr=lora_b_ptr_indices,
                 segment_starts=segment_starts,
                 segment_ends=segment_ends,
                 indices=batch_indices,
