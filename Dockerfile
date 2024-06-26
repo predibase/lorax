@@ -155,7 +155,7 @@ COPY server/Makefile-eetq Makefile
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
 
 # LoRAX base image
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04 as base
+FROM nvcr.io/nvidia/pytorch:23.07-py3 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
