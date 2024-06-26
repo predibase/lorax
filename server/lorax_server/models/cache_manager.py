@@ -54,13 +54,14 @@ class CacheManager:
     ):
         n_computed_blocks = 0
         all_computed_blocks = []
-        computed_block_lens = []
+        computed_token_lens = []
         for _, _, block_keys in needed_blocks_slots:
             computed_blocks = [self.computed_block_ids[key] for key in block_keys if key in self.computed_block_ids]
-            computed_blocks = torch.tensor(computed_blocks, device=device)
+            computed_blocks = torch.tensor(computed_blocks, device="cpu", dtype=torch.int64)
             n_computed_blocks += len(computed_blocks)
             all_computed_blocks.append(computed_blocks)
-            computed_block_lens.append(len(computed_blocks))
+            # TODO(travis): need to account for cases where only a partial block was computed
+            computed_token_lens.append(len(computed_blocks) * BLOCK_SIZE)
             self.free_block_mask[computed_blocks] = 0
         
         blocks -= n_computed_blocks
@@ -119,7 +120,7 @@ class CacheManager:
         # Allocate the required number of blocks by setting the mask to 0
         self.free_block_mask[block_indices] = 0
 
-        return block_tables, block_tables_tensor, slots, computed_block_lens
+        return block_tables, block_tables_tensor, slots, computed_token_lens
 
     def free(self, block_indices: Optional[List[int]]):
         if block_indices is not None and block_indices:

@@ -940,7 +940,7 @@ class FlashCausalLM(Model):
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
-            block_tables, block_tables_tensor, slots, computed_block_lens = get_cache_manager().allocate(
+            block_tables, block_tables_tensor, slots, computed_token_lens = get_cache_manager().allocate(
                 batch.needed_blocks_slots,
                 batch.blocks,
                 batch.max_blocks,
@@ -951,15 +951,31 @@ class FlashCausalLM(Model):
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
         
-        if sum(computed_block_lens) > 0:
-            # None this out to force using paged attention instead of flash attention
-            batch.cu_seqlen_prefill = None
+            if sum(computed_token_lens) > 0:
+                # Update input lengths
+                input_ids = []
+                position_ids = []
+                slot_indices = []
+                for i, computed_token_len in enumerate(computed_token_lens):
+                    prefix_offset = computed_token_len
+                    if prefix_offset >= batch.input_lengths[i]:
+                        # Retain just a single token, which is all that's needed to compute the next token
+                        prefix_offset = batch.input_lengths[i] - 1
 
-            # Update input lengths
-            for i, computed_block_len in enumerate(computed_block_lens):
-                batch.input_ids[i] = batch.input_ids[i, computed_block_len :]
-                batch.position_ids[i] = batch.position_ids[i, computed_block_len :]
-            
+                    start = batch.cu_seqlen_prefill[i] + prefix_offset
+                    end = batch.cu_seqlen_prefill[i] + batch.input_lengths[i]
+
+                    print("UPDATING", start, end, batch.cu_seqlen_prefill[i], prefix_offset, batch.input_lengths[i])
+                    input_ids.append(batch.input_ids[start : end])
+                    position_ids.append(batch.position_ids[start : end])
+                    slot_indices.append(batch.slot_indices[start : end])
+                
+                # None this out to force using paged attention instead of flash attention
+                batch.input_ids = torch.cat(input_ids)
+                batch.position_ids = torch.cat(position_ids)
+                batch.slot_indices = torch.cat(slot_indices)
+                batch.cu_seqlen_prefill = None
+                batch.prefill_head_indices = None
 
         # Update adapter indices for speculative tokens (if present)
         adapter_meta = batch.adapter_meta
@@ -1018,9 +1034,10 @@ class FlashCausalLM(Model):
                 prefill_tokens_indices = batch.input_ids.new_zeros(len(out))
 
             next_position_ids = batch.position_ids.new_empty(len(batch))
-            batch.slot_indices = batch.slot_indices[batch.cu_seqlen_prefill[1:] - 1]
-            # We do not need cu_seqlen_prefill anymore
-            batch.cu_seqlen_prefill = None
+            if batch.cu_seqlen_prefill is not None:
+                batch.slot_indices = batch.slot_indices[batch.cu_seqlen_prefill[1:] - 1]
+                # We do not need cu_seqlen_prefill anymore
+                batch.cu_seqlen_prefill = None
 
             next_adapter_indices = batch.adapter_meta.adapter_indices.new_empty(len(batch))
         else:
