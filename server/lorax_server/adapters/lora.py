@@ -301,8 +301,6 @@ class BatchLoraWeights(BatchAdapterWeights):
             idx: adapter_weights[idx].adapter_config for idx in segment_indices if idx in adapter_weights
         }
 
-        adapter_to_segment = {v: k for k, v in enumerate(segment_indices)}
-
         rank_indices = defaultdict(list)
         for segment_idx, adapter_idx in enumerate(segment_indices):
             if adapter_idx not in adapter_weights:
@@ -338,10 +336,22 @@ class BatchLoraWeights(BatchAdapterWeights):
                         segment_starts[i] = prefill_head_segment_starts[segment_index]
                         segment_ends[i] = prefill_head_segment_ends[segment_index]
             else:
-                index_locations = {idx: loc for loc, idx in enumerate(indices)}
-                batch_indices = [adapter_to_segment[idx] for idx in meta.adapter_indices.tolist()]
-                batch_indices = [index_locations.get(idx, -1) for idx in batch_indices]
-                batch_indices = torch.tensor(batch_indices, dtype=torch.int64, device=device)
+                # `indices` indexes the `segment_indices` which contains segment wise adapter index
+                # `lora_a_ptr` contains segment wise pointers to lora weights
+                # lengths of `lora_a_ptr` and `segment_indices` must be same
+                # `indices` will be used to slice the `lora_a_ptr` tensor
+                # first, find the mapping between adapter index and its location in the `indices` array
+                idx_locs = {}
+                for loc, idx in enumerate(indices):
+                    # use the idx to find the adapter index
+                    if segment_indices[idx] not in idx_locs:
+                        # save the first location of encountering a particular adapter index
+                        idx_locs[segment_indices[idx]] = loc
+                # second, iterate over the adapter index for each token and find its location in the `indices` array
+                batch_indices = torch.tensor([
+                    idx_locs[idx] if idx in adapter_weights and adapter_weights[idx].lora_a_r == rank else -1
+                    for idx in meta.adapter_indices.tolist()
+                ], dtype=torch.int64, device=device)
 
             rank_data[rank] = RankSegments(
                 rank=rank,
