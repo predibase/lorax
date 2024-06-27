@@ -14,7 +14,6 @@ from lorax_server.models.opt import OPTSharded
 from lorax_server.models.santacoder import SantaCoder
 from lorax_server.models.seq2seq_lm import Seq2SeqLM
 from lorax_server.models.t5 import T5Sharded
-from lorax_server.utils.sources import get_s3_model_local_dir
 from lorax_server.utils.sources.s3 import S3ModelSource
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
