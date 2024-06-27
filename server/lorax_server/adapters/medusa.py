@@ -36,6 +36,7 @@ class MedusaConfig(AdapterConfig):
         self,
         adapter_weights: Dict,
         weight_names: Tuple[str],
+        embedding_weight_name: str,
     ) -> Tuple[ModuleMap, Set[str]]:
         # TODO(travis): this isn't technically the ModuleMap structure, make this more generic
         return adapter_weights, set(weight_names)

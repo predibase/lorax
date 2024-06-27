@@ -483,16 +483,16 @@ class TensorParallelAdapterRowEmbedding(LoraEmbedding):
 
         return result
 
-    # def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
-    #     # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
-    #     # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
-    #     #
-    #     # TODO(travis): this is not very efficient as we do an all-reduce for every adapter,
-    #     #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
-    #     #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
-    #     #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
-    #     torch.distributed.all_reduce(a_out, group=self.process_group)
-    #     return a_out
+    def collect_lora_a(self, a_out: torch.Tensor) -> torch.Tensor:
+        # Tensor parallel implementation of X @ A@B, where A and B are sharded row-wise.
+        # We use an all-reduce between X@A and (X@A)@B to ensure alignment across ranks.
+        #
+        # TODO(travis): this is not very efficient as we do an all-reduce for every adapter,
+        #   instead we could pre-allocate a (B, a, r) tensor for all adapters with the same
+        #   rank, compute `a_out` on each, and then slice them into the buffer as shown here:
+        #   https://discuss.pytorch.org/t/concatenate-tensors-without-memory-copying/34609
+        torch.distributed.all_reduce(a_out, group=self.process_group)
+        return a_out
 
 
 try:

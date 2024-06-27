@@ -16,7 +16,7 @@ def test_batched_medusa_weights(default_causal_lm: CausalLM):
     download_adapter(adapter_id, HUB)
 
     module_map, medusa_config, _, _ = load_module_map(
-        model_id, adapter_id, HUB, tuple(), None
+        model_id, adapter_id, HUB, tuple(), None, default_causal_lm.embedding_weight_name
     )
     assert isinstance(medusa_config, MedusaConfig)
 

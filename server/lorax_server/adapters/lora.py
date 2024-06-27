@@ -37,11 +37,12 @@ class LoraConfig(AdapterConfig):
         self,
         adapter_weights: Dict,
         weight_names: Tuple[str],
+        embedding_weight_name: str,
     ) -> Tuple[ModuleMap, Set[str]]:
         adapter_weight_names = set()
         module_map = {}
         for weight_name in weight_names:
-            if EMBED_TOKENS in weight_name:
+            if embedding_weight_name in weight_name:
                 lora_a_name = f"base_model.model.{weight_name}.lora_embedding_A"
                 lora_b_name = f"base_model.model.{weight_name}.lora_embedding_B"
             else:
@@ -53,8 +54,8 @@ class LoraConfig(AdapterConfig):
             # note(ajinkya): popping the weights so that we know which weights are
             # can be used as lora weights (supported) and which cannot
             module_map[weight_name] = {
-                "lora_A": (adapter_weights.pop(lora_a_name), lora_a_name),
-                "lora_B": (adapter_weights.pop(lora_b_name), lora_b_name),
+                "lora_A": (adapter_weights[lora_a_name], lora_a_name),
+                "lora_B": (adapter_weights[lora_b_name], lora_b_name),
             }
             adapter_weight_names.add(lora_a_name)
             adapter_weight_names.add(lora_b_name)

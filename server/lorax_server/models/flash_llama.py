@@ -144,6 +144,10 @@ class FlashLlama(FlashCausalLM):
         return ADAPTER_LAYERS
 
     @property
+    def embedding_weight_name(self) -> str:
+        return EMBED_TOKENS
+
+    @property
     def default_traced_adapter_layers(self) -> List[str]:
         return [Q_PROJ, V_PROJ]
 
