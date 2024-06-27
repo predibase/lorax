@@ -227,9 +227,8 @@ class S3ModelSource(BaseModelSource):
     def download_model_assets(self):
         return download_model_from_s3(self.bucket, self.model_id, self.extension)
 
-    def get_local_path(self, model_id: str):
-        _, model_id = _get_bucket_and_model_id(model_id)
-        return get_s3_model_local_dir(model_id)
+    def get_local_path(self):
+        return get_s3_model_local_dir(self.model_id)
 
     def download_file(self, filename: str, ignore_errors: bool = False) -> Optional[Path]:
         filenames = [filename]
