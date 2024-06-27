@@ -33,6 +33,7 @@ from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,
+    TensorParallelAdapterRowEmbedding,
     TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
@@ -43,6 +44,7 @@ from lorax_server.utils.layers import (
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
+    EMBED_TOKENS,
     GATE_PROJ,
     K_PROJ,
     LM_HEAD,
@@ -457,7 +459,12 @@ class FlashLlamaModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelAdapterRowEmbedding(
+            base_layer=TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights),
+            layer_id=0,
+            layer_name=EMBED_TOKENS,
+            process_group=process_group,
+        )
         self.layers = nn.ModuleList(
             [
                 FlashLlamaLayer(
@@ -488,7 +495,7 @@ class FlashLlamaModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
-        hidden_states = self.embed_tokens(input_ids)
+        hidden_states = self.embed_tokens(input_ids, adapter_data)
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer

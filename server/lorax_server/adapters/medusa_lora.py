@@ -29,9 +29,18 @@ class MedusaLoraConfig(AdapterConfig):
         self,
         adapter_weights: Dict,
         weight_names: Tuple[str],
+        embedding_weight_name: str,
     ) -> Tuple[MedusaLoraModuleMap, Set[str]]:
-        lora_module_map, weight_names = self.lora_config.map_weights_for_model(adapter_weights, weight_names)
-        medusa_module_map, _ = self.medusa_config.map_weights_for_model(adapter_weights, weight_names)
+        lora_module_map, weight_names = self.lora_config.map_weights_for_model(
+            adapter_weights,
+            weight_names,
+            embedding_weight_name
+        )
+        medusa_module_map, _ = self.medusa_config.map_weights_for_model(
+            adapter_weights,
+            weight_names,
+            embedding_weight_name
+        )
         return MedusaLoraModuleMap(lora_module_map, medusa_module_map), weight_names
 
     def load_batched_adapter_weights(

@@ -165,6 +165,11 @@ class Model(ABC):
         return []
 
     @property
+    def embedding_weight_name(self) -> str:
+        # setting it to '' will cause matches with any weight name
+        return 'placeholder value to be initialized by the subclass'
+
+    @property
     def default_traced_adapter_layers(self) -> List[str]:
         return []
 
@@ -224,6 +229,7 @@ class Model(ABC):
             adapter_index,
             weight_names,
             api_token,
+            self.embedding_weight_name,
             self.trust_remote_code,
         )
 

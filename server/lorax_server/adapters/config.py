@@ -22,6 +22,7 @@ class AdapterConfig(ABC):
         self,
         adapter_weights: Dict,
         weight_names: Tuple[str],
+        embedding_weight_name: str,
     ) -> Tuple[ModuleMap, Set[str]]:
         pass
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple
 
+from loguru import logger
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
@@ -40,11 +41,18 @@ def load_and_merge_adapters(
     adapter_index: int,
     weight_names: Tuple[str],
     api_token: str,
+    embedding_weight_name: str,
     trust_remote_code: bool = False,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     if len(adapter_parameters.adapter_ids) == 1:
         return load_module_map(
-            model_id, adapter_parameters.adapter_ids[0], adapter_source, weight_names, api_token, trust_remote_code
+            model_id,
+            adapter_parameters.adapter_ids[0],
+            adapter_source,
+            weight_names,
+            api_token,
+            embedding_weight_name,
+            trust_remote_code,
         )
 
     adapter_params = AdapterParametersContainer(adapter_parameters, adapter_source, adapter_index)
@@ -132,6 +140,7 @@ def load_module_map(
     adapter_source: str,
     weight_names: Tuple[str],
     api_token: str,
+    embedding_weight_name: str,
     trust_remote_code: bool = False,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     # TODO(geoffrey): refactor this and merge parts of this function with
@@ -157,5 +166,18 @@ def load_module_map(
         adapter_weights.update(load_file(filename))
 
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
-    module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
+    module_map, adapter_weight_names = adapter_config.map_weights_for_model(
+        adapter_weights,
+        weight_names,
+        embedding_weight_name,
+    )
+
+    # note(ajinkya): adapter weights are consumed during above mapping but if some are not then we may not be
+    # supporting all the weights in the adapter which should be an error but for now just logging it
+    if len(set(adapter_weights.keys()) - set(adapter_weight_names)) > 0:
+        logger.warning(
+            f"Adapter {adapter_id} for the model {model_id}" + \
+                f" contains unsupported weights: {', '.join(adapter_weights.keys())}"
+        )
+
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
