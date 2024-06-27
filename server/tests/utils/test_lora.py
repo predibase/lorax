@@ -8,8 +8,8 @@ from peft import LoraConfig
 from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights, LayerAdapterWeights
-from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 from lorax_server.utils.segments import find_segments
+from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
 
 
 class FakeAdapterWeights(AdapterWeights):
@@ -204,10 +204,10 @@ def test_batched_lora_weights_decode(
         expected_indices = torch.tensor(expected[lora_rank][1], dtype=rd.indices.dtype, device=rd.indices.device)
         assert all(rd.indices == expected_indices)
 
-        assert rd.segment_starts == None
-        assert rd.segment_ends == None
-        assert rd.tmp_shrink == None
-        assert rd.tmp_expand == None
+        assert rd.segment_starts is None
+        assert rd.segment_ends is None
+        assert rd.tmp_shrink is None
+        assert rd.tmp_expand is None
 
 def test_batched_lora_weights_no_segments():
     batched_weights = LayerAdapterWeights()
