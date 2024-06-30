@@ -16,9 +16,12 @@ else:
 
 if torch.cuda.is_available():
     # TODO(travis): fix for CUDA 8.9 (Lovelace)
-    fp8_supported = torch.cuda.get_device_capability()[0] >= 9 #or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
+    fp8_supported = (
+        torch.cuda.get_device_capability()[0] >= 9
+    )  # or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
 else:
     fp8_supported = False
+
 
 def reshape_and_cache(
     key: torch.Tensor,

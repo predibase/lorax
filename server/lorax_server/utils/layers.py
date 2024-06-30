@@ -452,40 +452,22 @@ try:
                         **rope_scaling,
                     )
                 elif rope_type == "su":
-                    short_factor = torch.tensor(
-                        rope_scaling["short_factor"], dtype=torch.float32, device=device
-                    )
+                    short_factor = torch.tensor(rope_scaling["short_factor"], dtype=torch.float32, device=device)
                     short_inv_freq = 1.0 / (
-                        short_factor
-                        * base
-                        ** (
-                            torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-                            / dim
-                        )
+                        short_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
                     )
-                    long_factor = torch.tensor(
-                        rope_scaling["long_factor"], dtype=torch.float32, device=device
-                    )
+                    long_factor = torch.tensor(rope_scaling["long_factor"], dtype=torch.float32, device=device)
                     long_inv_freq = 1.0 / (
-                        long_factor
-                        * base
-                        ** (
-                            torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-                            / dim
-                        )
+                        long_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
                     )
 
-                    original_max_position_embeddings = (
-                        config.original_max_position_embeddings
-                    )
+                    original_max_position_embeddings = config.original_max_position_embeddings
                     max_position_embeddings = config.max_position_embeddings
                     if max_position_embeddings <= original_max_position_embeddings:
                         scaling_factor = 1.0
                     else:
                         scale = max_position_embeddings / original_max_position_embeddings
-                        scaling_factor = math.sqrt(
-                            1 + math.log(scale) / math.log(original_max_position_embeddings)
-                        )
+                        scaling_factor = math.sqrt(1 + math.log(scale) / math.log(original_max_position_embeddings))
 
                     return SuRotaryEmbedding(
                         short_inv_freq=short_inv_freq,
@@ -663,7 +645,7 @@ try:
             self.mscale = float(
                 get_mscale(scaling_factor) * self.attn_factor
             )  # Get n-d magnitude scaling corrected for interpolation
-    
+
     class SuRotaryEmbedding(PositionRotaryEmbedding):
         def __init__(
             self,
@@ -687,11 +669,7 @@ try:
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
             # or if we're on a new device (possibly due to tracing for instance)
-            if (
-                seqlen > self._seq_len_cached
-                or self._cos_cached.device != device
-                or self._cos_cached.dtype != dtype
-            ):
+            if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
                 self._seq_len_cached = seqlen
                 if seqlen > self.original_max_position_embeddings:
                     inv_freq = self.long_inv_freq

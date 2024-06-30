@@ -96,7 +96,7 @@ def get_model(
         from lorax_server.models.flash_bert import FlashBert
 
         return FlashBert(model_id, revision=revision, dtype=dtype)
-    
+
     if model_type == "distilbert":
         from lorax_server.models.flash_distilbert import FlashDistilBert
 
@@ -268,7 +268,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "gemma":
         from lorax_server.models.flash_gemma import FlashGemma
 

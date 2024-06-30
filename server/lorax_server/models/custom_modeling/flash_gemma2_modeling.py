@@ -18,33 +18,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from lorax_server.adapters.weights import AdapterBatchData
-from lorax_server.layers.tensor_parallel import TensorParallelHead
-from lorax_server.utils.layers import MultiAdapterHead, TensorParallelAdapterRowLinear, TensorParallelMultiAdapterLinear
+from typing import List, Optional, Tuple
+
 import torch
 import torch.distributed
-
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
-from typing import Optional, List, Tuple
 
+from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.layers import (
-    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
+    TensorParallelRowLinear,
     get_linear,
 )
-from lorax_server.layers.rotary import PositionRotaryEmbedding
 from lorax_server.layers.layernorm import (
     FastRMSNorm,
 )
+from lorax_server.layers.rotary import PositionRotaryEmbedding
+from lorax_server.layers.tensor_parallel import TensorParallelHead
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.layers import MultiAdapterHead, TensorParallelAdapterRowLinear, TensorParallelMultiAdapterLinear
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,
-    LM_HEAD,
     K_PROJ,
+    LM_HEAD,
     O_PROJ,
     Q_PROJ,
     UP_PROJ,
@@ -180,9 +180,7 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(
-        get_linear(weight, bias=None, quantize=config.quantize)
-    )
+    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
 
 class FlashGemma2Attention(torch.nn.Module):
@@ -212,9 +210,7 @@ class FlashGemma2Attention(torch.nn.Module):
                 f"and `num_shards`: {weights.process_group.size()}"
             )
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = (
-            config.num_key_value_heads // weights.process_group.size()
-        )
+        self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
@@ -305,9 +301,7 @@ class Gemma2MLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate=(
-                    "tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none"
-                ),
+                approximate=("tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none"),
             )
         )
         # Fuse gate and up proj
@@ -337,9 +331,7 @@ class Gemma2MLP(nn.Module):
             DOWN_PROJ,
             process_group=weights.process_group,
         )
-        self.intermediate_size = (
-            config.intermediate_size // weights.process_group.size()
-        )
+        self.intermediate_size = config.intermediate_size // weights.process_group.size()
 
     def forward(self, hidden_states, adapter_data):
         gate_up_states = self.gate_up_proj(hidden_states)
@@ -441,9 +433,7 @@ class FlashGemma2Model(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = Gemma2FastRMSNorm.load(
-            prefix=f"{prefix}.norm", weights=weights, eps=config.rms_norm_eps
-        )
+        self.norm = Gemma2FastRMSNorm.load(prefix=f"{prefix}.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
@@ -465,9 +455,7 @@ class FlashGemma2Model(torch.nn.Module):
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
-            position_ids, max_s, hidden_states.dtype
-        )
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
         for i, layer in enumerate(self.layers):
@@ -500,22 +488,14 @@ class FlashGemma2ForCausalLM(torch.nn.Module):
         else:
             prefix = f"{prefix}.model"
 
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix=f"{prefix}.embed_tokens", weights=weights
-        )
+        self.embed_tokens = TensorParallelEmbedding(prefix=f"{prefix}.embed_tokens", weights=weights)
         self.embed_tokens.weight *= embed_norm
 
-        self.model = FlashGemma2Model(
-            prefix=prefix, config=config, weights=weights, causal=causal
-        )
+        self.model = FlashGemma2Model(prefix=prefix, config=config, weights=weights, causal=causal)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix=(
-                    f"{prefix}.embed_tokens"
-                    if config.tie_word_embeddings
-                    else f"{prefix}.lm_head"
-                ),
+                prefix=(f"{prefix}.embed_tokens" if config.tie_word_embeddings else f"{prefix}.lm_head"),
                 weights=weights,
             ),
             0,
