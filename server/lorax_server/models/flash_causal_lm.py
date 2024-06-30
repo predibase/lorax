@@ -952,16 +952,16 @@ class FlashCausalLM(Model):
             batch.slots = slots
         
             if sum(computed_token_lens) > 0:
+                # Retain at least a single token, which is all that's needed to compute the next token
+                # Clamp computed token lengths to the maximum sequence length - 1
+                computed_token_lens = [min(s, batch.input_lengths[i] - 1) for i, s in enumerate(computed_token_lens)]
+
                 # Update input lengths
                 input_ids = []
                 position_ids = []
                 slot_indices = []
                 for i, computed_token_len in enumerate(computed_token_lens):
                     prefix_offset = computed_token_len
-                    if prefix_offset >= batch.input_lengths[i]:
-                        # Retain just a single token, which is all that's needed to compute the next token
-                        prefix_offset = batch.input_lengths[i] - 1
-
                     start = batch.cu_seqlen_prefill[i] + prefix_offset
                     end = batch.cu_seqlen_prefill[i] + batch.input_lengths[i]
 
@@ -976,6 +976,8 @@ class FlashCausalLM(Model):
                 batch.slot_indices = torch.cat(slot_indices)
                 batch.cu_seqlen_prefill = None
                 batch.prefill_head_indices = None
+        else:
+            computed_token_lens = [0] * len(batch)
 
         # Update adapter indices for speculative tokens (if present)
         adapter_meta = batch.adapter_meta
@@ -1059,6 +1061,7 @@ class FlashCausalLM(Model):
             batch.input_lengths,
             batch.all_input_ids,
             accepted_ids,
+            computed_token_lens,
         )
 
         # We do two for loops as the first one can run completely asynchronously from the GPU while for the second
@@ -1071,10 +1074,13 @@ class FlashCausalLM(Model):
             input_length,
             all_input_ids,
             num_accepted_ids,
+            computed_token_len,
         ) in enumerate(iterator):
             # Indexing metadata
+            effective_length = input_length - computed_token_len
+            print("EFFECTIVE LENGTH", effective_length, input_length, computed_token_len)
             start_index = cumulative_length
-            end_index = cumulative_length + input_length
+            end_index = cumulative_length + effective_length
 
             if prefill:
                 # Indexing metadata
@@ -1107,7 +1113,7 @@ class FlashCausalLM(Model):
                 batch.all_input_ids_tensor[i, input_length + j] = next_input_ids[idx]
                 idx += 1
 
-            cumulative_length += input_length
+            cumulative_length += effective_length
 
         # Set values in batch
         batch.input_ids = next_input_ids[accepted_ids.cumsum(dim=-1) - 1]
