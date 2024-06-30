@@ -289,7 +289,7 @@ class FlashGemma2Attention(torch.nn.Module):
                 max_s,
             )
 
-        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
+        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
 class Gemma2MLP(nn.Module):
@@ -334,9 +334,9 @@ class Gemma2MLP(nn.Module):
         self.intermediate_size = config.intermediate_size // weights.process_group.size()
 
     def forward(self, hidden_states, adapter_data):
-        gate_up_states = self.gate_up_proj(hidden_states)
+        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
         gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1])
+        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
 class FlashGemma2Layer(nn.Module):

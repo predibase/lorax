@@ -62,7 +62,8 @@ class FlashGemma2(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashGemma2ForCausalLM(config, weights)
+        prefix = ""
+        model = FlashGemma2ForCausalLM(prefix, config, weights, causal=True)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashGemma2, self).__init__(
