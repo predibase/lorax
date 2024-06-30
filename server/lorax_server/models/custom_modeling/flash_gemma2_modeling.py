@@ -1,5 +1,10 @@
 # coding=utf-8
-# Copyright 2024 Google and the HuggingFace Inc. team. All rights reserved.
+# Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
+#
+# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
+# and OPT implementations in this library. It has been modified from its
+# original forms to accommodate minor architectural differences compared
+# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,29 +18,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Optional, Tuple
-
+from lorax_server.adapters.weights import AdapterBatchData
+from lorax_server.layers.tensor_parallel import TensorParallelHead
+from lorax_server.utils.layers import MultiAdapterHead, TensorParallelAdapterRowLinear, TensorParallelMultiAdapterLinear
 import torch
 import torch.distributed
+
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
+from typing import Optional, List, Tuple
 
-# Flash attention imports
-from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn, paged_attention
-from lorax_server.utils.layers import (
-    PositionRotaryEmbedding,
-    TensorParallelAdapterRowLinear,
+from lorax_server.layers import (
+    TensorParallelRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelMultiAdapterLinear,
-    TensorParallelRowLinear,
     get_linear,
 )
+from lorax_server.layers.rotary import PositionRotaryEmbedding
+from lorax_server.layers.layernorm import (
+    FastRMSNorm,
+)
+from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,
+    LM_HEAD,
     K_PROJ,
     O_PROJ,
     Q_PROJ,
@@ -44,32 +52,35 @@ from lorax_server.utils.lora import (
 )
 
 
-class GemmaConfig(PretrainedConfig):
+class Gemma2Config(PretrainedConfig):
     def __init__(
         self,
-        vocab_size=32000,
-        hidden_size=4096,
-        intermediate_size=11008,
-        num_hidden_layers=32,
-        num_attention_heads=32,
-        num_key_value_heads=None,
-        hidden_act="silu",
-        max_position_embeddings=2048,
+        vocab_size=256128,
+        hidden_size=3072,
+        intermediate_size=24576,
+        num_hidden_layers=28,
+        num_attention_heads=16,
+        num_key_value_heads=16,
+        head_dim=256,
+        hidden_act="gelu_pytorch_tanh",
+        max_position_embeddings=8192,
         initializer_range=0.02,
         rms_norm_eps=1e-6,
         use_cache=True,
-        pad_token_id=0,
+        pad_token_id=None,
         bos_token_id=1,
         eos_token_id=2,
-        pretraining_tp=1,
-        tie_word_embeddings=False,
-        rope_scaling=None,
+        tie_word_embeddings=True,
         rope_theta=10000.0,
+        rope_scaling=None,
+        attention_bias=False,
+        attention_dropout=0.0,
         **kwargs,
     ):
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
         self.hidden_size = hidden_size
+        self.head_dim = head_dim
         self.intermediate_size = intermediate_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
@@ -82,10 +93,11 @@ class GemmaConfig(PretrainedConfig):
         self.hidden_act = hidden_act
         self.initializer_range = initializer_range
         self.rms_norm_eps = rms_norm_eps
-        self.pretraining_tp = pretraining_tp
         self.use_cache = use_cache
-        self.rope_scaling = rope_scaling
         self.rope_theta = rope_theta
+        self.rope_scaling = rope_scaling
+        self.attention_bias = attention_bias
+        self.attention_dropout = attention_dropout
 
         super().__init__(
             pad_token_id=pad_token_id,
@@ -96,20 +108,27 @@ class GemmaConfig(PretrainedConfig):
         )
 
 
-class GemmaRMSNorm(nn.Module):
-    def __init__(self, prefix, weights, eps=1e-6):
-        super().__init__()
+class Gemma2FastRMSNorm(FastRMSNorm):
+    @classmethod
+    def load(cls, prefix, weights, eps=1e-6):
+        dtype = weights.dtype
+        weights.dtype = torch.float32
+        weight = weights.get_tensor(f"{prefix}.weight") + 1
+        weights.dtype = dtype
+        new = cls(weight, eps)
+        new.dtype = dtype
+        return new
 
-        weight = weights.get_tensor(f"{prefix}.weight")
-        self.weight = nn.Parameter(weight)
-        self.eps = eps
-
-    def _norm(self, x):
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
-    def forward(self, hidden_states):
-        output = self._norm(hidden_states.float()).type_as(hidden_states)
-        return output * (1 + self.weight)
+    # perform the multiplication in full precision and downcast after
+    def forward(self, hidden_states, residual=None):
+        if residual is not None:
+            hidden_states += residual
+        residual = hidden_states
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        hidden_states = hidden_states * self.weight
+        return hidden_states.to(self.dtype), residual
 
 
 def load_attention(config, prefix, weights, layer_id):
@@ -142,7 +161,6 @@ def load_attention_multi(config, prefix, weights):
 
 
 def _load_gqa(config, prefix: str, weights):
-    assert config.hidden_size % config.num_attention_heads == 0
     assert config.num_attention_heads % weights.process_group.size() == 0
 
     weight = weights.get_multi_weights_col(
@@ -151,7 +169,7 @@ def _load_gqa(config, prefix: str, weights):
         dim=0,
     )
 
-    if config.quantize not in ["gptq", "awq"]:
+    if config.quantize not in ["gptq", "awq", "marlin"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.head_dim
@@ -160,33 +178,33 @@ def _load_gqa(config, prefix: str, weights):
         assert list(weight.shape) == [
             (num_heads + 2 * num_key_value_heads) * head_size,
             config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
+    return TensorParallelColumnLinear(
+        get_linear(weight, bias=None, quantize=config.quantize)
+    )
 
 
-class GemmaAttention(torch.nn.Module):
-    def __init__(
-        self,
-        prefix: str,
-        config,
-        weights,
-        layer_id: int,
-    ):
+class FlashGemma2Attention(torch.nn.Module):
+    def __init__(self, layer_id: int, prefix: str, config, weights, causal: bool, is_sliding: bool):
         super().__init__()
         self.num_heads = config.num_attention_heads
-        self.hidden_size = config.hidden_size
         self.head_size = config.head_dim
+        self.causal = causal
+        if is_sliding:
+            self.window_size = config.sliding_window
+        else:
+            self.window_size = -1
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=self.head_size,
             base=config.rope_theta,
             device=weights.device,
-            dtype=weights.dtype,
         )
 
-        self.softmax_scale = self.head_size**-0.5
+        # self.softmax_scale = self.head_size**-0.5
+        self.softmax_scale = config.query_pre_attn_scalar**-0.5
 
         if self.num_heads % weights.process_group.size() != 0:
             raise ValueError(
@@ -194,7 +212,9 @@ class GemmaAttention(torch.nn.Module):
                 f"and `num_shards`: {weights.process_group.size()}"
             )
         self.num_heads = self.num_heads // weights.process_group.size()
-        self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
+        self.num_key_value_heads = (
+            config.num_key_value_heads // weights.process_group.size()
+        )
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
@@ -213,27 +233,6 @@ class GemmaAttention(torch.nn.Module):
         self.kv_head_mapping = torch.arange(
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
-
-    def get_query_key_value_weights(self, clone=True):
-        """Gets the query, key, and value weights from the attention layer.
-
-        If `clone`, then the weights are cloned before being returned.
-
-        NOTE: if not `clone`, then the weights are returned as views, meaning
-        that changes to the weights will be reflected in the attention layer.
-        """
-        query, key, value = self.query_key_value.base_layer.linear.weight.split(
-            [
-                self.head_size * self.num_heads,
-                self.head_size * self.num_key_value_heads,
-                self.head_size * self.num_key_value_heads,
-            ],
-            dim=0,
-        )
-
-        if clone:
-            return query.clone(), key.clone(), value.clone()
-        return query, key, value
 
     def forward(
         self,
@@ -259,8 +258,7 @@ class GemmaAttention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         kv = kv.view(-1, 2, self.num_key_value_heads, self.head_size)
 
-        self.rotary_emb(query, cos, sin)
-        self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
+        self.rotary_emb(query, torch.select(kv, dim=1, index=0), cos, sin)
 
         paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
@@ -278,6 +276,8 @@ class GemmaAttention(torch.nn.Module):
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
+                causal=self.causal,
+                window_size_left=self.window_size,
             )
         # Decode
         else:
@@ -293,49 +293,36 @@ class GemmaAttention(torch.nn.Module):
                 max_s,
             )
 
-        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
+        return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
 
 
-class GemmaMLP(nn.Module):
-    def __init__(self, prefix, config, weights, layer_id):
+class Gemma2MLP(nn.Module):
+    def __init__(self, layer_id, prefix, config, weights):
         super().__init__()
-        act = "gelu"
+        act = config.hidden_act
         self.act = (
             ACT2FN[act]
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
+                approximate=(
+                    "tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none"
+                ),
             )
         )
         # Fuse gate and up proj
-        gate_proj = TensorParallelColumnLinear.load_multi(
+        gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
-            prefixes=[f"{prefix}.gate_proj"],
+            prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
             weights=weights,
             dim=0,
             bias=False,
         )
-        self.gate_proj = TensorParallelMultiAdapterLinear.load(
-            gate_proj,
+        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
+            gate_up_proj,
             layer_id,
-            [GATE_PROJ],
-            sizes=[config.intermediate_size],
-            process_group=weights.process_group,
-        )
-
-        up_proj = TensorParallelColumnLinear.load_multi(
-            config,
-            prefixes=[f"{prefix}.up_proj"],
-            weights=weights,
-            dim=0,
-            bias=False,
-        )
-        self.up_proj = TensorParallelMultiAdapterLinear.load(
-            up_proj,
-            layer_id,
-            [UP_PROJ],
-            sizes=[config.intermediate_size],
+            [GATE_PROJ, UP_PROJ],
+            sizes=[config.intermediate_size, config.intermediate_size],
             process_group=weights.process_group,
         )
 
@@ -350,36 +337,44 @@ class GemmaMLP(nn.Module):
             DOWN_PROJ,
             process_group=weights.process_group,
         )
-        self.intermediate_size = config.intermediate_size // weights.process_group.size()
+        self.intermediate_size = (
+            config.intermediate_size // weights.process_group.size()
+        )
 
     def forward(self, hidden_states, adapter_data):
-        gate_states = self.gate_proj(hidden_states, adapter_data)
-        gate_states = self.act(gate_states)
-
-        up_states = self.up_proj(hidden_states, adapter_data)
-        fused_states = gate_states * up_states
-
-        return self.down_proj(fused_states, adapter_data)
+        gate_up_states = self.gate_up_proj(hidden_states)
+        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
+        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1])
 
 
-class GemmaDecoderLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+class FlashGemma2Layer(nn.Module):
+    def __init__(self, layer_id, prefix, config, weights, causal: bool, is_sliding: bool):
         super().__init__()
-
-        prefix = f"model.layers.{layer_id}"
-        self.self_attn = GemmaAttention(
+        self.self_attn = FlashGemma2Attention(
+            layer_id=layer_id,
             prefix=f"{prefix}.self_attn",
             config=config,
             weights=weights,
-            layer_id=layer_id,
+            causal=causal,
+            is_sliding=is_sliding,
         )
-        self.mlp = GemmaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = Gemma2MLP(layer_id=layer_id, prefix=f"{prefix}.mlp", config=config, weights=weights)
 
-        self.input_layernorm = GemmaRMSNorm(
+        self.input_layernorm = Gemma2FastRMSNorm.load(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
         )
-        self.post_attention_layernorm = GemmaRMSNorm(
+        self.post_attention_layernorm = Gemma2FastRMSNorm.load(
             prefix=f"{prefix}.post_attention_layernorm",
+            weights=weights,
+            eps=config.rms_norm_eps,
+        )
+        self.pre_feedforward_layernorm = Gemma2FastRMSNorm.load(
+            prefix=f"{prefix}.pre_feedforward_layernorm",
+            weights=weights,
+            eps=config.rms_norm_eps,
+        )
+        self.post_feedforward_layernorm = Gemma2FastRMSNorm.load(
+            prefix=f"{prefix}.post_feedforward_layernorm",
             weights=weights,
             eps=config.rms_norm_eps,
         )
@@ -398,8 +393,7 @@ class GemmaDecoderLayer(nn.Module):
         max_s,
         adapter_data,
     ):
-        res = hidden_states
-        normed_hidden_states = self.input_layernorm(hidden_states)
+        normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
         # Self Attention
         attn_output = self.self_attn(
@@ -414,45 +408,50 @@ class GemmaDecoderLayer(nn.Module):
             max_s,
             adapter_data,
         )
-        attn_output = res + attn_output
 
         # faster post attention rms norm
-        res = attn_output
-        normed_attn_res_output = self.post_attention_layernorm(attn_output)
-        mlp_output = self.mlp(normed_attn_res_output, adapter_data)
-        mlp_output = res + mlp_output
+        normed_attn_res_output, _ = self.post_attention_layernorm(attn_output)
+        normed_attn_res_output = normed_attn_res_output + res
+        res = normed_attn_res_output
 
-        return mlp_output, res
+        pre_normed, _ = self.pre_feedforward_layernorm(normed_attn_res_output)
+        mlp_output = self.mlp(pre_normed, adapter_data)
+        post_hidden_states, _ = self.post_feedforward_layernorm(mlp_output)
+
+        return post_hidden_states, normed_attn_res_output
 
 
-class GemmaModel(torch.nn.Module):
-    def __init__(self, config, weights):
+class FlashGemma2Model(torch.nn.Module):
+    def __init__(self, prefix, config, weights, causal: bool):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
-                GemmaDecoderLayer(
+                FlashGemma2Layer(
                     layer_id,
-                    config,
-                    weights,
+                    prefix=f"{prefix}.layers.{layer_id}",
+                    config=config,
+                    weights=weights,
+                    causal=causal,
+                    is_sliding=layer_id % 2 == 0,
                 )
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = GemmaRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = Gemma2FastRMSNorm.load(
+            prefix=f"{prefix}.norm", weights=weights, eps=config.rms_norm_eps
+        )
 
-        self.hidden_size = config.hidden_size
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
         self.num_key_value_heads = self.layers[0].self_attn.num_key_value_heads
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        inputs_embeds: torch.Tensor,
         position_ids: torch.Tensor,
         cu_seqlen_prefill: Optional[torch.Tensor],
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
@@ -462,14 +461,13 @@ class GemmaModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
-        hidden_states = self.embed_tokens(input_ids)
-
-        # Normalize the embedding by sqrt(hidden_size)
-        hidden_states = hidden_states * (self.hidden_size**0.5)
+        hidden_states = inputs_embeds
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
-        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
+        cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(
+            position_ids, max_s, hidden_states.dtype
+        )
 
         residual = None
         for i, layer in enumerate(self.layers):
@@ -487,18 +485,43 @@ class GemmaModel(torch.nn.Module):
                 adapter_data,
             )
 
-        hidden_states = self.norm(hidden_states)
+        hidden_states, _ = self.norm(hidden_states, residual)
 
         return hidden_states
 
 
-class GemmaForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+class FlashGemma2ForCausalLM(torch.nn.Module):
+    def __init__(self, prefix, config, weights, causal: bool):
         super().__init__()
 
-        self.model = GemmaModel(config, weights)
-        self.embed_t = self.model.embed_tokens.weight.T.contiguous()
-        self.vocab_size = config.vocab_size
+        embed_norm = config.hidden_size**0.5
+        if not prefix:
+            prefix = "model"
+        else:
+            prefix = f"{prefix}.model"
+
+        self.embed_tokens = TensorParallelEmbedding(
+            prefix=f"{prefix}.embed_tokens", weights=weights
+        )
+        self.embed_tokens.weight *= embed_norm
+
+        self.model = FlashGemma2Model(
+            prefix=prefix, config=config, weights=weights, causal=causal
+        )
+        self.lm_head = MultiAdapterHead.load(
+            TensorParallelHead.load(
+                config,
+                prefix=(
+                    f"{prefix}.embed_tokens"
+                    if config.tie_word_embeddings
+                    else f"{prefix}.lm_head"
+                ),
+                weights=weights,
+            ),
+            0,
+            LM_HEAD,
+            process_group=weights.process_group,
+        )
 
     def forward(
         self,
@@ -514,8 +537,9 @@ class GemmaForCausalLM(torch.nn.Module):
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        input_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
-            input_ids,
+            input_embeds,
             position_ids,
             cu_seqlen_prefill,
             kv_cache,
@@ -527,8 +551,5 @@ class GemmaForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-
-        # lm_head reuses the weights of the embedding layer
-        logits = hidden_states @ self.embed_t
-        logits = logits[:, : self.vocab_size]
-        return logits, None
+        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
+        return logits, speculative_logits
