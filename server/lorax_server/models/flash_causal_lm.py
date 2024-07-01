@@ -43,12 +43,6 @@ ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
 SLIDING_WINDOW: Optional[int] = None
 SLIDING_WINDOW_BLOCKS: Optional[int] = None
 
-if torch.cuda.is_available():
-    fp8_supported = torch.cuda.get_device_capability()[0] >= 9 or (
-        torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9
-    )
-else:
-    fp8_supported = False
 
 tracer = trace.get_tracer(__name__)
 
