@@ -15,6 +15,7 @@ from lorax_server.models.santacoder import SantaCoder
 from lorax_server.models.seq2seq_lm import Seq2SeqLM
 from lorax_server.models.t5 import T5Sharded
 from lorax_server.utils.sources import get_s3_model_local_dir
+from lorax_server.utils.torch_utils import is_bf16_supported
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -79,7 +80,11 @@ def get_model(
     if dtype == "float16" or dtype == "float32":
         dtype = torch.float16
     elif dtype == "bfloat16":
-        dtype = torch.bfloat16
+        if is_bf16_supported():
+            dtype = torch.bfloat16
+        else:
+            logger.warning("bfloat16 is not supported on this device, falling back to float16")
+            dtype = torch.float16
     else:
         try:
             dtype = getattr(torch, dtype)
