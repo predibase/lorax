@@ -80,6 +80,8 @@ def get_model(
         dtype = torch.float16
     elif dtype == "bfloat16":
         dtype = torch.bfloat16
+    elif dtype == "float32":
+        dtype = torch.float32
     else:
         try:
             dtype = getattr(torch, dtype)
