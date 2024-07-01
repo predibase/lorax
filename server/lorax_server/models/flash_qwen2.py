@@ -69,6 +69,8 @@ class FlashQwen2(FlashCausalLM):
 
         config = Qwen2Config.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+        if not config.use_sliding_window:
+            config.sliding_window = None
 
         torch.distributed.barrier(group=self.process_group)
 
