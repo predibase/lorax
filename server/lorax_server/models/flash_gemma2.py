@@ -121,7 +121,7 @@ class FlashGemma2(FlashCausalLM):
         return [Q_PROJ, V_PROJ]
 
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return len(self.model.model.layers)
+        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
