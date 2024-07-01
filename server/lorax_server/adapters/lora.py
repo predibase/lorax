@@ -348,10 +348,14 @@ class BatchLoraWeights(BatchAdapterWeights):
                         # save the first location of encountering a particular adapter index
                         idx_locs[segment_indices[idx]] = loc
                 # second, iterate over the adapter index for each token and find its location in the `indices` array
-                batch_indices = torch.tensor([
-                    idx_locs[idx] if idx in adapter_weights and adapter_weights[idx].lora_a_r == rank else -1
-                    for idx in meta.adapter_indices.tolist()
-                ], dtype=torch.int64, device=device)
+                batch_indices = torch.tensor(
+                    [
+                        idx_locs[idx] if idx in adapter_weights and adapter_weights[idx].lora_a_r == rank else -1
+                        for idx in meta.adapter_indices.tolist()
+                    ],
+                    dtype=torch.int64,
+                    device=device,
+                )
 
             rank_data[rank] = RankSegments(
                 rank=rank,

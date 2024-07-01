@@ -57,6 +57,7 @@ class GeneratedText:
             seed=self.seed,
         )
 
+
 @dataclass
 class PrefillTokens:
     token_ids: List[int]
@@ -142,7 +143,7 @@ class FlashEmbeddingBatch(ABC):
 
     @classmethod
     def from_pb(
-        self, 
+        self,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
@@ -157,9 +158,9 @@ class FlashEmbeddingBatch(ABC):
             max_truncation = max(max_truncation, r.truncate)
 
         batch_inputs = tokenizer(
-            batch_inputs, 
-            return_token_type_ids=True, 
-            truncation=True, 
+            batch_inputs,
+            return_token_type_ids=True,
+            truncation=True,
             max_length=max_truncation,
         )
 
@@ -173,8 +174,10 @@ class FlashEmbeddingBatch(ABC):
 
         max_s = 0
         cumulative_length = 0
-        
-        for i, (r, tokenized_input, token_type_ids) in enumerate(zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)):
+
+        for i, (r, tokenized_input, token_type_ids) in enumerate(
+            zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)
+        ):
             tokenized_input = tokenized_input[-r.truncate :]
             token_type_ids = token_type_ids[-r.truncate :]
             all_input_ids.append(tokenized_input)
@@ -189,7 +192,7 @@ class FlashEmbeddingBatch(ABC):
             position_ids.append(request_position_ids)
 
             cumulative_length += input_length
-        
+
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
             final_token_type_ids = np.concatenate(all_token_type_ids, dtype=np.int64)
@@ -198,7 +201,7 @@ class FlashEmbeddingBatch(ABC):
             input_ids = all_input_ids[0]
             final_token_type_ids = all_token_type_ids[0]
             position_ids = position_ids[0]
-        
+
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
         final_token_type_ids = torch.tensor(final_token_type_ids, dtype=torch.int64, device=device)
         position_ids = position_ids.to(device)
