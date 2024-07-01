@@ -74,18 +74,17 @@ def get_model(
     model_type = config_dict["model_type"]
 
     if dtype is None:
-        dtype = config_dict.get("torch_dtype", None)
-        if dtype:
-            dtype = getattr(torch, dtype)
-        else:
-            # Fallback to float16 if torch_dtype is not specified in the config
-            dtype = torch.float16
+        dtype = config_dict.get("torch_dtype", "float16")
+
     elif dtype == "float16":
         dtype = torch.float16
     elif dtype == "bfloat16":
         dtype = torch.bfloat16
     else:
-        raise RuntimeError(f"Unknown dtype {dtype}")
+        try:
+            dtype = getattr(torch, dtype)
+        except AttributeError:
+            raise RuntimeError(f"Unknown dtype {dtype}")
 
     if "facebook/galactica" in model_id:
         return GalacticaSharded(
