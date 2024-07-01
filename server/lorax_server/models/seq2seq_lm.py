@@ -217,7 +217,7 @@ class Seq2SeqLMBatch(Batch):
         self.encoder_last_hidden_state = self.encoder_last_hidden_state[keep_indices, -max_input_length:]
 
         # Ensure that past_key_values tensors can be updated in-place
-        if type(self.past_key_values[0]) == tuple:
+        if isinstance(self.past_key_values[0], tuple):
             self.past_key_values = [[t for t in layer] for layer in self.past_key_values]
 
         decoder_past_seq_len = max_decoder_input_length - 1
@@ -376,7 +376,7 @@ class Seq2SeqLMBatch(Batch):
             batch.encoder_last_hidden_state = None
 
             # Ensure that we can update tensors in-place
-            if type(batch.past_key_values[0]) == tuple:
+            if isinstance(batch.past_key_values[0], tuple):
                 batch.past_key_values = [[t for t in layer] for layer in batch.past_key_values]
 
             # Add eventual padding tokens that were added while concatenating
