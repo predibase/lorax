@@ -76,7 +76,7 @@ def get_model(
     if dtype is None:
         dtype = config_dict.get("torch_dtype", "float16")
 
-    elif dtype == "float16":
+    if dtype == "float16":
         dtype = torch.float16
     elif dtype == "bfloat16":
         dtype = torch.bfloat16
