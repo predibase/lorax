@@ -73,16 +73,19 @@ def get_model(
         raise ValueError(f"Unknown source {source}")
 
     model_type = config_dict["model_type"]
+    is_dtype_provided = dtype is not None
     dtype = dtype or config_dict.get("torch_dtype", "float16")
 
     if dtype in {"float16", "float32"}:
         dtype = torch.float16
     elif dtype == "bfloat16":
-        if is_bf16_supported():
-            dtype = torch.bfloat16
-        else:
+        if not is_bf16_supported():
+            if is_dtype_provided:
+                raise RuntimeError("bfloat16 is not supported on this device, set dtype to float16.")
             logger.warning("bfloat16 is not supported on this device, falling back to float16")
             dtype = torch.float16
+        else:
+            dtype = torch.bfloat16
     else:
         try:
             dtype = getattr(torch, dtype)
