@@ -7,6 +7,7 @@ import torch
 from grpc import aio
 from grpc_reflection.v1alpha import reflection
 from loguru import logger
+from transformers import pipeline
 
 from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
@@ -106,6 +107,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.dtype,
             self.model.device,
         )
+        ner = pipeline("ner", model=self.model.model)
+        out = ner(batch.strings[0])
+        breakpoint()
         embeddings = self.model.embed(batch)
         embeddings_proto = []
         for i, embedding in enumerate(embeddings):

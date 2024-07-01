@@ -101,6 +101,10 @@ class Model(ABC):
         return False
 
     @property
+    def supports_classification(self) -> bool:
+        return False
+
+    @property
     def supports_text_generation(self) -> bool:
         return True
 
