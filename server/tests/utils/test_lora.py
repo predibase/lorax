@@ -160,10 +160,10 @@ def test_batched_lora_weights_decode(
         assert rd.lora_a_ptr.shape == (expected[lora_rank][0],)
         assert rd.lora_b_ptr.shape == (expected[lora_rank][0],)
         assert all(rd.indices == expected_indices)
-        assert rd.segment_starts == None
-        assert rd.segment_ends == None
-        assert rd.tmp_shrink == None
-        assert rd.tmp_expand == None
+        assert rd.segment_starts is None
+        assert rd.segment_ends is None
+        assert rd.tmp_shrink is None
+        assert rd.tmp_expand is None
 
 def test_batched_lora_weights_no_segments():
     batched_weights = LayerAdapterWeights()
