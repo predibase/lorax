@@ -74,7 +74,12 @@ def get_model(
     model_type = config_dict["model_type"]
 
     if dtype is None:
-        dtype = torch.float16
+        dtype = config_dict.get("torch_dtype", None)
+        if dtype:
+            dtype = getattr(torch, dtype)
+        else:
+            # Fallback to float16 if torch_dtype is not specified in the config
+            dtype = torch.float16
     elif dtype == "float16":
         dtype = torch.float16
     elif dtype == "bfloat16":

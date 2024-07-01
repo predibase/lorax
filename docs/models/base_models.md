@@ -8,6 +8,7 @@
   - [Zephyr](https://huggingface.co/HuggingFaceH4/zephyr-7b-beta)
 - 🔄 [Mixtral](https://huggingface.co/mistralai/Mixtral-8x7B-v0.1)
 - 💎 [Gemma](https://blog.google/technology/developers/gemma-open-models/)
+  - [Gemma2](https://huggingface.co/collections/google/gemma-2-release-667d6600fd5220e7b967f315)
 - 🏛️ [Phi-3](https://azure.microsoft.com/en-us/blog/introducing-phi-3-redefining-whats-possible-with-slms/) / [Phi-2](https://huggingface.co/microsoft/phi-2)
 - 🔮 [Qwen2 / Qwen](https://huggingface.co/Qwen)
 - 🗣️ [Command-R](https://docs.cohere.com/docs/command-r)
