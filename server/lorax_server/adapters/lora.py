@@ -9,6 +9,7 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
+from lorax_server.utils.adapter import load_module_weight
 from lorax_server.utils.sgmv import (
     BGMV_MAX_RANK,
     MAX_RANK_CUSTOM,
@@ -166,10 +167,10 @@ class LoraWeights(AdapterWeights):
                 return None
 
             lora_a, lora_a_name = module_map[weight_name]["lora_A"]
-            lora_a = lora_a.to(base_device, model.dtype)
+            lora_a = load_module_weight(lora_a_name, lora_a, base_device, model.dtype)
 
             lora_b, lora_b_name = module_map[weight_name]["lora_B"]
-            lora_b = lora_b.to(base_device, model.dtype)
+            lora_b = load_module_weight(lora_b_name, lora_b, base_device, model.dtype)
 
             scale = get_scaling_factor(
                 config.lora_alpha,
