@@ -79,7 +79,7 @@ def serve(
     dtype = None if dtype is None else dtype.value
     if dtype is not None and quantize is not None:
         raise RuntimeError(
-            "Only 1 can be set between `dtype` and `quantize`, as they both decide how goes the final model."
+            "Only 1 can be set between `dtype` and `quantize`, as they both decide how the final model is initialized."
         )
     server.serve(
         model_id,
