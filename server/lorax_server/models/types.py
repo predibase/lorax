@@ -163,7 +163,6 @@ class FlashEmbeddingBatch(ABC):
             truncation=True, 
             max_length=max_truncation,
         )
-        breakpoint()
 
         batch_tokenized_inputs = batch_inputs["input_ids"]
         batch_token_type_ids = batch_inputs["token_type_ids"]
@@ -215,3 +214,40 @@ class FlashEmbeddingBatch(ABC):
             max_s=max_s,
             size=len(batch_inputs),
         )
+    
+    def to_pb(self, predicted_token_class, confidence_scores, tokenizer):
+        res =  _format_ner_output(predicted_token_class, confidence_scores, self.input_ids, tokenizer)
+        return res
+
+
+def _format_ner_output(predicted_token_class, scores, input_ids, tokenizer):
+    tokens = tokenizer.convert_ids_to_tokens(input_ids.tolist())
+    
+    ner_results = []
+    current_entity = None
+    
+    for i, (token, token_class, score) in enumerate(zip(tokens, predicted_token_class, scores)):  # Skip [CLS] and [SEP]
+        if token_class != 'O':
+            if token_class.startswith('B-') or (current_entity and token_class != current_entity['entity']):
+                if current_entity:
+                    ner_results.append(current_entity)
+                current_entity = {
+                    'entity': token_class,
+                    'score': score,
+                    'index': i,
+                    'word': token,
+                    'start': len(tokenizer.decode(input_ids[:i+1])),
+                    'end': len(tokenizer.decode(input_ids[:i+2]))
+                }
+            elif token_class.startswith('I-') and current_entity:
+                current_entity['word'] += token.replace('##', '')
+                current_entity['end'] = len(tokenizer.decode(input_ids[:i+2]))
+        else:
+            if current_entity:
+                ner_results.append(current_entity)
+                current_entity = None
+    
+    if current_entity:
+        ner_results.append(current_entity)
+    
+    return ner_results

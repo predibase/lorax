@@ -245,6 +245,11 @@ message EmbedRequest {
     Batch batch = 1;
 }
 
+message ClassifyRequest {
+    /// Batch
+    Batch batch = 1;
+}
+
 message EmbedResponse {
     /// Embeddings
     repeated Embedding embeddings = 1;

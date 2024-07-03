@@ -96,6 +96,22 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             batch=next_batch.to_pb() if next_batch else None,
         )
 
+
+    async def Classify(self, request: generate_pb2.EmbedRequest, context):
+        if not self.model.supports_classification:
+            raise ValueError("Model does not support classification")
+        
+        batch = self.model.batch_type.from_pb(
+            request.batch,
+            self.model.tokenizer,
+            self.model.tokenizers,
+            self.model.dtype,
+            self.model.device,
+        )
+        predicated_token_class, confidence_scores = self.model.classify(batch)
+        ner_results = self.model.batch_type.to_pb(batch, predicated_token_class, confidence_scores, self.model.tokenizer)
+        print(ner_results)
+
     async def Embed(self, request: generate_pb2.EmbedRequest, context):
         if not self.model.supports_embeddings:
             raise ValueError("Model does not support embeddings")
@@ -107,9 +123,6 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.dtype,
             self.model.device,
         )
-        ner = pipeline("ner", model=self.model.model)
-        out = ner(batch.strings[0])
-        breakpoint()
         embeddings = self.model.embed(batch)
         embeddings_proto = []
         for i, embedding in enumerate(embeddings):

@@ -188,8 +188,7 @@ class FlashDistilBert(Model):
             max_s=batch.max_s,
         )
 
- 
-        predictions = torch.argmax(logits, dim=1)
+        probabilities = torch.nn.functional.softmax(logits, dim=1)
+        confidence_scores, predictions = torch.max(probabilities, dim=1)
         predicted_token_class = [self.config.id2label[t.item()] for t in predictions]
-
-        return predicted_token_class
+        return predicted_token_class, confidence_scores.cpu().tolist()
