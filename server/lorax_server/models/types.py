@@ -129,7 +129,6 @@ class Generation:
 @dataclass
 class FlashEmbeddingBatch(ABC):
     request_ids: List[int]
-    strings: List[str]
     input_ids: torch.Tensor
     token_type_ids: torch.Tensor
     position_ids: torch.Tensor
@@ -150,15 +149,15 @@ class FlashEmbeddingBatch(ABC):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashEmbeddingBatch":
-        batch_strings = []
+        batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
             inputs = tokenizers.get_inputs(r, tokenizer)
-            batch_strings.append(inputs)
+            batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
         batch_inputs = tokenizer(
-            batch_strings, 
+            batch_inputs, 
             return_token_type_ids=True, 
             truncation=True, 
             max_length=max_truncation,
@@ -175,7 +174,7 @@ class FlashEmbeddingBatch(ABC):
         max_s = 0
         cumulative_length = 0
         
-        for (r, tokenized_input, token_type_ids) in zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids):
+        for i, (r, tokenized_input, token_type_ids) in enumerate(zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)):
             tokenized_input = tokenized_input[-r.truncate :]
             token_type_ids = token_type_ids[-r.truncate :]
             all_input_ids.append(tokenized_input)
@@ -206,7 +205,6 @@ class FlashEmbeddingBatch(ABC):
 
         return FlashEmbeddingBatch(
             request_ids=[r.id for r in pb.requests],
-            strings=batch_strings,
             input_ids=input_ids,
             token_type_ids=final_token_type_ids,
             position_ids=position_ids,
@@ -214,40 +212,3 @@ class FlashEmbeddingBatch(ABC):
             max_s=max_s,
             size=len(batch_inputs),
         )
-    
-    def to_pb(self, predicted_token_class, confidence_scores, tokenizer):
-        res =  _format_ner_output(predicted_token_class, confidence_scores, self.input_ids, tokenizer)
-        return res
-
-
-def _format_ner_output(predicted_token_class, scores, input_ids, tokenizer):
-    tokens = tokenizer.convert_ids_to_tokens(input_ids.tolist())
-    
-    ner_results = []
-    current_entity = None
-    
-    for i, (token, token_class, score) in enumerate(zip(tokens, predicted_token_class, scores)):  # Skip [CLS] and [SEP]
-        if token_class != 'O':
-            if token_class.startswith('B-') or (current_entity and token_class != current_entity['entity']):
-                if current_entity:
-                    ner_results.append(current_entity)
-                current_entity = {
-                    'entity': token_class,
-                    'score': score,
-                    'index': i,
-                    'word': token,
-                    'start': len(tokenizer.decode(input_ids[:i+1])),
-                    'end': len(tokenizer.decode(input_ids[:i+2]))
-                }
-            elif token_class.startswith('I-') and current_entity:
-                current_entity['word'] += token.replace('##', '')
-                current_entity['end'] = len(tokenizer.decode(input_ids[:i+2]))
-        else:
-            if current_entity:
-                ner_results.append(current_entity)
-                current_entity = None
-    
-    if current_entity:
-        ner_results.append(current_entity)
-    
-    return ner_results

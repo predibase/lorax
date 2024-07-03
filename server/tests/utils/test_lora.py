@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Tuple, Type
 from unittest import mock
 
 import pytest
@@ -101,6 +101,69 @@ def test_batched_lora_weights(lora_ranks: List[int]):
         assert rd.segment_starts.shape == (2,)
         assert rd.segment_ends.shape == (2,)
 
+
+
+@pytest.mark.parametrize(
+    "lora_ranks,adapter_indices,expected",
+    [
+        (
+            [8, 8, 16],
+            [0, 0, 1, 1, 0, 0, 1, 1, 2, 2],
+            {
+                8: (4, [0, 0, 1, 1, 0, 0, 1, 1, -1, -1]),
+                16: (1, [-1, -1, -1, -1, -1, -1, -1, -1, 0, 0])
+            }
+        ),
+        (
+            [4, 8, 16],
+            [0, 0, 1, 1, 0, 0, 1, 1, 2, 2],
+            {
+                4: (2, [0, 0, -1, -1, 0, 0, -1, -1, -1, -1]),
+                8: (2, [-1, -1, 0, 0, -1, -1, 0, 0, -1, -1]),
+                16: (1, [-1, -1, -1, -1, -1, -1, -1, -1, 0, 0]),
+            }
+        ),
+    ],
+)
+def test_batched_lora_weights_decode(
+    lora_ranks: List[int],
+    adapter_indices: List[int],
+    expected: Dict[int, Tuple[int, List[int]]]
+):
+    from lorax_server.utils.segments import find_segments
+    batched_weights = LayerAdapterWeights()
+    assert batched_weights.is_empty()
+
+    h = 1024
+    for idx, lora_rank in enumerate(lora_ranks):
+        weights = LoraWeights(
+            weights_a=[torch.randn((h, lora_rank), dtype=torch.float16)],
+            weights_b=[torch.randn((lora_rank, h), dtype=torch.float16)],
+            adapter_config=LoraConfig(r=lora_rank),
+        )
+        batched_weights.add_adapter(idx, weights)
+
+    segments, segment_indices = find_segments(adapter_indices)
+
+    meta = AdapterBatchMetadata(
+        adapter_indices=torch.tensor(adapter_indices, dtype=torch.int64),
+        adapter_set=set(adapter_indices),
+        adapter_segments=torch.tensor(segments, dtype=torch.int64),
+        segment_indices=segment_indices,
+    )
+
+    with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
+        data = batched_weights.get_data(meta, prefill=False, prefill_head_indices=None).get(LORA)
+
+    for lora_rank, rd in data.rank_data.items():
+        expected_indices = torch.tensor(expected[lora_rank][1], dtype=rd.indices.dtype, device=rd.indices.device)
+        assert rd.lora_a_ptr.shape == (expected[lora_rank][0],)
+        assert rd.lora_b_ptr.shape == (expected[lora_rank][0],)
+        assert all(rd.indices == expected_indices)
+        assert rd.segment_starts is None
+        assert rd.segment_ends is None
+        assert rd.tmp_shrink is None
+        assert rd.tmp_expand is None
 
 def test_batched_lora_weights_no_segments():
     batched_weights = LayerAdapterWeights()

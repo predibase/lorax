@@ -12,7 +12,6 @@ from lorax_server.utils.layers import FastLayerNorm
 # https://github.com/huggingface/text-embeddings-inference/blob/cb802a25d43fe6078c715b49652a3bc8a7d5aac8/backends/python/server/text_embeddings_server/models/flash_bert.py
 
 
-
 class DistilBertEmbeddings:
     def __init__(self, prefix, weights, device, dtype, config: DistilBertConfig):
         self.word_embeddings_weight = weights.get_tensor(f"{prefix}.word_embeddings.weight").to(dtype).to(device)
@@ -47,9 +46,7 @@ class DistilBertAttention:
         self.dense_weight = weights.get_tensor(f"{prefix}.attention.out_lin.weight").T.to(dtype).to(device)
         self.dense_bias = weights.get_tensor(f"{prefix}.attention.out_lin.bias").to(dtype).to(device)
 
-        self.layer_norm = FastLayerNorm.load(
-            prefix=f"{prefix}.sa_layer_norm", weights=weights, eps=1e-12
-        )
+        self.layer_norm = FastLayerNorm.load(prefix=f"{prefix}.sa_layer_norm", weights=weights, eps=1e-12)
 
         self.head_size = config.hidden_size // config.num_attention_heads
         self.softmax_scale = self.head_size**-0.5
@@ -93,9 +90,7 @@ class DistilBertLayer:
 
         self.output_weight = weights.get_tensor(f"{prefix}.ffn.lin2.weight").T.to(dtype).to(device)
         self.output_bias = weights.get_tensor(f"{prefix}.ffn.lin2.bias").to(dtype).to(device)
-        self.layer_norm = FastLayerNorm.load(
-            prefix=f"{prefix}.output_layer_norm", weights=weights, eps=1e-12
-        )
+        self.layer_norm = FastLayerNorm.load(prefix=f"{prefix}.output_layer_norm", weights=weights, eps=1e-12)
 
     def forward(self, hidden_states, cu_seqlens, max_s):
         hidden_states = self.attention.forward(hidden_states, cu_seqlens, max_s)
