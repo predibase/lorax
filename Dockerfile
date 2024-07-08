@@ -88,7 +88,7 @@ COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.lin
 COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
 
 # Copy builds artifacts from punica builder
-COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
+COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
 
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir
