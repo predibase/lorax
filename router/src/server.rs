@@ -1394,7 +1394,6 @@ async fn classify(
     metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.inputs);
-    tracing::info!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     let response = infer.classify(req).await?;
     Ok(Json(response))
 }
