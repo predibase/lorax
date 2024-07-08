@@ -7,7 +7,7 @@ from transformers.models.bert import BertConfig
 
 from lorax_server.models import Model
 from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
-from lorax_server.models.types import FlashEmbeddingBatch
+from lorax_server.models.types import FlashEmbeddingClassificationBatch
 from lorax_server.pb.generate_pb2 import Embedding
 from lorax_server.utils import (
     Weights,
@@ -87,8 +87,8 @@ class FlashBert(Model):
         )
 
     @property
-    def batch_type(self) -> Type[FlashEmbeddingBatch]:
-        return FlashEmbeddingBatch
+    def batch_type(self) -> Type[FlashEmbeddingClassificationBatch]:
+        return FlashEmbeddingClassificationBatch
 
     @property
     def supports_embeddings(self) -> bool:
@@ -98,22 +98,22 @@ class FlashBert(Model):
     def supports_text_generation(self) -> bool:
         return False
 
-    def warmup(self, batch: FlashEmbeddingBatch, max_new_tokens: int) -> int | None:
+    def warmup(self, batch: FlashEmbeddingClassificationBatch, max_new_tokens: int) -> int | None:
         # Note: This is meant to 1) preallocate the memory by doing a forward pass
         # and then just returning the max seqlen since for embeddings we are never generating
         _ = self.embed(batch)
         return batch.max_s
 
-    def generate_token(self, batch: FlashEmbeddingBatch) -> None:
+    def generate_token(self, batch: FlashEmbeddingClassificationBatch) -> None:
         if not self.supports_text_generation:
             raise NotImplementedError("This model does not support text generation")
         return None
 
-    def forward(self, batch: FlashEmbeddingBatch):
+    def forward(self, batch: FlashEmbeddingClassificationBatch):
         return self.embed(batch)
 
     @tracer.start_as_current_span("embed")
-    def embed(self, batch: FlashEmbeddingBatch) -> Embedding:
+    def embed(self, batch: FlashEmbeddingClassificationBatch) -> Embedding:
         embedding: torch.Tensor = self.model.forward(
             input_ids=batch.input_ids,
             token_type_ids=batch.token_type_ids,

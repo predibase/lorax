@@ -17,7 +17,7 @@ use tracing::{info_span, span, Instrument, Span};
 
 use crate::{
     adapter::Adapter,
-    infer::{decode, embed, prefill, InferError, InferStreamResponse},
+    infer::{classify, decode, embed, prefill, InferError, InferStreamResponse},
 };
 
 pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
@@ -72,6 +72,35 @@ impl ValidRequest for ValidEmbedRequest {
 
     fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries> {
         Box::new(EmbedBatchEntries::new(num_entries, queue_len))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ValidClassifyRequest {
+    pub inputs: String,
+    pub input_length: u32,
+    pub adapter: Adapter,
+}
+
+impl ValidRequest for ValidClassifyRequest {
+    fn input_length(&self) -> u32 {
+        self.input_length
+    }
+
+    fn max_new_tokens(&self) -> u32 {
+        1
+    }
+
+    fn adapter(&self) -> Adapter {
+        self.adapter.clone()
+    }
+
+    fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries> {
+        Box::new(ClassifyBatchEntries::new(num_entries, queue_len))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -440,6 +469,117 @@ impl BatchEntries for EmbedBatchEntries {
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(travis): send error (programming eroor) if we get here
+        None
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ClassifyBatchEntries {
+    pub(crate) state: BatchEntriesState,
+}
+
+impl ClassifyBatchEntries {
+    pub(crate) fn new(num_entries: usize, queue_len: usize) -> Self {
+        Self {
+            state: BatchEntriesState::new(num_entries, queue_len),
+        }
+    }
+}
+
+#[async_trait]
+impl BatchEntries for ClassifyBatchEntries {
+    fn can_add(&self, entry: &Entry) -> bool {
+        // return false if the entry.request is not of type ValidEmbedRequest
+        let valid_request = entry
+            .request
+            .as_ref()
+            .as_any()
+            .downcast_ref::<ValidClassifyRequest>();
+
+        let result = valid_request.is_some();
+        result
+    }
+
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) {
+        let valid_request = entry
+            .request
+            .as_ref()
+            .as_any()
+            .downcast_ref::<ValidClassifyRequest>();
+
+        let request = valid_request.unwrap();
+        let request_proto = Request {
+            id,
+            prefill_logprobs: false,
+            inputs: request.inputs.clone(),
+            truncate: 0,
+            parameters: None,
+            stopping_parameters: None,
+            adapter_index: adapter.index(),
+            apply_chat_template: false,
+        };
+
+        self.state.add(id, entry, adapter, request_proto);
+    }
+
+    fn extend(&mut self, mut entries: Box<dyn BatchEntries>) {
+        let new_batch_entries = std::mem::take(&mut entries.mut_state().batch_entries);
+        self.state.batch_entries.extend(new_batch_entries);
+    }
+
+    fn drain(&mut self) -> Vec<(Adapter, u64, Entry)> {
+        self.state.drain()
+    }
+
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
+        self.state.create_batch_data(batch_id, max_tokens)
+    }
+
+    fn adapters_in_use(&self) -> HashSet<Adapter> {
+        self.state.adapters_in_use()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.state.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.state.len()
+    }
+
+    fn state(&self) -> &BatchEntriesState {
+        &self.state
+    }
+
+    fn mut_state(&mut self) -> &mut BatchEntriesState {
+        &mut self.state
+    }
+
+    async fn process_first(
+        &mut self,
+        client: &mut ShardedClient,
+        batch: Batch,
+        span: Span,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch> {
+        classify(
+            client,
+            batch,
+            &mut self.state.batch_entries,
+            &generation_health,
+        )
+        .instrument(span)
+        .await
+    }
+
+    async fn process_next(
+        &mut self,
+        client: &mut ShardedClient,
+        batches: Vec<CachedBatch>,
+        span: Span,
+        generation_health: &Arc<AtomicBool>,
+    ) -> Option<CachedBatch> {
+        // TODO(magdy): send error (programming eroor) if we get here
         None
     }
 }

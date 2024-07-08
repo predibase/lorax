@@ -8,7 +8,9 @@ mod queue;
 mod scheduler;
 pub mod server;
 mod validation;
-use lorax_client::{AdapterParameters as AdapterParametersMessage, AlternativeTokens};
+use lorax_client::{
+    AdapterParameters as AdapterParametersMessage, AlternativeTokens, Entity as EntityMessage,
+};
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use batch::Entry;
@@ -648,6 +650,39 @@ struct EmbedRequest {
 #[derive(Serialize, ToSchema)]
 struct EmbedResponse {
     embeddings: Vec<f32>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ClassifyRequest {
+    inputs: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ClassifyResponse {
+    entities: Vec<Entity>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Entity {
+    entity: String,
+    score: f32,
+    index: usize,
+    word: String,
+    start: usize,
+    end: usize,
+}
+
+impl From<EntityMessage> for Entity {
+    fn from(entity: EntityMessage) -> Self {
+        Entity {
+            entity: entity.entity,
+            score: entity.score,
+            index: entity.index as usize,
+            word: entity.word,
+            start: entity.start as usize,
+            end: entity.end as usize,
+        }
+    }
 }
 
 impl From<CompletionRequest> for CompatGenerateRequest {

@@ -6,6 +6,7 @@ use crate::Result;
 use grpc_metadata::InjectTelemetryContext;
 use std::cmp::min;
 use tonic::transport::{Channel, Uri};
+use tonic::Response;
 use tracing::instrument;
 
 /// LoRAX gRPC client
@@ -194,6 +195,14 @@ impl Client {
         let request = tonic::Request::new(EmbedRequest { batch: Some(batch) }).inject_context();
         let response = self.stub.embed(request).await?.into_inner();
         Ok(response.embeddings)
+    }
+
+    /// Classify
+    #[instrument(skip(self))]
+    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+        let request = tonic::Request::new(ClassifyRequest { batch: Some(batch) }).inject_context();
+        let response = self.stub.classify(request).await?.into_inner();
+        Ok(response.entity_lists)
     }
 
     /// Downloads the weights for an adapter.
