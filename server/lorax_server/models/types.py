@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -8,8 +8,8 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
-from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.token_classification import format_ner_output
+from lorax_server.utils.tokenizer import TokenizerManager
 
 
 class Batch(ABC):
@@ -57,6 +57,7 @@ class GeneratedText:
             finish_reason=self.finish_reason,
             seed=self.seed,
         )
+
 
 @dataclass
 class PrefillTokens:
@@ -143,7 +144,7 @@ class FlashEmbeddingClassificationBatch(ABC):
 
     @classmethod
     def from_pb(
-        self, 
+        self,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
@@ -158,9 +159,9 @@ class FlashEmbeddingClassificationBatch(ABC):
             max_truncation = max(max_truncation, r.truncate)
 
         batch_inputs = tokenizer(
-            batch_inputs, 
-            return_token_type_ids=True, 
-            truncation=True, 
+            batch_inputs,
+            return_token_type_ids=True,
+            truncation=True,
             max_length=max_truncation,
         )
 
@@ -174,8 +175,10 @@ class FlashEmbeddingClassificationBatch(ABC):
 
         max_s = 0
         cumulative_length = 0
-        
-        for i, (r, tokenized_input, token_type_ids) in enumerate(zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)):
+
+        for i, (r, tokenized_input, token_type_ids) in enumerate(
+            zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)
+        ):
             tokenized_input = tokenized_input[-r.truncate :]
             token_type_ids = token_type_ids[-r.truncate :]
             all_input_ids.append(tokenized_input)
@@ -190,7 +193,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             position_ids.append(request_position_ids)
 
             cumulative_length += input_length
-        
+
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
             final_token_type_ids = np.concatenate(all_token_type_ids, dtype=np.int64)
@@ -199,7 +202,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             input_ids = all_input_ids[0]
             final_token_type_ids = all_token_type_ids[0]
             position_ids = position_ids[0]
-        
+
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
         final_token_type_ids = torch.tensor(final_token_type_ids, dtype=torch.int64, device=device)
         position_ids = position_ids.to(device)
@@ -215,15 +218,18 @@ class FlashEmbeddingClassificationBatch(ABC):
         )
 
     @classmethod
-    def to_pb_classify(self, batch, predicted_token_classes, confidence_scores, tokenizer) -> generate_pb2.ClassifyResponse:
+    def to_pb_classify(
+        self, batch, predicted_token_classes, confidence_scores, tokenizer
+    ) -> generate_pb2.ClassifyResponse:
         results = []
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
             res = format_ner_output(pred, con, batch.input_ids, tokenizer)
-            results.append(generate_pb2.EntityList(
-                request_id=batch.request_ids[i],
-                entities=[generate_pb2.Entity(**entity) for entity in res]
-            ))
-        
+            results.append(
+                generate_pb2.EntityList(
+                    request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res]
+                )
+            )
+
         pb_resp = generate_pb2.ClassifyResponse(entity_lists=results)
         return pb_resp
 
