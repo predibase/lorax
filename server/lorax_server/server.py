@@ -7,7 +7,6 @@ import torch
 from grpc import aio
 from grpc_reflection.v1alpha import reflection
 from loguru import logger
-from transformers import pipeline
 
 from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
@@ -96,11 +95,10 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             batch=next_batch.to_pb() if next_batch else None,
         )
 
-
     async def Classify(self, request: generate_pb2.ClassifyRequest, context):
         if not self.model.supports_classification:
             raise ValueError("Model does not support classification")
-        
+
         batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,
@@ -109,9 +107,10 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.device,
         )
         predicated_token_class, confidence_scores = self.model.classify(batch)
-        ner_results = self.model.batch_type.to_pb_classify(batch, predicated_token_class, confidence_scores, self.model.tokenizer)
+        ner_results = self.model.batch_type.to_pb_classify(
+            batch, predicated_token_class, confidence_scores, self.model.tokenizer
+        )
         return ner_results
-
 
     async def Embed(self, request: generate_pb2.EmbedRequest, context):
         if not self.model.supports_embeddings:
