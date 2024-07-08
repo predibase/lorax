@@ -36,7 +36,7 @@ RUN cargo build --release
 FROM nvcr.io/nvidia/pytorch:23.07-py3 as pytorch-install
 FROM pytorch-install as kernel-builder
 
-ARG MAX_JOBS=2
+ARG MAX_JOBS=1
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ninja-build cmake \
