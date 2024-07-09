@@ -33,7 +33,7 @@ COPY router router
 COPY launcher launcher
 RUN cargo build --release
 
-FROM nvcr.io/nvidia/pytorch:23.07-py3 as pytorch-install
+FROM nvcr.io/nvidia/pytorch:23.10-py3 as pytorch-install
 FROM pytorch-install as kernel-builder
 
 ARG MAX_JOBS=2
@@ -70,7 +70,7 @@ ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
 
 # LoRAX base image
-FROM nvcr.io/nvidia/pytorch:23.07-py3 as base
+FROM nvcr.io/nvidia/pytorch:23.10-py3 as base
 
 # LoRAX base env
 ENV HUGGINGFACE_HUB_CACHE=/data \
