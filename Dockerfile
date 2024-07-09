@@ -42,11 +42,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# # Build Flash Attention CUDA kernels
-# FROM kernel-builder as flash-att-builder
-# WORKDIR /usr/src
-# COPY server/Makefile-flash-att Makefile
-# RUN make build-flash-attention
+# Build Flash Attention CUDA kernels
+FROM kernel-builder as flash-att-builder
+WORKDIR /usr/src
+COPY server/Makefile-flash-att Makefile
+RUN make build-flash-attention
 
 # # Build Flash Attention v2 CUDA kernels
 # FROM kernel-builder as flash-att-v2-builder
@@ -81,8 +81,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Copy build artifacts from flash attention builder
 # COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
-# COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
-# COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
 
 # # Copy build artifacts from flash attention v2 builder
 # COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
