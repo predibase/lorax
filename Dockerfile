@@ -36,7 +36,7 @@ RUN cargo build --release
 FROM nvcr.io/nvidia/pytorch:23.07-py3 as pytorch-install
 FROM pytorch-install as kernel-builder
 
-ARG MAX_JOBS=1
+ARG MAX_JOBS=2
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ninja-build cmake \
@@ -80,12 +80,12 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/*
 
 # Copy build artifacts from flash attention builder
-COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
-COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
-COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
 
 # Copy build artifacts from flash attention v2 builder
-COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
 
 # Copy builds artifacts from punica builder
 COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
