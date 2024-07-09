@@ -42,6 +42,13 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
+FROM kernel-builder as vllm-builder
+WORKDIR /usr/src
+ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
+COPY server/Makefile-vllm Makefile
+# Build specific version of vllm
+RUN make build-vllm-cuda
+
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
 WORKDIR /usr/src
@@ -78,6 +85,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     make \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy builds artifacts from vllm builder
+COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-3.10 /opt/conda/lib/python3.10/site-packages
 
 # Copy build artifacts from flash attention builder
 # COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
