@@ -87,7 +87,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/*
 
 # Copy builds artifacts from vllm builder
-COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-3.10 /opt/conda/lib/python3.10/site-packages
+COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
 
 # Copy build artifacts from flash attention builder
 # COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-3.10 /usr/local/lib/python3.10/dist-packages
