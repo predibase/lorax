@@ -447,6 +447,8 @@ pub enum ValidationError {
     AdapterWeightMismatch,
     #[error("Embedding models don't support text generation")]
     EmbeddingModel,
+    #[error("Classify models don't support text generation")]
+    ClassifyModelError,
 }
 
 #[cfg(test)]

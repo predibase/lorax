@@ -8,6 +8,7 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
+from lorax_server.utils.token_classification import format_ner_output
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -128,7 +129,7 @@ class Generation:
 
 
 @dataclass
-class FlashEmbeddingBatch(ABC):
+class FlashEmbeddingClassificationBatch(ABC):
     request_ids: List[int]
     input_ids: torch.Tensor
     token_type_ids: torch.Tensor
@@ -149,7 +150,7 @@ class FlashEmbeddingBatch(ABC):
         tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
-    ) -> "FlashEmbeddingBatch":
+    ) -> "FlashEmbeddingClassificationBatch":
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
@@ -206,7 +207,7 @@ class FlashEmbeddingBatch(ABC):
         final_token_type_ids = torch.tensor(final_token_type_ids, dtype=torch.int64, device=device)
         position_ids = position_ids.to(device)
 
-        return FlashEmbeddingBatch(
+        return FlashEmbeddingClassificationBatch(
             request_ids=[r.id for r in pb.requests],
             input_ids=input_ids,
             token_type_ids=final_token_type_ids,
@@ -215,3 +216,27 @@ class FlashEmbeddingBatch(ABC):
             max_s=max_s,
             size=len(batch_inputs),
         )
+
+    @classmethod
+    def to_pb_classify(
+        self, batch, predicted_token_classes, confidence_scores, tokenizer
+    ) -> generate_pb2.ClassifyResponse:
+        # TODO (magdy): either move this to the rust server or consider using multi processing here
+        results = []
+        for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
+            res = format_ner_output(pred, con, batch.input_ids, tokenizer)
+            results.append(
+                generate_pb2.EntityList(
+                    request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res]
+                )
+            )
+
+        pb_resp = generate_pb2.ClassifyResponse(entity_lists=results)
+        return pb_resp
+
+    @classmethod
+    def to_pb_embed(self, batch, embeddings) -> generate_pb2.EmbedResponse:
+        embeddings_proto = []
+        for i, embedding in enumerate(embeddings):
+            embeddings_proto.append(generate_pb2.Embedding(request_id=batch.request_ids[i], values=embedding))
+        return generate_pb2.EmbedResponse(embeddings=embeddings_proto)

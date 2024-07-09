@@ -1,10 +1,13 @@
 /// Batching and inference logic
 use crate::adapter::{extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID};
-use crate::batch::ValidEmbedRequest;
+use crate::batch::{ValidClassifyRequest, ValidEmbedRequest};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
-use crate::{AdapterParameters, AlternativeToken, EmbedRequest, EmbedResponse, Entry, Token};
+use crate::{
+    AdapterParameters, AlternativeToken, ClassifyRequest, ClassifyResponse, EmbedRequest,
+    EmbedResponse, Entity, Entry, Token,
+};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -12,8 +15,8 @@ use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
-    Batch, CachedBatch, ClientError, Embedding, GeneratedText, Generation, PrefillTokens,
-    ShardedClient,
+    Batch, CachedBatch, ClientError, Embedding, EntityList, GeneratedText, Generation,
+    PrefillTokens, ShardedClient,
 };
 use nohash_hasher::IntMap;
 use std::collections::{HashMap, HashSet};
@@ -264,6 +267,10 @@ impl Infer {
                     // This should not happen
                     tracing::error!("Received an Embed message in generate. This is a bug.");
                 }
+                InferStreamResponse::Classify { .. } => {
+                    // This should not happen
+                    tracing::error!("Received an Classify message in generate. This is a bug.");
+                }
             }
         }
 
@@ -388,6 +395,9 @@ impl Infer {
                 InferStreamResponse::End { .. } => {
                     tracing::error!("Received an End message in embed. This is a bug.");
                 }
+                InferStreamResponse::Classify { .. } => {
+                    tracing::error!("Received a Classify message in embed. This is a bug.");
+                }
                 InferStreamResponse::Embed {
                     embedding,
                     start,
@@ -403,8 +413,105 @@ impl Infer {
                 embeddings: return_embeddings,
             })
         } else {
-            let err = InferError::IncompleteGeneration;
-            metrics::increment_counter!("lorax_request_failure", "err" => "incomplete");
+            let err = InferError::EmbeddingFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "embedding_failure");
+            tracing::error!("{err}");
+            Err(err)
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn classify(
+        &self,
+        request: ClassifyRequest,
+    ) -> Result<ClassifyResponse, InferError> {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        let adapter = Adapter::new(
+            AdapterParameters {
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
+                ..Default::default()
+            },
+            "hub".to_string(),
+            0,
+            None,
+        );
+
+        let (inputs, input_length) = self
+            .validation
+            .validate_input(request.inputs, None, Some(1))
+            .await?;
+
+        let valid_request = ValidClassifyRequest {
+            inputs: inputs,
+            input_length: input_length as u32,
+            adapter: adapter.clone(),
+        };
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = flume::unbounded();
+
+        // Process the request by sending it to the queue associated with `adapter`
+        self.adapter_scheduler.process(
+            adapter.clone(),
+            Entry {
+                request: Arc::new(valid_request),
+                response_tx,
+                span: Span::current(),
+                temp_span: None,
+                queue_time: Instant::now(),
+                batch_time: None,
+            },
+        );
+
+        // Return values
+        let mut return_entities = None;
+
+        let mut stream = response_rx.into_stream();
+        while let Some(response) = stream.next().await {
+            match response? {
+                // Add prefill tokens
+                InferStreamResponse::Prefill { .. } => {
+                    tracing::error!("Received a Prefill message in classify. This is a bug.");
+                }
+                // Push last token
+                InferStreamResponse::Token(..) => {
+                    tracing::error!("Received a Token message in classify. This is a bug.");
+                }
+                // Final message
+                // Set return values
+                InferStreamResponse::End { .. } => {
+                    tracing::error!("Received an End message in classify. This is a bug.");
+                }
+                InferStreamResponse::Embed { .. } => {
+                    tracing::error!("Received an Embed message in classify. This is a bug.");
+                }
+                InferStreamResponse::Classify {
+                    entities,
+                    start,
+                    queued,
+                } => {
+                    return_entities = Some(entities.entities);
+                }
+            }
+        }
+
+        if let Some(return_entities) = return_entities {
+            Ok(ClassifyResponse {
+                entities: return_entities.into_iter().map(Entity::from).collect(),
+            })
+        } else {
+            let err = InferError::ClassificationFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
             tracing::error!("{err}");
             Err(err)
         }
@@ -687,7 +794,7 @@ pub(crate) async fn embed(
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_id = batch.id;
-    metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "embed");
 
     match client.embed(batch).await {
         Ok(results) => {
@@ -738,6 +845,65 @@ pub(crate) async fn embed(
     }
 }
 
+#[instrument(skip_all)]
+pub(crate) async fn classify(
+    client: &mut ShardedClient,
+    batch: Batch,
+    entries: &mut IntMap<u64, Entry>,
+    generation_health: &Arc<AtomicBool>,
+) -> Option<CachedBatch> {
+    let start_time = Instant::now();
+    let batch_id = batch.id;
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "classify");
+
+    match client.classify(batch).await {
+        Ok(results) => {
+            // Update health
+            generation_health.store(true, Ordering::SeqCst);
+            // Send generated tokens and filter stopped entries
+            results.into_iter().for_each(|entities| {
+                let id = entities.request_id;
+                // Get entry
+                // We can `expect` here as the request id should always be in the entries
+                let entry = entries
+                    .get(&id)
+                    .expect("ID not found in entries. This is a bug.");
+
+                // Send generation responses back to the infer task
+                // If the receive an error from the Flume channel, it means that the client dropped the
+                // request and we need to stop generating hence why we unwrap_or(true)
+                let stopped = send_classifications(entities, entry)
+                    .map_err(|err| {
+                        if let SendTimeoutError::Timeout(_) = *err {
+                            tracing::error!("Entry response channel timed out.")
+                        }
+
+                        metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
+                        err
+                    })
+                    .unwrap_or(true);
+                if stopped {
+                    entries
+                        .remove(&id)
+                        .expect("ID not found in entries. This is a bug.");
+                }
+            });
+
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "classify");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "classify");
+            None
+        }
+        // If we have an error, we discard the whole batch
+        Err(err) => {
+            // Update health
+            generation_health.store(false, Ordering::SeqCst);
+            let _ = client.clear_cache(Some(batch_id)).await;
+            send_errors(err, entries);
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "classify");
+            None
+        }
+    }
+}
 /// Filter a `batch` and remove all requests not present in `entries`
 #[instrument(skip_all)]
 async fn filter_batch(
@@ -919,6 +1085,29 @@ fn send_embeddings(
     Ok(true)
 }
 
+/// Send responses through the `entry` response channel
+fn send_classifications(
+    entities: EntityList,
+    entry: &Entry,
+) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+    // Return directly if the channel is disconnected
+    if entry.response_tx.is_disconnected() {
+        return Ok(true);
+    }
+
+    entry.response_tx.send_timeout(
+        Ok(InferStreamResponse::Classify {
+            entities: entities.clone(),
+            queued: entry.queue_time,
+            start: entry.batch_time.unwrap(),
+        }),
+        Duration::from_millis(10),
+    )?;
+
+    // TODO(travis): redundant as we always return true, just make it return nothing
+    Ok(true)
+}
+
 /// Send errors to Infer for all `entries`
 #[instrument(skip_all)]
 fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
@@ -952,6 +1141,11 @@ pub(crate) enum InferStreamResponse {
         start: Instant,
         queued: Instant,
     },
+    Classify {
+        entities: EntityList,
+        start: Instant,
+        queued: Instant,
+    },
     // Last message
     End {
         token: Token,
@@ -981,6 +1175,10 @@ pub enum InferError {
     ValidationError(#[from] ValidationError),
     #[error("Incomplete generation")]
     IncompleteGeneration,
+    #[error("Embedding Failure")]
+    EmbeddingFailure,
+    #[error("Classification Failure")]
+    ClassificationFailure,
 }
 
 impl InferError {
@@ -990,6 +1188,8 @@ impl InferError {
             InferError::Overloaded(_) => "overloaded",
             InferError::ValidationError(_) => "validation",
             InferError::IncompleteGeneration => "incomplete_generation",
+            InferError::EmbeddingFailure => "embedding_failure",
+            InferError::ClassificationFailure => "classification_failure",
         }
     }
 }

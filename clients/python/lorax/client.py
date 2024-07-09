@@ -13,7 +13,8 @@ from lorax.types import (
     Parameters,
     MergedAdapters,
     ResponseFormat,
-    EmbedResponse
+    EmbedResponse,
+    ClassifyResponse
 )
 from lorax.errors import parse_error
 
@@ -65,6 +66,7 @@ class Client:
         """
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
+        self.classify_endpoint = f"{base_url}/classify"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
@@ -441,6 +443,35 @@ class Client:
         return EmbedResponse(**payload)
 
 
+    def classify(self, inputs: str) -> ClassifyResponse:
+        """
+        Given inputs, run token classification on the text using the model
+
+        Args:
+            inputs (`str`):
+                Input text
+        
+        Returns: 
+            Entities: Entities found in the input text
+        """
+        request = Request(inputs=inputs)
+
+        resp = requests.post(
+            self.classify_endpoint,
+            json=request.dict(by_alias=True),
+            headers=self.headers,
+            cookies=self.cookies,
+            timeout=self.timeout,
+        )
+
+        payload = resp.json()
+        if resp.status_code != 200:
+            raise parse_error(resp.status_code, resp.json())
+        
+        print(payload)
+        return ClassifyResponse(**payload)
+
+
 class AsyncClient:
     """Asynchronous Client to make calls to a LoRAX instance
 
@@ -483,6 +514,7 @@ class AsyncClient:
         """
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
+        self.classify_endpoint = f"{base_url}/classify"
         self.headers = headers
         self.cookies = cookies
         self.timeout = ClientTimeout(timeout * 60)
@@ -780,3 +812,26 @@ class AsyncClient:
                 if resp.status != 200:
                     raise parse_error(resp.status, payload)
                 return EmbedResponse(**payload)
+
+
+    async def classify(self, inputs: str) -> ClassifyResponse:
+        """
+        Given inputs, run token classification on the text using the model
+
+        Args:
+            inputs (`str`):
+                Input text
+        
+        Returns: 
+            Entities: Entities found in the input text
+        """
+        request = Request(inputs=inputs)
+        async with ClientSession(
+            headers=self.headers, cookies=self.cookies, timeout=self.timeout
+        ) as session:
+            async with session.post(self.classify_endpoint, json=request.dict(by_alias=True)) as resp:
+                payload = await resp.json()
+
+                if resp.status != 200:
+                    raise parse_error(resp.status, payload)
+                return ClassifyResponse(**payload)

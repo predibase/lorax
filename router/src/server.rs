@@ -7,13 +7,13 @@ use crate::validation::ValidationError;
 use crate::{
     AdapterParameters, AlternativeToken, BestOfSequence, ChatCompletionRequest,
     ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
-    ChatCompletionStreamResponseChoice, ChatMessage, CompatGenerateRequest, CompletionFinishReason,
-    CompletionRequest, CompletionResponse, CompletionResponseChoice,
-    CompletionResponseStreamChoice, CompletionStreamResponse, Details, EmbedRequest, EmbedResponse,
-    ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, LogProbs, PrefillToken, ResponseFormat, ResponseFormatType,
-    SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse,
-    UsageInfo, Validation,
+    ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest, ClassifyResponse,
+    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
+    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
+    EmbedRequest, EmbedResponse, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest,
+    GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken, ResponseFormat,
+    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
+    TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{request, HeaderMap, Method, StatusCode};
@@ -851,6 +851,15 @@ async fn generate_stream_with_callback(
                                             yield Ok(Event::from(err));
                                             break;
                                         }
+                                        InferStreamResponse::Classify {
+                                            ..
+                                        } => {
+                                            let err = InferError::from(ValidationError::ClassifyModelError);
+                                            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+                                            tracing::error!("{err}");
+                                            yield Ok(Event::from(err));
+                                            break;
+                                        }
                                     }
                                 }
                                 // yield error
@@ -1173,6 +1182,7 @@ pub async fn run(
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
         .route("/embed", post(embed))
+        .route("/classify", post(classify))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
@@ -1309,6 +1319,8 @@ impl From<InferError> for (StatusCode, Json<ErrorResponse>) {
             InferError::Overloaded(_) => StatusCode::TOO_MANY_REQUESTS,
             InferError::ValidationError(_) => StatusCode::UNPROCESSABLE_ENTITY,
             InferError::IncompleteGeneration => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::EmbeddingFailure => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::ClassificationFailure => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (
@@ -1358,6 +1370,31 @@ async fn embed(
     // Inference
     let response = infer.embed(req).await?;
 
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    tag = "Classify",
+    path = "/classify",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Embeddings ids", body = ClassifyResponse),
+    (status = 500, description = "Incomplete embedding", body = ErrorResponse),
+    )
+)]
+#[instrument(skip_all)]
+async fn classify(
+    infer: Extension<Infer>,
+    mut client: Extension<ShardedClient>,
+    Json(req): Json<ClassifyRequest>,
+) -> Result<Json<ClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
+    metrics::increment_counter!("lorax_request_count");
+
+    tracing::debug!("Input: {}", req.inputs);
+    let response = infer.classify(req).await?;
     Ok(Json(response))
 }
 

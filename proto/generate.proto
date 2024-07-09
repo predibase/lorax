@@ -17,6 +17,8 @@ service LoraxService {
     rpc Prefill (PrefillRequest) returns (PrefillResponse);
     /// Embed
     rpc Embed (EmbedRequest) returns (EmbedResponse);
+    /// Classify 
+    rpc Classify (ClassifyRequest) returns (ClassifyResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
@@ -249,6 +251,34 @@ message EmbedResponse {
     /// Embeddings
     repeated Embedding embeddings = 1;
 
+    /// Error message on failure
+    string errorMsg = 2;
+}
+
+message Entity {
+    string entity = 1;
+    float score = 2;
+    uint32 index = 3;
+    string word = 4;
+    uint32 start = 5;
+    uint32 end = 6;
+}
+
+message EntityList {
+    /// Request ID
+    uint64 request_id = 1;
+    /// Entities 
+    repeated Entity entities = 2;
+}
+
+message ClassifyRequest {
+    /// Batch
+    Batch batch = 1;
+}
+
+message ClassifyResponse {
+    /// Classifications
+    repeated EntityList entity_lists = 1;
     /// Error message on failure
     string errorMsg = 2;
 }
