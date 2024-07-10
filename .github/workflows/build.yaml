@@ -65,7 +65,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=fp8-vllm,enable=${{ github.ref == 'refs/heads/fp8-vllm' }}
 
       - name: Create a hash from tags
         env:
