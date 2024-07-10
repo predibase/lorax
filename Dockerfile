@@ -86,43 +86,43 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# Build Flash Attention CUDA kernels
-FROM kernel-builder as flash-att-builder
-WORKDIR /usr/src
-COPY server/Makefile-flash-att Makefile
-RUN make build-flash-attention
+# # Build Flash Attention CUDA kernels
+# FROM kernel-builder as flash-att-builder
+# WORKDIR /usr/src
+# COPY server/Makefile-flash-att Makefile
+# RUN make build-flash-attention
 
-# Build Flash Attention v2 CUDA kernels
-FROM kernel-builder as flash-att-v2-builder
-WORKDIR /usr/src
-COPY server/Makefile-flash-att-v2 Makefile
-RUN make build-flash-attention-v2-cuda
+# # Build Flash Attention v2 CUDA kernels
+# FROM kernel-builder as flash-att-v2-builder
+# WORKDIR /usr/src
+# COPY server/Makefile-flash-att-v2 Makefile
+# RUN make build-flash-attention-v2-cuda
 
-# Build Transformers exllama kernels
-FROM kernel-builder as exllama-kernels-builder
-WORKDIR /usr/src
-COPY server/exllama_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+# # Build Transformers exllama kernels
+# FROM kernel-builder as exllama-kernels-builder
+# WORKDIR /usr/src
+# COPY server/exllama_kernels/ .
+# RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
-# Build Transformers exllama kernels
-FROM kernel-builder as exllamav2-kernels-builder
-WORKDIR /usr/src
-COPY server/exllamav2_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+# # Build Transformers exllama kernels
+# FROM kernel-builder as exllamav2-kernels-builder
+# WORKDIR /usr/src
+# COPY server/exllamav2_kernels/ .
+# RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
-# Build Transformers awq kernels
-FROM kernel-builder as awq-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-awq Makefile
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
+# # Build Transformers awq kernels
+# FROM kernel-builder as awq-kernels-builder
+# WORKDIR /usr/src
+# COPY server/Makefile-awq Makefile
+# RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
 
 
-# Build Transformers CUDA kernels
-FROM kernel-builder as custom-kernels-builder
-WORKDIR /usr/src
-COPY server/custom_kernels/ .
-# Build specific version of transformers
-RUN python setup.py build
+# # Build Transformers CUDA kernels
+# FROM kernel-builder as custom-kernels-builder
+# WORKDIR /usr/src
+# COPY server/custom_kernels/ .
+# # Build specific version of transformers
+# RUN python setup.py build
 
 # Build vllm CUDA kernels
 FROM kernel-builder as vllm-builder
@@ -132,27 +132,27 @@ COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
 RUN make build-vllm-cuda
 
-# Build megablocks kernels
-FROM kernel-builder as megablocks-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-megablocks Makefile
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-RUN make build-megablocks
+# # Build megablocks kernels
+# FROM kernel-builder as megablocks-kernels-builder
+# WORKDIR /usr/src
+# COPY server/Makefile-megablocks Makefile
+# ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
+# RUN make build-megablocks
 
-# Build punica CUDA kernels
-FROM kernel-builder as punica-builder
-WORKDIR /usr/src
-COPY server/punica_kernels/ .
-# Build specific version of punica
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-RUN python setup.py build
+# # Build punica CUDA kernels
+# FROM kernel-builder as punica-builder
+# WORKDIR /usr/src
+# COPY server/punica_kernels/ .
+# # Build specific version of punica
+# ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
+# RUN python setup.py build
 
-# Build eetq kernels
-FROM kernel-builder as eetq-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-eetq Makefile
-# Build specific version of transformers
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
+# # Build eetq kernels
+# FROM kernel-builder as eetq-kernels-builder
+# WORKDIR /usr/src
+# COPY server/Makefile-eetq Makefile
+# # Build specific version of transformers
+# RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
 
 # LoRAX base image
 FROM nvidia/cuda:12.1.0-base-ubuntu22.04 as base
@@ -178,33 +178,33 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Copy conda with PyTorch installed
 COPY --from=pytorch-install /opt/conda /opt/conda
 
-# Copy build artifacts from flash attention builder
-COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from flash attention builder
+# COPY --from=flash-att-builder /usr/src/flash-attention/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
-# Copy build artifacts from flash attention v2 builder
-COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from flash attention v2 builder
+# COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
-# Copy build artifacts from custom kernels builder
-COPY --from=custom-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-# Copy build artifacts from exllama kernels builder
-COPY --from=exllama-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-# Copy build artifacts from exllamav2 kernels builder
-COPY --from=exllamav2-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-# Copy build artifacts from awq kernels builder
-COPY --from=awq-kernels-builder /usr/src/llm-awq/awq/kernels/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
-# Copy builds artifacts from vllm builder
+# # Copy build artifacts from custom kernels builder
+# COPY --from=custom-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from exllama kernels builder
+# COPY --from=exllama-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from exllamav2 kernels builder
+# COPY --from=exllamav2-kernels-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from awq kernels builder
+# COPY --from=awq-kernels-builder /usr/src/llm-awq/awq/kernels/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy builds artifacts from vllm builder
 COPY --from=vllm-builder /usr/src/vllm/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
-# Copy builds artifacts from punica builder
-COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy builds artifacts from punica builder
+# COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
-# Copy build artifacts from megablocks builder
-COPY --from=megablocks-kernels-builder /usr/src/megablocks/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from megablocks builder
+# COPY --from=megablocks-kernels-builder /usr/src/megablocks/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
-# Copy build artifacts from eetq builder
-COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
+# # Copy build artifacts from eetq builder
+# COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-310 /opt/conda/lib/python3.10/site-packages
 
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir
