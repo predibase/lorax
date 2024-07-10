@@ -55,11 +55,11 @@ WORKDIR /usr/src
 COPY server/Makefile-flash-att Makefile
 RUN make build-flash-attention
 
-# # Build Flash Attention v2 CUDA kernels
-# FROM kernel-builder as flash-att-v2-builder
-# WORKDIR /usr/src
-# COPY server/Makefile-flash-att-v2 Makefile
-# RUN make build-flash-attention-v2-cuda
+# Build Flash Attention v2 CUDA kernels
+FROM kernel-builder as flash-att-v2-builder
+WORKDIR /usr/src
+COPY server/Makefile-flash-att-v2 Makefile
+RUN make build-flash-attention-v2-cuda
 
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
@@ -95,7 +95,7 @@ COPY --from=flash-att-builder /usr/src/flash-attention/csrc/layer_norm/build/lib
 COPY --from=flash-att-builder /usr/src/flash-attention/csrc/rotary/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
 
 # # Copy build artifacts from flash attention v2 builder
-# COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
+COPY --from=flash-att-v2-builder /usr/src/flash-attention-v2/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
 
 # Copy builds artifacts from punica builder
 COPY --from=punica-builder /usr/src/build/lib.linux-x86_64-cpython-310 /usr/local/lib/python3.10/dist-packages
