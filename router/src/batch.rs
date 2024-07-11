@@ -117,7 +117,6 @@ pub(crate) struct ValidGenerateRequest {
     pub parameters: NextTokenChooserParameters,
     pub stopping_parameters: StoppingCriteriaParameters,
     pub adapter: Adapter,
-    pub apply_chat_template: bool,
 }
 
 /// AdapterLoader entry
@@ -288,7 +287,6 @@ impl BatchEntries for GenerateBatchEntries {
             parameters: Some(request.parameters.clone()),
             stopping_parameters: Some(request.stopping_parameters.clone()),
             adapter_index: adapter.index(),
-            apply_chat_template: request.apply_chat_template,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -405,7 +403,6 @@ impl BatchEntries for EmbedBatchEntries {
             parameters: None,
             stopping_parameters: None,
             adapter_index: adapter.index(),
-            apply_chat_template: false,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -516,7 +513,6 @@ impl BatchEntries for ClassifyBatchEntries {
             parameters: None,
             stopping_parameters: None,
             adapter_index: adapter.index(),
-            apply_chat_template: false,
         };
 
         self.state.add(id, entry, adapter, request_proto);

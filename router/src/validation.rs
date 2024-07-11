@@ -336,7 +336,6 @@ impl Validation {
             parameters,
             stopping_parameters,
             adapter,
-            apply_chat_template,
         })
     }
 

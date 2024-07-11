@@ -301,7 +301,7 @@ async fn chat_completions_v1(
             details: true,
             decoder_input_details: false,
             return_k_alternatives: None,
-            apply_chat_template: true,
+            apply_chat_template: false,
             seed: req.seed,
             response_format: req.response_format,
         },
