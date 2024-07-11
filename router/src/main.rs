@@ -2,9 +2,9 @@
 use axum::http::{HeaderName, HeaderValue};
 use clap::Parser;
 use hf_hub::api::tokio::{Api, ApiBuilder, ApiRepo};
-use hf_hub::{Repo, RepoType};
+use hf_hub::{Cache, Repo, RepoType};
 use lorax_client::{ClientError, ShardedClient};
-use lorax_router::{server, HubModelInfo};
+use lorax_router::{server, HubModelInfo, HubTokenizerConfig};
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace;
 use opentelemetry::sdk::trace::Sampler;
@@ -14,9 +14,10 @@ use opentelemetry_otlp::WithExportConfig;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use thiserror::Error;
+use tokenizers::processors::template::TemplateProcessing;
 use tokenizers::tokenizer::Tokenizer;
 use tower_http::cors::{AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, ExposeHeaders};
 use tracing_subscriber::layer::SubscriberExt;
@@ -57,6 +58,8 @@ struct Args {
     master_shard_uds_path: String,
     #[clap(default_value = "bigscience/bloom", long, env)]
     tokenizer_name: String,
+    #[clap(long, env)]
+    tokenizer_config_path: Option<String>,
     #[clap(long, env)]
     revision: Option<String>,
     #[clap(default_value = "2", long, env)]
@@ -110,6 +113,7 @@ async fn main() -> Result<(), RouterError> {
         port,
         master_shard_uds_path,
         tokenizer_name,
+        tokenizer_config_path,
         revision,
         validation_workers,
         json_output,
@@ -204,78 +208,155 @@ async fn main() -> Result<(), RouterError> {
     // Parse Huggingface hub token
     let authorization_token = std::env::var("HUGGING_FACE_HUB_TOKEN").ok();
 
-    // Load tokenizer
-    tracing::info!("Loading tokenizer {tokenizer_name}");
+    // Tokenizer instance
+    // This will only be used to validate payloads
     let local_path = Path::new(&tokenizer_name);
-    let local_model = local_path.exists() && local_path.is_dir();
-    let tokenizer = if local_model {
-        tracing::info!("Using local tokenizer: {0}", local_path.to_str().unwrap());
-        Tokenizer::from_file(local_path.join("tokenizer.json")).ok()
-    } else {
-        // Shared API builder initialization
-        let api_builder = || {
-            let mut builder = ApiBuilder::new()
-                .with_progress(false)
-                .with_token(authorization_token.clone());
 
-            if let Ok(cache_dir) = std::env::var("HUGGINGFACE_HUB_CACHE") {
-                builder = builder.with_cache_dir(cache_dir.into());
-            }
+    // Shared API builder initialization
+    let api_builder = || {
+        let mut builder = ApiBuilder::new()
+            .with_progress(false)
+            .with_token(authorization_token);
 
-            builder
-        };
-
-        tracing::info!("Using the Hugging Face API");
-        let api_opt = match api_builder().build() {
-            Ok(api) => Some(api),
-            Err(_) => {
-                tracing::warn!("Unable to build the Hugging Face API");
-                None
-            }
-        };
-
-        if api_opt.is_none() {
-            return Err(RouterError::ArgumentValidation(
-                "Unable to build the Hugging Face API".to_string(),
-            ));
+        if let Ok(cache_dir) = std::env::var("HUGGINGFACE_HUB_CACHE") {
+            builder = builder.with_cache_dir(cache_dir.into());
         }
 
-        let api = api_opt.unwrap();
-        let api_repo = api.repo(Repo::with_revision(
-            tokenizer_name.to_string(),
-            RepoType::Model,
-            revision.clone().unwrap_or_else(|| "main".to_string()),
-        ));
+        builder
+    };
 
-        match api_repo.get("tokenizer.json").await {
-            Ok(tokenizer_filename) => Tokenizer::from_file(tokenizer_filename).ok(),
-            Err(_) => get_base_tokenizer(&api, &api_repo).await,
+    // Decide if we need to use the API based on the revision and local path
+    let use_api = revision.is_some() || !local_path.exists() || !local_path.is_dir();
+
+    // Initialize API if needed
+    #[derive(Clone)]
+    enum Type {
+        Api(Api),
+        Cache(Cache),
+        None,
+    }
+
+    let api = if use_api {
+        if std::env::var("HF_HUB_OFFLINE") == Ok("1".to_string()) {
+            let cache = Cache::default();
+            tracing::warn!("Offline mode active using cache defaults");
+            Type::Cache(cache)
+        } else {
+            tracing::info!("Using the Hugging Face API");
+            match api_builder().build() {
+                Ok(api) => Type::Api(api),
+                Err(_) => {
+                    tracing::warn!("Unable to build the Hugging Face API");
+                    Type::None
+                }
+            }
+        }
+    } else {
+        Type::None
+    };
+
+    // Load tokenizer and model info
+    let (
+        tokenizer_filename,
+        config_filename,
+        tokenizer_config_filename,
+        preprocessor_config_filename,
+        processor_config_filename,
+        model_info,
+    ) = match api {
+        Type::None => (
+            Some(local_path.join("tokenizer.json")),
+            Some(local_path.join("config.json")),
+            Some(local_path.join("tokenizer_config.json")),
+            Some(local_path.join("preprocessor_config.json")),
+            Some(local_path.join("processor_config.json")),
+            None,
+        ),
+        Type::Api(api) => {
+            let api_repo = api.repo(Repo::with_revision(
+                tokenizer_name.to_string(),
+                RepoType::Model,
+                revision.clone().unwrap_or_else(|| "main".to_string()),
+            ));
+
+            let tokenizer_filename = match api_repo.get("tokenizer.json").await {
+                Ok(tokenizer_filename) => Some(tokenizer_filename),
+                Err(_) => get_base_tokenizer(&api, &api_repo).await,
+            };
+            let config_filename = api_repo.get("config.json").await.ok();
+            let tokenizer_config_filename = api_repo.get("tokenizer_config.json").await.ok();
+            let preprocessor_config_filename = api_repo.get("preprocessor_config.json").await.ok();
+            let processor_config_filename = api_repo.get("processor_config.json").await.ok();
+
+            let model_info = if let Some(model_info) = get_model_info(&api_repo).await {
+                Some(model_info)
+            } else {
+                tracing::warn!("Could not retrieve model info from the Hugging Face hub.");
+                None
+            };
+            (
+                tokenizer_filename,
+                config_filename,
+                tokenizer_config_filename,
+                preprocessor_config_filename,
+                processor_config_filename,
+                model_info,
+            )
+        }
+        Type::Cache(cache) => {
+            let repo = cache.repo(Repo::with_revision(
+                tokenizer_name.to_string(),
+                RepoType::Model,
+                revision.clone().unwrap_or_else(|| "main".to_string()),
+            ));
+            (
+                repo.get("tokenizer.json"),
+                repo.get("config.json"),
+                repo.get("tokenizer_config.json"),
+                repo.get("preprocessor_config.json"),
+                repo.get("processor_config.json"),
+                None,
+            )
         }
     };
+    let model_info = model_info.unwrap_or_else(|| HubModelInfo {
+        model_id: tokenizer_name.to_string(),
+        sha: None,
+        pipeline_tag: None,
+    });
+
+    // Read the JSON contents of the file as an instance of 'HubTokenizerConfig'.
+    let tokenizer_config: Option<HubTokenizerConfig> = if let Some(filename) = tokenizer_config_path
+    {
+        HubTokenizerConfig::from_file(filename)
+    } else {
+        tokenizer_config_filename.and_then(HubTokenizerConfig::from_file)
+    };
+    let tokenizer_config = tokenizer_config.unwrap_or_else(|| {
+        tracing::warn!("Could not find tokenizer config locally and no API specified");
+        HubTokenizerConfig::default()
+    });
+
+    // Load tokenizer
+    let tokenizer: Option<Tokenizer> = tokenizer_filename.and_then(|filename| {
+        let mut tokenizer = Tokenizer::from_file(filename).ok();
+        if let Some(tokenizer) = &mut tokenizer {
+            if let Some(class) = &tokenizer_config.tokenizer_class {
+                if class == "LlamaTokenizer" || class == "LlamaTokenizerFast"{
+                    if let Ok(post_processor) = create_post_processor(tokenizer, &tokenizer_config) {
+                        tracing::info!("Overriding LlamaTokenizer with TemplateProcessing to follow python override defined in https://github.com/huggingface/transformers/blob/4aa17d00690b7f82c95bb2949ea57e22c35b4336/src/transformers/models/llama/tokenization_llama_fast.py#L203-L205");
+                        tokenizer.with_post_processor(post_processor);
+                    }
+                }
+            }
+        }
+        tokenizer
+    });
 
     if tokenizer.is_none() {
         tracing::warn!("Could not find a fast tokenizer implementation for {tokenizer_name}");
         tracing::warn!("Rust input length validation and truncation is disabled");
     }
-
-    // Get Model info
-    let model_info = match local_model {
-        true => HubModelInfo {
-            model_id: tokenizer_name.clone(),
-            sha: None,
-            pipeline_tag: None,
-        },
-        false => get_model_info(&tokenizer_name, revision, authorization_token)
-            .await
-            .unwrap_or_else(|| {
-                tracing::warn!("Could not retrieve model info from the Hugging Face hub.");
-                HubModelInfo {
-                    model_id: tokenizer_name.to_string(),
-                    sha: None,
-                    pipeline_tag: None,
-                }
-            }),
-    };
 
     // if pipeline-tag == lorax we default to return_full_text = true
     let compat_return_full_text = match &model_info.pipeline_tag {
@@ -374,6 +455,7 @@ async fn main() -> Result<(), RouterError> {
         cors_allow_credentials,
         cors_allow_header,
         cors_expose_header,
+        tokenizer_config,
         ngrok,
         ngrok_authtoken,
         ngrok_edge,
@@ -441,30 +523,8 @@ fn init_logging(otlp_endpoint: Option<String>, json_output: bool) {
 }
 
 /// get model info from the Huggingface Hub
-pub async fn get_model_info(
-    model_id: &str,
-    revision: Option<String>,
-    token: Option<String>,
-) -> Option<HubModelInfo> {
-    let revision = match revision {
-        None => {
-            tracing::warn!("`--revision` is not set");
-            tracing::warn!("We strongly advise to set it to a known supported commit.");
-            "main".to_string()
-        }
-        Some(revision) => revision,
-    };
-
-    let client = reqwest::Client::new();
-    // Poor man's urlencode
-    let revision = revision.replace('/', "%2F");
-    let url = format!("https://huggingface.co/api/models/{model_id}/revision/{revision}");
-    let mut builder = client.get(url).timeout(Duration::from_secs(5));
-    if let Some(token) = token {
-        builder = builder.bearer_auth(token);
-    }
-
-    let response = builder.send().await.ok()?;
+pub async fn get_model_info(api: &ApiRepo) -> Option<HubModelInfo> {
+    let response = api.info_request().send().await.ok()?;
 
     if response.status().is_success() {
         let hub_model_info: HubModelInfo =
@@ -482,7 +542,7 @@ pub async fn get_model_info(
 }
 
 /// get base tokenizer
-pub async fn get_base_tokenizer(api: &Api, api_repo: &ApiRepo) -> Option<Tokenizer> {
+pub async fn get_base_tokenizer(api: &Api, api_repo: &ApiRepo) -> Option<PathBuf> {
     let config_filename = api_repo.get("config.json").await.ok()?;
 
     // Open the file in read-only mode with buffer.
@@ -499,11 +559,81 @@ pub async fn get_base_tokenizer(api: &Api, api_repo: &ApiRepo) -> Option<Tokeniz
             "main".to_string(),
         ));
 
-        let tokenizer_filename = api_base_repo.get("tokenizer.json").await.ok()?;
-        Tokenizer::from_file(tokenizer_filename).ok()
+        api_base_repo.get("tokenizer.json").await.ok()
     } else {
         None
     }
+}
+
+/// Create a post_processor for the LlamaTokenizer
+pub fn create_post_processor(
+    tokenizer: &Tokenizer,
+    tokenizer_config: &HubTokenizerConfig,
+) -> Result<TemplateProcessing, tokenizers::processors::template::TemplateProcessingBuilderError> {
+    let add_bos_token = tokenizer_config.add_bos_token.unwrap_or(true);
+    let add_eos_token = tokenizer_config.add_eos_token.unwrap_or(false);
+
+    let bos_token = tokenizer_config.bos_token.as_ref();
+    let eos_token = tokenizer_config.eos_token.as_ref();
+
+    if add_bos_token && bos_token.is_none() {
+        panic!("add_bos_token = true but bos_token is None");
+    }
+
+    if add_eos_token && eos_token.is_none() {
+        panic!("add_eos_token = true but eos_token is None");
+    }
+
+    let mut single = Vec::new();
+    let mut pair = Vec::new();
+    let mut special_tokens = Vec::new();
+
+    if add_bos_token {
+        if let Some(bos) = bos_token {
+            let bos_token_id = tokenizer
+                .token_to_id(bos.as_str())
+                .expect("Should have found the bos token id");
+            special_tokens.push((bos.as_str(), bos_token_id));
+            single.push(format!("{}:0", bos.as_str()));
+            pair.push(format!("{}:0", bos.as_str()));
+        }
+    }
+
+    single.push("$A:0".to_string());
+    pair.push("$A:0".to_string());
+
+    if add_eos_token {
+        if let Some(eos) = eos_token {
+            let eos_token_id = tokenizer
+                .token_to_id(eos.as_str())
+                .expect("Should have found the eos token id");
+            special_tokens.push((eos.as_str(), eos_token_id));
+            single.push(format!("{}:0", eos.as_str()));
+            pair.push(format!("{}:0", eos.as_str()));
+        }
+    }
+
+    if add_bos_token {
+        if let Some(bos) = bos_token {
+            pair.push(format!("{}:1", bos.as_str()));
+        }
+    }
+
+    pair.push("$B:1".to_string());
+
+    if add_eos_token {
+        if let Some(eos) = eos_token {
+            pair.push(format!("{}:1", eos.as_str()));
+        }
+    }
+
+    let post_processor = TemplateProcessing::builder()
+        .try_single(single)?
+        .try_pair(pair)?
+        .special_tokens(special_tokens)
+        .build()?;
+
+    Ok(post_processor)
 }
 
 #[derive(Debug, Error)]

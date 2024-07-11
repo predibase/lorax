@@ -189,6 +189,7 @@ class FlashCausalLMBatch(Batch):
             tokenized_input = tokenized_input[-r.truncate :]
 
             input_length = len(tokenized_input)
+            print("!!! INPUT LENGTH", input_length)
             input_lengths.append(input_length)
 
             prefix_offsets.append(input_length - 5)
