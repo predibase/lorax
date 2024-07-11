@@ -15,7 +15,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use thiserror::Error;
 use tokenizers::processors::template::TemplateProcessing;
 use tokenizers::tokenizer::Tokenizer;
@@ -258,10 +257,10 @@ async fn main() -> Result<(), RouterError> {
     // Load tokenizer and model info
     let (
         tokenizer_filename,
-        config_filename,
+        _config_filename,
         tokenizer_config_filename,
-        preprocessor_config_filename,
-        processor_config_filename,
+        _preprocessor_config_filename,
+        _processor_config_filename,
         model_info,
     ) = match api {
         Type::None => (
@@ -332,6 +331,11 @@ async fn main() -> Result<(), RouterError> {
     } else {
         tokenizer_config_filename.and_then(HubTokenizerConfig::from_file)
     };
+
+    tracing::info!(
+        "Using tokenizer config: {}",
+        tokenizer_config_filename.unwrap_or_else(|| "default".to_string())
+    );
     let tokenizer_config = tokenizer_config.unwrap_or_else(|| {
         tracing::warn!("Could not find tokenizer config locally and no API specified");
         HubTokenizerConfig::default()
