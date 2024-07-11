@@ -110,8 +110,6 @@ message Request {
     bool prefill_logprobs = 6;
     /// Adapter index
     uint32 adapter_index = 7;
-    /// Apply chat template to inputs
-    bool apply_chat_template = 8;
 }
 
 message Batch {
