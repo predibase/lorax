@@ -332,10 +332,6 @@ async fn main() -> Result<(), RouterError> {
         tokenizer_config_filename.and_then(HubTokenizerConfig::from_file)
     };
 
-    tracing::info!(
-        "Using tokenizer config: {}",
-        tokenizer_config_filename.unwrap_or_else(|| "default".to_string())
-    );
     let tokenizer_config = tokenizer_config.unwrap_or_else(|| {
         tracing::warn!("Could not find tokenizer config locally and no API specified");
         HubTokenizerConfig::default()
