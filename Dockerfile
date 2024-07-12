@@ -35,12 +35,12 @@ RUN cargo build --release
 
 # Python builder
 # Adapted from: https://github.com/pytorch/pytorch/blob/master/Dockerfile
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 as pytorch-install
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 as pytorch-install
 
 ARG PYTORCH_VERSION=2.3.0
 ARG PYTHON_VERSION=3.10
 # Keep in sync with `server/pyproject.toml
-ARG CUDA_VERSION=12.1
+ARG CUDA_VERSION=12.4
 ARG MAMBA_VERSION=24.3.0-0
 ARG CUDA_CHANNEL=nvidia
 ARG INSTALL_CHANNEL=pytorch
@@ -86,6 +86,14 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
+# Build vllm CUDA kernels
+FROM kernel-builder as vllm-builder
+WORKDIR /usr/src
+ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
+COPY server/Makefile-vllm Makefile
+# Build specific version of vllm
+RUN make build-vllm-cuda
+
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
 WORKDIR /usr/src
@@ -98,39 +106,6 @@ WORKDIR /usr/src
 COPY server/Makefile-flash-att-v2 Makefile
 RUN make build-flash-attention-v2-cuda
 
-# Build Transformers exllama kernels
-FROM kernel-builder as exllama-kernels-builder
-WORKDIR /usr/src
-COPY server/exllama_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
-
-# Build Transformers exllama kernels
-FROM kernel-builder as exllamav2-kernels-builder
-WORKDIR /usr/src
-COPY server/exllamav2_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
-
-# Build Transformers awq kernels
-FROM kernel-builder as awq-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-awq Makefile
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
-
-
-# Build Transformers CUDA kernels
-FROM kernel-builder as custom-kernels-builder
-WORKDIR /usr/src
-COPY server/custom_kernels/ .
-# Build specific version of transformers
-RUN python setup.py build
-
-# Build megablocks kernels
-FROM kernel-builder as megablocks-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-megablocks Makefile
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-RUN make build-megablocks
-
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
 WORKDIR /usr/src
@@ -139,15 +114,8 @@ COPY server/punica_kernels/ .
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN python setup.py build
 
-# Build eetq kernels
-FROM kernel-builder as eetq-kernels-builder
-WORKDIR /usr/src
-COPY server/Makefile-eetq Makefile
-# Build specific version of transformers
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
-
 # LoRAX base image
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04 as base
+FROM nvidia/cuda:12.4.0-base-ubuntu22.04 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
