@@ -12,14 +12,13 @@ from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
 )
-from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
+from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)
 
-
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
-ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
-
+# TODO(tim): re-enable LM_HEAD after resolving issues with outputs
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
+ROW_PARALLEL = {O_PROJ, DOWN_PROJ}
 
 class FlashGemma2(FlashCausalLM):
     def __init__(
@@ -121,7 +120,7 @@ class FlashGemma2(FlashCausalLM):
         return [Q_PROJ, V_PROJ]
 
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
+        return len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
