@@ -301,8 +301,21 @@ class TensorParallelRowLinear(SuperLayer):
             bias = weights.get_tensor(f"{prefix}.bias")
         else:
             bias = None
+
+        weight_scale, input_scale = None, None
+        if config.quantize == 'fp8' and 'lm_head' not in prefix:
+            weight_scale = weights.get_tensor(f'{prefix}.weight_scale', use_self_dtype=False)
+            input_scale = weights.get_tensor(f'{prefix}.input_scale', use_self_dtype=False)
+
         return cls(
-            get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out),
+            get_linear(
+                weight,
+                bias,
+                config.quantize,
+                fan_in_fan_out=fan_in_fan_out,
+                weight_scale=weight_scale,
+                input_scale=input_scale,
+            ),
             process_group=weights.process_group,
             all_reduce=all_reduce,
         )

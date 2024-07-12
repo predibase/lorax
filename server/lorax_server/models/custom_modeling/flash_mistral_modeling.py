@@ -162,59 +162,6 @@ class MistralRMSNorm(nn.Module):
             return normed_hidden_states, res
 
 
-def load_attention(config, prefix, weights, layer_id):
-    base_layer = load_attention_multi(config, prefix, weights)
-    head_size = config.hidden_size // config.num_attention_heads
-    return TensorParallelMultiAdapterLinear.load(
-        base_layer,
-        layer_id,
-        [Q_PROJ, K_PROJ, V_PROJ],
-        sizes=[
-            head_size * config.num_attention_heads,
-            head_size * config.num_key_value_heads,
-            head_size * config.num_key_value_heads,
-        ],
-        process_group=weights.process_group,
-    )
-
-
-def load_attention_multi(config, prefix, weights):
-    if config.num_attention_heads != config.num_key_value_heads:
-        return _load_gqa(config, prefix, weights)
-    else:
-        return TensorParallelColumnLinear.load_multi(
-            config,
-            prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
-            dim=0,
-            weights=weights,
-            bias=False,
-        )
-
-
-def _load_gqa(config, prefix: str, weights):
-    assert config.hidden_size % config.num_attention_heads == 0
-    assert config.num_attention_heads % weights.process_group.size() == 0
-
-    weight = weights.get_multi_weights_col(
-        prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
-        quantize=config.quantize,
-        dim=0,
-    )
-
-    if config.quantize not in ["gptq", "awq"]:
-        weight = weight.to(dtype=weights.dtype).to(device=weights.device)
-
-        head_size = config.hidden_size // config.num_attention_heads
-        num_heads = config.num_attention_heads // weights.process_group.size()
-        num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert list(weight.shape) == [
-            (num_heads + 2 * num_key_value_heads) * head_size,
-            config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
-
-    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
-
-
 class MistralAttention(torch.nn.Module):
     def __init__(
         self,
@@ -247,7 +194,41 @@ class MistralAttention(torch.nn.Module):
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
 
-        self.query_key_value = load_attention(config, prefix, weights, layer_id)
+        self.q_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.q_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            Q_PROJ,
+            process_group=weights.process_group,
+        )
+
+        self.k_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.k_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            K_PROJ,
+            process_group=weights.process_group,
+        )
+
+        self.v_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.v_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            V_PROJ,
+            process_group=weights.process_group,
+        )
 
         self.o_proj = TensorParallelAdapterRowLinear.load(
             TensorParallelRowLinear.load(
@@ -265,27 +246,6 @@ class MistralAttention(torch.nn.Module):
             0, self.num_key_value_heads, dtype=torch.int32, device=weights.device
         ).repeat_interleave(self.num_groups)
 
-    def get_query_key_value_weights(self, clone=True):
-        """Gets the query, key, and value weights from the attention layer.
-
-        If `clone`, then the weights are cloned before being returned.
-
-        NOTE: if not `clone`, then the weights are returned as views, meaning
-        that changes to the weights will be reflected in the attention layer.
-        """
-        query, key, value = self.query_key_value.base_layer.linear.weight.split(
-            [
-                self.head_size * self.num_heads,
-                self.head_size * self.num_key_value_heads,
-                self.head_size * self.num_key_value_heads,
-            ],
-            dim=0,
-        )
-
-        if clone:
-            return query.clone(), key.clone(), value.clone()
-        return query, key, value
-
     def forward(
         self,
         hidden_states,
@@ -300,16 +260,14 @@ class MistralAttention(torch.nn.Module):
         adapter_data,
         prefill_cache_indices,
     ):
-        qkv = self.query_key_value(hidden_states, adapter_data)
-        query, kv = qkv.split(
-            [
-                self.head_size * self.num_heads,
-                2 * self.head_size * self.num_key_value_heads,
-            ],
-            dim=1,
-        )
+        query = self.q_proj(hidden_states, adapter_data)
+        k = self.k_proj(hidden_states, adapter_data)
+        v = self.v_proj(hidden_states, adapter_data)
+
         query = query.view(-1, self.num_heads, self.head_size)
-        kv = kv.view(-1, 2, self.num_key_value_heads, self.head_size)
+        k = k.view(-1, 1, self.num_key_value_heads, self.head_size)
+        v = v.view(-1, 1, self.num_key_value_heads, self.head_size)
+        kv = torch.cat([k, v], dim=1)
 
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
@@ -366,22 +324,28 @@ class MistralMLP(nn.Module):
                 approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
             )
         )
-        # Fuse gate and up proj
-        gate_up_proj = TensorParallelColumnLinear.load_multi(
-            config,
-            prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
-            weights=weights,
-            dim=0,
-            bias=False,
-        )
-        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj,
+
+        self.gate_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.gate_proj",
+                weights=weights,
+                bias=False,
+            ),
             layer_id,
-            [GATE_PROJ, UP_PROJ],
-            sizes=[
-                config.intermediate_size,
-                config.intermediate_size,
-            ],
+            GATE_PROJ,
+            process_group=weights.process_group,
+        )
+
+        self.up_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.up_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            UP_PROJ,
             process_group=weights.process_group,
         )
 
@@ -399,9 +363,9 @@ class MistralMLP(nn.Module):
         self.intermediate_size = config.intermediate_size // weights.process_group.size()
 
     def forward(self, hidden_states, adapter_data):
-        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
-        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
+        gate_states = self.gate_proj(hidden_states, adapter_data)
+        up_states = self.up_proj(hidden_states, adapter_data)
+        return self.down_proj(self.act(gate_states) * up_states, adapter_data)
 
 
 class MistralLayer(nn.Module):

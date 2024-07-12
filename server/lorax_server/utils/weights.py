@@ -69,7 +69,7 @@ class AbstractWeights(ABC):
             raise NotImplementedError("Let's make that generic when needed")
         # Special case for gptq which shouldn't convert
         # u4 which are disguised as int32
-        if tensor.dtype != torch.int32:
+        if tensor.dtype not in [torch.int32, torch.int64, torch.float8_e4m3fn, torch.float8_e5m2]:
             tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
@@ -354,14 +354,15 @@ class Weights(AbstractWeights):
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.get_shape()
 
-    def get_tensor(self, tensor_name: str):
+    def get_tensor(self, tensor_name: str, use_self_dtype: bool = True):
         filename, tensor_name = self.get_filename(tensor_name)
         f = self._get_handle(filename)
         tensor = f.get_tensor(tensor_name)
         # Special case for gptq which shouldn't convert
         # u4 which are disguised as int32
-        if tensor.dtype not in [torch.int32, torch.int64]:
-            tensor = tensor.to(dtype=self.dtype)
+        if tensor.dtype not in [torch.int32, torch.int64, torch.float8_e4m3fn, torch.float8_e5m2]:
+            if use_self_dtype:
+                tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
 
