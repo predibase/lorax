@@ -1300,7 +1300,7 @@ pub enum InferError {
     ValidationError(#[from] ValidationError),
     #[error("Incomplete generation")]
     IncompleteGeneration,
-    #[error("Template error: {0}")]
+    #[error("Failed applying chat template to inputs: {0}")]
     TemplateError(#[from] minijinja::Error),
     #[error("Embedding Failure")]
     EmbeddingFailure,
