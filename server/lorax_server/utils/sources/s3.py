@@ -3,7 +3,8 @@ import time
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
-
+from s3transfer.crt import CRTTransferManager, create_s3_crt_client, BotocoreCRTRequestSerializer, BotocoreCRTCredentialsWrapper
+import botocore
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -73,9 +74,11 @@ def _get_bucket_resource(bucket_name: str) -> "Bucket":
 
 
 def get_s3_model_local_dir(model_id: str):
+    _, model_id = _get_bucket_and_model_id(model_id)
     object_id = model_id.replace("/", "--")
-    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}" / "snapshots"
-    return repo_cache
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}"
+
+    return repo_cache 
 
 
 def weight_s3_files(bucket: Any, model_id: str, extension: str = ".safetensors") -> List[str]:
@@ -97,42 +100,65 @@ def download_files_from_s3(
     revision: str = "",
 ) -> List[Path]:
     """Download the safetensors files from the s3"""
+    import threading
 
-    def download_file(filename):
-        repo_cache = get_s3_model_local_dir(model_id)
-        local_file = try_to_load_from_cache(repo_cache, revision, filename)
-        if local_file is not None:
-            logger.info(f"File {filename} already present in cache.")
-            return Path(local_file)
-        logger.info(f"Download file: {filename}")
-        start_time = time.time()
-        local_file_path = get_s3_model_local_dir(model_id) / filename
-        # ensure cache dir exists and create it if needed
-        local_file_path.parent.mkdir(parents=True, exist_ok=True)
-        model_id_path = Path(model_id)
-        bucket_file_name = model_id_path / filename
-        logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
-        bucket.download_file(str(bucket_file_name), str(local_file_path))
-        # TODO: add support for revision
-        logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
-        if not local_file_path.is_file():
-            raise FileNotFoundError(f"File {local_file_path} not found")
-        return local_file_path
+    def download_file(filename, files):
+        try:
+            repo_cache = get_s3_model_local_dir(model_id)
+            local_file = try_to_load_from_cache(repo_cache, revision, filename)
+            if local_file is not None:
+                logger.info(f"File {filename} already present in cache.")
+                return Path(local_file)
+            logger.info(f"Download file: {filename}")
+            start_time = time.time()
+            local_file_path = get_s3_model_local_dir(model_id) / filename
+            # ensure cache dir exists and create it if needed
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+            model_id_path = Path(model_id)
+            bucket_file_name = model_id_path / filename
+            session = botocore.session.get_session()
+            request_serializer = BotocoreCRTRequestSerializer(session)
+            logger.info(f"Downloading file {bucket_file_name} to {local_file_path}")
+            with CRTTransferManager(create_s3_crt_client(
+                "us-west-2", 
+                BotocoreCRTCredentialsWrapper(session.get_credentials()).to_crt_credentials_provider(), target_throughput=50), 
+                request_serializer
+            ) as transfer:
+                future = transfer.download(bucket.name, str(bucket_file_name), str(local_file_path))
+                future.result()
+            # bucket.download_file(str(bucket_file_name), str(local_file_path))
+            # TODO: add support for revision
+            logger.info(f"Downloaded {local_file_path} in {timedelta(seconds=int(time.time() - start_time))}.")
+            if not local_file_path.is_file():
+                raise FileNotFoundError(f"File {local_file_path} not found")
+            files.append(local_file_path)
+        except Exception as e:
+            logger.info(e)
+            raise e
 
     start_time = time.time()
     files = []
-    for i, filename in enumerate(filenames):
-        # TODO: clean up name creation logic
-        if not filename:
-            continue
-        file = download_file(filename)
+    # for i, filename in enumerate(filenames):
+    #     # TODO: clean up name creation logic
+    #     if not filename:
+    #         continue
+    #     file = download_file(filename)
 
-        elapsed = timedelta(seconds=int(time.time() - start_time))
-        remaining = len(filenames) - (i + 1)
-        eta = (elapsed / (i + 1)) * remaining if remaining > 0 else 0
+    #     elapsed = timedelta(seconds=int(time.time() - start_time))
+    #     remaining = len(filenames) - (i + 1)
+    #     eta = (elapsed / (i + 1)) * remaining if remaining > 0 else 0
 
-        logger.info(f"Download: [{i + 1}/{len(filenames)}] -- ETA: {eta}")
-        files.append(file)
+    #     logger.info(f"Download: [{i + 1}/{len(filenames)}] -- ETA: {eta}")
+    #     files.append(file)
+    threads = []
+    for filename in filenames:
+        t = threading.Thread(target=download_file, args=(filename,files,))
+        threads.append(t)
+        t.start()
+    
+    # Wait for all threads to complete and collect results
+    for t in threads:
+        t.join()
 
     return files
 

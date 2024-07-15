@@ -1,6 +1,7 @@
 from typing import Optional
 
 import torch
+import os
 from loguru import logger
 from transformers.configuration_utils import PretrainedConfig
 
@@ -58,13 +59,19 @@ def get_model(
         # change the model id to be the local path to the folder so
         # we can load the config_dict locally
         logger.info("Using the local files since we are coming from s3")
-        model_path = get_s3_model_local_dir(model_id)
-        logger.info(f"model_path: {model_path}")
+        model_path = get_s3_model_local_dir(model_id) / "snapshots"
+        
+        files = os.listdir(model_path.absolute().as_posix())
+        logger.info(files)
+        if len(files) == 1:
+            # Do something. Why we do have multiple snapshots? 
+            model_path = model_path / files[0]
+
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_path, revision=revision, trust_remote_code=trust_remote_code
         )
         logger.info(f"config_dict: {config_dict}")
-        model_id = str(model_path)
+        model_id = model_path.absolute().as_posix()
     elif source == "hub":
         config_dict, _ = PretrainedConfig.get_config_dict(
             model_id, revision=revision, trust_remote_code=trust_remote_code
