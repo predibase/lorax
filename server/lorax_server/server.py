@@ -16,7 +16,7 @@ from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2, generate_pb2_grpc
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
 from lorax_server.utils import PBASE, S3, map_pbase_model_id_to_s3
-from lorax_server.utils.adapter import adapter_source_enum_to_string, download_adapter, is_base_model
+from lorax_server.utils.adapter import adapter_source_enum_to_string, download_adapter, enum_string_to_adapter_source, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_speculative_tokens
 
@@ -274,19 +274,17 @@ def serve(
 
         if preloaded_adapter_ids:
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
-            args_list = [
-                (
-                    generate_pb2.DownloadAdapterRequest(
-                        adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
-                        adapter_source=adapter_source,
-                    ),
-                    model,
+            requests = [
+                generate_pb2.DownloadAdapterRequest(
+                    adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
+                    adapter_source=enum_string_to_adapter_source(adapter_source),
                 )
                 for adapter_id in preloaded_adapter_ids
             ]
+            models = [model] * len(requests)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                responses = list(tqdm(executor.map(download_adapter, args_list), total=len(args_list)))
+                responses = list(tqdm(executor.map(download_adapter, requests, models), total=len(requests)))
 
             if not all(responses):
                 raise RuntimeError("Failed to preload all adapters")

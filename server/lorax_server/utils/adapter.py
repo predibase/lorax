@@ -9,9 +9,8 @@ from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
 from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import HUB, LOCAL, PBASE, S3
 from lorax_server.utils.merges.strategies import merge_adapters
-from lorax_server.utils.sources import get_config_path, get_model_source
+from lorax_server.utils.sources import HUB, LOCAL, PBASE, S3, get_config_path, get_model_source
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig, ModuleMap
@@ -211,5 +210,19 @@ def adapter_source_enum_to_string(adapter_source: int) -> str:
         return LOCAL
     elif adapter_source == generate_pb2.AdapterSource.PBASE:
         return PBASE
+    else:
+        raise ValueError(f"Unknown adapter source {adapter_source}")
+
+
+def enum_string_to_adapter_source(adapter_source: str) -> int:
+    # TODO(travis): refactor this to be less hacky
+    if adapter_source == HUB:
+        return generate_pb2.AdapterSource.HUB
+    elif adapter_source == S3:
+        return generate_pb2.AdapterSource.S3
+    elif adapter_source == LOCAL:
+        return generate_pb2.AdapterSource.LOCAL
+    elif adapter_source == PBASE:
+        return generate_pb2.AdapterSource.PBASE
     else:
         raise ValueError(f"Unknown adapter source {adapter_source}")
