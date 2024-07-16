@@ -2,7 +2,7 @@ import os
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from loguru import logger
@@ -47,7 +47,10 @@ def serve(
     source: str = "hub",
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
+    preloaded_adapter_ids: List[str] = None,
 ):
+    preloaded_adapter_ids = preloaded_adapter_ids or []
+
     if sharded:
         assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
         assert os.getenv("WORLD_SIZE", None) is not None, "WORLD_SIZE must be set when sharded is True"
@@ -94,6 +97,7 @@ def serve(
         source,
         adapter_source,
         speculative_tokens,
+        preloaded_adapter_ids,
     )
 
 
