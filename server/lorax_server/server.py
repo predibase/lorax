@@ -223,6 +223,7 @@ def serve(
     async def serve_inner(
         model_id: str,
         adapter_id: str,
+        adapter_source: str,
         revision: Optional[str],
         sharded: bool,
         quantize: Optional[str],
@@ -342,6 +343,7 @@ def serve(
         serve_inner(
             model_id,
             adapter_id,
+            adapter_source,
             revision,
             sharded,
             quantize,
