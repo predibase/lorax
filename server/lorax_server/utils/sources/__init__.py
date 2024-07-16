@@ -78,6 +78,9 @@ def get_model_source(
     api_token: Optional[str] = None,
 ):
     if source == HUB:
+        if not api_token and bool(os.environ.get("LORAX_USE_GLOBAL_HF_TOKEN", 0)):
+            # User initialized LoRAX to fallback to global HF token if request token is empty
+            api_token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
         return HubModelSource(model_id, revision, extension, api_token)
     elif source == S3:
         return S3ModelSource(model_id, revision, extension)
