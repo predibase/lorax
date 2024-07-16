@@ -1153,6 +1153,12 @@ fn spawn_webserver(
         router_args.push("--eager-prefill".to_string());
     }
 
+    // Preloaded adapters
+    for adapter_id in args.preloaded_adapter_ids {
+        router_args.push("--preloaded-adapter-ids".to_string());
+        router_args.push(adapter_id);
+    }
+
     // Ngrok
     if args.ngrok {
         router_args.push("--ngrok".to_string());

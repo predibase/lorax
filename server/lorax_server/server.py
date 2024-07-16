@@ -290,6 +290,18 @@ def serve(
                 raise RuntimeError("Failed to preload all adapters")
 
             # TODO(travis): load weights into GPU memory as well
+            for i, adapter_id in enumerate(preloaded_adapter_ids):
+                if adapter_source == PBASE:
+                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=None)
+                    adapter_source = S3
+                
+                model.load_adapter(
+                    generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
+                    adapter_source,
+                    adapter_index=i + 1,
+                    api_token=None,
+                    dynamic=True,
+                )
 
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)

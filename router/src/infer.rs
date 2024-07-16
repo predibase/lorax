@@ -59,6 +59,7 @@ impl Infer {
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
         eager_prefill: bool,
+        preloaded_adapter_ids: Vec<String>,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -76,13 +77,24 @@ impl Infer {
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
+        let mut adapter_to_index = HashMap::from([(
             AdapterParameters {
                 adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
                 ..Default::default()
             },
             0,
-        )])));
+        )]);
+
+        // Pre-populate the adapter_to_index with the preloaded adapters
+        for (idx, adapter_id) in preloaded_adapter_ids.iter().enumerate() {
+            let adapter_key = AdapterParameters {
+                adapter_ids: vec![adapter_id.clone()],
+                ..Default::default()
+            };
+            adapter_to_index.insert(adapter_key, (idx + 1) as u32);
+        }
+
+        let adapter_to_index = Arc::new(Mutex::new(adapter_to_index));
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
