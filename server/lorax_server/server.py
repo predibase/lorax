@@ -280,6 +280,8 @@ def serve(
 
         if preloaded_adapter_ids:
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
+
+            # Download adapters
             requests = [
                 generate_pb2.DownloadAdapterRequest(
                     adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
@@ -295,7 +297,7 @@ def serve(
             if not all(responses):
                 raise RuntimeError("Failed to preload all adapters")
 
-            # TODO(travis): load weights into GPU memory as well
+            # Load adapters
             for i, adapter_id in enumerate(preloaded_adapter_ids):
                 if adapter_source == PBASE:
                     adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=None)
