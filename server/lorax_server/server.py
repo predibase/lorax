@@ -279,11 +279,17 @@ def serve(
                 pass
 
         if preloaded_adapter_ids:
+            _adapter_source = enum_string_to_adapter_source(adapter_source)
+            adapter_preload_api_token = None 
+            if _adapter_source == generate_pb2.AdapterSource.PBASE:
+                # Derive the predibase token from an env variable if we are using predibase adapters.
+                adapter_preload_api_token = os.getenv("PREDIBASE_API_TOKEN")
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
             requests = [
                 generate_pb2.DownloadAdapterRequest(
                     adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
-                    adapter_source=enum_string_to_adapter_source(adapter_source),
+                    adapter_source=_adapter_source,
+                    api_token=adapter_preload_api_token,
                 )
                 for adapter_id in preloaded_adapter_ids
             ]
@@ -298,14 +304,14 @@ def serve(
             # TODO(travis): load weights into GPU memory as well
             for i, adapter_id in enumerate(preloaded_adapter_ids):
                 if adapter_source == PBASE:
-                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=None)
+                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=adapter_preload_api_token)
                     adapter_source = S3
 
                 model.load_adapter(
                     generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
                     adapter_source,
                     adapter_index=i + 1,
-                    api_token=None,
+                    api_token=adapter_preload_api_token,
                     dynamic=True,
                 )
 
