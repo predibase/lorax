@@ -16,7 +16,12 @@ from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2, generate_pb2_grpc
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
 from lorax_server.utils import PBASE, S3, map_pbase_model_id_to_s3
-from lorax_server.utils.adapter import adapter_source_enum_to_string, download_adapter, enum_string_to_adapter_source, is_base_model
+from lorax_server.utils.adapter import (
+    adapter_source_enum_to_string,
+    download_adapter,
+    enum_string_to_adapter_source,
+    is_base_model,
+)
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_speculative_tokens
 
@@ -295,7 +300,7 @@ def serve(
                 if adapter_source == PBASE:
                     adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=None)
                     adapter_source = S3
-                
+
                 model.load_adapter(
                     generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
                     adapter_source,
