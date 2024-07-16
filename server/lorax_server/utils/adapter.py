@@ -8,7 +8,6 @@ from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
 from lorax_server.adapters.utils import download_adapter_weights
-from lorax_server.models.model import Model
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HUB, LOCAL, PBASE, S3
 from lorax_server.utils.merges.strategies import merge_adapters
@@ -16,6 +15,7 @@ from lorax_server.utils.sources import get_config_path, get_model_source
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig, ModuleMap
+    from lorax_server.models.model import Model
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
@@ -165,7 +165,7 @@ def load_module_map(
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
 
 
-def download_adapter(request: generate_pb2.DownloadAdapterRequest, model: Model) -> bool:
+def download_adapter(request: generate_pb2.DownloadAdapterRequest, model: "Model") -> bool:
     adapter_parameters = request.adapter_parameters
     if is_base_model(adapter_parameters):
         logger.info("No adapter to download for base model. Skipping.")
