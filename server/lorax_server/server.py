@@ -284,7 +284,7 @@ def serve(
                 for adapter_id in preloaded_adapter_ids
             ]
             
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                 responses = list(tqdm(executor.map(download_adapter, args_list), total=len(args_list)))
             
             if not all(responses):

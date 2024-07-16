@@ -47,7 +47,7 @@ def serve(
     source: str = "hub",
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
-    preloaded_adapter_ids: List[str] = None,
+    preloaded_adapter_ids: Optional[List[str]] = typer.Option(None),
 ):
     preloaded_adapter_ids = preloaded_adapter_ids or []
 

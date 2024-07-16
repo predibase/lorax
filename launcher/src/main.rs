@@ -181,6 +181,10 @@ struct Args {
     #[clap(long, env)]
     speculative_tokens: Option<usize>,
 
+    /// The list of adapter ids to preload during initialization (to avoid cold start times).
+    #[clap(long, env)]
+    preloaded_adapter_ids: Vec<String>,
+
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
     dtype: Option<Dtype>,
@@ -416,6 +420,7 @@ fn shard_manager(
     quantize: Option<Quantization>,
     compile: bool,
     speculative_tokens: Option<usize>,
+    preloaded_adapter_ids: Vec<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -491,6 +496,12 @@ fn shard_manager(
     if let Some(speculative_tokens) = speculative_tokens {
         shard_args.push("--speculative-tokens".to_string());
         shard_args.push(speculative_tokens.to_string())
+    }
+
+    // Preloaded adapters
+    for adapter_id in preloaded_adapter_ids {
+        shard_args.push("--preloaded-adapter-ids".to_string());
+        shard_args.push(adapter_id);
     }
 
     if let Some(dtype) = dtype {
@@ -959,6 +970,7 @@ fn spawn_shards(
         let quantize = args.quantize;
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
+        let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -977,6 +989,7 @@ fn spawn_shards(
                 quantize,
                 compile,
                 speculative_tokens,
+                preloaded_adapter_ids,
                 dtype,
                 trust_remote_code,
                 uds_path,
