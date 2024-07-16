@@ -8,6 +8,7 @@ import torch
 from grpc import aio
 from grpc_reflection.v1alpha import reflection
 from loguru import logger
+from tqdm import tqdm
 
 from lorax_server.cache import Cache
 from lorax_server.interceptor import ExceptionInterceptor
@@ -18,7 +19,6 @@ from lorax_server.utils import PBASE, S3, map_pbase_model_id_to_s3
 from lorax_server.utils.adapter import adapter_source_enum_to_string, download_adapter, is_base_model
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_speculative_tokens
-from tqdm import tqdm
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
@@ -239,7 +239,7 @@ def serve(
         else:
             local_url = unix_socket_template.format(uds_path, 0)
             server_urls = [local_url]
-        
+
         try:
             model = get_model(
                 model_id,
@@ -271,22 +271,23 @@ def serve(
                 create_exllama_buffers()
             except ImportError:
                 pass
-        
+
         if preloaded_adapter_ids:
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
             args_list = [
                 (
                     generate_pb2.DownloadAdapterRequest(
                         adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
-                        adapter_source=adapter_source),
-                    model
-                ) 
+                        adapter_source=adapter_source,
+                    ),
+                    model,
+                )
                 for adapter_id in preloaded_adapter_ids
             ]
-            
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                 responses = list(tqdm(executor.map(download_adapter, args_list), total=len(args_list)))
-            
+
             if not all(responses):
                 raise RuntimeError("Failed to preload all adapters")
 

@@ -20,6 +20,7 @@ tracer = trace.get_tracer(__name__)
 ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ]
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ}
 
+
 class FlashGemma2(FlashCausalLM):
     def __init__(
         self,

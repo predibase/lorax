@@ -4,11 +4,11 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple
 
 from loguru import logger
-from lorax_server.adapters.utils import download_adapter_weights
-from lorax_server.models.model import Model
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
+from lorax_server.adapters.utils import download_adapter_weights
+from lorax_server.models.model import Model
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HUB, LOCAL, PBASE, S3
 from lorax_server.utils.merges.strategies import merge_adapters
@@ -195,9 +195,7 @@ def download_adapter(request: generate_pb2.DownloadAdapterRequest, model: Model)
             )
     else:
         # Assume 0.0 memory fraction if adapter memory size is not set
-        logger.info(
-            f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)"
-        )
+        logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)")
         adapter_memory_fraction = 0.0
 
     return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
