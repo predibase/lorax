@@ -1,8 +1,8 @@
 import asyncio
 import concurrent.futures
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import List, Optional
 
 import torch
@@ -283,11 +283,11 @@ def serve(
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
 
             _adapter_source = enum_string_to_adapter_source(adapter_source)
-            adapter_preload_api_token = None 
+            adapter_preload_api_token = None
             if _adapter_source == generate_pb2.AdapterSource.PBASE:
                 # Derive the predibase token from an env variable if we are using predibase adapters.
                 adapter_preload_api_token = os.getenv("PREDIBASE_API_TOKEN")
-            
+
             requests = [
                 generate_pb2.DownloadAdapterRequest(
                     adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
@@ -306,7 +306,7 @@ def serve(
 
             if not all(responses):
                 raise RuntimeError("Failed to download all adapters")
-            
+
             def load_adapter(adapter_id: str, i: int) -> bool:
                 _adapter_source = adapter_source
                 if adapter_source == PBASE:
@@ -327,7 +327,7 @@ def serve(
             indices = list(range(len(preloaded_adapter_ids)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                 responses = list(tqdm(executor.map(load_adapter, preloaded_adapter_ids, indices), total=len(indices)))
-            
+
             if not all(responses):
                 raise RuntimeError("Failed to preload all adapters")
 
