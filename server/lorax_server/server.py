@@ -311,7 +311,7 @@ def serve(
                     generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
                     adapter_source,
                     adapter_index=i + 1,
-                    api_token=adapter_preload_api_token,
+                    api_token=None,
                     dynamic=True,
                 )
 
