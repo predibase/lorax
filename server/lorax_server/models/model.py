@@ -7,7 +7,7 @@ import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
 
-from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
@@ -69,7 +69,7 @@ class Model(ABC):
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
         if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
-            download_adapter(adapter_id, adapter_source, api_token=None)
+            download_adapter_weights(adapter_id, adapter_source, api_token=None)
             self.load_adapter(
                 AdapterParameters(adapter_ids=[adapter_id]),
                 adapter_source,

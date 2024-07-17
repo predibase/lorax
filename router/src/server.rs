@@ -965,6 +965,7 @@ pub async fn run(
     adapter_source: String,
     embedding_model: bool,
     eager_prefill: bool,
+    preloaded_adapter_ids: Vec<String>,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -1060,6 +1061,7 @@ pub async fn run(
         shard_info.window_size,
         generation_health,
         eager_prefill,
+        preloaded_adapter_ids,
     );
 
     // Duration buckets

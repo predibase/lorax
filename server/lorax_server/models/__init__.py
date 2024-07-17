@@ -110,12 +110,11 @@ def get_model(
     if model_type == "distilbert":
         from lorax_server.models.flash_distilbert import FlashDistilBert
 
-        if config_dict['architectures'][0] == 'DistilBertForMaskedLM':
+        if config_dict["architectures"][0] == "DistilBertForMaskedLM":
             return FlashDistilBert(model_id, revision=revision, dtype=dtype)
-        
-        if config_dict['architectures'][0] == 'DistilBertForTokenClassification':
-            return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
 
+        if config_dict["architectures"][0] == "DistilBertForTokenClassification":
+            return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
 
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded

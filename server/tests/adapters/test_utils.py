@@ -3,7 +3,7 @@ import os
 import pytest
 from huggingface_hub.utils import RepositoryNotFoundError
 
-from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.utils.sources import HUB
 
 
@@ -14,10 +14,10 @@ def test_download_private_adapter_hf():
 
     # verify download fails without the token set
     with pytest.raises(RepositoryNotFoundError):
-        download_adapter("predibase/test-private-lora", HUB, api_token=None)
+        download_adapter_weights("predibase/test-private-lora", HUB, api_token=None)
 
     # pass in the token and verify download succeeds
-    download_adapter("predibase/test-private-lora", HUB, api_token=token)
+    download_adapter_weights("predibase/test-private-lora", HUB, api_token=token)
 
     # set the token back in the environment
     os.environ["HUGGING_FACE_HUB_TOKEN"] = token

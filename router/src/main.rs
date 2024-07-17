@@ -87,6 +87,8 @@ struct Args {
     adapter_source: String,
     #[clap(long, env)]
     eager_prefill: bool,
+    #[clap(long, env)]
+    preloaded_adapter_ids: Vec<String>,
 }
 
 #[tokio::main]
@@ -125,6 +127,7 @@ async fn main() -> Result<(), RouterError> {
         ngrok_edge,
         adapter_source,
         eager_prefill,
+        preloaded_adapter_ids,
     } = args;
 
     init_logging(otlp_endpoint, json_output);
@@ -380,6 +383,7 @@ async fn main() -> Result<(), RouterError> {
         adapter_source,
         embedding_model,
         eager_prefill,
+        preloaded_adapter_ids,
     )
     .await?;
     Ok(())
