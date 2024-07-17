@@ -307,7 +307,7 @@ def serve(
             if not all(responses):
                 raise RuntimeError("Failed to download all adapters")
             
-            def load_adapter(adapter_id: str, i: int):
+            def load_adapter(adapter_id: str, i: int) -> bool:
                 _adapter_source = adapter_source
                 if adapter_source == PBASE:
                     adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=adapter_preload_api_token)
@@ -320,6 +320,7 @@ def serve(
                     api_token=None,
                     dynamic=True,
                 )
+                return True
 
             # Load adapters
             t0 = time.time()
