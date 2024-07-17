@@ -4,21 +4,6 @@ from vllm.platforms import current_platform
 import torch
 
 
-def fp8_quantize(weight, qdtype=torch.float8_e4m3fn):
-    # weight, scale = quant_weights(weight, torch.int8, False)
-    finfo = torch.finfo(qdtype)
-    # Calculate the scale as dtype max divided by absmax
-    scale = finfo.max / weight.abs().max().clamp(min=1e-12)
-    # scale and clamp the tensor to bring it to
-    # the representative range of float8 data type
-    # (as default cast is unsaturated)
-    qweight = (weight * scale).clamp(min=finfo.min, max=finfo.max)
-    # Return both float8 data and the inverse scale (as float),
-    # as both required as inputs to torch._scaled_mm
-    qweight = qweight.to(qdtype)
-    scale = scale.float().reciprocal()
-    return qweight, scale
-
 ####### from vLLM code #######
 
 def cutlass_fp8_supported() -> bool:
@@ -58,7 +43,7 @@ def apply_fp8_linear(
         # torch._scaled_mm is more performant for matrices with
         # batch dimension > 16. Note that this could change
         # in the future.
-        output, _ = torch._scaled_mm(qinput,
+        output = torch._scaled_mm(qinput,
                                      qweight,
                                      out_dtype=input.dtype,
                                      scale_a=x_scale,
