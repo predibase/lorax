@@ -135,6 +135,8 @@ pub(crate) struct Entry {
     pub queue_time: Instant,
     /// Instant when this entry was added to a batch
     pub batch_time: Option<Instant>,
+    /// Block Allocation
+    pub block_allocation: Option<BlockAllocation>,
 }
 
 #[derive(Debug)]

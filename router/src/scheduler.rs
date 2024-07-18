@@ -1,19 +1,20 @@
 use crate::{
     adapter::Adapter,
     batch::{self, BatchEntries, Entry},
+    block_allocator::BlockAllocator,
     queue::{AdapterEvent, AdapterQueuesState},
     AdapterLoader,
 };
 use lorax_client::{Batch, Request, ShardedClient};
 use nohash_hasher::{BuildNoHashHasher, IntMap};
 use std::{
-    cmp::min,
+    cmp::{max, min},
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 use tokio::sync::oneshot;
 use tokio::time::Instant;
-use tracing::{info_span, instrument, Span};
+use tracing::{info_span, instrument, Instrument, Span};
 
 enum AdapterSchedulerCommand {
     Append(Adapter, Entry),
@@ -42,6 +43,8 @@ impl AdapterScheduler {
         window_size: Option<u32>,
         max_active_adapters: usize,
         adapter_cycle_time_s: u64,
+        speculate: u32,
+        max_batch_total_tokens: u32,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -55,6 +58,8 @@ impl AdapterScheduler {
             receiver,
             max_active_adapters,
             adapter_cycle_time_s,
+            speculate,
+            max_batch_total_tokens,
         ));
 
         Self { sender }
@@ -116,6 +121,8 @@ async fn adapter_scheduler_task(
     receiver: flume::Receiver<AdapterSchedulerCommand>,
     max_active_adapters: usize,
     adapter_cycle_time_s: u64,
+    speculate: u32,
+    max_batch_total_tokens: u32,
 ) {
     let mut state = AdapterSchedulerState::new(
         client,
@@ -124,6 +131,8 @@ async fn adapter_scheduler_task(
         window_size,
         max_active_adapters,
         adapter_cycle_time_s,
+        speculate,
+        max_batch_total_tokens,
     );
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -141,15 +150,18 @@ async fn adapter_scheduler_task(
                 token_budget,
                 response_sender,
                 span,
-            } => span.in_scope(|| {
-                let next_batch = state.next_batch(
-                    &adapters_in_use,
-                    min_size,
-                    prefill_token_budget,
-                    token_budget,
-                );
+            } => {
+                let next_batch = state
+                    .next_batch(
+                        &adapters_in_use,
+                        min_size,
+                        prefill_token_budget,
+                        token_budget,
+                    )
+                    .instrument(span)
+                    .await;
                 response_sender.send(next_batch).unwrap();
-            }),
+            }
         }
     }
 }
@@ -174,6 +186,12 @@ struct AdapterSchedulerState {
 
     /// Sliding window
     window_size: Option<u32>,
+
+    /// Speculation amount
+    speculate: u32,
+
+    /// Paged Attention Block Allocation
+    block_allocator: Option<BlockAllocator>,
 }
 
 impl AdapterSchedulerState {
@@ -184,12 +202,17 @@ impl AdapterSchedulerState {
         window_size: Option<u32>,
         max_active_adapters: usize,
         adapter_cycle_time_s: u64,
+        speculate: u32,
+        max_batch_total_tokens: u32,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
             adapter_cycle_time_s,
         )));
         let loader = AdapterLoader::new(client.clone());
+
+        let block_allocator = (!requires_padding)
+            .then(|| BlockAllocator::new(max_batch_total_tokens, block_size, window_size));
 
         Self {
             queues_state,
@@ -198,6 +221,8 @@ impl AdapterSchedulerState {
             requires_padding,
             block_size,
             window_size,
+            speculate,
+            block_allocator,
         }
     }
 
@@ -229,7 +254,7 @@ impl AdapterSchedulerState {
     }
 
     // Get the next batch
-    fn next_batch(
+    async fn next_batch(
         &mut self,
         adapters_in_use: &HashSet<Adapter>,
         min_size: Option<usize>,
@@ -257,6 +282,7 @@ impl AdapterSchedulerState {
         let mut max_input_length = 0;
         let mut prefill_tokens: u32 = 0;
         let mut decode_tokens: u32 = 0;
+        let mut max_blocks = 0;
 
         // Update adapters
         let loader = &mut self.loader;
@@ -269,7 +295,7 @@ impl AdapterSchedulerState {
 
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
-        while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
+        'entry_loop: while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -277,47 +303,72 @@ impl AdapterSchedulerState {
                 continue;
             }
 
-            if self.requires_padding {
-                let mut batch_requests_len = 0;
-                if let Some(batch_entries) = batch_entries.as_ref() {
-                    batch_requests_len = batch_entries.len();
+            let mut batch_requests_len = 0;
+            if let Some(batch_entries) = batch_entries.as_ref() {
+                batch_requests_len = batch_entries.len();
+            }
+
+            let block_allocation = match &self.block_allocator {
+                None => {
+                    // We pad to max input length in the Python shards
+                    // We need to take these padding tokens into the equation
+                    max_input_length = max_input_length.max(entry.request.input_length());
+                    prefill_tokens = (batch_requests_len + 1) as u32 * max_input_length;
+
+                    decode_tokens += entry.request.max_new_tokens();
+                    let total_tokens = prefill_tokens + decode_tokens + self.speculate;
+
+                    if prefill_tokens > prefill_token_budget || total_tokens > token_budget {
+                        // Entry is over budget
+                        // Add it back to the front
+                        tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
+                        queues_state.push_front(&adapter, id, entry);
+                        break 'entry_loop;
+                    }
+                    None
                 }
+                Some(block_allocator) => {
+                    prefill_tokens += entry.request.input_length();
+                    let max_new_tokens = match self.window_size {
+                        None => entry.request.max_new_tokens(),
+                        Some(window_size) => min(
+                            window_size.saturating_sub(entry.request.input_length()),
+                            entry.request.max_new_tokens(),
+                        ),
+                    };
+                    decode_tokens += max_new_tokens;
 
-                // We pad to max input length in the Python shards
-                // We need to take these padding tokens into the equation
-                max_input_length = max_input_length.max(entry.request.input_length());
-                prefill_tokens = (batch_requests_len + 1) as u32 * max_input_length
-            } else {
-                // pad to block size
-                prefill_tokens += ((entry.request.input_length() + self.block_size - 1)
-                    / self.block_size)
-                    * self.block_size;
-            }
+                    if prefill_tokens > prefill_token_budget
+                        || (prefill_tokens + decode_tokens + self.speculate) > token_budget
+                    {
+                        // Entry is over budget
+                        // Add it back to the front
+                        tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
+                        queues_state.push_front(&adapter, id, entry);
+                        break;
+                    }
 
-            if self.requires_padding {
-                decode_tokens += entry.request.max_new_tokens();
-            } else {
-                let max_new_tokens = match self.window_size {
-                    None => entry.request.max_new_tokens(),
-                    Some(window_size) => min(
-                        window_size.saturating_sub(entry.request.input_length()),
-                        entry.request.max_new_tokens(),
-                    ),
-                };
+                    let tokens = entry.request.input_length()
+                        + entry.request.max_new_tokens()
+                        + self.speculate
+                        - 1;
 
-                // pad to block size
-                decode_tokens +=
-                    ((max_new_tokens + self.block_size - 1) / self.block_size) * self.block_size;
-            }
-
-            if prefill_tokens > prefill_token_budget
-                || (prefill_tokens + decode_tokens) > token_budget
-            {
-                // Entry is over budget
-                // Add it back to the front
-                queues_state.push_front(&adapter, id, entry);
-                break;
-            }
+                    match block_allocator.allocate(tokens).await {
+                        None => {
+                            // Entry is over budget
+                            // Add it back to the front
+                            tracing::debug!("Over budget: not enough free blocks");
+                            queues_state.push_front(&adapter, id, entry);
+                            break 'entry_loop;
+                        }
+                        Some(block_allocation) => {
+                            tracing::debug!("Allocation: {block_allocation:?}");
+                            max_blocks = max(max_blocks, block_allocation.blocks.len() as u32);
+                            Some(block_allocation)
+                        }
+                    }
+                }
+            };
 
             if batch_entries.is_none() {
                 batch_entries = Some(
@@ -340,6 +391,16 @@ impl AdapterSchedulerState {
             entry_batch_span.follows_from(&next_batch_span);
             // Update entry
             entry.temp_span = Some(entry_batch_span);
+
+            let (blocks, slots) = match &block_allocation {
+                None => (Vec::new(), Vec::new()),
+                Some(block_allocation) => (
+                    block_allocation.blocks.clone(),
+                    block_allocation.slots.clone(),
+                ),
+            };
+
+            entry.block_allocation = block_allocation;
 
             batch_entries.as_mut().unwrap().add(id, entry, adapter)
         }
@@ -371,6 +432,14 @@ impl AdapterSchedulerState {
         next_batch_span.record("batch_size", batch_entries.len() as u32);
         let max_tokens = prefill_tokens + decode_tokens;
         let batch = batch_entries.create_batch_data(self.next_batch_id, max_tokens);
+        tracing::info!(
+            "!!! Created batch -- num_entries={}, prefill_tokens={} decode_tokens={} max_tokens={} token_budget={}",
+            batch_entries.len(),
+            prefill_tokens,
+            decode_tokens,
+            max_tokens,
+            token_budget
+        );
 
         // Increment batch id
         self.next_batch_id += 1;

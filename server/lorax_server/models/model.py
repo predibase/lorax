@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
+from lorax_server.utils.state import get_speculative_tokens
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -90,7 +91,13 @@ class Model(ABC):
             dtype=str(self.dtype),
             device_type=self.device.type,
             window_size=self.sliding_window,
+            block_size=self.block_size,
+            speculate=get_speculative_tokens(),
         )
+    
+    @property
+    def block_size(self) -> int:
+        return 0
 
     @property
     def sliding_window_blocks(self) -> Optional[int]:

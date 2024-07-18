@@ -53,6 +53,7 @@ class CacheManager:
     ):
         # Get free blocks indices by finding values in mask that are not set to 0
         free_block_indices = self.free_block_mask.nonzero()
+        print("!!! free_block_indices", len(free_block_indices), blocks, max_blocks)
         assert (
             len(free_block_indices) >= blocks
         ), f"Out of available cache blocks: asked {blocks}, only {len(free_block_indices)} free blocks"

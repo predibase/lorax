@@ -14,7 +14,6 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models.cache_manager import (
-    BLOCK_SIZE,
     get_cache_manager,
     set_cache_manager,
 )
@@ -38,6 +37,8 @@ from lorax_server.utils.state import get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
+
+BLOCK_SIZE: int = 16
 
 # Will be set in init
 SLIDING_WINDOW: Optional[int] = None
@@ -181,6 +182,9 @@ class FlashCausalLMBatch(Batch):
         max_length = 0
         max_blocks = 0
 
+        batch_total_tokens = 0
+        batch_total_blocks = 0
+
         # Parse batch
         for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             # request id -> idx in list mapping
@@ -222,6 +226,10 @@ class FlashCausalLMBatch(Batch):
                 # Needed blocks can not go over SLIDING_WINDOW_BLOCKS
                 needed_blocks = max(needed_blocks, SLIDING_WINDOW_BLOCKS)
             blocks += needed_blocks
+            
+            batch_total_tokens += total_tokens
+            batch_total_blocks += needed_blocks
+            print("!!! needed blocks", input_length, max_new_tokens, total_tokens, needed_blocks, blocks)
 
             needed_blocks_slots.append((needed_blocks, total_tokens))
             start_slots.append(cumulative_max_length)
@@ -263,6 +271,8 @@ class FlashCausalLMBatch(Batch):
             max_blocks = max(max_blocks, needed_blocks)
             max_length = max(max_length, input_length + max_new_tokens + speculative_tokens)
 
+        print("!!! batch_total_tokens", batch_total_tokens, batch_total_blocks, batch_total_blocks * BLOCK_SIZE)
+        
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
         request_tokenizers = [tokenizers.get_tokenizer(r.adapter_index, tokenizer) for r in pb.requests]
@@ -737,6 +747,10 @@ class FlashCausalLM(Model):
 
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
+    
+    @property
+    def block_size(self) -> int:
+        return BLOCK_SIZE
 
     @property
     def sliding_window_blocks(self) -> Optional[int]:
@@ -925,6 +939,11 @@ class FlashCausalLM(Model):
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
         return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
+
+        if prefill:
+            print("!!! PREFILL", batch.input_ids.shape, batch.max_seqlen)
+        # else:
+            # print("!!! DECODE", batch.input_ids.shape, batch.max_seqlen)
 
         if batch.needed_blocks_slots:
             # Allocate blocks to this batch
