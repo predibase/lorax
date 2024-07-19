@@ -253,6 +253,10 @@ impl AdapterSchedulerState {
         }
     }
 
+    async fn next_entry(&mut self) -> Option<(u64, Entry, Adapter)> {
+        self.queues_state.lock().await.next_entry()
+    }
+
     // Get the next batch
     async fn next_batch(
         &mut self,
@@ -261,9 +265,7 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        let queues_state = &mut self.queues_state.lock().await;
-
-        let num_entries = queues_state.len();
+        let num_entries = self.queues_state.lock().await.len();
         if num_entries == 0 {
             return None;
         }
@@ -285,17 +287,21 @@ impl AdapterSchedulerState {
         let mut max_blocks = 0;
 
         // Update adapters
-        let loader = &mut self.loader;
-        update_adapters(
-            queues_state,
-            loader,
-            adapters_in_use,
-            self.queues_state.clone(),
-        );
+        {
+            let queues_state = &mut self.queues_state.lock().await;
+
+            let loader = &mut self.loader;
+            update_adapters(
+                queues_state,
+                loader,
+                adapters_in_use,
+                self.queues_state.clone(),
+            );
+        }
 
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
-        'entry_loop: while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
+        'entry_loop: while let Some((id, mut entry, adapter)) = self.next_entry().await {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_disconnected() {
@@ -322,7 +328,10 @@ impl AdapterSchedulerState {
                         // Entry is over budget
                         // Add it back to the front
                         tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
-                        queues_state.push_front(&adapter, id, entry);
+                        self.queues_state
+                            .lock()
+                            .await
+                            .push_front(&adapter, id, entry);
                         break 'entry_loop;
                     }
                     None
@@ -344,7 +353,10 @@ impl AdapterSchedulerState {
                         // Entry is over budget
                         // Add it back to the front
                         tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
-                        queues_state.push_front(&adapter, id, entry);
+                        self.queues_state
+                            .lock()
+                            .await
+                            .push_front(&adapter, id, entry);
                         break;
                     }
 
@@ -358,7 +370,10 @@ impl AdapterSchedulerState {
                             // Entry is over budget
                             // Add it back to the front
                             tracing::debug!("Over budget: not enough free blocks");
-                            queues_state.push_front(&adapter, id, entry);
+                            self.queues_state
+                                .lock()
+                                .await
+                                .push_front(&adapter, id, entry);
                             break 'entry_loop;
                         }
                         Some(block_allocation) => {
@@ -374,13 +389,16 @@ impl AdapterSchedulerState {
                 batch_entries = Some(
                     entry
                         .request
-                        .to_batch(num_entries, queues_state.active_len()),
+                        .to_batch(num_entries, self.queues_state.lock().await.active_len()),
                 );
             }
 
             if !batch_entries.as_ref().unwrap().can_add(&entry) {
                 // Incompatible entry for this batch. Reinsert and break
-                queues_state.push_front(&adapter, id, entry);
+                self.queues_state
+                    .lock()
+                    .await
+                    .push_front(&adapter, id, entry);
                 break 'entry_loop;
             }
 
@@ -405,7 +423,7 @@ impl AdapterSchedulerState {
             batch_entries
                 .as_mut()
                 .unwrap()
-                .add(id, entry, adapter, blocks, slots)
+                .add(id, entry, adapter, blocks, slots);
         }
 
         if batch_entries.is_none() {
@@ -421,6 +439,8 @@ impl AdapterSchedulerState {
 
         // Check if our batch is big enough
         if let Some(min_size) = min_size {
+            let queues_state = &mut self.queues_state.lock().await;
+
             // Batch is too small
             if batch_entries.len() < min_size {
                 // Add back entries to the queue in the correct order
