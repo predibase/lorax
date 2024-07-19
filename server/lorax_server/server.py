@@ -86,6 +86,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return generate_pb2.WarmupResponse(max_supported_total_tokens=max_supported_total_tokens)
 
     async def Prefill(self, request: generate_pb2.PrefillRequest, context):
+        print("!!! PREFILL !!!")
         batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,

@@ -799,7 +799,6 @@ class FlashCausalLM(Model):
                 self.num_layers,
                 self.num_kv_heads,
                 self.head_size,
-                self.sliding_window is not None,
                 self.dtype,
                 self.device,
             )
@@ -876,7 +875,6 @@ class FlashCausalLM(Model):
             self.num_layers,
             self.num_kv_heads,
             self.head_size,
-            self.sliding_window is not None,
             self.dtype,
             self.device,
         )
