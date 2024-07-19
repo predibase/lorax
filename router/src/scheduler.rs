@@ -10,9 +10,9 @@ use nohash_hasher::{BuildNoHashHasher, IntMap};
 use std::{
     cmp::{max, min},
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -227,10 +227,10 @@ impl AdapterSchedulerState {
     }
 
     /// Append entry to the appropriate queue
-    fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) {
+    async fn append(&mut self, adapter: Adapter, adapter_event: Arc<AdapterEvent>, entry: Entry) {
         // check if queue_map has adapter_key as key
         // if not, then add a new Queue and download the adapter
-        let mut queues_state = self.queues_state.lock().unwrap();
+        let mut queues_state = self.queues_state.lock().await;
 
         let download = queues_state.append(adapter.clone(), adapter_event.clone(), entry);
         if download {
@@ -243,8 +243,8 @@ impl AdapterSchedulerState {
     }
 
     /// Remove any queues that are in an errored state
-    fn remove_errored_adapters(&mut self) {
-        let mut queues_state = self.queues_state.lock().unwrap();
+    async fn remove_errored_adapters(&mut self) {
+        let mut queues_state = self.queues_state.lock().await;
         let errored_adapters = queues_state.get_errored_adapters();
         for adapter in errored_adapters {
             // Start async offload process
@@ -261,7 +261,7 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
-        let queues_state = &mut self.queues_state.lock().unwrap();
+        let queues_state = &mut self.queues_state.lock().await;
 
         let num_entries = queues_state.len();
         if num_entries == 0 {
