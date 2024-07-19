@@ -158,6 +158,7 @@ class Client:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
+        tools: Optional[List[Dict[str, Any]]] = None,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         decoder_input_details: bool = False,
         return_k_alternatives: Optional[int] = None,
@@ -208,8 +209,46 @@ class Client:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
+            tools (`Optional[List[Dict[str, Any]]]`):
+                Optional list of tools the model may use during generation. Currently only function-type tools are
+                supported.
+
+                Mutually exclusive with the `response_format` parameter below.
+
+                Example:
+                ```
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_current_weather",
+                            "description": "Get the current weather in a given location",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "location": {
+                                        "type": "string",
+                                        "description": "The city and state, e.g. San Francisco, CA"
+                                    },
+                                    "unit": {
+                                        "type": "string",
+                                        "enum": [
+                                            "celsius",
+                                            "fahrenheit"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
+                ```
             response_format (`Optional[Union[Dict[str, Any], ResponseFormat]]`):
-                Optional specification of a format to impose upon the generated text, e.g.,:
+                Optional specification of a format to impose upon the generated text.
+
+                Mutually exclusive with the `tools` parameter above.
+
+                Example:
                 ```
                 {
                     "type": "json_object",
@@ -250,6 +289,7 @@ class Client:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
+            tools=tools,
             response_format=response_format,
             decoder_input_details=decoder_input_details,
             return_k_alternatives=return_k_alternatives
@@ -296,6 +336,7 @@ class Client:
         truncate: Optional[int] = None,
         typical_p: Optional[float] = None,
         watermark: bool = False,
+        tools: Optional[List[Dict[str, Any]]] = None,
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         details: bool = True,
     ) -> Iterator[StreamResponse]:
@@ -342,6 +383,40 @@ class Client:
                 See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
+            tools (`Optional[List[Dict[str, Any]]]`):
+                Optional list of tools the model may use during generation. Currently only function-type tools are
+                supported.
+
+                Mutually exclusive with the `response_format` parameter below.
+
+                Example:
+                ```
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_current_weather",
+                            "description": "Get the current weather in a given location",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "location": {
+                                        "type": "string",
+                                        "description": "The city and state, e.g. San Francisco, CA"
+                                    },
+                                    "unit": {
+                                        "type": "string",
+                                        "enum": [
+                                            "celsius",
+                                            "fahrenheit"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
+                ```
             response_format (`Optional[Union[Dict[str, Any], ResponseFormat]]`):
                 Optional specification of a format to impose upon the generated text, e.g.,:
                 ```
@@ -381,6 +456,7 @@ class Client:
             truncate=truncate,
             typical_p=typical_p,
             watermark=watermark,
+            tools=tools,
             response_format=response_format,
         )
         # Instantiate the request and session objects

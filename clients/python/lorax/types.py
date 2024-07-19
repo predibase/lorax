@@ -113,6 +113,8 @@ class Parameters(BaseModel):
     decoder_input_details: bool = False
     # The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
     return_k_alternatives: Optional[int] = None
+    # Optional tools usable by the model when generating a response
+    tools: Optional[List[Dict[str, Any]]] = None
     # Optional response format specification to constrain the generated text
     response_format: Optional[ResponseFormat] = None
 
