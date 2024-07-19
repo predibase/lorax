@@ -15,6 +15,7 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
+from lorax_server.utils.constants import BLOCK_SIZE
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
