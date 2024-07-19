@@ -142,7 +142,6 @@ class FlashCausalLMBatch(Batch):
 
         position_ids = []
         cu_seqlen_prefill = [0]
-        needed_blocks_slots = []
         start_slots = []
         slot_indices = []
         prefill_cache_indices = []
@@ -275,8 +274,6 @@ class FlashCausalLMBatch(Batch):
             max_blocks = max(max_blocks, len(request_blocks))
             max_length = max(max_length, input_length + max_new_tokens + speculative_tokens)
 
-        print("!!! batch_total_tokens", batch_total_tokens, batch_total_blocks, batch_total_blocks * BLOCK_SIZE)
-        
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
         request_tokenizers = [tokenizers.get_tokenizer(r.adapter_index, tokenizer) for r in pb.requests]
@@ -482,7 +479,6 @@ class FlashCausalLMBatch(Batch):
             cu_seqlen_prefill=None,
             start_slots=start_slots,
             slot_indices=slot_indices,
-            needed_blocks_slots=None,
             block_tables=block_tables,
             block_tables_tensor=block_tables_tensor,
             slots=slots,
@@ -658,7 +654,6 @@ class FlashCausalLMBatch(Batch):
             cu_seqlen_prefill=None,
             start_slots=start_slots,
             slot_indices=slot_indices,
-            needed_blocks_slots=None,
             block_tables=block_tables,
             block_tables_tensor=block_tables_tensor,
             slots=slots,
@@ -952,11 +947,6 @@ class FlashCausalLM(Model):
         prefill = batch.cu_seqlen_prefill is not None
         prefill_logprobs = batch.prefill_next_token_indices is not None
         return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
-
-        if prefill:
-            print("!!! PREFILL", batch.input_ids.shape, batch.max_seqlen)
-        # else:
-            # print("!!! DECODE", batch.input_ids.shape, batch.max_seqlen)
 
         # Update adapter indices for speculative tokens (if present)
         adapter_meta = batch.adapter_meta

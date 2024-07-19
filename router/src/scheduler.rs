@@ -296,13 +296,6 @@ impl AdapterSchedulerState {
         // Vec of entries to be enqueued back into queues_state
         let mut entries_to_enqueue = Vec::new();
 
-        tracing::info!(
-            "!!! Next batch -- num_entries={} prefill_token_budget={} token_budget={}",
-            num_entries,
-            prefill_token_budget,
-            token_budget
-        );
-
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
         'entry_loop: while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
