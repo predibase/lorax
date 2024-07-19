@@ -819,6 +819,7 @@ class FlashCausalLM(Model):
             self.model_graph_wrapper = GraphCache(
                 self.model,
                 self.device,
+                self.kv_cache,
                 self.adapter_layers,
                 self.default_traced_adapter_layers,
                 max_total_tokens,

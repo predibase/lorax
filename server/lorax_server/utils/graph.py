@@ -15,7 +15,6 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
-from lorax_server.models.cache_manager import BLOCK_SIZE, get_cache_manager
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
@@ -160,6 +159,7 @@ class GraphWrapper:
     def trace(
         model: nn.Module,
         device: torch.device,
+        kv_cache: Dict,
         adapter_layers: Tuple[str],
         batch_size: int,
         max_rank: int,
@@ -236,7 +236,7 @@ class GraphWrapper:
                 input_ids=input_state.input_ids,
                 position_ids=input_state.position_ids,
                 cu_seqlen_prefill=None,
-                kv_cache=get_cache_manager().kv_cache,
+                kv_cache=kv_cache,
                 block_tables=input_state.block_tables,
                 slots=input_state.slots,
                 input_lengths=input_state.input_lengths,
@@ -300,6 +300,7 @@ class GraphCache:
         self,
         model: "Model",
         device: torch.device,
+        kv_cache: Dict,
         adapter_layers: List[str],
         default_traced_adapter_layers: List[str],
         max_total_tokens: int,
@@ -307,6 +308,7 @@ class GraphCache:
     ):
         self.model = model
         self.device = device
+        self.kv_cache = kv_cache
         self.adapter_layers = tuple(adapter_layers)
         self.default_traced_adapter_layers = set(default_traced_adapter_layers)
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
@@ -357,6 +359,7 @@ class GraphCache:
             graph = GraphWrapper.trace(
                 self.model,
                 self.device,
+                self.kv_cache,
                 self.adapter_layers,
                 batch_size,
                 max_rank,
@@ -397,6 +400,7 @@ class GraphCache:
                     graph = GraphWrapper.trace(
                         self.model,
                         self.device,
+                        self.kv_cache,
                         self.adapter_layers,
                         batch_size,
                         max_rank,
@@ -437,6 +441,7 @@ class GraphCache:
             graph = GraphWrapper.trace(
                 self.model,
                 self.device,
+                self.kv_cache,
                 self.adapter_layers,
                 batch_size,
                 max_rank,
