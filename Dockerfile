@@ -229,6 +229,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Install gui and client
+COPY clients clients
+
+RUN cd clients/gui && \
+    make install
 
 # Final image
 FROM base
