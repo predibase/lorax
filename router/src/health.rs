@@ -33,6 +33,7 @@ impl Health {
             let liveness_request = Request {
                 id: LIVENESS_ID,
                 inputs: "liveness".to_string(),
+                tokenized_inputs: None,
                 truncate: 10,
                 prefill_logprobs: false,
                 parameters: Some(NextTokenChooserParameters {

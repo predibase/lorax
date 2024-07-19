@@ -9,9 +9,10 @@ use async_trait::async_trait;
 
 use lorax_client::{
     Batch, CachedBatch, NextTokenChooserParameters, Request, ShardedClient,
-    StoppingCriteriaParameters,
+    StoppingCriteriaParameters, TokenizedInputs,
 };
 use nohash_hasher::{BuildNoHashHasher, IntMap};
+use tokenizers::Token;
 use tokio::time::Instant;
 use tracing::{info_span, span, Instrument, Span};
 
@@ -54,6 +55,7 @@ impl ValidRequest for ValidGenerateRequest {
 #[derive(Debug)]
 pub(crate) struct ValidEmbedRequest {
     pub inputs: String,
+    pub tokenized_inputs: Option<TokenizedInputs>,
     pub input_length: u32,
     pub adapter: Adapter,
 }
@@ -83,6 +85,7 @@ impl ValidRequest for ValidEmbedRequest {
 #[derive(Debug)]
 pub(crate) struct ValidClassifyRequest {
     pub inputs: String,
+    pub tokenized_inputs: Option<TokenizedInputs>,
     pub input_length: u32,
     pub adapter: Adapter,
 }
@@ -112,6 +115,7 @@ impl ValidRequest for ValidClassifyRequest {
 #[derive(Debug)]
 pub(crate) struct ValidGenerateRequest {
     pub inputs: String,
+    pub tokenized_inputs: Option<TokenizedInputs>,
     pub input_length: u32,
     pub truncate: u32,
     pub decoder_input_details: bool,
@@ -288,6 +292,7 @@ impl BatchEntries for GenerateBatchEntries {
             id,
             prefill_logprobs: request.decoder_input_details,
             inputs: request.inputs.clone(),
+            tokenized_inputs: request.tokenized_inputs.clone(),
             truncate: request.truncate,
             parameters: Some(request.parameters.clone()),
             stopping_parameters: Some(request.stopping_parameters.clone()),
@@ -408,6 +413,7 @@ impl BatchEntries for EmbedBatchEntries {
             id,
             prefill_logprobs: false,
             inputs: request.inputs.clone(),
+            tokenized_inputs: request.tokenized_inputs.clone(),
             truncate: 0,
             parameters: None,
             stopping_parameters: None,
@@ -522,6 +528,7 @@ impl BatchEntries for ClassifyBatchEntries {
             id,
             prefill_logprobs: false,
             inputs: request.inputs.clone(),
+            tokenized_inputs: request.tokenized_inputs.clone(),
             truncate: 0,
             parameters: None,
             stopping_parameters: None,

@@ -117,6 +117,7 @@ impl Client {
             requests.push(Request {
                 id: 0,
                 inputs: "_test ".to_string().repeat(max_input_length as usize),
+                tokenized_inputs: None,
                 truncate: truncate_length,
                 // Blocks and slots will be set on the server side if we use paged attention
                 blocks: vec![],

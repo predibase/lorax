@@ -365,6 +365,14 @@ impl AdapterSchedulerState {
                         + self.speculate
                         - 1;
 
+                    tracing::trace!(
+                        "Scheduling {} tokens ({} input, {} output, {} speculate)",
+                        tokens,
+                        entry.request.input_length(),
+                        entry.request.max_new_tokens(),
+                        self.speculate
+                    );
+
                     match block_allocator.allocate(tokens).await {
                         None => {
                             // Entry is over budget
