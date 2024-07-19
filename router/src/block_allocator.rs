@@ -99,8 +99,8 @@ async fn block_allocator_task(
                 };
 
                 let tokens = tokens as usize;
-                tracing::info!(
-                    "!!! Allocating {} tokens ({} blocks, {} repeats)",
+                tracing::trace!(
+                    "Allocating {} tokens ({} blocks, {} repeats)",
                     tokens,
                     required_blocks,
                     repeats

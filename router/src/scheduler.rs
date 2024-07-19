@@ -365,8 +365,8 @@ impl AdapterSchedulerState {
                         + self.speculate
                         - 1;
 
-                    tracing::info!(
-                        "!!! Scheduling {} tokens ({} input, {} output, {} speculate)",
+                    tracing::trace!(
+                        "Scheduling {} tokens ({} input, {} output, {} speculate)",
                         tokens,
                         entry.request.input_length(),
                         entry.request.max_new_tokens(),
