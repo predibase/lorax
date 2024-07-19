@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
-from lorax_server.utils.state import get_speculative_tokens
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -17,6 +16,7 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
+from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -94,7 +94,7 @@ class Model(ABC):
             block_size=self.block_size,
             speculate=get_speculative_tokens(),
         )
-    
+
     @property
     def block_size(self) -> int:
         return 0

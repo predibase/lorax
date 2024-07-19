@@ -1,4 +1,3 @@
-import itertools
 import math
 import os
 from dataclasses import dataclass
@@ -177,9 +176,6 @@ class FlashCausalLMBatch(Batch):
         block_tables = []
         slots = []
 
-        batch_total_tokens = 0
-        batch_total_blocks = 0
-
         # Parse batch
         for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             # request id -> idx in list mapping
@@ -219,14 +215,8 @@ class FlashCausalLMBatch(Batch):
             # blocks and slots can be empty (for example in warmup)
             if not r.blocks:
                 needed_blocks = math.ceil(total_tokens / BLOCK_SIZE)
-                request_blocks = [
-                    b for b in range(num_blocks, num_blocks + needed_blocks)
-                ]
-                request_slots = [
-                    s
-                    for b in request_blocks
-                    for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)
-                ]
+                request_blocks = [b for b in range(num_blocks, num_blocks + needed_blocks)]
+                request_slots = [s for b in request_blocks for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)]
             else:
                 request_blocks = r.blocks
                 request_slots = r.slots
@@ -234,7 +224,7 @@ class FlashCausalLMBatch(Batch):
             block_tables.append(request_blocks)
             slots.extend(request_slots[:total_tokens])
             num_blocks += len(request_blocks)
-            
+
             start_slots.append(cumulative_max_length)
 
             request_slot_indices = torch.arange(
@@ -324,11 +314,9 @@ class FlashCausalLMBatch(Batch):
         else:
             prefill_head_indices = torch.tensor(torch.cat(prefill_head_indices), dtype=torch.int64, device=device)
             prefill_next_token_indices = torch.tensor(prefill_next_token_indices, dtype=torch.int64, device=device)
-        
+
         slots = torch.tensor(slots, dtype=torch.int64, device=device)
-        block_tables_tensor = torch.zeros(
-            (len(block_tables), max_blocks), dtype=torch.int32, device="cpu"
-        )
+        block_tables_tensor = torch.zeros((len(block_tables), max_blocks), dtype=torch.int32, device="cpu")
         for i, request_blocks in enumerate(block_tables):
             block_tables_tensor[i, : len(request_blocks)] = torch.tensor(request_blocks)
         block_tables_tensor = block_tables_tensor.to(device)
@@ -733,7 +721,7 @@ class FlashCausalLM(Model):
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
         self.kv_cache = []
-    
+
     @property
     def block_size(self) -> int:
         return BLOCK_SIZE
@@ -745,7 +733,7 @@ class FlashCausalLM(Model):
     @property
     def batch_type(self) -> Type[FlashCausalLMBatch]:
         return FlashCausalLMBatch
-    
+
     def max_past(self) -> int:
         return getattr(self.model, "max_past", None)
 
