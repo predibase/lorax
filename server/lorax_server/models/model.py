@@ -16,6 +16,7 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
+from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -90,7 +91,13 @@ class Model(ABC):
             dtype=str(self.dtype),
             device_type=self.device.type,
             window_size=self.sliding_window,
+            block_size=self.block_size,
+            speculate=get_speculative_tokens(),
         )
+
+    @property
+    def block_size(self) -> int:
+        return 0
 
     @property
     def sliding_window_blocks(self) -> Optional[int]:

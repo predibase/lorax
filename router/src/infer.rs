@@ -60,6 +60,8 @@ impl Infer {
         generation_health: Arc<AtomicBool>,
         eager_prefill: bool,
         preloaded_adapter_ids: Vec<String>,
+        block_size: u32,
+        speculate: u32,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -70,10 +72,12 @@ impl Infer {
             client.clone(),
             adapter_event.clone(),
             requires_padding,
-            16,
+            block_size,
             window_size,
             max_active_adapters,
             adapter_cycle_time_s,
+            speculate,
+            max_batch_total_tokens,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
@@ -194,6 +198,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -385,6 +390,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -482,6 +488,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
