@@ -17,6 +17,7 @@ use tracing::{info_span, span, Instrument, Span};
 
 use crate::{
     adapter::Adapter,
+    block_allocator::BlockAllocation,
     infer::{classify, decode, embed, prefill, InferError, InferStreamResponse},
 };
 
@@ -188,7 +189,7 @@ impl BatchEntriesState {
         entries
     }
 
-    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32, max_blocks: u32) -> Batch {
         // Final batch size
         let size = self.len() as u32;
 
@@ -198,6 +199,7 @@ impl BatchEntriesState {
             requests: self.batch_requests.clone(),
             size,
             max_tokens,
+            max_blocks,
         }
     }
 
@@ -220,10 +222,10 @@ impl BatchEntriesState {
 #[async_trait]
 pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn can_add(&self, entry: &Entry) -> bool;
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter);
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>);
     fn extend(&mut self, entries: Box<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
-    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch;
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32, max_blocks: u32) -> Batch;
     fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
@@ -274,7 +276,7 @@ impl BatchEntries for GenerateBatchEntries {
         result
     }
 
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) {
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>) {
         let valid_request = entry
             .request
             .as_ref()
@@ -291,6 +293,8 @@ impl BatchEntries for GenerateBatchEntries {
             stopping_parameters: Some(request.stopping_parameters.clone()),
             adapter_index: adapter.index(),
             apply_chat_template: request.apply_chat_template,
+            blocks,
+            slots,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -305,8 +309,9 @@ impl BatchEntries for GenerateBatchEntries {
         self.state.drain()
     }
 
-    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
-        self.state.create_batch_data(batch_id, max_tokens)
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32, max_blocks: u32) -> Batch {
+        self.state
+            .create_batch_data(batch_id, max_tokens, max_blocks)
     }
 
     fn adapters_in_use(&self) -> HashSet<Adapter> {
@@ -391,7 +396,7 @@ impl BatchEntries for EmbedBatchEntries {
         result
     }
 
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) {
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>) {
         let valid_request = entry
             .request
             .as_ref()
@@ -408,6 +413,8 @@ impl BatchEntries for EmbedBatchEntries {
             stopping_parameters: None,
             adapter_index: adapter.index(),
             apply_chat_template: false,
+            blocks,
+            slots,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -422,8 +429,9 @@ impl BatchEntries for EmbedBatchEntries {
         self.state.drain()
     }
 
-    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
-        self.state.create_batch_data(batch_id, max_tokens)
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32, max_blocks: u32) -> Batch {
+        self.state
+            .create_batch_data(batch_id, max_tokens, max_blocks)
     }
 
     fn adapters_in_use(&self) -> HashSet<Adapter> {
@@ -502,7 +510,7 @@ impl BatchEntries for ClassifyBatchEntries {
         result
     }
 
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter) {
+    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>) {
         let valid_request = entry
             .request
             .as_ref()
@@ -519,6 +527,8 @@ impl BatchEntries for ClassifyBatchEntries {
             stopping_parameters: None,
             adapter_index: adapter.index(),
             apply_chat_template: false,
+            blocks,
+            slots,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -533,8 +543,9 @@ impl BatchEntries for ClassifyBatchEntries {
         self.state.drain()
     }
 
-    fn create_batch_data(&self, batch_id: u64, max_tokens: u32) -> Batch {
-        self.state.create_batch_data(batch_id, max_tokens)
+    fn create_batch_data(&self, batch_id: u64, max_tokens: u32, max_blocks: u32) -> Batch {
+        self.state
+            .create_batch_data(batch_id, max_tokens, max_blocks)
     }
 
     fn adapters_in_use(&self) -> HashSet<Adapter> {
