@@ -138,10 +138,10 @@ async fn adapter_scheduler_task(
     while let Ok(cmd) = receiver.recv_async().await {
         match cmd {
             AdapterSchedulerCommand::Append(adapter, entry) => {
-                state.append(adapter, adapter_event.clone(), entry);
+                state.append(adapter, adapter_event.clone(), entry).await;
             }
             AdapterSchedulerCommand::RemoveErroredAdapters {} => {
-                state.remove_errored_adapters();
+                state.remove_errored_adapters().await;
             }
             AdapterSchedulerCommand::NextBatch {
                 adapters_in_use,
@@ -296,6 +296,13 @@ impl AdapterSchedulerState {
         // Vec of entries to be enqueued back into queues_state
         let mut entries_to_enqueue = Vec::new();
 
+        tracing::info!(
+            "!!! Next batch -- num_entries={} prefill_token_budget={} token_budget={}",
+            num_entries,
+            prefill_token_budget,
+            token_budget
+        );
+
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
         'entry_loop: while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
@@ -414,6 +421,14 @@ impl AdapterSchedulerState {
                 .unwrap()
                 .add(id, entry, adapter, blocks, slots)
         }
+
+        tracing::info!(
+            "!!! Next batch -- num_entries={} prefill_tokens={} decode_tokens={} max_blocks={}",
+            num_entries,
+            prefill_tokens,
+            decode_tokens,
+            max_blocks
+        );
 
         // Add back entries to the queue in the correct order
         for (adapter, id, entry) in entries_to_enqueue {
