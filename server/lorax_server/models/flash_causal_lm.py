@@ -888,6 +888,7 @@ class FlashCausalLM(Model):
         input_ids = batch.input_ids
         position_ids = batch.position_ids
         block_tables = batch.block_tables_tensor
+        print("!!! FORWARD", input_ids.shape, block_tables.shape, batch.slots.shape, batch.slot_indices.shape, batch.slot_indices)
         slots = batch.slots[batch.slot_indices]
         input_lengths = batch.input_lengths_tensor
         max_s = batch.max_seqlen

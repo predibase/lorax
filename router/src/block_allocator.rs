@@ -99,6 +99,12 @@ async fn block_allocator_task(
                 };
 
                 let tokens = tokens as usize;
+                tracing::info!(
+                    "!!! Allocating {} tokens ({} blocks, {} repeats)",
+                    tokens,
+                    required_blocks,
+                    repeats
+                );
                 let allocation = if required_blocks > free_blocks.len() as u32 {
                     None
                 } else {

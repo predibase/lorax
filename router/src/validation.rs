@@ -3,7 +3,7 @@ use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
-use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
@@ -92,7 +92,7 @@ impl Validation {
         inputs: String,
         truncate: Option<usize>,
         max_new_tokens: Option<u32>,
-    ) -> Result<(String, usize), ValidationError> {
+    ) -> Result<(String, Option<TokenizedInputs>, usize), ValidationError> {
         // If we have a fast tokenizer
         if let Some((encoding, inputs)) = self.tokenize(inputs.clone(), truncate).await? {
             // Create response channel
@@ -120,8 +120,12 @@ impl Validation {
                 ));
             }
 
+            let tokenized_inputs = Some(TokenizedInputs {
+                ids: encoding.get_ids().to_vec(),
+            });
+
             metrics::histogram!("lorax_request_input_length", input_length as f64);
-            Ok((inputs, input_length))
+            Ok((inputs, tokenized_inputs, input_length))
         }
         // Return inputs without validation
         else {
@@ -139,7 +143,7 @@ impl Validation {
                 }
             }
 
-            Ok((inputs, input_length))
+            Ok((inputs, None, input_length))
         }
     }
 
@@ -291,7 +295,7 @@ impl Validation {
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
         // Validate inputs
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
 
@@ -330,6 +334,7 @@ impl Validation {
 
         Ok(ValidGenerateRequest {
             inputs,
+            tokenized_inputs,
             decoder_input_details,
             input_length: input_length as u32,
             truncate: truncate.unwrap_or(self.max_input_length) as u32,

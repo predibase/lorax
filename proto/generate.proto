@@ -97,27 +97,34 @@ message StoppingCriteriaParameters {
     bool ignore_eos_token = 3;
 }
 
+message TokenizedInputs {
+    /// Token IDs
+    repeated uint32 ids = 1;
+}
+
 message Request {
     /// Request ID
     uint64 id = 1;
     /// The generation context
     string inputs = 2;
+    /// Tokenized inputs
+    TokenizedInputs tokenized_inputs = 3;
     /// Context truncation
-    uint32 truncate = 3;
+    uint32 truncate = 4;
     /// Next Token Chooser Parameters
-    NextTokenChooserParameters parameters = 4;
+    NextTokenChooserParameters parameters = 5;
     /// Stopping Criteria Parameters
-    StoppingCriteriaParameters stopping_parameters = 5;
+    StoppingCriteriaParameters stopping_parameters = 6;
     /// Return prefill logprobs
-    bool prefill_logprobs = 6;
+    bool prefill_logprobs = 7;
     /// Adapter index
-    uint32 adapter_index = 7;
+    uint32 adapter_index = 8;
     /// Apply chat template to inputs
-    bool apply_chat_template = 8;
+    bool apply_chat_template = 9;
     /// Paged attention blocks
-    repeated uint32 blocks = 9;
+    repeated uint32 blocks = 10;
     /// Paged attention slots
-    repeated uint32 slots = 10;
+    repeated uint32 slots = 11;
 }
 
 message Batch {

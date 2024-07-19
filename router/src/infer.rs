@@ -366,13 +366,14 @@ impl Infer {
         //         err
         //     })?;
 
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidEmbedRequest {
-            inputs: inputs,
+            inputs,
+            tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
@@ -464,13 +465,14 @@ impl Infer {
             None,
         );
 
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidClassifyRequest {
-            inputs: inputs,
+            inputs,
+            tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
