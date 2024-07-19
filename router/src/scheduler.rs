@@ -408,14 +408,6 @@ impl AdapterSchedulerState {
                 .add(id, entry, adapter, blocks, slots)
         }
 
-        tracing::info!(
-            "!!! Next batch -- num_entries={} prefill_tokens={} decode_tokens={} max_blocks={}",
-            num_entries,
-            prefill_tokens,
-            decode_tokens,
-            max_blocks
-        );
-
         if batch_entries.is_none() {
             return None;
         }
@@ -443,14 +435,6 @@ impl AdapterSchedulerState {
         next_batch_span.record("batch_size", batch_entries.len() as u32);
         let max_tokens = prefill_tokens + decode_tokens;
         let batch = batch_entries.create_batch_data(self.next_batch_id, max_tokens, max_blocks);
-        tracing::info!(
-            "!!! Created batch -- num_entries={}, prefill_tokens={} decode_tokens={} max_tokens={} token_budget={}",
-            batch_entries.len(),
-            prefill_tokens,
-            decode_tokens,
-            max_tokens,
-            token_budget
-        );
 
         // Increment batch id
         self.next_batch_id += 1;
