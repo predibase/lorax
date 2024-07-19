@@ -293,9 +293,6 @@ impl AdapterSchedulerState {
             self.queues_state.clone(),
         );
 
-        // Vec of entries to be enqueued back into queues_state
-        let mut entries_to_enqueue = Vec::new();
-
         // Pop entries starting from the front of the queue
         let mut batch_entries: Option<Box<dyn BatchEntries>> = None;
         'entry_loop: while let Some((id, mut entry, adapter)) = queues_state.next_entry() {
@@ -325,8 +322,7 @@ impl AdapterSchedulerState {
                         // Entry is over budget
                         // Add it back to the front
                         tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
-                        // queues_state.push_front(&adapter, id, entry);
-                        entries_to_enqueue.push((adapter, id, entry));
+                        queues_state.push_front(&adapter, id, entry);
                         break 'entry_loop;
                     }
                     None
@@ -348,8 +344,7 @@ impl AdapterSchedulerState {
                         // Entry is over budget
                         // Add it back to the front
                         tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
-                        // queues_state.push_front(&adapter, id, entry);
-                        entries_to_enqueue.push((adapter, id, entry));
+                        queues_state.push_front(&adapter, id, entry);
                         break;
                     }
 
@@ -363,8 +358,7 @@ impl AdapterSchedulerState {
                             // Entry is over budget
                             // Add it back to the front
                             tracing::debug!("Over budget: not enough free blocks");
-                            // queues_state.push_front(&adapter, id, entry);
-                            entries_to_enqueue.push((adapter, id, entry));
+                            queues_state.push_front(&adapter, id, entry);
                             break 'entry_loop;
                         }
                         Some(block_allocation) => {
@@ -386,9 +380,8 @@ impl AdapterSchedulerState {
 
             if !batch_entries.as_ref().unwrap().can_add(&entry) {
                 // Incompatible entry for this batch. Reinsert and break
-                // queues_state.push_front(&adapter, id, entry);
-                entries_to_enqueue.push((adapter, id, entry));
-                break;
+                queues_state.push_front(&adapter, id, entry);
+                break 'entry_loop;
             }
 
             // Create a new span to link the batch back to this entry
@@ -422,11 +415,6 @@ impl AdapterSchedulerState {
             decode_tokens,
             max_blocks
         );
-
-        // Add back entries to the queue in the correct order
-        for (adapter, id, entry) in entries_to_enqueue {
-            queues_state.push_front(&adapter, id, entry);
-        }
 
         if batch_entries.is_none() {
             return None;
