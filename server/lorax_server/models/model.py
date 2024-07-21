@@ -10,6 +10,7 @@ from transformers import PreTrainedTokenizerBase
 from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
+from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
@@ -64,6 +65,7 @@ class Model(ABC):
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
+        self.preloaded_adapters = []
 
         self.trust_remote_code = trust_remote_code
 
@@ -93,6 +95,7 @@ class Model(ABC):
             window_size=self.sliding_window,
             block_size=self.block_size,
             speculate=get_speculative_tokens(),
+            preloaded_adapters=self.preloaded_adapters,
         )
 
     @property
@@ -191,6 +194,9 @@ class Model(ABC):
             [weights.max_speculative_tokens for weights in self.layer_to_adapter_weights.values()],
             default=0,
         )
+
+    def register_preloaded_adapters(self, preloaded_adapters: List[generate_pb2.PreloadedAdapter]):
+        self.preloaded_adapters.extend(preloaded_adapters)
 
     def load_adapter(
         self,

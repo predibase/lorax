@@ -345,6 +345,8 @@ def serve(
 
             logger.info(f"Preloaded {len(preloaded_adapters)} adapters in {time.time() - t0:.2f}s")
 
+            model.register_preloaded_adapters(preloaded_adapters)
+
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
         if speculative_tokens > 0:
