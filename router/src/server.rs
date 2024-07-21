@@ -1061,9 +1061,9 @@ pub async fn run(
         shard_info.window_size,
         generation_health,
         eager_prefill,
-        preloaded_adapter_ids,
         shard_info.block_size,
         shard_info.speculate,
+        shard_info.preloaded_adapters,
     );
 
     // Duration buckets
