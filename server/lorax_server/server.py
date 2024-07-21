@@ -288,35 +288,48 @@ def serve(
                 # Derive the predibase token from an env variable if we are using predibase adapters.
                 adapter_preload_api_token = os.getenv("PREDIBASE_API_TOKEN")
 
-            requests = [
-                generate_pb2.DownloadAdapterRequest(
+            preloaded_adapters = [
+                generate_pb2.PreloadedAdapter(
                     adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
                     adapter_source=_adapter_source,
+                    adapter_index=i + 1,
+                )
+                for i, adapter_id in enumerate(preloaded_adapter_ids)
+            ]
+
+            download_requests = [
+                generate_pb2.DownloadAdapterRequest(
+                    adapter_parameters=adapter_info.adapter_parameters,
+                    adapter_source=adapter_info.adapter_source,
                     api_token=adapter_preload_api_token,
                 )
-                for adapter_id in preloaded_adapter_ids
+                for adapter_info in preloaded_adapters
             ]
-            models = [model] * len(requests)
+            models = [model] * len(download_requests)
 
             # Download adapters
             t0 = time.time()
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                responses = list(tqdm(executor.map(download_adapter, requests, models), total=len(requests)))
-            logger.info(f"Downloaded {len(preloaded_adapter_ids)} adapters in {time.time() - t0:.2f}s")
+                responses = list(
+                    tqdm(executor.map(download_adapter, download_requests, models), total=len(download_requests))
+                )
+            logger.info(f"Downloaded {len(download_requests)} adapters in {time.time() - t0:.2f}s")
 
             if not all(responses):
                 raise RuntimeError("Failed to download all adapters")
 
-            def load_adapter(adapter_id: str, i: int) -> bool:
-                _adapter_source = adapter_source
+            def load_adapter(adapter_info: generate_pb2.PreloadedAdapter) -> bool:
+                _adapter_source = adapter_info.adapter_source
                 if adapter_source == PBASE:
-                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=adapter_preload_api_token)
+                    adapter_id = map_pbase_model_id_to_s3(
+                        adapter_info.adapter_parameters.adapter_ids[0], api_token=adapter_preload_api_token
+                    )
                     _adapter_source = S3
 
                 model.load_adapter(
                     generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
                     _adapter_source,
-                    adapter_index=i + 1,
+                    adapter_index=adapter_info.adapter_index,
                     api_token=None,
                     dynamic=True,
                 )
@@ -324,14 +337,13 @@ def serve(
 
             # Load adapters
             t0 = time.time()
-            indices = list(range(len(preloaded_adapter_ids)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                responses = list(tqdm(executor.map(load_adapter, preloaded_adapter_ids, indices), total=len(indices)))
+                responses = list(tqdm(executor.map(load_adapter, preloaded_adapters), total=len(preloaded_adapters)))
 
             if not all(responses):
                 raise RuntimeError("Failed to preload all adapters")
 
-            logger.info(f"Preloaded {len(preloaded_adapter_ids)} adapters in {time.time() - t0:.2f}s")
+            logger.info(f"Preloaded {len(preloaded_adapters)} adapters in {time.time() - t0:.2f}s")
 
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
