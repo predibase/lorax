@@ -65,6 +65,7 @@ class Model(ABC):
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
+        self.preloaded_adapter_indices = set()
         self.preloaded_adapters = []
 
         self.trust_remote_code = trust_remote_code
@@ -196,6 +197,7 @@ class Model(ABC):
         )
 
     def register_preloaded_adapters(self, preloaded_adapters: List[generate_pb2.PreloadedAdapter]):
+        self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
         self.preloaded_adapters.extend(preloaded_adapters)
 
     def load_adapter(
@@ -288,11 +290,15 @@ class Model(ABC):
         adapter_parameters: AdapterParameters,
         adapter_source: AdapterSource,
         adapter_index: int,
-    ):
+    ) -> bool:
         """Offloads the adapter weights from GPU to CPU or disk."""
         if adapter_index not in self.loaded_adapters:
             # Adapter already offloaded
-            return
+            return False
+        
+        if adapter_index in self.preloaded_adapter_indices:
+            # Adapter was preloaded and should not be offloaded
+            return False
 
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
@@ -310,3 +316,4 @@ class Model(ABC):
                 self.layer_to_adapter_weights[layer_name].remove_adapter(adapter_index)
 
         self.loaded_adapters.remove(adapter_index)
+        return True

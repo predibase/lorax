@@ -199,13 +199,14 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_idx = request.adapter_index
             adapter_source = adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
-            self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
 
-            # Ensure there is enough memory for the next adapter
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize(self.model.device)
+            offloaded = self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
+            if offloaded:
+                # Ensure there is enough memory for the next adapter
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize(self.model.device)
 
-            return generate_pb2.OffloadAdapterResponse(offloaded=True)
+            return generate_pb2.OffloadAdapterResponse(offloaded=offloaded)
         except Exception:
             logger.exception("Error when offloading adapter")
             raise
