@@ -143,7 +143,6 @@ impl Client {
                 }),
                 adapter_index: 0,
                 prefill_logprobs: true,
-                apply_chat_template: false,
             });
             n_tokens += max_input_length;
         }

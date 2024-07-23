@@ -2,8 +2,8 @@
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
-use crate::json;
 use crate::validation::ValidationError;
+use crate::{json, HubTokenizerConfig};
 use crate::{
     AdapterParameters, AlternativeToken, BestOfSequence, ChatCompletionRequest,
     ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
@@ -262,7 +262,51 @@ async fn chat_completions_v1(
         return Err((StatusCode::BAD_REQUEST, Json(err)));
     }
 
-    let mut gen_req = CompatGenerateRequest::from(req);
+    // apply chat template to flatten the request into a single input
+    let inputs = match infer.apply_chat_template(req.messages) {
+        Ok(inputs) => inputs,
+        Err(err) => {
+            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
+            tracing::error!("{err}");
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ErrorResponse {
+                    error: err.to_string(),
+                    error_type: err.error_type().to_string(),
+                }),
+            ));
+        }
+    };
+
+    let mut gen_req = CompatGenerateRequest {
+        inputs: inputs.to_string(),
+        parameters: GenerateParameters {
+            adapter_id: req.model.parse().ok(),
+            adapter_source: req.adapter_source,
+            adapter_parameters: None,
+            api_token: req.api_token,
+            best_of: req.n.map(|x| x as usize),
+            temperature: req.temperature,
+            repetition_penalty: req.repetition_penalty,
+            top_k: req.top_k,
+            top_p: req.top_p,
+            typical_p: None,
+            do_sample: !req.n.is_none(),
+            max_new_tokens: req.max_tokens.map(|x| x as u32),
+            ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
+            return_full_text: None,
+            stop: req.stop,
+            truncate: None,
+            watermark: false,
+            details: true,
+            decoder_input_details: false,
+            return_k_alternatives: None,
+            apply_chat_template: false,
+            seed: req.seed,
+            response_format: req.response_format,
+        },
+        stream: req.stream.unwrap_or(false),
+    };
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -959,6 +1003,7 @@ pub async fn run(
     cors_allow_credentials: Option<AllowCredentials>,
     cors_allow_headers: Option<AllowHeaders>,
     cors_expose_headers: Option<ExposeHeaders>,
+    tokenizer_config: HubTokenizerConfig,
     ngrok: bool,
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
@@ -1061,6 +1106,7 @@ pub async fn run(
         shard_info.window_size,
         generation_health,
         eager_prefill,
+        tokenizer_config,
         preloaded_adapter_ids,
         shard_info.block_size,
         shard_info.speculate,
@@ -1323,6 +1369,7 @@ impl From<InferError> for (StatusCode, Json<ErrorResponse>) {
             InferError::Overloaded(_) => StatusCode::TOO_MANY_REQUESTS,
             InferError::ValidationError(_) => StatusCode::UNPROCESSABLE_ENTITY,
             InferError::IncompleteGeneration => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::TemplateError(_) => StatusCode::UNPROCESSABLE_ENTITY,
             InferError::EmbeddingFailure => StatusCode::INTERNAL_SERVER_ERROR,
             InferError::ClassificationFailure => StatusCode::INTERNAL_SERVER_ERROR,
         };
