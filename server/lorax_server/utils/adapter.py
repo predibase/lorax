@@ -164,7 +164,9 @@ def load_module_map(
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
 
 
-def download_adapter(request: generate_pb2.DownloadAdapterRequest, model: "Model") -> generate_pb2.DownloadAdapterResponse:
+def download_adapter(
+    request: generate_pb2.DownloadAdapterRequest, model: "Model"
+) -> generate_pb2.DownloadAdapterResponse:
     adapter_parameters = request.adapter_parameters
     if is_base_model(adapter_parameters):
         logger.info("No adapter to download for base model. Skipping.")

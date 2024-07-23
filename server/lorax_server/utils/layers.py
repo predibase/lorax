@@ -447,9 +447,7 @@ try:
                         scaling_factor=rope_scaling["factor"],
                         low_freq_factor=rope_scaling["low_freq_factor"],
                         high_freq_factor=rope_scaling["high_freq_factor"],
-                        original_max_position_embeddings=rope_scaling[
-                            "original_max_position_embeddings"
-                        ],
+                        original_max_position_embeddings=rope_scaling["original_max_position_embeddings"],
                     )
                     return cls(
                         inv_freq,
@@ -749,7 +747,6 @@ def apply_llama3_scaling(
         elif wavelen > low_freq_wavelen:
             new_freqs.append(freq / scaling_factor)
         else:
-
             assert low_freq_wavelen != high_freq_wavelen
             smooth = (original_max_position_embeddings / wavelen - low_freq_factor) / (
                 high_freq_factor - low_freq_factor

@@ -197,9 +197,16 @@ class Model(ABC):
             default=0,
         )
 
-    def register_preloaded_adapters(self, preloaded_adapters: List[generate_pb2.PreloadedAdapter], adapter_memory_fractions: List[float]):
+    def register_preloaded_adapters(
+        self, preloaded_adapters: List[generate_pb2.PreloadedAdapter], adapter_memory_fractions: List[float]
+    ):
         self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
-        self.preloaded_adapter_memory_fractions.update({adapter.adapter_parameters.adapter_ids[0]: memory_fraction for adapter, memory_fraction in zip(preloaded_adapters, adapter_memory_fractions)})
+        self.preloaded_adapter_memory_fractions.update(
+            {
+                adapter.adapter_parameters.adapter_ids[0]: memory_fraction
+                for adapter, memory_fraction in zip(preloaded_adapters, adapter_memory_fractions)
+            }
+        )
         self.preloaded_adapters.extend(preloaded_adapters)
 
     def load_adapter(
@@ -297,7 +304,7 @@ class Model(ABC):
         if adapter_index not in self.loaded_adapters:
             # Adapter already offloaded
             return False
-        
+
         if adapter_index in self.preloaded_adapter_indices:
             # Adapter was preloaded and should not be offloaded
             return False

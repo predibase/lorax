@@ -162,13 +162,18 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
 
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
-        if len(request.adapter_parameters.adapter_ids) == 1 and request.adapter_parameters.adapter_ids[0] in self.model.preloaded_adapter_memory_fractions:
+        if (
+            len(request.adapter_parameters.adapter_ids) == 1
+            and request.adapter_parameters.adapter_ids[0] in self.model.preloaded_adapter_memory_fractions
+        ):
             logger.info("Adapter is already preloaded. Skipping.")
             return generate_pb2.DownloadAdapterResponse(
-                downloaded=True, 
-                memory_fraction=self.model.preloaded_adapter_memory_fractions[request.adapter_parameters.adapter_ids[0]]
+                downloaded=True,
+                memory_fraction=self.model.preloaded_adapter_memory_fractions[
+                    request.adapter_parameters.adapter_ids[0]
+                ],
             )
-        
+
         return download_adapter(request, self.model)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
@@ -176,7 +181,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if is_base_model(adapter_parameters):
             logger.info("No adapter to load for base model. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=False)
-        
+
         if request.adapter_index in self.model.loaded_adapters:
             logger.info(f"Adapter {request.adapter_index} is already loaded. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=True)
@@ -334,9 +339,7 @@ def serve(
                 _adapter_source = adapter_source_enum_to_string(adapter_info.adapter_source)
                 _adapter_id = adapter_info.adapter_parameters.adapter_ids[0]
                 if _adapter_source == PBASE:
-                    _adapter_id = map_pbase_model_id_to_s3(
-                        _adapter_id, api_token=adapter_preload_api_token
-                    )
+                    _adapter_id = map_pbase_model_id_to_s3(_adapter_id, api_token=adapter_preload_api_token)
                     _adapter_source = S3
 
                 model.load_adapter(
