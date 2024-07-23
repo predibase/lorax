@@ -162,6 +162,13 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
 
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
+        if len(request.adapter_parameters.adapter_ids) == 1 and request.adapter_parameters.adapter_ids[0] in self.model.preloaded_adapter_memory_fractions:
+            logger.info("Adapter is already preloaded. Skipping.")
+            return generate_pb2.DownloadAdapterResponse(
+                downloaded=True, 
+                memory_fraction=self.model.preloaded_adapter_memory_fractions[request.adapter_parameters.adapter_ids[0]]
+            )
+        
         return download_adapter(request, self.model)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
@@ -315,12 +322,12 @@ def serve(
             # Download adapters
             t0 = time.time()
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                responses = list(
+                download_responses = list(
                     tqdm(executor.map(download_adapter, download_requests, models), total=len(download_requests))
                 )
             logger.info(f"Downloaded {len(download_requests)} adapters in {time.time() - t0:.2f}s")
 
-            if not all(responses):
+            if not all(download_responses):
                 raise RuntimeError("Failed to download all adapters")
 
             def load_adapter(adapter_info: generate_pb2.PreloadedAdapter) -> bool:
@@ -351,7 +358,8 @@ def serve(
 
             logger.info(f"Preloaded {len(preloaded_adapters)} adapters in {time.time() - t0:.2f}s")
 
-            model.register_preloaded_adapters(preloaded_adapters)
+            adapter_memory_fractions = [r.memory_fraction for r in download_responses]
+            model.register_preloaded_adapters(preloaded_adapters, adapter_memory_fractions)
 
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
