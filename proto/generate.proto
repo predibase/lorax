@@ -129,12 +129,10 @@ message Request {
     bool prefill_logprobs = 7;
     /// Adapter index
     uint32 adapter_index = 8;
-    /// Apply chat template to inputs
-    bool apply_chat_template = 9;
     /// Paged attention blocks
-    repeated uint32 blocks = 10;
+    repeated uint32 blocks = 9;
     /// Paged attention slots
-    repeated uint32 slots = 11;
+    repeated uint32 slots = 10;
 }
 
 message Batch {

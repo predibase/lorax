@@ -55,7 +55,6 @@ impl Health {
                     ignore_eos_token: false,
                 }),
                 adapter_index: 0,
-                apply_chat_template: false,
                 // Block 0 is reserved for health checks
                 blocks: vec![0],
                 slots: (0..16).collect(),
