@@ -319,15 +319,16 @@ def serve(
                 raise RuntimeError("Failed to download all adapters")
 
             def load_adapter(adapter_info: generate_pb2.PreloadedAdapter) -> bool:
-                _adapter_source = adapter_info.adapter_source
-                if adapter_source == PBASE:
-                    adapter_id = map_pbase_model_id_to_s3(
-                        adapter_info.adapter_parameters.adapter_ids[0], api_token=adapter_preload_api_token
+                _adapter_source = adapter_source_enum_to_string(adapter_info.adapter_source)
+                _adapter_id = adapter_info.adapter_parameters.adapter_ids[0]
+                if _adapter_source == PBASE:
+                    _adapter_id = map_pbase_model_id_to_s3(
+                        _adapter_id, api_token=adapter_preload_api_token
                     )
                     _adapter_source = S3
 
                 model.load_adapter(
-                    generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
+                    generate_pb2.AdapterParameters(adapter_ids=[_adapter_id]),
                     _adapter_source,
                     adapter_index=adapter_info.adapter_index,
                     api_token=None,
