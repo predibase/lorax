@@ -1010,7 +1010,6 @@ pub async fn run(
     adapter_source: String,
     embedding_model: bool,
     eager_prefill: bool,
-    preloaded_adapter_ids: Vec<String>,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
