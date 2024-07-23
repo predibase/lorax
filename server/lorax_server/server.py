@@ -169,6 +169,10 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if is_base_model(adapter_parameters):
             logger.info("No adapter to load for base model. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=False)
+        
+        if request.adapter_index in self.model.loaded_adapters:
+            logger.info(f"Adapter {request.adapter_index} is already loaded. Skipping.")
+            return generate_pb2.LoadAdapterResponse(loaded=True)
 
         try:
             adapter_source = adapter_source_enum_to_string(request.adapter_source)
