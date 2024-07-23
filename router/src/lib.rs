@@ -1,6 +1,7 @@
 /// LoRAX Webserver
 mod adapter;
 mod batch;
+mod block_allocator;
 mod health;
 mod infer;
 mod loader;

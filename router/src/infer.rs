@@ -151,6 +151,9 @@ impl Infer {
         generation_health: Arc<AtomicBool>,
         eager_prefill: bool,
         tokenizer_config: HubTokenizerConfig,
+        preloaded_adapter_ids: Vec<String>,
+        block_size: u32,
+        speculate: u32,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -161,20 +164,33 @@ impl Infer {
             client.clone(),
             adapter_event.clone(),
             requires_padding,
-            16,
+            block_size,
             window_size,
             max_active_adapters,
             adapter_cycle_time_s,
+            speculate,
+            max_batch_total_tokens,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
+        let mut adapter_to_index = HashMap::from([(
             AdapterParameters {
                 adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
                 ..Default::default()
             },
             0,
-        )])));
+        )]);
+
+        // Pre-populate the adapter_to_index with the preloaded adapters
+        for (idx, adapter_id) in preloaded_adapter_ids.iter().enumerate() {
+            let adapter_key = AdapterParameters {
+                adapter_ids: vec![adapter_id.clone()],
+                ..Default::default()
+            };
+            adapter_to_index.insert(adapter_key, (idx + 1) as u32);
+        }
+
+        let adapter_to_index = Arc::new(Mutex::new(adapter_to_index));
 
         let chat_template = tokenizer_config
             .chat_template
@@ -288,6 +304,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -474,13 +491,14 @@ impl Infer {
         //         err
         //     })?;
 
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidEmbedRequest {
-            inputs: inputs,
+            inputs,
+            tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
@@ -498,6 +516,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -571,13 +590,14 @@ impl Infer {
             None,
         );
 
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidClassifyRequest {
-            inputs: inputs,
+            inputs,
+            tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
@@ -595,6 +615,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 

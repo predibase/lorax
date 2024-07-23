@@ -33,6 +33,7 @@ impl Health {
             let liveness_request = Request {
                 id: LIVENESS_ID,
                 inputs: "liveness".to_string(),
+                tokenized_inputs: None,
                 truncate: 10,
                 prefill_logprobs: false,
                 parameters: Some(NextTokenChooserParameters {
@@ -54,12 +55,16 @@ impl Health {
                     ignore_eos_token: false,
                 }),
                 adapter_index: 0,
+                // Block 0 is reserved for health checks
+                blocks: vec![0],
+                slots: (0..16).collect(),
             };
             let batch = Batch {
                 id: BATCH_ID,
                 requests: vec![liveness_request],
                 size: 1,
                 max_tokens: 2,
+                max_blocks: 1,
             };
             // Skips the queue
             let value = self.client.prefill(batch).await.is_ok();

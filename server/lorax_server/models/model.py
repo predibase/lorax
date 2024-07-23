@@ -7,7 +7,7 @@ import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
 
-from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
@@ -16,6 +16,7 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
+from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -69,7 +70,7 @@ class Model(ABC):
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
         if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
-            download_adapter(adapter_id, adapter_source, api_token=None)
+            download_adapter_weights(adapter_id, adapter_source, api_token=None)
             self.load_adapter(
                 AdapterParameters(adapter_ids=[adapter_id]),
                 adapter_source,
@@ -90,7 +91,13 @@ class Model(ABC):
             dtype=str(self.dtype),
             device_type=self.device.type,
             window_size=self.sliding_window,
+            block_size=self.block_size,
+            speculate=get_speculative_tokens(),
         )
+
+    @property
+    def block_size(self) -> int:
+        return 0
 
     @property
     def sliding_window_blocks(self) -> Optional[int]:

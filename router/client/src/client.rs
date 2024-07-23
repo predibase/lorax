@@ -117,7 +117,11 @@ impl Client {
             requests.push(Request {
                 id: 0,
                 inputs: "_test ".to_string().repeat(max_input_length as usize),
+                tokenized_inputs: None,
                 truncate: truncate_length,
+                // Blocks and slots will be set on the server side if we use paged attention
+                blocks: vec![],
+                slots: vec![],
                 // Set sampling parameters to also take these ops into account in the max memory
                 parameters: Some(NextTokenChooserParameters {
                     temperature: 0.9,
@@ -147,7 +151,8 @@ impl Client {
             id: 0,
             size: requests.len() as u32,
             requests,
-            max_tokens: 0,
+            max_tokens: max_input_length,
+            max_blocks: 0,
         };
 
         let max_new_tokens = max_total_tokens - max_input_length;
