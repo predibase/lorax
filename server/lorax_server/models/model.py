@@ -10,6 +10,7 @@ from transformers import PreTrainedTokenizerBase
 from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
+from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
@@ -64,6 +65,9 @@ class Model(ABC):
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
+        self.preloaded_adapter_indices = set()
+        self.preloaded_adapter_memory_fractions = {}
+        self.preloaded_adapters = []
 
         self.trust_remote_code = trust_remote_code
 
@@ -93,6 +97,7 @@ class Model(ABC):
             window_size=self.sliding_window,
             block_size=self.block_size,
             speculate=get_speculative_tokens(),
+            preloaded_adapters=self.preloaded_adapters,
         )
 
     @property
@@ -192,6 +197,18 @@ class Model(ABC):
             default=0,
         )
 
+    def register_preloaded_adapters(
+        self, preloaded_adapters: List[generate_pb2.PreloadedAdapter], adapter_memory_fractions: List[float]
+    ):
+        self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
+        self.preloaded_adapter_memory_fractions.update(
+            {
+                adapter.adapter_parameters.adapter_ids[0]: memory_fraction
+                for adapter, memory_fraction in zip(preloaded_adapters, adapter_memory_fractions)
+            }
+        )
+        self.preloaded_adapters.extend(preloaded_adapters)
+
     def load_adapter(
         self,
         adapter_parameters: AdapterParameters,
@@ -282,11 +299,15 @@ class Model(ABC):
         adapter_parameters: AdapterParameters,
         adapter_source: AdapterSource,
         adapter_index: int,
-    ):
+    ) -> bool:
         """Offloads the adapter weights from GPU to CPU or disk."""
         if adapter_index not in self.loaded_adapters:
             # Adapter already offloaded
-            return
+            return False
+
+        if adapter_index in self.preloaded_adapter_indices:
+            # Adapter was preloaded and should not be offloaded
+            return False
 
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
@@ -304,3 +325,4 @@ class Model(ABC):
                 self.layer_to_adapter_weights[layer_name].remove_adapter(adapter_index)
 
         self.loaded_adapters.remove(adapter_index)
+        return True

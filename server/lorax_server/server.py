@@ -162,6 +162,18 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
 
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
+        if (
+            len(request.adapter_parameters.adapter_ids) == 1
+            and request.adapter_parameters.adapter_ids[0] in self.model.preloaded_adapter_memory_fractions
+        ):
+            logger.info("Adapter is already preloaded. Skipping.")
+            return generate_pb2.DownloadAdapterResponse(
+                downloaded=True,
+                memory_fraction=self.model.preloaded_adapter_memory_fractions[
+                    request.adapter_parameters.adapter_ids[0]
+                ],
+            )
+
         return download_adapter(request, self.model)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
@@ -169,6 +181,10 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if is_base_model(adapter_parameters):
             logger.info("No adapter to load for base model. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=False)
+
+        if request.adapter_index in self.model.loaded_adapters:
+            logger.info(f"Adapter {request.adapter_index} is already loaded. Skipping.")
+            return generate_pb2.LoadAdapterResponse(loaded=True)
 
         try:
             adapter_source = adapter_source_enum_to_string(request.adapter_source)
@@ -199,13 +215,14 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             adapter_idx = request.adapter_index
             adapter_source = adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
-            self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
 
-            # Ensure there is enough memory for the next adapter
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize(self.model.device)
+            offloaded = self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
+            if offloaded:
+                # Ensure there is enough memory for the next adapter
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize(self.model.device)
 
-            return generate_pb2.OffloadAdapterResponse(offloaded=True)
+            return generate_pb2.OffloadAdapterResponse(offloaded=offloaded)
         except Exception:
             logger.exception("Error when offloading adapter")
             raise
@@ -288,35 +305,47 @@ def serve(
                 # Derive the predibase token from an env variable if we are using predibase adapters.
                 adapter_preload_api_token = os.getenv("PREDIBASE_API_TOKEN")
 
-            requests = [
-                generate_pb2.DownloadAdapterRequest(
+            preloaded_adapters = [
+                generate_pb2.PreloadedAdapter(
                     adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
                     adapter_source=_adapter_source,
+                    adapter_index=i + 1,
+                )
+                for i, adapter_id in enumerate(preloaded_adapter_ids)
+            ]
+
+            download_requests = [
+                generate_pb2.DownloadAdapterRequest(
+                    adapter_parameters=adapter_info.adapter_parameters,
+                    adapter_source=adapter_info.adapter_source,
                     api_token=adapter_preload_api_token,
                 )
-                for adapter_id in preloaded_adapter_ids
+                for adapter_info in preloaded_adapters
             ]
-            models = [model] * len(requests)
+            models = [model] * len(download_requests)
 
             # Download adapters
             t0 = time.time()
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                responses = list(tqdm(executor.map(download_adapter, requests, models), total=len(requests)))
-            logger.info(f"Downloaded {len(preloaded_adapter_ids)} adapters in {time.time() - t0:.2f}s")
+                download_responses = list(
+                    tqdm(executor.map(download_adapter, download_requests, models), total=len(download_requests))
+                )
+            logger.info(f"Downloaded {len(download_requests)} adapters in {time.time() - t0:.2f}s")
 
-            if not all(responses):
+            if not all(download_responses):
                 raise RuntimeError("Failed to download all adapters")
 
-            def load_adapter(adapter_id: str, i: int) -> bool:
-                _adapter_source = adapter_source
-                if adapter_source == PBASE:
-                    adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token=adapter_preload_api_token)
+            def load_adapter(adapter_info: generate_pb2.PreloadedAdapter) -> bool:
+                _adapter_source = adapter_source_enum_to_string(adapter_info.adapter_source)
+                _adapter_id = adapter_info.adapter_parameters.adapter_ids[0]
+                if _adapter_source == PBASE:
+                    _adapter_id = map_pbase_model_id_to_s3(_adapter_id, api_token=adapter_preload_api_token)
                     _adapter_source = S3
 
                 model.load_adapter(
-                    generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
+                    generate_pb2.AdapterParameters(adapter_ids=[_adapter_id]),
                     _adapter_source,
-                    adapter_index=i + 1,
+                    adapter_index=adapter_info.adapter_index,
                     api_token=None,
                     dynamic=True,
                 )
@@ -324,14 +353,16 @@ def serve(
 
             # Load adapters
             t0 = time.time()
-            indices = list(range(len(preloaded_adapter_ids)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                responses = list(tqdm(executor.map(load_adapter, preloaded_adapter_ids, indices), total=len(indices)))
+                responses = list(tqdm(executor.map(load_adapter, preloaded_adapters), total=len(preloaded_adapters)))
 
             if not all(responses):
                 raise RuntimeError("Failed to preload all adapters")
 
-            logger.info(f"Preloaded {len(preloaded_adapter_ids)} adapters in {time.time() - t0:.2f}s")
+            logger.info(f"Preloaded {len(preloaded_adapters)} adapters in {time.time() - t0:.2f}s")
+
+            adapter_memory_fractions = [r.memory_fraction for r in download_responses]
+            model.register_preloaded_adapters(preloaded_adapters, adapter_memory_fractions)
 
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)

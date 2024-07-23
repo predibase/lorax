@@ -17,7 +17,7 @@ use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
     Batch, CachedBatch, ClientError, Embedding, EntityList, GeneratedText, Generation,
-    PrefillTokens, ShardedClient,
+    PrefillTokens, PreloadedAdapter, ShardedClient,
 };
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
@@ -151,9 +151,9 @@ impl Infer {
         generation_health: Arc<AtomicBool>,
         eager_prefill: bool,
         tokenizer_config: HubTokenizerConfig,
-        preloaded_adapter_ids: Vec<String>,
         block_size: u32,
         speculate: u32,
+        preloaded_adapters: Vec<PreloadedAdapter>,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -182,12 +182,16 @@ impl Infer {
         )]);
 
         // Pre-populate the adapter_to_index with the preloaded adapters
-        for (idx, adapter_id) in preloaded_adapter_ids.iter().enumerate() {
-            let adapter_key = AdapterParameters {
-                adapter_ids: vec![adapter_id.clone()],
-                ..Default::default()
-            };
-            adapter_to_index.insert(adapter_key, (idx + 1) as u32);
+        for adapter in preloaded_adapters.iter() {
+            if let Some(adapter_parameters) = &adapter.adapter_parameters {
+                adapter_to_index.insert(
+                    AdapterParameters {
+                        adapter_ids: adapter_parameters.adapter_ids.clone(),
+                        ..Default::default()
+                    },
+                    adapter.adapter_index,
+                );
+            }
         }
 
         let adapter_to_index = Arc::new(Mutex::new(adapter_to_index));
