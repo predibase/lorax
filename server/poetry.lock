@@ -192,14 +192,22 @@ files = [
 
 [[package]]
 name = "bitsandbytes"
-version = "0.41.3.post2"
+version = "0.43.2"
 description = "k-bit optimizers and matrix multiplication routines."
 optional = true
 python-versions = "*"
 files = [
-    {file = "bitsandbytes-0.41.3.post2-py3-none-any.whl", hash = "sha256:ceb301a3d4e6bf52bdad8d09f3064ac194bdfdeae535994c0315bd2ef7639cca"},
-    {file = "bitsandbytes-0.41.3.post2.tar.gz", hash = "sha256:7d25a51fb3b74b58e569473f8b70a5239124c0593dc053479c41cf2cd6730502"},
+    {file = "bitsandbytes-0.43.2-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:80fbc0f41dded735f51328042d3d45ea640101d87c8abba8ea5bfafa61e2a786"},
+    {file = "bitsandbytes-0.43.2-py3-none-win_amd64.whl", hash = "sha256:89e1c506fd2323574615d668ca7eacad4f83db4847044bf2db87580a71852ff1"},
 ]
+
+[package.dependencies]
+numpy = "*"
+torch = "*"
+
+[package.extras]
+benchmark = ["matplotlib", "pandas"]
+test = ["scipy"]
 
 [[package]]
 name = "boto3"
@@ -3577,4 +3585,4 @@ torch = ["torch"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "e52881fa075d917070103ac7f96cae7c648502cb82b4b48d54ec81d47e1b0ef9"
+content-hash = "06b1954d759d902f96836ae358647275ee4e21365369f4d3d46c82c1bcf00c2e"
