@@ -4,7 +4,7 @@ vllm-cuda:
 	git clone https://github.com/vllm-project/vllm.git vllm
 
 build-vllm-cuda: vllm-cuda
-	cd vllm && git fetch && git checkout adf32e0a0f58edafe0c71b5c235848a487be2a71
+	cd vllm && git fetch && git checkout 5448f67
 	cd vllm && python setup.py build
 
 install-vllm-cuda: build-vllm-cuda

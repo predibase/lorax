@@ -71,7 +71,7 @@ RUN chmod +x ~/mambaforge.sh && \
 RUN case ${TARGETPLATFORM} in \
     "linux/arm64")  exit 1 ;; \
     *)              /opt/conda/bin/conda update -y conda &&  \
-    /opt/conda/bin/conda install -y python=3.10 pytorch pytorch-cuda=12.4 -c pytorch-nightly -c nvidia  ;; \
+    /opt/conda/bin/conda install -y python="${PYTHON_VERSION}" pytorch="${PYTORCH_VERSION}" pytorch-cuda="$(echo ${CUDA_VERSION} | cut -d'.' -f 1-2)" -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}"  ;; \
     esac && \
     /opt/conda/bin/conda clean -ya
 
