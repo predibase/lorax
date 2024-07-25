@@ -8,7 +8,8 @@ if SYSTEM == "xpu":
     import intel_extension_for_pytorch as ipex
 else:
     try:
-        from vllm._C import cache_ops, ops
+        import vllm._custom_ops as ops
+        import torch
     except Exception as e:
         raise ImportError(
             f"Could not import vllm paged attention. Make sure your installation is correct. Complete error: {e}"
@@ -33,7 +34,7 @@ def reshape_and_cache(
     if SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
-        cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0)
+        torch.ops._C_cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0)
 
 
 def attention(
@@ -68,6 +69,8 @@ def attention(
     block_size = value_cache.shape[3]
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
+    num_kv_heads = 1 + kv_head_mapping.max().item()
+
     if SYSTEM == "xpu":
         query = query.contiguous()
         return ipex.llm.modules.PagedAttention.single_query_cached_kv_attention(
@@ -96,7 +99,7 @@ def attention(
             query,
             key_cache,
             value_cache,
-            kv_head_mapping,
+            num_kv_heads,
             softmax_scale,
             block_tables,
             input_lengths,
@@ -129,7 +132,7 @@ def attention(
             query,
             key_cache,
             value_cache,
-            kv_head_mapping,
+            num_kv_heads,
             softmax_scale,
             block_tables,
             input_lengths,
