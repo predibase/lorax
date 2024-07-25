@@ -35,12 +35,12 @@ RUN cargo build --release
 
 # Python builder
 # Adapted from: https://github.com/pytorch/pytorch/blob/master/Dockerfile
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 as pytorch-install
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 as pytorch-install
 
-ARG PYTORCH_VERSION=2.3.0
+ARG PYTORCH_VERSION=2.4.0
 ARG PYTHON_VERSION=3.10
 # Keep in sync with `server/pyproject.toml
-ARG CUDA_VERSION=12.1
+ARG CUDA_VERSION=12.4
 ARG MAMBA_VERSION=24.3.0-0
 ARG CUDA_CHANNEL=nvidia
 ARG INSTALL_CHANNEL=pytorch
@@ -116,7 +116,6 @@ WORKDIR /usr/src
 COPY server/Makefile-awq Makefile
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq
 
-
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
 WORKDIR /usr/src
@@ -127,6 +126,13 @@ RUN python setup.py build
 # Build vllm CUDA kernels
 FROM kernel-builder as vllm-builder
 WORKDIR /usr/src
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+RUN DEBIAN_FRONTEND=noninteractive apt purge -y --auto-remove cmake
+RUN wget 'https://github.com/Kitware/CMake/releases/download/v3.30.0/cmake-3.30.0-linux-x86_64.tar.gz'
+RUN tar xzvf 'cmake-3.30.0-linux-x86_64.tar.gz'
+RUN ln -s "$(pwd)/cmake-3.30.0-linux-x86_64/bin/cmake" /usr/local/bin/cmake
 ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
@@ -155,7 +161,7 @@ COPY server/Makefile-eetq Makefile
 RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq
 
 # LoRAX base image
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04 as base
+FROM nvidia/cuda:12.4.0-base-ubuntu22.04 as base
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
@@ -165,6 +171,9 @@ ENV PATH=/opt/conda/bin:$PATH \
 ENV HUGGINGFACE_HUB_CACHE=/data \
     HF_HUB_ENABLE_HF_TRANSFER=1 \
     PORT=80
+
+# vLLM needs this in order to work without error
+ENV LD_PRELOAD=/usr/local/cuda/compat/libcuda.so
 
 WORKDIR /usr/src
 
