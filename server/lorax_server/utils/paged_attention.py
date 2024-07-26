@@ -12,8 +12,8 @@ else:
         import vllm._custom_ops as ops
     except Exception as e:
         raise ImportError(
-            f"Could not import vllm paged attention. Make sure your installation is correct. Complete error: {e}"
-        )
+            f"Could not import vllm paged attention. Make sure your installation is correct. Error: {e}"
+        ) from e
 
 # TODO(travis): fix for CUDA 8.9 (Lovelace) and 9.0 (Hopper)
 # if torch.cuda.is_available():

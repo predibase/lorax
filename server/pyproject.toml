@@ -32,7 +32,7 @@ einops = "^0.6.1"
 tiktoken = "^0.5.2"
 texttable = { version = "^1.6.7", optional = true }
 datasets = { version = "^2.14.0", optional = true }
-torch = { version = "2.3.0", optional = true }
+torch = { version = "2.4.0", optional = true }
 peft = { version = "0.4.0", optional = true }
 boto3 = "^1.28.34"
 urllib3 = "<=1.26.18"
@@ -41,6 +41,8 @@ stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
 outlines = { version = "^0.0.40", optional = true }
 prometheus-client = "^0.20.0"
 py-cpuinfo = "^9.0.0"
+nvidia-ml-py = "^12.555.43"
+numpy = "<2.0"
 
 [tool.poetry.extras]
 torch = ["torch"]
@@ -57,7 +59,7 @@ pytest = "^7.3.0"
 
 [[tool.poetry.source]]
 name = "pytorch-gpu"
-url = "https://download.pytorch.org/whl/cu121"
+url = "https://download.pytorch.org/whl/cu124"
 priority = "explicit"
 
 [tool.pytest.ini_options]
