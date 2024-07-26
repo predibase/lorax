@@ -192,13 +192,13 @@ files = [
 
 [[package]]
 name = "bitsandbytes"
-version = "0.43.2"
+version = "0.43.1"
 description = "k-bit optimizers and matrix multiplication routines."
 optional = true
 python-versions = "*"
 files = [
-    {file = "bitsandbytes-0.43.2-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:80fbc0f41dded735f51328042d3d45ea640101d87c8abba8ea5bfafa61e2a786"},
-    {file = "bitsandbytes-0.43.2-py3-none-win_amd64.whl", hash = "sha256:89e1c506fd2323574615d668ca7eacad4f83db4847044bf2db87580a71852ff1"},
+    {file = "bitsandbytes-0.43.1-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:a81c826d576d6d691c7b4a7491c8fdc0f37f769795d6ca2e54afa605d2c260a3"},
+    {file = "bitsandbytes-0.43.1-py3-none-win_amd64.whl", hash = "sha256:52c1c7189a6ca006555a9663e544e75f40520a97a26e075411f9f9aca0771fcd"},
 ]
 
 [package.dependencies]
@@ -1555,6 +1555,17 @@ files = [
 
 [package.dependencies]
 nvidia-nvjitlink-cu12 = "*"
+
+[[package]]
+name = "nvidia-ml-py"
+version = "12.555.43"
+description = "Python Bindings for the NVIDIA Management Library"
+optional = false
+python-versions = "*"
+files = [
+    {file = "nvidia-ml-py-12.555.43.tar.gz", hash = "sha256:e9e7f12ef1ec234bb0dc22d2bdc762ffafab394bdc472a07a4377c95bbf93afe"},
+    {file = "nvidia_ml_py-12.555.43-py3-none-any.whl", hash = "sha256:b89ba66e8ba8032fdbbaa907323f248be0ed001e106f814a1e1137e58eba2a80"},
+]
 
 [[package]]
 name = "nvidia-nccl-cu12"
@@ -3585,4 +3596,4 @@ torch = ["torch"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "06b1954d759d902f96836ae358647275ee4e21365369f4d3d46c82c1bcf00c2e"
+content-hash = "c667434f4ebd8a7045402ec19d550ea6a56cc2970d35f5e8731d0c463ab75acf"
