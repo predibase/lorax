@@ -46,7 +46,7 @@ spec:
         - --sharded
         - {{ .Values.deployment.args.sharded | quote }}
         - --eager-prefill
-        - {{ .Values.deployment.args.eager_prefill | quote }}
+        - {{ .Values.deployment.args.eagerPrefill | quote }}
         env:
         - name: PORT
           value: "8000"
