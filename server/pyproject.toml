@@ -16,7 +16,7 @@ grpcio-reflection = "^1.51.1"
 grpc-interceptor = "^0.15.0"
 typer = "^0.6.1"
 accelerate = { version = "^0.24.1", optional = true }
-bitsandbytes = { version = "^0.43.1", optional = true }
+bitsandbytes = { version = "0.43.1", optional = true }
 scipy = { version = "^1.0.0", optional = true }
 safetensors = "0.4.2"
 loguru = "^0.6.0"
@@ -58,7 +58,7 @@ pytest = "^7.3.0"
 
 [[tool.poetry.source]]
 name = "pytorch-gpu"
-url = "https://download.pytorch.org/whl/cu121"
+url = "https://download.pytorch.org/whl/cu124"
 priority = "explicit"
 
 [tool.pytest.ini_options]
