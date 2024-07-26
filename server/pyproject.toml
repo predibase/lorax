@@ -41,6 +41,7 @@ stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
 outlines = { version = "^0.0.40", optional = true }
 prometheus-client = "^0.20.0"
 py-cpuinfo = "^9.0.0"
+nvidia-ml-py = "^12.555.43"
 
 [tool.poetry.extras]
 torch = ["torch"]
