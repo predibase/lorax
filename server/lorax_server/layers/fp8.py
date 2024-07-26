@@ -25,7 +25,7 @@ def apply_fp8_linear(
     # torch._scaled_mm is more performant for matrices with
     # batch dimension > 16. Note that this could change
     # in the future.
-    output = torch._scaled_mm(qinput,
+    output, _ = torch._scaled_mm(qinput,
                                     qweight,
                                     out_dtype=input.dtype,
                                     scale_a=x_scale,
