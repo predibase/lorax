@@ -31,7 +31,7 @@ run-dev:
 	# SAFETENSORS_FAST_GPU=1 python -m torch.distributed.run --nproc_per_node=1 lorax_server/cli.py serve flozi00/Mistral-7B-german-assistant-v5-4bit-autogptq --quantize gptq
 
 export-requirements:
-	poetry export -o requirements.txt -E bnb --without-hashes
+	poetry export -o requirements.txt --without-hashes
 
 format:
 	pip install ruff
