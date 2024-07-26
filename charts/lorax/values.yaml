@@ -13,7 +13,7 @@ deployment:
     maxBatchTotalTokens: 4096
     maxBatchPrefillTokens: 2048
     sharded: false
-    eager_prefill: false
+    eagerPrefill: false
 
   env:
     # Your huggingface hub token. Required for some models such as the llama-2 family.
