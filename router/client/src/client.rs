@@ -6,6 +6,7 @@ use crate::Result;
 use grpc_metadata::InjectTelemetryContext;
 use std::cmp::min;
 use tonic::transport::{Channel, Uri};
+use tonic::Response;
 use tracing::instrument;
 
 /// LoRAX gRPC client
@@ -64,14 +65,6 @@ impl Client {
         Ok(response)
     }
 
-    /// Embed
-    #[instrument(skip(self))]
-    pub async fn embed(&mut self, inputs: String) -> Result<EmbedResponse> {
-        let request = tonic::Request::new(EmbedRequest { inputs }).inject_context();
-        let response = self.stub.embed(request).await?.into_inner();
-        Ok(response)
-    }
-
     /// Get model health
     #[instrument(skip(self))]
     pub async fn health(&mut self) -> Result<HealthResponse> {
@@ -124,7 +117,11 @@ impl Client {
             requests.push(Request {
                 id: 0,
                 inputs: "_test ".to_string().repeat(max_input_length as usize),
+                tokenized_inputs: None,
                 truncate: truncate_length,
+                // Blocks and slots will be set on the server side if we use paged attention
+                blocks: vec![],
+                slots: vec![],
                 // Set sampling parameters to also take these ops into account in the max memory
                 parameters: Some(NextTokenChooserParameters {
                     temperature: 0.9,
@@ -146,7 +143,6 @@ impl Client {
                 }),
                 adapter_index: 0,
                 prefill_logprobs: true,
-                apply_chat_template: false,
             });
             n_tokens += max_input_length;
         }
@@ -155,7 +151,8 @@ impl Client {
             id: 0,
             size: requests.len() as u32,
             requests,
-            max_tokens: 0,
+            max_tokens: max_input_length,
+            max_blocks: 0,
         };
 
         let max_new_tokens = max_total_tokens - max_input_length;
@@ -194,6 +191,22 @@ impl Client {
         let request = tonic::Request::new(DecodeRequest { batches }).inject_context();
         let response = self.stub.decode(request).await?.into_inner();
         Ok((response.generations, response.batch))
+    }
+
+    /// Embed
+    #[instrument(skip(self))]
+    pub async fn embed(&mut self, batch: Batch) -> Result<Vec<Embedding>> {
+        let request = tonic::Request::new(EmbedRequest { batch: Some(batch) }).inject_context();
+        let response = self.stub.embed(request).await?.into_inner();
+        Ok(response.embeddings)
+    }
+
+    /// Classify
+    #[instrument(skip(self))]
+    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+        let request = tonic::Request::new(ClassifyRequest { batch: Some(batch) }).inject_context();
+        let response = self.stub.classify(request).await?.into_inner();
+        Ok(response.entity_lists)
     }
 
     /// Downloads the weights for an adapter.

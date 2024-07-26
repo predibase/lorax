@@ -428,7 +428,7 @@ try:
             rope_scaling = _get_rope_config(config)
             if rope_scaling is not None:
                 rope_scaling = rope_scaling.copy()
-                rope_type = rope_scaling.pop("type")
+                rope_type = rope_scaling.pop("rope_type", rope_scaling.pop("type", None))
                 if rope_type == "linear":
                     pass
                 elif rope_type == "dynamic":
@@ -441,6 +441,21 @@ try:
                         dtype=dtype,
                         scaling_factor=scaling_factor,
                     )
+                elif rope_type == "llama3":
+                    inv_freq = apply_llama3_scaling(
+                        inv_freq,
+                        scaling_factor=rope_scaling["factor"],
+                        low_freq_factor=rope_scaling["low_freq_factor"],
+                        high_freq_factor=rope_scaling["high_freq_factor"],
+                        original_max_position_embeddings=rope_scaling["original_max_position_embeddings"],
+                    )
+                    return cls(
+                        inv_freq,
+                        scaling_factor,
+                        max_position_embeddings=config.max_position_embeddings,
+                        device=inv_freq.device,
+                        dtype=dtype,
+                    )
                 elif rope_type == "yarn":
                     scaling_factor = rope_scaling["factor"]
                     return YarnPositionRotaryEmbedding(
@@ -452,40 +467,22 @@ try:
                         **rope_scaling,
                     )
                 elif rope_type == "su":
-                    short_factor = torch.tensor(
-                        rope_scaling["short_factor"], dtype=torch.float32, device=device
-                    )
+                    short_factor = torch.tensor(rope_scaling["short_factor"], dtype=torch.float32, device=device)
                     short_inv_freq = 1.0 / (
-                        short_factor
-                        * base
-                        ** (
-                            torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-                            / dim
-                        )
+                        short_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
                     )
-                    long_factor = torch.tensor(
-                        rope_scaling["long_factor"], dtype=torch.float32, device=device
-                    )
+                    long_factor = torch.tensor(rope_scaling["long_factor"], dtype=torch.float32, device=device)
                     long_inv_freq = 1.0 / (
-                        long_factor
-                        * base
-                        ** (
-                            torch.arange(0, dim, 2, device=device, dtype=torch.float32)
-                            / dim
-                        )
+                        long_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
                     )
 
-                    original_max_position_embeddings = (
-                        config.original_max_position_embeddings
-                    )
+                    original_max_position_embeddings = config.original_max_position_embeddings
                     max_position_embeddings = config.max_position_embeddings
                     if max_position_embeddings <= original_max_position_embeddings:
                         scaling_factor = 1.0
                     else:
                         scale = max_position_embeddings / original_max_position_embeddings
-                        scaling_factor = math.sqrt(
-                            1 + math.log(scale) / math.log(original_max_position_embeddings)
-                        )
+                        scaling_factor = math.sqrt(1 + math.log(scale) / math.log(original_max_position_embeddings))
 
                     return SuRotaryEmbedding(
                         short_inv_freq=short_inv_freq,
@@ -663,7 +660,7 @@ try:
             self.mscale = float(
                 get_mscale(scaling_factor) * self.attn_factor
             )  # Get n-d magnitude scaling corrected for interpolation
-    
+
     class SuRotaryEmbedding(PositionRotaryEmbedding):
         def __init__(
             self,
@@ -687,11 +684,7 @@ try:
         def _update_cos_sin_cache(self, dtype, device, seqlen):
             # Reset the tables if the sequence length has changed,
             # or if we're on a new device (possibly due to tracing for instance)
-            if (
-                seqlen > self._seq_len_cached
-                or self._cos_cached.device != device
-                or self._cos_cached.dtype != dtype
-            ):
+            if seqlen > self._seq_len_cached or self._cos_cached.device != device or self._cos_cached.dtype != dtype:
                 self._seq_len_cached = seqlen
                 if seqlen > self.original_max_position_embeddings:
                     inv_freq = self.long_inv_freq
@@ -732,3 +725,32 @@ try:
 
 except ImportError:
     pass
+
+
+def apply_llama3_scaling(
+    freqs: torch.Tensor,
+    *,
+    scaling_factor: int,
+    low_freq_factor: int,
+    high_freq_factor: int,
+    original_max_position_embeddings: int,
+):
+    low_freq_wavelen = original_max_position_embeddings / low_freq_factor
+    high_freq_wavelen = original_max_position_embeddings / high_freq_factor
+    new_freqs = []
+
+    for freq in freqs:
+        wavelen = 2 * math.pi / freq
+
+        if wavelen < high_freq_wavelen:
+            new_freqs.append(freq)
+        elif wavelen > low_freq_wavelen:
+            new_freqs.append(freq / scaling_factor)
+        else:
+            assert low_freq_wavelen != high_freq_wavelen
+            smooth = (original_max_position_embeddings / wavelen - low_freq_factor) / (
+                high_freq_factor - low_freq_factor
+            )
+            new_freqs.append((1 - smooth) * freq / scaling_factor + smooth * freq)
+
+    return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)

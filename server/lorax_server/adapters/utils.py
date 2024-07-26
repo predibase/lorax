@@ -5,7 +5,7 @@ from lorax_server.utils.sources.hub import get_hub_api
 from lorax_server.utils.weights import download_weights
 
 
-def download_adapter(
+def download_adapter_weights(
     adapter_id: str,
     adapter_source: str,
     api_token: Optional[str] = None,

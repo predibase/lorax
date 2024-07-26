@@ -3,15 +3,18 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple
 
+from loguru import logger
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.pb import generate_pb2
 from lorax_server.utils.merges.strategies import merge_adapters
-from lorax_server.utils.sources import get_config_path, get_model_source
+from lorax_server.utils.sources import HUB, LOCAL, PBASE, S3, get_config_path, get_model_source
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig, ModuleMap
+    from lorax_server.models.model import Model
 
 
 BASE_MODEL_ADAPTER_ID = "__base_model__"
@@ -159,3 +162,69 @@ def load_module_map(
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
     module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
+
+
+def download_adapter(
+    request: generate_pb2.DownloadAdapterRequest, model: "Model"
+) -> generate_pb2.DownloadAdapterResponse:
+    adapter_parameters = request.adapter_parameters
+    if is_base_model(adapter_parameters):
+        logger.info("No adapter to download for base model. Skipping.")
+        return generate_pb2.DownloadAdapterResponse(downloaded=False)
+
+    adapter_bytes = 0
+    api_token = request.api_token
+    adapter_source = adapter_source_enum_to_string(request.adapter_source)
+    for adapter_id in adapter_parameters.adapter_ids:
+        if adapter_id == BASE_MODEL_ADAPTER_ID:
+            logger.info("No adapter to download for base model. Skipping.")
+            continue
+
+        adapter_bytes += download_adapter_weights(adapter_id, adapter_source, api_token)
+
+    adapter_memory_size = model.adapter_memory_size()
+    if adapter_memory_size > 0:
+        logger.info(
+            f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
+            f"(reservation: {adapter_memory_size} bytes)"
+        )
+        adapter_memory_fraction = adapter_bytes / adapter_memory_size
+        if adapter_memory_fraction > 1:
+            raise ValueError(
+                f"Adapter {adapter_id} is larger than adapter memory reservation: "
+                f"{adapter_bytes} / {adapter_memory_size} bytes"
+            )
+    else:
+        # Assume 0.0 memory fraction if adapter memory size is not set
+        logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)")
+        adapter_memory_fraction = 0.0
+
+    return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
+
+
+def adapter_source_enum_to_string(adapter_source: int) -> str:
+    # TODO(travis): refactor this to be less hacky
+    if adapter_source == generate_pb2.AdapterSource.HUB:
+        return HUB
+    elif adapter_source == generate_pb2.AdapterSource.S3:
+        return S3
+    elif adapter_source == generate_pb2.AdapterSource.LOCAL:
+        return LOCAL
+    elif adapter_source == generate_pb2.AdapterSource.PBASE:
+        return PBASE
+    else:
+        raise ValueError(f"Unknown adapter source {adapter_source}")
+
+
+def enum_string_to_adapter_source(adapter_source: str) -> int:
+    # TODO(travis): refactor this to be less hacky
+    if adapter_source == HUB:
+        return generate_pb2.AdapterSource.HUB
+    elif adapter_source == S3:
+        return generate_pb2.AdapterSource.S3
+    elif adapter_source == LOCAL:
+        return generate_pb2.AdapterSource.LOCAL
+    elif adapter_source == PBASE:
+        return generate_pb2.AdapterSource.PBASE
+    else:
+        raise ValueError(f"Unknown adapter source {adapter_source}")

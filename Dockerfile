@@ -1,5 +1,5 @@
 # Final image
-FROM ghcr.io/predibase/lorax:c71861a
+FROM ghcr.io/predibase/lorax:15a38d5
 
 RUN DEBIAN_FRONTEND=noninteractive apt install pkg-config rsync tmux rust-gdb git -y
 RUN PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \

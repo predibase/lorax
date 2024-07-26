@@ -1,4 +1,4 @@
-use crate::pb::generate::v1::EmbedResponse;
+use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -154,15 +154,28 @@ impl ShardedClient {
         merge_generations(results?)
     }
 
-    /// Get the model info
+    /// Embed the given batch
     #[instrument(skip(self))]
-    pub async fn embed(&mut self, inputs: String) -> Result<Vec<EmbedResponse>> {
+    pub async fn embed(&mut self, batch: Batch) -> Result<Vec<Embedding>> {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
-            .map(|client| Box::pin(client.embed(inputs.clone())))
+            .map(|client| Box::pin(client.embed(batch.clone())))
             .collect();
-        join_all(futures).await.into_iter().collect()
+        let results: Result<Vec<Vec<Embedding>>> = join_all(futures).await.into_iter().collect();
+        Ok(results?.into_iter().flatten().collect())
+    }
+
+    /// Classify the given batch
+    #[instrument(skip(self))]
+    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+        let futures: Vec<_> = self
+            .clients
+            .iter_mut()
+            .map(|client| Box::pin(client.classify(batch.clone())))
+            .collect();
+        let results: Result<Vec<Vec<EntityList>>> = join_all(futures).await.into_iter().collect();
+        Ok(results?.into_iter().flatten().collect())
     }
 
     pub async fn download_adapter(

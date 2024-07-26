@@ -40,7 +40,7 @@ We'll be working out of three different terminals during development, each servi
 
 1. **Server** window running the Python LoRAX server.
 2. **Router** window running the Rust LoRAX router.
-3. **Client** window for excuting requests against the running LoRAX instance.
+3. **Client** window for executing requests against the running LoRAX instance.
 
 ## Server window setup
 
@@ -148,7 +148,8 @@ apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
-/opt/conda/bin/conda install -c "nvidia/label/cuda-11.8.0"  cuda==11.8 && \
+conda update --force conda
+/opt/conda/bin/conda install -c "nvidia/label/cuda-12.1.0"  cuda==12.1 cudnn && \
     /opt/conda/bin/conda clean -ya
 ```
 

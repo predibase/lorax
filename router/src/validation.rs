@@ -1,8 +1,9 @@
 use crate::adapter::Adapter;
+use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest};
-use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
@@ -86,12 +87,12 @@ impl Validation {
     }
 
     #[instrument(skip(self, inputs))]
-    async fn validate_input(
+    pub(crate) async fn validate_input(
         &self,
         inputs: String,
         truncate: Option<usize>,
         max_new_tokens: Option<u32>,
-    ) -> Result<(String, usize), ValidationError> {
+    ) -> Result<(String, Option<TokenizedInputs>, usize), ValidationError> {
         // If we have a fast tokenizer
         if let Some((encoding, inputs)) = self.tokenize(inputs.clone(), truncate).await? {
             // Create response channel
@@ -119,8 +120,12 @@ impl Validation {
                 ));
             }
 
+            let tokenized_inputs = Some(TokenizedInputs {
+                ids: encoding.get_ids().to_vec(),
+            });
+
             metrics::histogram!("lorax_request_input_length", input_length as f64);
-            Ok((inputs, input_length))
+            Ok((inputs, tokenized_inputs, input_length))
         }
         // Return inputs without validation
         else {
@@ -138,7 +143,7 @@ impl Validation {
                 }
             }
 
-            Ok((inputs, input_length))
+            Ok((inputs, None, input_length))
         }
     }
 
@@ -290,7 +295,7 @@ impl Validation {
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
         // Validate inputs
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
 
@@ -329,13 +334,13 @@ impl Validation {
 
         Ok(ValidGenerateRequest {
             inputs,
+            tokenized_inputs,
             decoder_input_details,
             input_length: input_length as u32,
             truncate: truncate.unwrap_or(self.max_input_length) as u32,
             parameters,
             stopping_parameters,
             adapter,
-            apply_chat_template,
         })
     }
 
@@ -396,18 +401,6 @@ type TokenizerRequest = (
     Span,
 );
 
-#[derive(Debug)]
-pub(crate) struct ValidGenerateRequest {
-    pub inputs: String,
-    pub input_length: u32,
-    pub truncate: u32,
-    pub decoder_input_details: bool,
-    pub parameters: NextTokenChooserParameters,
-    pub stopping_parameters: StoppingCriteriaParameters,
-    pub adapter: Adapter,
-    pub apply_chat_template: bool,
-}
-
 #[derive(Error, Debug)]
 pub enum ValidationError {
     #[error("`best_of` must be > 0 and <= {0}. Given: {1}")]
@@ -458,6 +451,8 @@ pub enum ValidationError {
     AdapterWeightMismatch,
     #[error("Embedding models don't support text generation")]
     EmbeddingModel,
+    #[error("Classify models don't support text generation")]
+    ClassifyModelError,
 }
 
 #[cfg(test)]

@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 from transformers import PreTrainedTokenizerBase
@@ -21,9 +20,4 @@ class TokenizerManager:
         r: generate_pb2.Request,
         base_tokenizer: PreTrainedTokenizerBase,
     ) -> str:
-        inputs = r.inputs
-        if r.apply_chat_template:
-            inputs = json.loads(inputs)
-            tokenizer = self.get_tokenizer(r.adapter_index, base_tokenizer)
-            inputs = tokenizer.apply_chat_template(inputs, add_generation_prompt=True, tokenize=False)
-        return inputs
+        return r.inputs

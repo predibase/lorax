@@ -17,6 +17,8 @@ service LoraxService {
     rpc Prefill (PrefillRequest) returns (PrefillResponse);
     /// Embed
     rpc Embed (EmbedRequest) returns (EmbedResponse);
+    /// Classify 
+    rpc Classify (ClassifyRequest) returns (ClassifyResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
@@ -32,6 +34,15 @@ service LoraxService {
 message HealthRequest {}
 message HealthResponse {}
 
+message PreloadedAdapter {
+    /// Adapter params
+    AdapterParameters adapter_parameters = 1;
+    /// Adapter source
+    AdapterSource adapter_source = 2;
+    /// Adapter index
+    uint32 adapter_index = 3;
+}
+
 /// Empty request
 message InfoRequest {}
 
@@ -40,6 +51,9 @@ message InfoResponse {
     string dtype = 2;
     string device_type = 3;
     optional uint32 window_size = 4;
+    uint32 block_size = 5;
+    uint32 speculate = 6;
+    repeated PreloadedAdapter preloaded_adapters = 7;
 }
 
 /// Empty request
@@ -93,23 +107,32 @@ message StoppingCriteriaParameters {
     bool ignore_eos_token = 3;
 }
 
+message TokenizedInputs {
+    /// Token IDs
+    repeated uint32 ids = 1;
+}
+
 message Request {
     /// Request ID
     uint64 id = 1;
     /// The generation context
     string inputs = 2;
+    /// Tokenized inputs
+    TokenizedInputs tokenized_inputs = 3;
     /// Context truncation
-    uint32 truncate = 3;
+    uint32 truncate = 4;
     /// Next Token Chooser Parameters
-    NextTokenChooserParameters parameters = 4;
+    NextTokenChooserParameters parameters = 5;
     /// Stopping Criteria Parameters
-    StoppingCriteriaParameters stopping_parameters = 5;
+    StoppingCriteriaParameters stopping_parameters = 6;
     /// Return prefill logprobs
-    bool prefill_logprobs = 6;
+    bool prefill_logprobs = 7;
     /// Adapter index
-    uint32 adapter_index = 7;
-    /// Apply chat template to inputs
-    bool apply_chat_template = 8;
+    uint32 adapter_index = 8;
+    /// Paged attention blocks
+    repeated uint32 blocks = 9;
+    /// Paged attention slots
+    repeated uint32 slots = 10;
 }
 
 message Batch {
@@ -121,6 +144,8 @@ message Batch {
     uint32 size = 3;
     /// Maximum number of tokens this batch will grow to
     uint32 max_tokens = 4;
+    /// Maximum number of Paged Attention blocks
+    uint32 max_blocks = 5;
 }
 
 message CachedBatch {
@@ -232,16 +257,52 @@ message DecodeResponse {
     optional CachedBatch batch = 2;
 }
 
-message EmbedRequest {
-    string inputs = 1;
+message Embedding {
+    /// Request ID
+    uint64 request_id = 1;
+
+    /// Embedding values
+    repeated float values = 2;
 }
 
-message Embedding {
-    repeated float values = 1;
+message EmbedRequest {
+    /// Batch
+    Batch batch = 1;
 }
 
 message EmbedResponse {
-    Embedding embeddings = 1;
+    /// Embeddings
+    repeated Embedding embeddings = 1;
+
+    /// Error message on failure
+    string errorMsg = 2;
+}
+
+message Entity {
+    string entity = 1;
+    float score = 2;
+    uint32 index = 3;
+    string word = 4;
+    uint32 start = 5;
+    uint32 end = 6;
+}
+
+message EntityList {
+    /// Request ID
+    uint64 request_id = 1;
+    /// Entities 
+    repeated Entity entities = 2;
+}
+
+message ClassifyRequest {
+    /// Batch
+    Batch batch = 1;
+}
+
+message ClassifyResponse {
+    /// Classifications
+    repeated EntityList entity_lists = 1;
+    /// Error message on failure
     string errorMsg = 2;
 }
 

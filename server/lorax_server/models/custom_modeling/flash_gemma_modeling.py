@@ -445,8 +445,6 @@ class GemmaModel(torch.nn.Module):
         )
         self.norm = GemmaRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
 
-        self.gradient_checkpointing = False
-
         self.hidden_size = config.hidden_size
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads

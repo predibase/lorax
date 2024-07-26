@@ -147,9 +147,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.71"
+version = "0.1.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a564d521dd56509c4c47480d00b80ee55f7e385ae48db5744c67ad50c92d2ebf"
+checksum = "c6fa2087f2753a7da8cc1c0dbfcf89579dd57458e36769de5ac750b4671737ca"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1271,6 +1271,7 @@ name = "lorax-router"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "async-trait",
  "axum",
  "axum-tracing-opentelemetry",
  "clap",
@@ -1281,6 +1282,8 @@ dependencies = [
  "lorax-client",
  "metrics",
  "metrics-exporter-prometheus",
+ "minijinja",
+ "minijinja-contrib",
  "ngrok",
  "nohash-hasher",
  "once_cell",
@@ -1443,6 +1446,25 @@ checksum = "4192263c238a5f0d0c6bfd21f336a313a4ce1c450542449ca191bb657b4642ef"
 dependencies = [
  "mime",
  "unicase",
+]
+
+[[package]]
+name = "minijinja"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "933ee10775d58fca8238a84fe165dfe4bde8b07d7574f24d76ffea91170f3ac6"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "minijinja-contrib"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "237307aea18e4cc6b3ba0d190ee46f06ff82944a99cc895f04e4c94ccbf121d9"
+dependencies = [
+ "minijinja",
+ "serde",
 ]
 
 [[package]]

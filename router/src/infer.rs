@@ -1,9 +1,14 @@
 /// Batching and inference logic
 use crate::adapter::{extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID};
+use crate::batch::{ValidClassifyRequest, ValidEmbedRequest};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
-use crate::{AdapterParameters, AlternativeToken, Entry, Token};
+use crate::{
+    AdapterParameters, AlternativeToken, ChatTemplate, ChatTemplateVersions, ClassifyRequest,
+    ClassifyResponse, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
+    TextMessage, Token, TokenizerConfigToken,
+};
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
@@ -11,9 +16,13 @@ use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
-    Batch, CachedBatch, ClientError, GeneratedText, Generation, PrefillTokens, ShardedClient,
+    Batch, CachedBatch, ClientError, Embedding, EntityList, GeneratedText, Generation,
+    PrefillTokens, PreloadedAdapter, ShardedClient,
 };
+use minijinja::{Environment, ErrorKind, Template};
+use minijinja_contrib::pycompat;
 use nohash_hasher::IntMap;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -23,7 +32,92 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
-use tracing::{info_span, instrument, Instrument, Span};
+use tracing::{info_span, instrument, Span};
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub(crate) struct ChatTemplateInputs<'a> {
+    messages: Vec<TextMessage>,
+    bos_token: Option<&'a str>,
+    eos_token: Option<&'a str>,
+    add_generation_prompt: bool,
+    tools: Option<&'a str>,
+    tools_prompt: Option<&'a str>,
+}
+
+/// Raise a exception (custom function) used in the chat templates
+fn raise_exception(err_text: String) -> Result<String, minijinja::Error> {
+    Err(minijinja::Error::new(ErrorKind::SyntaxError, err_text))
+}
+
+#[derive(Clone)]
+struct ChatTemplateRenderer {
+    template: Template<'static, 'static>,
+    bos_token: Option<String>,
+    eos_token: Option<String>,
+    use_default_tool_template: bool,
+}
+
+impl ChatTemplateRenderer {
+    fn new(
+        template: String,
+        bos_token: Option<TokenizerConfigToken>,
+        eos_token: Option<TokenizerConfigToken>,
+    ) -> Self {
+        let mut env = Box::new(Environment::new());
+        // enable things like .strip() or .capitalize()
+        env.set_unknown_method_callback(pycompat::unknown_method_callback);
+        let template_str = template.into_boxed_str();
+        env.add_function("raise_exception", raise_exception);
+
+        // TODO(travis): revisit when we add tool usage
+        // check if contains the tools variable within the template
+        // let use_default_tool_template =
+        //     !template_str.as_ref().replace(' ', "").contains("{{tools}}");
+        let use_default_tool_template = false;
+
+        // leaking env and template_str as read-only, static resources for performance.
+        let template = Box::leak(env)
+            .template_from_str(Box::leak(template_str))
+            .unwrap();
+
+        Self {
+            template,
+            bos_token: bos_token.map(|token| token.as_str().to_string()),
+            eos_token: eos_token.map(|token| token.as_str().to_string()),
+            use_default_tool_template,
+        }
+    }
+
+    fn apply(
+        &self,
+        mut messages: Vec<Message>,
+        // grammar_with_prompt: Option<(GrammarType, String)>,
+    ) -> Result<String, InferError> {
+        // TODO(travis): revisit when we add tool usage
+        // if self.use_default_tool_template {
+        //     if let Some(last_message) = messages.last_mut() {
+        //         if let Some((GrammarType::Json(tools), tool_prompt)) = grammar_with_prompt {
+        //             last_message.content.push(MessageChunk::Text {
+        //                 text: format!("\n---\n{}\n{}", tool_prompt, tools),
+        //             });
+        //         }
+        //     }
+        // }
+
+        let messages: Vec<TextMessage> = messages.into_iter().map(|c| c.into()).collect();
+
+        self.template
+            .render(ChatTemplateInputs {
+                messages,
+                bos_token: self.bos_token.as_deref(),
+                eos_token: self.eos_token.as_deref(),
+                add_generation_prompt: true,
+                tools: None,
+                tools_prompt: None,
+            })
+            .map_err(InferError::TemplateError)
+    }
+}
 
 /// Inference struct
 #[derive(Clone)]
@@ -34,6 +128,8 @@ pub struct Infer {
     adapter_scheduler: AdapterScheduler,
     /// Maps adapter ID to a unique index
     adapter_to_index: Arc<Mutex<HashMap<AdapterParameters, u32>>>,
+    /// Chat template
+    chat_template: Option<ChatTemplateRenderer>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
 }
@@ -53,6 +149,11 @@ impl Infer {
         requires_padding: bool,
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
+        eager_prefill: bool,
+        tokenizer_config: HubTokenizerConfig,
+        block_size: u32,
+        speculate: u32,
+        preloaded_adapters: Vec<PreloadedAdapter>,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -63,20 +164,50 @@ impl Infer {
             client.clone(),
             adapter_event.clone(),
             requires_padding,
-            16,
+            block_size,
             window_size,
             max_active_adapters,
             adapter_cycle_time_s,
+            speculate,
+            max_batch_total_tokens,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
+        let mut adapter_to_index = HashMap::from([(
             AdapterParameters {
                 adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
                 ..Default::default()
             },
             0,
-        )])));
+        )]);
+
+        // Pre-populate the adapter_to_index with the preloaded adapters
+        for adapter in preloaded_adapters.iter() {
+            if let Some(adapter_parameters) = &adapter.adapter_parameters {
+                adapter_to_index.insert(
+                    AdapterParameters {
+                        adapter_ids: adapter_parameters.adapter_ids.clone(),
+                        ..Default::default()
+                    },
+                    adapter.adapter_index,
+                );
+            }
+        }
+
+        let adapter_to_index = Arc::new(Mutex::new(adapter_to_index));
+
+        let chat_template = tokenizer_config
+            .chat_template
+            .and_then(|t| match t {
+                ChatTemplateVersions::Single(template) => Some(template),
+                ChatTemplateVersions::Multiple(templates) => templates
+                    .into_iter()
+                    .find(|t| t.name == "default")
+                    .map(|t| t.template),
+            })
+            .map(|t| {
+                ChatTemplateRenderer::new(t, tokenizer_config.bos_token, tokenizer_config.eos_token)
+            });
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -88,6 +219,7 @@ impl Infer {
             adapter_event,
             generation_health,
             adapter_scheduler.clone(),
+            eager_prefill,
         ));
 
         // Inference limit with a semaphore
@@ -97,6 +229,7 @@ impl Infer {
             validation,
             adapter_scheduler,
             adapter_to_index,
+            chat_template,
             limit_concurrent_requests: semaphore,
         }
     }
@@ -169,12 +302,13 @@ impl Infer {
         self.adapter_scheduler.process(
             adapter.clone(),
             Entry {
-                request: valid_request,
+                request: Arc::new(valid_request),
                 response_tx,
                 span: Span::current(),
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -203,6 +337,25 @@ impl Infer {
         // Return Encoding
         Ok(encoding.map(|(encoding, _)| encoding))
     }
+
+    /// Apply the chat template to the chat request
+    #[instrument(skip_all)]
+    pub(crate) fn apply_chat_template(
+        &self,
+        messages: Vec<Message>,
+        // grammar_with_prompt: Option<(GrammarType, String)>,
+    ) -> Result<String, InferError> {
+        self.chat_template
+            .as_ref()
+            .ok_or_else(|| InferError::TemplateError(ErrorKind::TemplateNotFound.into()))?
+            .apply(messages)
+            .map_err(|e| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "template");
+                tracing::error!("{e}");
+                e
+            })
+    }
+
     /// Add a new request to the queue and return a InferResponse
     #[instrument(skip(self))]
     pub(crate) async fn generate(
@@ -256,6 +409,14 @@ impl Infer {
                     result_start = Some(start);
                     result_queued = Some(queued)
                 }
+                InferStreamResponse::Embed { .. } => {
+                    // This should not happen
+                    tracing::error!("Received an Embed message in generate. This is a bug.");
+                }
+                InferStreamResponse::Classify { .. } => {
+                    // This should not happen
+                    tracing::error!("Received an Classify message in generate. This is a bug.");
+                }
             }
         }
 
@@ -278,6 +439,234 @@ impl Infer {
             Err(err)
         }
     }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, InferError> {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        // TODO(travis): support adapters
+        // let (adapter_source, adapter_parameters) = extract_adapter_params(
+        //     request.parameters.adapter_id.clone(),
+        //     request.parameters.adapter_source.clone(),
+        //     request.parameters.adapter_parameters.clone(),
+        // );
+
+        // let adapter_idx;
+        // {
+        //     // TODO(travis): can optimize concurrency here using RWLock
+        //     let mut adapter_to_index = self.adapter_to_index.lock().await;
+        //     let adapter_key = adapter_parameters.clone();
+        //     if adapter_to_index.contains_key(&adapter_key) {
+        //         adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
+        //     } else {
+        //         adapter_idx = adapter_to_index.len() as u32;
+        //         adapter_to_index.insert(adapter_key, adapter_idx);
+        //     }
+        // }
+
+        let adapter = Adapter::new(
+            AdapterParameters {
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
+                ..Default::default()
+            },
+            "hub".to_string(),
+            0,
+            None,
+        );
+
+        // TODO(travis): robust validation
+        // Validate request
+        // let valid_request = self
+        //     .validation
+        //     .validate(request, adapter.clone())
+        //     .await
+        //     .map_err(|err| {
+        //         metrics::increment_counter!("lorax_request_failure", "err" => "validation");
+        //         tracing::error!("{err}");
+        //         err
+        //     })?;
+
+        let (inputs, tokenized_inputs, input_length) = self
+            .validation
+            .validate_input(request.inputs, None, Some(1))
+            .await?;
+
+        let valid_request = ValidEmbedRequest {
+            inputs,
+            tokenized_inputs,
+            input_length: input_length as u32,
+            adapter: adapter.clone(),
+        };
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = flume::unbounded();
+
+        // Process the request by sending it to the queue associated with `adapter`
+        self.adapter_scheduler.process(
+            adapter.clone(),
+            Entry {
+                request: Arc::new(valid_request),
+                response_tx,
+                span: Span::current(),
+                temp_span: None,
+                queue_time: Instant::now(),
+                batch_time: None,
+                block_allocation: None,
+            },
+        );
+
+        // Return values
+        let mut return_embeddings = None;
+
+        let mut stream = response_rx.into_stream();
+        while let Some(response) = stream.next().await {
+            match response? {
+                // Add prefill tokens
+                InferStreamResponse::Prefill { .. } => {
+                    tracing::error!("Received a Prefill message in embed. This is a bug.");
+                }
+                // Push last token
+                InferStreamResponse::Token(..) => {
+                    tracing::error!("Received a Token message in embed. This is a bug.");
+                }
+                // Final message
+                // Set return values
+                InferStreamResponse::End { .. } => {
+                    tracing::error!("Received an End message in embed. This is a bug.");
+                }
+                InferStreamResponse::Classify { .. } => {
+                    tracing::error!("Received a Classify message in embed. This is a bug.");
+                }
+                InferStreamResponse::Embed {
+                    embedding,
+                    start,
+                    queued,
+                } => {
+                    return_embeddings = Some(embedding.values);
+                }
+            }
+        }
+
+        if let Some(return_embeddings) = return_embeddings {
+            Ok(EmbedResponse {
+                embeddings: return_embeddings,
+            })
+        } else {
+            let err = InferError::EmbeddingFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "embedding_failure");
+            tracing::error!("{err}");
+            Err(err)
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn classify(
+        &self,
+        request: ClassifyRequest,
+    ) -> Result<ClassifyResponse, InferError> {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        let adapter = Adapter::new(
+            AdapterParameters {
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
+                ..Default::default()
+            },
+            "hub".to_string(),
+            0,
+            None,
+        );
+
+        let (inputs, tokenized_inputs, input_length) = self
+            .validation
+            .validate_input(request.inputs, None, Some(1))
+            .await?;
+
+        let valid_request = ValidClassifyRequest {
+            inputs,
+            tokenized_inputs,
+            input_length: input_length as u32,
+            adapter: adapter.clone(),
+        };
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = flume::unbounded();
+
+        // Process the request by sending it to the queue associated with `adapter`
+        self.adapter_scheduler.process(
+            adapter.clone(),
+            Entry {
+                request: Arc::new(valid_request),
+                response_tx,
+                span: Span::current(),
+                temp_span: None,
+                queue_time: Instant::now(),
+                batch_time: None,
+                block_allocation: None,
+            },
+        );
+
+        // Return values
+        let mut return_entities = None;
+
+        let mut stream = response_rx.into_stream();
+        while let Some(response) = stream.next().await {
+            match response? {
+                // Add prefill tokens
+                InferStreamResponse::Prefill { .. } => {
+                    tracing::error!("Received a Prefill message in classify. This is a bug.");
+                }
+                // Push last token
+                InferStreamResponse::Token(..) => {
+                    tracing::error!("Received a Token message in classify. This is a bug.");
+                }
+                // Final message
+                // Set return values
+                InferStreamResponse::End { .. } => {
+                    tracing::error!("Received an End message in classify. This is a bug.");
+                }
+                InferStreamResponse::Embed { .. } => {
+                    tracing::error!("Received an Embed message in classify. This is a bug.");
+                }
+                InferStreamResponse::Classify {
+                    entities,
+                    start,
+                    queued,
+                } => {
+                    return_entities = Some(entities.entities);
+                }
+            }
+        }
+
+        if let Some(return_entities) = return_entities {
+            Ok(ClassifyResponse {
+                entities: return_entities.into_iter().map(Entity::from).collect(),
+            })
+        } else {
+            let err = InferError::ClassificationFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
+            tracing::error!("{err}");
+            Err(err)
+        }
+    }
+
     /// Add best_of new requests to the queue and return a InferResponse of the sequence with
     /// the highest log probability per token
     #[instrument(skip(self))]
@@ -332,6 +721,7 @@ async fn batching_task(
     adapter_event: Arc<AdapterEvent>,
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
+    eager_prefill: bool,
 ) {
     // Infinite loop
     loop {
@@ -341,7 +731,7 @@ async fn batching_task(
         // Get the next batch from the queue
         // This batch might be smaller than the maximum batch size if there are not enough requests
         // waiting in the queue
-        while let Some((mut entries, batch, span)) = adapter_scheduler
+        while let Some((mut batch_entries, batch, span)) = adapter_scheduler
             .next_batch(
                 HashSet::new(),
                 None,
@@ -350,8 +740,8 @@ async fn batching_task(
             )
             .await
         {
-            let mut cached_batch = prefill(&mut client, batch, &mut entries, &generation_health)
-                .instrument(span)
+            let mut cached_batch = batch_entries
+                .process_first(&mut client, batch, span, &generation_health)
                 .await;
             let mut waiting_tokens = 1;
 
@@ -359,7 +749,7 @@ async fn batching_task(
             // all requests have met their stopping criteria)
             while let Some(batch) = cached_batch {
                 // Get current batch info
-                let batch_size = batch.size;
+                let mut batch_size = batch.size;
                 let batch_max_tokens = batch.max_tokens;
                 let mut batches = vec![batch];
                 metrics::gauge!("lorax_batch_current_size", batch_size as f64);
@@ -369,7 +759,7 @@ async fn batching_task(
                 // TODO(travis): can execute this more efficiently by making it event-driven
                 adapter_scheduler.remove_errored_adapters().await;
 
-                let min_size = if waiting_tokens >= max_waiting_tokens {
+                let min_size = if waiting_tokens >= max_waiting_tokens || eager_prefill {
                     // If we didn't onboard any new requests since >= max_waiting_tokens, we try
                     // to add a new batch even though its size might be small
                     None
@@ -378,23 +768,25 @@ async fn batching_task(
                     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
                 };
 
-                let token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-
-                let adapters_in_use = entries
-                    .iter()
-                    .map(|(_, entry)| entry.request.adapter.clone())
-                    .collect::<HashSet<_>>();
+                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                let mut adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                if let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                while let Some((mut new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
-                        adapters_in_use,
+                        adapters_in_use.clone(),
                         min_size,
                         max_batch_prefill_tokens,
                         token_budget,
                     )
                     .await
                 {
+                    let new_batch_size = new_batch.size;
+                    batch_size += new_batch_size;
+
+                    let new_batch_max_tokens = new_batch.max_tokens;
+                    token_budget = token_budget.saturating_sub(new_batch_max_tokens);
+
                     // Tracking metrics
                     if min_size.is_some() {
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
@@ -402,47 +794,63 @@ async fn batching_task(
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded");
                     }
 
-                    entries.iter_mut().for_each(|(_, entry)| {
-                        // Create a new span to add the info that this entry is waiting
-                        // because a new batch is being computed
-                        let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
-                        // Add relationships
-                        span.follows_from(&entry_waiting_span);
-                        entry_waiting_span.follows_from(&span);
-                        // Update entry
-                        entry.temp_span = Some(entry_waiting_span);
-                    });
+                    batch_entries
+                        .mut_state()
+                        .batch_entries
+                        .iter_mut()
+                        .for_each(|(_, entry)| {
+                            // Create a new span to add the info that this entry is waiting
+                            // because a new batch is being computed
+                            let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                            // Add relationships
+                            span.follows_from(&entry_waiting_span);
+                            entry_waiting_span.follows_from(&span);
+                            // Update entry
+                            entry.temp_span = Some(entry_waiting_span);
+                        });
 
                     // Generate one token for this new batch to have the attention past in cache
-                    let new_cached_batch =
-                        prefill(&mut client, new_batch, &mut new_entries, &generation_health)
-                            .instrument(span)
-                            .await;
+                    let new_cached_batch = new_entries
+                        .process_first(&mut client, new_batch, span, &generation_health)
+                        .await;
+
+                    adapters_in_use.extend(new_entries.adapters_in_use());
+
                     // Reset waiting counter
                     waiting_tokens = 1;
                     // Extend current batch with the new batch
                     if let Some(new_cached_batch) = new_cached_batch {
-                        entries.extend(new_entries);
+                        batch_entries.extend(new_entries);
                         batches.push(new_cached_batch);
+                    }
+
+                    if !eager_prefill {
+                        // Do not continue to loop if we are not in eager prefill mode
+                        break;
                     }
                 }
 
                 // Create span for this batch to add context to inference calls
-                let next_batch_size = entries.len();
+                let next_batch_size = batch_entries.len();
                 let next_batch_span =
                     info_span!(parent: None, "batch", batch_size = next_batch_size);
-                entries.iter_mut().for_each(|(_, entry)| {
-                    // Create a new span to link the batch back to this entry
-                    let entry_batch_span = info_span!(parent: &entry.span, "infer");
-                    // Add relationships
-                    next_batch_span.follows_from(&entry_batch_span);
-                    entry_batch_span.follows_from(&next_batch_span);
-                    // Update entry
-                    entry.temp_span = Some(entry_batch_span);
-                });
 
-                cached_batch = decode(&mut client, batches, &mut entries, &generation_health)
-                    .instrument(next_batch_span)
+                batch_entries
+                    .mut_state()
+                    .batch_entries
+                    .iter_mut()
+                    .for_each(|(_, entry)| {
+                        // Create a new span to link the batch back to this entry
+                        let entry_batch_span = info_span!(parent: &entry.span, "infer");
+                        // Add relationships
+                        next_batch_span.follows_from(&entry_batch_span);
+                        entry_batch_span.follows_from(&next_batch_span);
+                        // Update entry
+                        entry.temp_span = Some(entry_batch_span);
+                    });
+
+                cached_batch = batch_entries
+                    .process_next(&mut client, batches, next_batch_span, &generation_health)
                     .await;
                 waiting_tokens += 1;
             }
@@ -453,7 +861,7 @@ async fn batching_task(
 }
 
 #[instrument(skip_all)]
-async fn prefill(
+pub(crate) async fn prefill(
     client: &mut ShardedClient,
     batch: Batch,
     entries: &mut IntMap<u64, Entry>,
@@ -490,7 +898,7 @@ async fn prefill(
 }
 
 #[instrument(skip_all)]
-async fn decode(
+pub(crate) async fn decode(
     client: &mut ShardedClient,
     batches: Vec<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
@@ -527,6 +935,125 @@ async fn decode(
     }
 }
 
+#[instrument(skip_all)]
+pub(crate) async fn embed(
+    client: &mut ShardedClient,
+    batch: Batch,
+    entries: &mut IntMap<u64, Entry>,
+    generation_health: &Arc<AtomicBool>,
+) -> Option<CachedBatch> {
+    let start_time = Instant::now();
+    let batch_id = batch.id;
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "embed");
+
+    match client.embed(batch).await {
+        Ok(results) => {
+            // Update health
+            generation_health.store(true, Ordering::SeqCst);
+            // Send generated tokens and filter stopped entries
+            results.into_iter().for_each(|embedding| {
+                let id = embedding.request_id;
+                // Get entry
+                // We can `expect` here as the request id should always be in the entries
+                let entry = entries
+                    .get(&id)
+                    .expect("ID not found in entries. This is a bug.");
+
+                // Send generation responses back to the infer task
+                // If the receive an error from the Flume channel, it means that the client dropped the
+                // request and we need to stop generating hence why we unwrap_or(true)
+                let stopped = send_embeddings(embedding, entry)
+                    .map_err(|err| {
+                        if let SendTimeoutError::Timeout(_) = *err {
+                            tracing::error!("Entry response channel timed out.")
+                        }
+
+                        metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
+                        err
+                    })
+                    .unwrap_or(true);
+                if stopped {
+                    entries
+                        .remove(&id)
+                        .expect("ID not found in entries. This is a bug.");
+                }
+            });
+
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "embed");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "embed");
+            None
+        }
+        // If we have an error, we discard the whole batch
+        Err(err) => {
+            // Update health
+            generation_health.store(false, Ordering::SeqCst);
+            let _ = client.clear_cache(Some(batch_id)).await;
+            send_errors(err, entries);
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "embed");
+            None
+        }
+    }
+}
+
+#[instrument(skip_all)]
+pub(crate) async fn classify(
+    client: &mut ShardedClient,
+    batch: Batch,
+    entries: &mut IntMap<u64, Entry>,
+    generation_health: &Arc<AtomicBool>,
+) -> Option<CachedBatch> {
+    let start_time = Instant::now();
+    let batch_id = batch.id;
+    metrics::increment_counter!("lorax_batch_inference_count", "method" => "classify");
+
+    match client.classify(batch).await {
+        Ok(results) => {
+            // Update health
+            generation_health.store(true, Ordering::SeqCst);
+            // Send generated tokens and filter stopped entries
+            results.into_iter().for_each(|entities| {
+                let id = entities.request_id;
+                // Get entry
+                // We can `expect` here as the request id should always be in the entries
+                let entry = entries
+                    .get(&id)
+                    .expect("ID not found in entries. This is a bug.");
+
+                // Send generation responses back to the infer task
+                // If the receive an error from the Flume channel, it means that the client dropped the
+                // request and we need to stop generating hence why we unwrap_or(true)
+                let stopped = send_classifications(entities, entry)
+                    .map_err(|err| {
+                        if let SendTimeoutError::Timeout(_) = *err {
+                            tracing::error!("Entry response channel timed out.")
+                        }
+
+                        metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
+                        err
+                    })
+                    .unwrap_or(true);
+                if stopped {
+                    entries
+                        .remove(&id)
+                        .expect("ID not found in entries. This is a bug.");
+                }
+            });
+
+            metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "classify");
+            metrics::increment_counter!("lorax_batch_inference_success", "method" => "classify");
+            None
+        }
+        // If we have an error, we discard the whole batch
+        Err(err) => {
+            // Update health
+            generation_health.store(false, Ordering::SeqCst);
+            let _ = client.clear_cache(Some(batch_id)).await;
+            send_errors(err, entries);
+            metrics::increment_counter!("lorax_batch_inference_failure", "method" => "classify");
+            None
+        }
+    }
+}
 /// Filter a `batch` and remove all requests not present in `entries`
 #[instrument(skip_all)]
 async fn filter_batch(
@@ -685,6 +1212,52 @@ fn send_responses(
     Ok(stopped)
 }
 
+/// Send responses through the `entry` response channel
+fn send_embeddings(
+    embedding: Embedding,
+    entry: &Entry,
+) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+    // Return directly if the channel is disconnected
+    if entry.response_tx.is_disconnected() {
+        return Ok(true);
+    }
+
+    entry.response_tx.send_timeout(
+        Ok(InferStreamResponse::Embed {
+            embedding: embedding.clone(),
+            queued: entry.queue_time,
+            start: entry.batch_time.unwrap(),
+        }),
+        Duration::from_millis(10),
+    )?;
+
+    // TODO(travis): redundant as we always return true, just make it return nothing
+    Ok(true)
+}
+
+/// Send responses through the `entry` response channel
+fn send_classifications(
+    entities: EntityList,
+    entry: &Entry,
+) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+    // Return directly if the channel is disconnected
+    if entry.response_tx.is_disconnected() {
+        return Ok(true);
+    }
+
+    entry.response_tx.send_timeout(
+        Ok(InferStreamResponse::Classify {
+            entities: entities.clone(),
+            queued: entry.queue_time,
+            start: entry.batch_time.unwrap(),
+        }),
+        Duration::from_millis(10),
+    )?;
+
+    // TODO(travis): redundant as we always return true, just make it return nothing
+    Ok(true)
+}
+
 /// Send errors to Infer for all `entries`
 #[instrument(skip_all)]
 fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
@@ -712,6 +1285,17 @@ pub(crate) enum InferStreamResponse {
     },
     // Intermediate messages
     Token(Token),
+    // Embeddings
+    Embed {
+        embedding: Embedding,
+        start: Instant,
+        queued: Instant,
+    },
+    Classify {
+        entities: EntityList,
+        start: Instant,
+        queued: Instant,
+    },
     // Last message
     End {
         token: Token,
@@ -741,6 +1325,12 @@ pub enum InferError {
     ValidationError(#[from] ValidationError),
     #[error("Incomplete generation")]
     IncompleteGeneration,
+    #[error("Failed applying chat template to inputs: {0}")]
+    TemplateError(#[from] minijinja::Error),
+    #[error("Embedding Failure")]
+    EmbeddingFailure,
+    #[error("Classification Failure")]
+    ClassificationFailure,
 }
 
 impl InferError {
@@ -750,6 +1340,9 @@ impl InferError {
             InferError::Overloaded(_) => "overloaded",
             InferError::ValidationError(_) => "validation",
             InferError::IncompleteGeneration => "incomplete_generation",
+            InferError::TemplateError(_) => "template_error",
+            InferError::EmbeddingFailure => "embedding_failure",
+            InferError::ClassificationFailure => "classification_failure",
         }
     }
 }

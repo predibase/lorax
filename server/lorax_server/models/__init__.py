@@ -15,6 +15,7 @@ from lorax_server.models.santacoder import SantaCoder
 from lorax_server.models.seq2seq_lm import Seq2SeqLM
 from lorax_server.models.t5 import T5Sharded
 from lorax_server.utils.sources import get_s3_model_local_dir
+from lorax_server.utils.torch_utils import is_bf16_supported
 
 # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
 # in PyTorch 1.12 and later.
@@ -72,15 +73,24 @@ def get_model(
         raise ValueError(f"Unknown source {source}")
 
     model_type = config_dict["model_type"]
+    is_dtype_provided = dtype is not None
+    dtype = dtype or config_dict.get("torch_dtype", "float16")
 
-    if dtype is None:
-        dtype = torch.float16
-    elif dtype == "float16":
+    if dtype in {"float16", "float32"}:
         dtype = torch.float16
     elif dtype == "bfloat16":
-        dtype = torch.bfloat16
+        if not is_bf16_supported():
+            if is_dtype_provided:
+                raise RuntimeError("bfloat16 is not supported on this device, set --dtype float16.")
+            logger.warning("bfloat16 is not supported on this device, falling back to float16")
+            dtype = torch.float16
+        else:
+            dtype = torch.bfloat16
     else:
-        raise RuntimeError(f"Unknown dtype {dtype}")
+        try:
+            dtype = getattr(torch, dtype)
+        except AttributeError:
+            raise RuntimeError(f"Unknown dtype {dtype}")
 
     if "facebook/galactica" in model_id:
         return GalacticaSharded(
@@ -96,6 +106,15 @@ def get_model(
         from lorax_server.models.flash_bert import FlashBert
 
         return FlashBert(model_id, revision=revision, dtype=dtype)
+
+    if model_type == "distilbert":
+        from lorax_server.models.flash_distilbert import FlashDistilBert
+
+        if config_dict["architectures"][0] == "DistilBertForMaskedLM":
+            return FlashDistilBert(model_id, revision=revision, dtype=dtype)
+
+        if config_dict["architectures"][0] == "DistilBertForTokenClassification":
+            return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
 
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded
@@ -268,6 +287,20 @@ def get_model(
         from lorax_server.models.flash_gemma import FlashGemma
 
         return FlashGemma(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
+    if model_type == "gemma2":
+        from lorax_server.models.flash_gemma2 import FlashGemma2
+
+        return FlashGemma2(
             model_id,
             adapter_id,
             adapter_source,

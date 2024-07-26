@@ -1,100 +1,143 @@
 # coding=utf-8
-# Adapted from
-# https://github.com/huggingface/transformers/blob/v4.28.0/src/transformers/models/qwen2/modeling_qwen2.py
-# Copyright 2024 The Qwen team and the HuggingFace Inc. team.
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
+#
+# This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
+# and OPT implementations in this library. It has been modified from its
+# original forms to accommodate minor architectural differences compared
+# to GPT-NeoX and OPT used by the Meta AI team that trained the model.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from typing import List, Optional, Tuple
 
-# Flash attention imports
-import dropout_layer_norm
 import torch
 import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
+from transformers.configuration_utils import PretrainedConfig
 
-from lorax_server.adapters import AdapterBatchData
-from lorax_server.utils import flash_attn, paged_attention
-from lorax_server.utils.layers import (
-    MultiAdapterHead,
-    PositionRotaryEmbedding,
-    TensorParallelAdapterRowLinear,
+from lorax_server.adapters.weights import AdapterBatchData
+from lorax_server.layers import (
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
-    TensorParallelHead,
-    TensorParallelMultiAdapterLinear,
     TensorParallelRowLinear,
     get_linear,
 )
-from lorax_server.utils.lora import LM_HEAD
+from lorax_server.layers.layernorm import (
+    FastRMSNorm,
+)
+from lorax_server.layers.rotary import PositionRotaryEmbedding
+from lorax_server.layers.tensor_parallel import TensorParallelHead
+from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.layers import MultiAdapterHead, TensorParallelAdapterRowLinear, TensorParallelMultiAdapterLinear
+from lorax_server.utils.lora import (
+    DOWN_PROJ,
+    GATE_PROJ,
+    K_PROJ,
+    LM_HEAD,
+    O_PROJ,
+    Q_PROJ,
+    UP_PROJ,
+    V_PROJ,
+)
 
-ATTN_Q_PROJ = "self_attn.q_proj"
-ATTN_K_PROJ = "self_attn.k_proj"
-ATTN_V_PROJ = "self_attn.v_proj"
-ATTN_O_PROJ = "self_attn.o_proj"
-MLP_GATE_PROJ = "mlp.gate_proj"
-MLP_UP_PROJ = "mlp.up_proj"
-MLP_DOWN_PROJ = "mlp.down_proj"
+
+class Gemma2Config(PretrainedConfig):
+    def __init__(
+        self,
+        vocab_size=256128,
+        hidden_size=3072,
+        intermediate_size=24576,
+        num_hidden_layers=28,
+        num_attention_heads=16,
+        num_key_value_heads=16,
+        head_dim=256,
+        hidden_act="gelu_pytorch_tanh",
+        max_position_embeddings=8192,
+        initializer_range=0.02,
+        rms_norm_eps=1e-6,
+        use_cache=True,
+        pad_token_id=None,
+        bos_token_id=1,
+        eos_token_id=2,
+        tie_word_embeddings=True,
+        rope_theta=10000.0,
+        rope_scaling=None,
+        attention_bias=False,
+        attention_dropout=0.0,
+        **kwargs,
+    ):
+        self.vocab_size = vocab_size
+        self.max_position_embeddings = max_position_embeddings
+        self.hidden_size = hidden_size
+        self.head_dim = head_dim
+        self.intermediate_size = intermediate_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_attention_heads = num_attention_heads
+
+        # for backward compatibility
+        if num_key_value_heads is None:
+            num_key_value_heads = num_attention_heads
+
+        self.num_key_value_heads = num_key_value_heads
+        self.hidden_act = hidden_act
+        self.initializer_range = initializer_range
+        self.rms_norm_eps = rms_norm_eps
+        self.use_cache = use_cache
+        self.rope_theta = rope_theta
+        self.rope_scaling = rope_scaling
+        self.attention_bias = attention_bias
+        self.attention_dropout = attention_dropout
+
+        super().__init__(
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+            tie_word_embeddings=tie_word_embeddings,
+            **kwargs,
+        )
 
 
-class Qwen2RMSNorm(nn.Module):
-    def __init__(self, prefix, weights, eps=1e-6):
-        """
-        QwenRMSNorm is equivalent to LlamaLayerNorm
-        """
-        super().__init__()
+class Gemma2FastRMSNorm(FastRMSNorm):
+    @classmethod
+    def load(cls, prefix, weights, eps=1e-6):
+        dtype = weights.dtype
+        weights.dtype = torch.float32
+        weight = weights.get_tensor(f"{prefix}.weight") + 1
+        weights.dtype = dtype
+        new = cls(weight, eps)
+        new.dtype = dtype
+        return new
 
-        weight = weights.get_tensor(f"{prefix}.weight")
-        self.weight = nn.Parameter(weight)
-        self.variance_epsilon = eps
-
+    # perform the multiplication in full precision and downcast after
     def forward(self, hidden_states, residual=None):
-        if hidden_states.shape[-1] > 8192:
-            if residual is not None:
-                hidden_states += residual
-            residual = hidden_states
-
-            hidden_states = hidden_states.to(torch.float32)
-            variance = hidden_states.pow(2).mean(-1, keepdim=True)
-            hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-
-            # convert into half-precision if necessary
-            if self.weight.dtype in [torch.float16, torch.bfloat16]:
-                hidden_states = hidden_states.to(self.weight.dtype)
-
-            return self.weight * hidden_states, residual
-        else:
-            # faster post attention rms norm
-            normed_hidden_states, res, *rest = dropout_layer_norm.dropout_add_ln_fwd(
-                hidden_states,
-                residual,
-                self.weight,
-                None,
-                None,
-                None,
-                None,
-                None,
-                0.0,
-                self.variance_epsilon,
-                1.0,
-                0,
-                None,
-                False,
-                True,  # Activate RMSNorm
-            )
-            if res is None:
-                res = hidden_states
-
-            return normed_hidden_states, res
+        if residual is not None:
+            hidden_states += residual
+        residual = hidden_states
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        hidden_states = hidden_states * self.weight
+        return hidden_states.to(self.dtype), residual
 
 
 def load_attention(config, prefix, weights, layer_id):
     base_layer = load_attention_multi(config, prefix, weights)
-    head_size = config.hidden_size // config.num_attention_heads
+    head_size = config.head_dim
     return TensorParallelMultiAdapterLinear.load(
         base_layer,
         layer_id,
-        [ATTN_Q_PROJ, ATTN_K_PROJ, ATTN_V_PROJ],
+        [Q_PROJ, K_PROJ, V_PROJ],
         sizes=[
             head_size * config.num_attention_heads,
             head_size * config.num_key_value_heads,
@@ -113,12 +156,11 @@ def load_attention_multi(config, prefix, weights):
             prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
             dim=0,
             weights=weights,
-            bias=True,
+            bias=False,
         )
 
 
 def _load_gqa(config, prefix: str, weights):
-    assert config.hidden_size % config.num_attention_heads == 0
     assert config.num_attention_heads % weights.process_group.size() == 0
 
     weight = weights.get_multi_weights_col(
@@ -127,49 +169,40 @@ def _load_gqa(config, prefix: str, weights):
         dim=0,
     )
 
-    if config.quantize not in ["gptq", "awq"]:
+    if config.quantize not in ["gptq", "awq", "marlin"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
-        head_size = config.hidden_size // config.num_attention_heads
+        head_size = config.head_dim
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
         assert list(weight.shape) == [
             (num_heads + 2 * num_key_value_heads) * head_size,
             config.hidden_size,
-        ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
-    w = [weights.get_sharded(f"{p}.bias", dim=0) for p in [f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"]]
-    bias = torch.cat(w, dim=0).to(dtype=weights.dtype).to(device=weights.device)
-
-    return TensorParallelColumnLinear(get_linear(weight, bias=bias, quantize=config.quantize))
+    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
 
 
-class FlashQwen2Attention(torch.nn.Module):
-    def __init__(
-        self,
-        prefix: str,
-        config,
-        weights,
-        layer_id: int,
-    ):
+class FlashGemma2Attention(torch.nn.Module):
+    def __init__(self, layer_id: int, prefix: str, config, weights, causal: bool, is_sliding: bool):
         super().__init__()
-
-        self.max_past = config.sliding_window if config.sliding_window is not None else -1
-
         self.num_heads = config.num_attention_heads
-        self.hidden_size = config.hidden_size
-        self.head_size = self.hidden_size // self.num_heads
-        self.process_group = weights.process_group
+        self.head_size = config.head_dim
+        self.causal = causal
+        if is_sliding:
+            self.window_size = config.sliding_window
+        else:
+            self.window_size = -1
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=self.head_size,
             base=config.rope_theta,
             device=weights.device,
-            dtype=weights.dtype,
         )
 
-        self.softmax_scale = self.head_size**-0.5
+        # self.softmax_scale = self.head_size**-0.5
+        self.softmax_scale = config.query_pre_attn_scalar**-0.5
 
         if self.num_heads % weights.process_group.size() != 0:
             raise ValueError(
@@ -189,7 +222,7 @@ class FlashQwen2Attention(torch.nn.Module):
                 bias=False,
             ),
             layer_id,
-            ATTN_O_PROJ,
+            O_PROJ,
             process_group=weights.process_group,
         )
         self.num_groups = self.num_heads // self.num_key_value_heads
@@ -208,7 +241,6 @@ class FlashQwen2Attention(torch.nn.Module):
         slots,
         input_lengths,
         max_s,
-        prefill_cache_indices,
         adapter_data,
     ):
         qkv = self.query_key_value(hidden_states, adapter_data)
@@ -222,15 +254,9 @@ class FlashQwen2Attention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         kv = kv.view(-1, 2, self.num_key_value_heads, self.head_size)
 
-        self.rotary_emb(query, cos, sin)
-        self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
+        self.rotary_emb(query, torch.select(kv, dim=1, index=0), cos, sin)
 
-        if prefill_cache_indices is not None:
-            kv_to_cache = kv[prefill_cache_indices]
-        else:
-            kv_to_cache = kv
-
-        paged_attention.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
         # output tensor
         attn_output = torch.empty_like(query)
@@ -246,11 +272,11 @@ class FlashQwen2Attention(torch.nn.Module):
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
-                window_size_left=self.max_past,
+                causal=self.causal,
+                window_size_left=self.window_size,
             )
         # Decode
         else:
-            # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
             paged_attention.attention(
                 attn_output,
                 query,
@@ -266,8 +292,8 @@ class FlashQwen2Attention(torch.nn.Module):
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
-class Qwen2MLP(nn.Module):
-    def __init__(self, prefix, config, weights, layer_id):
+class Gemma2MLP(nn.Module):
+    def __init__(self, layer_id, prefix, config, weights):
         super().__init__()
         act = config.hidden_act
         self.act = (
@@ -275,7 +301,7 @@ class Qwen2MLP(nn.Module):
             if "gelu" not in act
             else lambda x: torch.nn.functional.gelu(
                 x,
-                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
+                approximate=("tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none"),
             )
         )
         # Fuse gate and up proj
@@ -289,11 +315,8 @@ class Qwen2MLP(nn.Module):
         self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
             gate_up_proj,
             layer_id,
-            [MLP_GATE_PROJ, MLP_UP_PROJ],
-            sizes=[
-                config.intermediate_size // 2,
-                config.intermediate_size // 2,
-            ],
+            [GATE_PROJ, UP_PROJ],
+            sizes=[config.intermediate_size, config.intermediate_size],
             process_group=weights.process_group,
         )
 
@@ -305,7 +328,7 @@ class Qwen2MLP(nn.Module):
                 bias=False,
             ),
             layer_id,
-            MLP_DOWN_PROJ,
+            DOWN_PROJ,
             process_group=weights.process_group,
         )
         self.intermediate_size = config.intermediate_size // weights.process_group.size()
@@ -316,23 +339,34 @@ class Qwen2MLP(nn.Module):
         return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
-class FlashQwen2Layer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+class FlashGemma2Layer(nn.Module):
+    def __init__(self, layer_id, prefix, config, weights, causal: bool, is_sliding: bool):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
-        self.self_attn = FlashQwen2Attention(
+        self.self_attn = FlashGemma2Attention(
+            layer_id=layer_id,
             prefix=f"{prefix}.self_attn",
             config=config,
             weights=weights,
-            layer_id=layer_id,
+            causal=causal,
+            is_sliding=is_sliding,
         )
-        self.mlp = Qwen2MLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
+        self.mlp = Gemma2MLP(layer_id=layer_id, prefix=f"{prefix}.mlp", config=config, weights=weights)
 
-        self.input_layernorm = Qwen2RMSNorm(
+        self.input_layernorm = Gemma2FastRMSNorm.load(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
         )
-        self.post_attention_layernorm = Qwen2RMSNorm(
+        self.post_attention_layernorm = Gemma2FastRMSNorm.load(
             prefix=f"{prefix}.post_attention_layernorm",
+            weights=weights,
+            eps=config.rms_norm_eps,
+        )
+        self.pre_feedforward_layernorm = Gemma2FastRMSNorm.load(
+            prefix=f"{prefix}.pre_feedforward_layernorm",
+            weights=weights,
+            eps=config.rms_norm_eps,
+        )
+        self.post_feedforward_layernorm = Gemma2FastRMSNorm.load(
+            prefix=f"{prefix}.post_feedforward_layernorm",
             weights=weights,
             eps=config.rms_norm_eps,
         )
@@ -349,7 +383,6 @@ class FlashQwen2Layer(nn.Module):
         slots,
         input_lengths,
         max_s,
-        prefill_cache_indices,
         adapter_data,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
@@ -365,39 +398,42 @@ class FlashQwen2Layer(nn.Module):
             slots,
             input_lengths,
             max_s,
-            prefill_cache_indices,
             adapter_data,
         )
 
         # faster post attention rms norm
-        normed_attn_res_output, attn_res = self.post_attention_layernorm(attn_output, res)
+        normed_attn_res_output, _ = self.post_attention_layernorm(attn_output)
+        normed_attn_res_output = normed_attn_res_output + res
+        res = normed_attn_res_output
 
-        mlp_output = self.mlp(normed_attn_res_output, adapter_data)
+        pre_normed, _ = self.pre_feedforward_layernorm(normed_attn_res_output)
+        mlp_output = self.mlp(pre_normed, adapter_data)
+        post_hidden_states, _ = self.post_feedforward_layernorm(mlp_output)
 
-        return mlp_output, attn_res
+        return post_hidden_states, normed_attn_res_output
 
 
-class FlashQwen2Model(torch.nn.Module):
-    def __init__(self, config, weights):
+class FlashGemma2Model(torch.nn.Module):
+    def __init__(self, prefix, config, weights, causal: bool):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
-                FlashQwen2Layer(
+                FlashGemma2Layer(
                     layer_id,
-                    config,
-                    weights,
+                    prefix=f"{prefix}.layers.{layer_id}",
+                    config=config,
+                    weights=weights,
+                    causal=causal,
+                    is_sliding=layer_id % 2 == 0,
                 )
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = Qwen2RMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
-
-        self.gradient_checkpointing = False
+        self.norm = Gemma2FastRMSNorm.load(prefix=f"{prefix}.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
@@ -405,7 +441,7 @@ class FlashQwen2Model(torch.nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        inputs_embeds: torch.Tensor,
         position_ids: torch.Tensor,
         cu_seqlen_prefill: Optional[torch.Tensor],
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
@@ -413,10 +449,9 @@ class FlashQwen2Model(torch.nn.Module):
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
         max_s: int,
-        prefill_cache_indices: Optional[torch.Tensor],
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
-        hidden_states = self.embed_tokens(input_ids)
+        hidden_states = inputs_embeds
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
@@ -435,7 +470,6 @@ class FlashQwen2Model(torch.nn.Module):
                 slots,
                 input_lengths,
                 max_s,
-                prefill_cache_indices,
                 adapter_data,
             )
 
@@ -444,23 +478,30 @@ class FlashQwen2Model(torch.nn.Module):
         return hidden_states
 
 
-class FlashQwen2ForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+class FlashGemma2ForCausalLM(torch.nn.Module):
+    def __init__(self, prefix, config, weights, causal: bool):
         super().__init__()
 
-        self.model = FlashQwen2Model(config, weights)
+        embed_norm = config.hidden_size**0.5
+        if not prefix:
+            prefix = "model"
+        else:
+            prefix = f"{prefix}.model"
+
+        self.embed_tokens = TensorParallelEmbedding(prefix=f"{prefix}.embed_tokens", weights=weights)
+        self.embed_tokens.weight *= embed_norm
+
+        self.model = FlashGemma2Model(prefix=prefix, config=config, weights=weights, causal=causal)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=(f"{prefix}.embed_tokens" if config.tie_word_embeddings else f"{prefix}.lm_head"),
                 weights=weights,
             ),
             0,
             LM_HEAD,
             process_group=weights.process_group,
         )
-
-        self.max_past = config.sliding_window
 
     def forward(
         self,
@@ -476,17 +517,9 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        if prefill_cache_indices is not None:
-            # Slots also need to be sliced as it has the same size as the whole kv tensor
-            slots = slots[prefill_cache_indices]
-        elif self.max_past is not None:
-            # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
-            # kernel requires the true values
-            max_s = min(self.max_past, max_s)
-            input_lengths = torch.clamp(input_lengths, max=self.max_past)
-
+        input_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
-            input_ids,
+            input_embeds,
             position_ids,
             cu_seqlen_prefill,
             kv_cache,
@@ -494,7 +527,6 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             slots,
             input_lengths,
             max_s,
-            prefill_cache_indices,
             adapter_data,
         )
         if lm_head_indices is not None:
