@@ -217,12 +217,12 @@ def _load_gqa(config, prefix: str, weights):
         ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
     quantize = None
-    ignored_layers = set(config.quantization_config.get('ignored_layers', []))
     # check if quantization is fp8 and either of the fused layers is not ignored
     # typically, either all qkv will be quantized or none so just check for one
-    if config.quantize == 'fp8' and hasattr(config, 'quantization_config') and \
-        f'{prefix}.q_proj' not in ignored_layers:
-        quantize = 'fp8'
+    if config.quantize == 'fp8' and hasattr(config, 'quantization_config'):
+        ignored_layers = set(config.quantization_config.get('ignored_layers', []))
+        if f'{prefix}.q_proj' not in ignored_layers:
+            quantize = 'fp8'
     return TensorParallelColumnLinear(
         get_linear(
             weight,
