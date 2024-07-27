@@ -182,7 +182,13 @@ def load_attention_multi(config, prefix, weights):
     if config.num_attention_heads != config.num_key_value_heads:
         return _load_gqa(config, prefix, weights)
     else:
-        return
+        return TensorParallelColumnLinear.load_multi(
+            config,
+            prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
+            dim=0,
+            weights=weights,
+            bias=False,
+        )
 
 
 def _load_gqa(config, prefix: str, weights):
