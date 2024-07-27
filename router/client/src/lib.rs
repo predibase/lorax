@@ -11,7 +11,8 @@ pub use pb::generate::v1::InfoResponse as ShardInfo;
 pub use pb::generate::v1::{
     AdapterParameters, AlternativeTokens, Batch, CachedBatch, DownloadAdapterResponse, Embedding,
     Entity, EntityList, FinishReason, GeneratedText, Generation, MajoritySignMethod, MergeStrategy,
-    NextTokenChooserParameters, NextTokens, PrefillTokens, Request, StoppingCriteriaParameters,
+    NextTokenChooserParameters, NextTokens, PrefillTokens, PreloadedAdapter, Request,
+    StoppingCriteriaParameters, TokenizedInputs,
 };
 pub use sharded_client::ShardedClient;
 use thiserror::Error;

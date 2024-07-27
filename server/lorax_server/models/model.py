@@ -7,15 +7,17 @@ import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
 
-from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
+from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import AdapterParameters, AdapterSource, InfoResponse
 from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
+from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -63,13 +65,16 @@ class Model(ABC):
         self.target_to_layer = self.adapter_target_to_layer()
         self.loaded_adapters = set()
         self.static_adapter_id = adapter_id
+        self.preloaded_adapter_indices = set()
+        self.preloaded_adapter_memory_fractions = {}
+        self.preloaded_adapters = []
 
         self.trust_remote_code = trust_remote_code
 
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
         if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
-            download_adapter(adapter_id, adapter_source, api_token=None)
+            download_adapter_weights(adapter_id, adapter_source, api_token=None)
             self.load_adapter(
                 AdapterParameters(adapter_ids=[adapter_id]),
                 adapter_source,
@@ -90,7 +95,14 @@ class Model(ABC):
             dtype=str(self.dtype),
             device_type=self.device.type,
             window_size=self.sliding_window,
+            block_size=self.block_size,
+            speculate=get_speculative_tokens(),
+            preloaded_adapters=self.preloaded_adapters,
         )
+
+    @property
+    def block_size(self) -> int:
+        return 0
 
     @property
     def sliding_window_blocks(self) -> Optional[int]:
@@ -185,6 +197,18 @@ class Model(ABC):
             default=0,
         )
 
+    def register_preloaded_adapters(
+        self, preloaded_adapters: List[generate_pb2.PreloadedAdapter], adapter_memory_fractions: List[float]
+    ):
+        self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
+        self.preloaded_adapter_memory_fractions.update(
+            {
+                adapter.adapter_parameters.adapter_ids[0]: memory_fraction
+                for adapter, memory_fraction in zip(preloaded_adapters, adapter_memory_fractions)
+            }
+        )
+        self.preloaded_adapters.extend(preloaded_adapters)
+
     def load_adapter(
         self,
         adapter_parameters: AdapterParameters,
@@ -275,11 +299,15 @@ class Model(ABC):
         adapter_parameters: AdapterParameters,
         adapter_source: AdapterSource,
         adapter_index: int,
-    ):
+    ) -> bool:
         """Offloads the adapter weights from GPU to CPU or disk."""
         if adapter_index not in self.loaded_adapters:
             # Adapter already offloaded
-            return
+            return False
+
+        if adapter_index in self.preloaded_adapter_indices:
+            # Adapter was preloaded and should not be offloaded
+            return False
 
         if not self.supports_adapter_loading:
             raise ValueError("This model does not support adapter loading.")
@@ -297,3 +325,4 @@ class Model(ABC):
                 self.layer_to_adapter_weights[layer_name].remove_adapter(adapter_index)
 
         self.loaded_adapters.remove(adapter_index)
+        return True

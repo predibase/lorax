@@ -1,5 +1,7 @@
 import asyncio
+import concurrent.futures
 import os
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -7,15 +9,20 @@ import torch
 from grpc import aio
 from grpc_reflection.v1alpha import reflection
 from loguru import logger
+from tqdm import tqdm
 
-from lorax_server.adapters.utils import download_adapter
 from lorax_server.cache import Cache
 from lorax_server.interceptor import ExceptionInterceptor
 from lorax_server.models import Model, get_model
 from lorax_server.pb import generate_pb2, generate_pb2_grpc
 from lorax_server.tracing import UDSOpenTelemetryAioServerInterceptor
-from lorax_server.utils import HUB, LOCAL, PBASE, S3, map_pbase_model_id_to_s3
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, is_base_model
+from lorax_server.utils import PBASE, S3, map_pbase_model_id_to_s3
+from lorax_server.utils.adapter import (
+    adapter_source_enum_to_string,
+    download_adapter,
+    enum_string_to_adapter_source,
+    is_base_model,
+)
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_speculative_tokens
 
@@ -155,41 +162,19 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
 
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
-        adapter_parameters = request.adapter_parameters
-        if is_base_model(adapter_parameters):
-            logger.info("No adapter to download for base model. Skipping.")
-            return generate_pb2.DownloadAdapterResponse(downloaded=False)
-
-        adapter_bytes = 0
-        api_token = request.api_token
-        adapter_source = _adapter_source_enum_to_string(request.adapter_source)
-        for adapter_id in adapter_parameters.adapter_ids:
-            if adapter_id == BASE_MODEL_ADAPTER_ID:
-                logger.info("No adapter to download for base model. Skipping.")
-                continue
-
-            adapter_bytes += download_adapter(adapter_id, adapter_source, api_token)
-
-        adapter_memory_size = self.model.adapter_memory_size()
-        if adapter_memory_size > 0:
-            logger.info(
-                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes "
-                f"(reservation: {adapter_memory_size} bytes)"
+        if (
+            len(request.adapter_parameters.adapter_ids) == 1
+            and request.adapter_parameters.adapter_ids[0] in self.model.preloaded_adapter_memory_fractions
+        ):
+            logger.info("Adapter is already preloaded. Skipping.")
+            return generate_pb2.DownloadAdapterResponse(
+                downloaded=True,
+                memory_fraction=self.model.preloaded_adapter_memory_fractions[
+                    request.adapter_parameters.adapter_ids[0]
+                ],
             )
-            adapter_memory_fraction = adapter_bytes / adapter_memory_size
-            if adapter_memory_fraction > 1:
-                raise ValueError(
-                    f"Adapter {adapter_id} is larger than adapter memory reservation: "
-                    f"{adapter_bytes} / {adapter_memory_size} bytes"
-                )
-        else:
-            # Assume 0.0 memory fraction if adapter memory size is not set
-            logger.info(
-                f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)"
-            )
-            adapter_memory_fraction = 0.0
 
-        return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
+        return download_adapter(request, self.model)
 
     async def LoadAdapter(self, request: generate_pb2.LoadAdapterRequest, context):
         adapter_parameters = request.adapter_parameters
@@ -197,8 +182,12 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             logger.info("No adapter to load for base model. Skipping.")
             return generate_pb2.LoadAdapterResponse(loaded=False)
 
+        if request.adapter_index in self.model.loaded_adapters:
+            logger.info(f"Adapter {request.adapter_index} is already loaded. Skipping.")
+            return generate_pb2.LoadAdapterResponse(loaded=True)
+
         try:
-            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+            adapter_source = adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
             api_token = request.api_token
 
@@ -224,15 +213,16 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         try:
             adapter_idx = request.adapter_index
-            adapter_source = _adapter_source_enum_to_string(request.adapter_source)
+            adapter_source = adapter_source_enum_to_string(request.adapter_source)
             adapter_index = request.adapter_index
-            self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
 
-            # Ensure there is enough memory for the next adapter
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize(self.model.device)
+            offloaded = self.model.offload_adapter(adapter_idx, adapter_source, adapter_index)
+            if offloaded:
+                # Ensure there is enough memory for the next adapter
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize(self.model.device)
 
-            return generate_pb2.OffloadAdapterResponse(offloaded=True)
+            return generate_pb2.OffloadAdapterResponse(offloaded=offloaded)
         except Exception:
             logger.exception("Error when offloading adapter")
             raise
@@ -251,10 +241,12 @@ def serve(
     source: str,
     adapter_source: str,
     speculative_tokens: int,
+    preloaded_adapter_ids: List[str],
 ):
     async def serve_inner(
         model_id: str,
         adapter_id: str,
+        adapter_source: str,
         revision: Optional[str],
         sharded: bool,
         quantize: Optional[str],
@@ -262,6 +254,7 @@ def serve(
         dtype: Optional[str],
         trust_remote_code: bool,
         speculative_tokens: int,
+        preloaded_adapter_ids: List[str],
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
@@ -303,6 +296,74 @@ def serve(
             except ImportError:
                 pass
 
+        if preloaded_adapter_ids:
+            logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
+
+            _adapter_source = enum_string_to_adapter_source(adapter_source)
+            adapter_preload_api_token = None
+            if _adapter_source == generate_pb2.AdapterSource.PBASE:
+                # Derive the predibase token from an env variable if we are using predibase adapters.
+                adapter_preload_api_token = os.getenv("PREDIBASE_API_TOKEN")
+
+            preloaded_adapters = [
+                generate_pb2.PreloadedAdapter(
+                    adapter_parameters=generate_pb2.AdapterParameters(adapter_ids=[adapter_id]),
+                    adapter_source=_adapter_source,
+                    adapter_index=i + 1,
+                )
+                for i, adapter_id in enumerate(preloaded_adapter_ids)
+            ]
+
+            download_requests = [
+                generate_pb2.DownloadAdapterRequest(
+                    adapter_parameters=adapter_info.adapter_parameters,
+                    adapter_source=adapter_info.adapter_source,
+                    api_token=adapter_preload_api_token,
+                )
+                for adapter_info in preloaded_adapters
+            ]
+            models = [model] * len(download_requests)
+
+            # Download adapters
+            t0 = time.time()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                download_responses = list(
+                    tqdm(executor.map(download_adapter, download_requests, models), total=len(download_requests))
+                )
+            logger.info(f"Downloaded {len(download_requests)} adapters in {time.time() - t0:.2f}s")
+
+            if not all(download_responses):
+                raise RuntimeError("Failed to download all adapters")
+
+            def load_adapter(adapter_info: generate_pb2.PreloadedAdapter) -> bool:
+                _adapter_source = adapter_source_enum_to_string(adapter_info.adapter_source)
+                _adapter_id = adapter_info.adapter_parameters.adapter_ids[0]
+                if _adapter_source == PBASE:
+                    _adapter_id = map_pbase_model_id_to_s3(_adapter_id, api_token=adapter_preload_api_token)
+                    _adapter_source = S3
+
+                model.load_adapter(
+                    generate_pb2.AdapterParameters(adapter_ids=[_adapter_id]),
+                    _adapter_source,
+                    adapter_index=adapter_info.adapter_index,
+                    api_token=None,
+                    dynamic=True,
+                )
+                return True
+
+            # Load adapters
+            t0 = time.time()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                responses = list(tqdm(executor.map(load_adapter, preloaded_adapters), total=len(preloaded_adapters)))
+
+            if not all(responses):
+                raise RuntimeError("Failed to preload all adapters")
+
+            logger.info(f"Preloaded {len(preloaded_adapters)} adapters in {time.time() - t0:.2f}s")
+
+            adapter_memory_fractions = [r.memory_fraction for r in download_responses]
+            model.register_preloaded_adapters(preloaded_adapters, adapter_memory_fractions)
+
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
         if speculative_tokens > 0:
@@ -342,6 +403,7 @@ def serve(
         serve_inner(
             model_id,
             adapter_id,
+            adapter_source,
             revision,
             sharded,
             quantize,
@@ -349,19 +411,6 @@ def serve(
             dtype,
             trust_remote_code,
             speculative_tokens,
+            preloaded_adapter_ids,
         )
     )
-
-
-def _adapter_source_enum_to_string(adapter_source: int) -> str:
-    # TODO(travis): refactor this to be less hacky
-    if adapter_source == generate_pb2.AdapterSource.HUB:
-        return HUB
-    elif adapter_source == generate_pb2.AdapterSource.S3:
-        return S3
-    elif adapter_source == generate_pb2.AdapterSource.LOCAL:
-        return LOCAL
-    elif adapter_source == generate_pb2.AdapterSource.PBASE:
-        return PBASE
-    else:
-        raise ValueError(f"Unknown adapter source {adapter_source}")

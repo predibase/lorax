@@ -1,7 +1,7 @@
 import torch
 
 from lorax_server.adapters.medusa import BatchMedusaWeights, MedusaConfig
-from lorax_server.adapters.utils import download_adapter
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import AdapterBatchMetadata
 from lorax_server.models.causal_lm import CausalLM
 from lorax_server.utils.adapter import load_module_map
@@ -13,7 +13,7 @@ adapter_id = "predibase/Mistral-7B-Instruct-v0.2-medusa"
 
 
 def test_batched_medusa_weights(default_causal_lm: CausalLM):
-    download_adapter(adapter_id, HUB)
+    download_adapter_weights(adapter_id, HUB)
 
     module_map, medusa_config, _, _ = load_module_map(
         model_id, adapter_id, HUB, tuple(), None

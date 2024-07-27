@@ -8,8 +8,8 @@ if SYSTEM == "xpu":
     import intel_extension_for_pytorch as ipex
 else:
     try:
-        import vllm._custom_ops as ops
         import torch
+        import vllm._custom_ops as ops
     except Exception as e:
         raise ImportError(
             f"Could not import vllm paged attention. Make sure your installation is correct. Complete error: {e}"

@@ -5,8 +5,9 @@ use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{
-    AdapterParameters, AlternativeToken, ClassifyRequest, ClassifyResponse, EmbedRequest,
-    EmbedResponse, Entity, Entry, Token,
+    AdapterParameters, AlternativeToken, ChatTemplate, ChatTemplateVersions, ClassifyRequest,
+    ClassifyResponse, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
+    TextMessage, Token, TokenizerConfigToken,
 };
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
@@ -16,9 +17,12 @@ use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
     Batch, CachedBatch, ClientError, Embedding, EntityList, GeneratedText, Generation,
-    PrefillTokens, ShardedClient,
+    PrefillTokens, PreloadedAdapter, ShardedClient,
 };
+use minijinja::{Environment, ErrorKind, Template};
+use minijinja_contrib::pycompat;
 use nohash_hasher::IntMap;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -30,6 +34,91 @@ use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireErro
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Span};
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub(crate) struct ChatTemplateInputs<'a> {
+    messages: Vec<TextMessage>,
+    bos_token: Option<&'a str>,
+    eos_token: Option<&'a str>,
+    add_generation_prompt: bool,
+    tools: Option<&'a str>,
+    tools_prompt: Option<&'a str>,
+}
+
+/// Raise a exception (custom function) used in the chat templates
+fn raise_exception(err_text: String) -> Result<String, minijinja::Error> {
+    Err(minijinja::Error::new(ErrorKind::SyntaxError, err_text))
+}
+
+#[derive(Clone)]
+struct ChatTemplateRenderer {
+    template: Template<'static, 'static>,
+    bos_token: Option<String>,
+    eos_token: Option<String>,
+    use_default_tool_template: bool,
+}
+
+impl ChatTemplateRenderer {
+    fn new(
+        template: String,
+        bos_token: Option<TokenizerConfigToken>,
+        eos_token: Option<TokenizerConfigToken>,
+    ) -> Self {
+        let mut env = Box::new(Environment::new());
+        // enable things like .strip() or .capitalize()
+        env.set_unknown_method_callback(pycompat::unknown_method_callback);
+        let template_str = template.into_boxed_str();
+        env.add_function("raise_exception", raise_exception);
+
+        // TODO(travis): revisit when we add tool usage
+        // check if contains the tools variable within the template
+        // let use_default_tool_template =
+        //     !template_str.as_ref().replace(' ', "").contains("{{tools}}");
+        let use_default_tool_template = false;
+
+        // leaking env and template_str as read-only, static resources for performance.
+        let template = Box::leak(env)
+            .template_from_str(Box::leak(template_str))
+            .unwrap();
+
+        Self {
+            template,
+            bos_token: bos_token.map(|token| token.as_str().to_string()),
+            eos_token: eos_token.map(|token| token.as_str().to_string()),
+            use_default_tool_template,
+        }
+    }
+
+    fn apply(
+        &self,
+        mut messages: Vec<Message>,
+        // grammar_with_prompt: Option<(GrammarType, String)>,
+    ) -> Result<String, InferError> {
+        // TODO(travis): revisit when we add tool usage
+        // if self.use_default_tool_template {
+        //     if let Some(last_message) = messages.last_mut() {
+        //         if let Some((GrammarType::Json(tools), tool_prompt)) = grammar_with_prompt {
+        //             last_message.content.push(MessageChunk::Text {
+        //                 text: format!("\n---\n{}\n{}", tool_prompt, tools),
+        //             });
+        //         }
+        //     }
+        // }
+
+        let messages: Vec<TextMessage> = messages.into_iter().map(|c| c.into()).collect();
+
+        self.template
+            .render(ChatTemplateInputs {
+                messages,
+                bos_token: self.bos_token.as_deref(),
+                eos_token: self.eos_token.as_deref(),
+                add_generation_prompt: true,
+                tools: None,
+                tools_prompt: None,
+            })
+            .map_err(InferError::TemplateError)
+    }
+}
+
 /// Inference struct
 #[derive(Clone)]
 pub struct Infer {
@@ -39,6 +128,8 @@ pub struct Infer {
     adapter_scheduler: AdapterScheduler,
     /// Maps adapter ID to a unique index
     adapter_to_index: Arc<Mutex<HashMap<AdapterParameters, u32>>>,
+    /// Chat template
+    chat_template: Option<ChatTemplateRenderer>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
 }
@@ -59,6 +150,10 @@ impl Infer {
         window_size: Option<u32>,
         generation_health: Arc<AtomicBool>,
         eager_prefill: bool,
+        tokenizer_config: HubTokenizerConfig,
+        block_size: u32,
+        speculate: u32,
+        preloaded_adapters: Vec<PreloadedAdapter>,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -69,20 +164,50 @@ impl Infer {
             client.clone(),
             adapter_event.clone(),
             requires_padding,
-            16,
+            block_size,
             window_size,
             max_active_adapters,
             adapter_cycle_time_s,
+            speculate,
+            max_batch_total_tokens,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
-        let adapter_to_index = Arc::new(Mutex::new(HashMap::from([(
+        let mut adapter_to_index = HashMap::from([(
             AdapterParameters {
                 adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
                 ..Default::default()
             },
             0,
-        )])));
+        )]);
+
+        // Pre-populate the adapter_to_index with the preloaded adapters
+        for adapter in preloaded_adapters.iter() {
+            if let Some(adapter_parameters) = &adapter.adapter_parameters {
+                adapter_to_index.insert(
+                    AdapterParameters {
+                        adapter_ids: adapter_parameters.adapter_ids.clone(),
+                        ..Default::default()
+                    },
+                    adapter.adapter_index,
+                );
+            }
+        }
+
+        let adapter_to_index = Arc::new(Mutex::new(adapter_to_index));
+
+        let chat_template = tokenizer_config
+            .chat_template
+            .and_then(|t| match t {
+                ChatTemplateVersions::Single(template) => Some(template),
+                ChatTemplateVersions::Multiple(templates) => templates
+                    .into_iter()
+                    .find(|t| t.name == "default")
+                    .map(|t| t.template),
+            })
+            .map(|t| {
+                ChatTemplateRenderer::new(t, tokenizer_config.bos_token, tokenizer_config.eos_token)
+            });
 
         // Spawn batching background task that contains all the inference logic
         tokio::spawn(batching_task(
@@ -104,6 +229,7 @@ impl Infer {
             validation,
             adapter_scheduler,
             adapter_to_index,
+            chat_template,
             limit_concurrent_requests: semaphore,
         }
     }
@@ -182,6 +308,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -210,6 +337,25 @@ impl Infer {
         // Return Encoding
         Ok(encoding.map(|(encoding, _)| encoding))
     }
+
+    /// Apply the chat template to the chat request
+    #[instrument(skip_all)]
+    pub(crate) fn apply_chat_template(
+        &self,
+        messages: Vec<Message>,
+        // grammar_with_prompt: Option<(GrammarType, String)>,
+    ) -> Result<String, InferError> {
+        self.chat_template
+            .as_ref()
+            .ok_or_else(|| InferError::TemplateError(ErrorKind::TemplateNotFound.into()))?
+            .apply(messages)
+            .map_err(|e| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "template");
+                tracing::error!("{e}");
+                e
+            })
+    }
+
     /// Add a new request to the queue and return a InferResponse
     #[instrument(skip(self))]
     pub(crate) async fn generate(
@@ -349,13 +495,14 @@ impl Infer {
         //         err
         //     })?;
 
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidEmbedRequest {
-            inputs: inputs,
+            inputs,
+            tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
@@ -373,6 +520,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -446,13 +594,14 @@ impl Infer {
             None,
         );
 
-        let (inputs, input_length) = self
+        let (inputs, tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidClassifyRequest {
-            inputs: inputs,
+            inputs,
+            tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
@@ -470,6 +619,7 @@ impl Infer {
                 temp_span: None,
                 queue_time: Instant::now(),
                 batch_time: None,
+                block_allocation: None,
             },
         );
 
@@ -1175,6 +1325,8 @@ pub enum InferError {
     ValidationError(#[from] ValidationError),
     #[error("Incomplete generation")]
     IncompleteGeneration,
+    #[error("Failed applying chat template to inputs: {0}")]
+    TemplateError(#[from] minijinja::Error),
     #[error("Embedding Failure")]
     EmbeddingFailure,
     #[error("Classification Failure")]
@@ -1188,6 +1340,7 @@ impl InferError {
             InferError::Overloaded(_) => "overloaded",
             InferError::ValidationError(_) => "validation",
             InferError::IncompleteGeneration => "incomplete_generation",
+            InferError::TemplateError(_) => "template_error",
             InferError::EmbeddingFailure => "embedding_failure",
             InferError::ClassificationFailure => "classification_failure",
         }
