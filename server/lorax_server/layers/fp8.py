@@ -10,29 +10,28 @@ def apply_fp8_linear(
     input: torch.Tensor,
     qweight: torch.Tensor,
     weight_scale: torch.Tensor,
-    input_scale: torch.Tensor,
+    input_scale: Optional[torch.Tensor] = None,
+    input_scale_ub: Optional[torch.Tensor] = None,
     qbias: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    # ops.scaled_fp8_quant supports both dynamic and static quant.
-    #   If dynamic, layer.input_scale is None and x_scale computed from x.
-    #   If static, layer.input_scale is scalar and x_scale is input_scale.
 
-    qinput, x_scale = ops.scaled_fp8_quant(input,
-                                            input_scale,
-                                            batch_dim_padding=17)
+    qinput, x_scale = ops.scaled_fp8_quant(
+        input,
+        input_scale,
+        scale_ub=input_scale_ub,
+        use_per_token_if_dynamic=False
+    )
 
-    # Fused GEMM_DQ -- note we padded the input above because
-    # torch._scaled_mm is more performant for matrices with
-    # batch dimension > 16. Note that this could change
-    # in the future.
-    output, _ = torch._scaled_mm(qinput,
-                                    qweight,
-                                    out_dtype=input.dtype,
-                                    scale_a=x_scale,
-                                    scale_b=weight_scale,
-                                    bias=qbias)
+    output = ops.cutlass_scaled_mm(
+        qinput,
+        qweight,
+        out_dtype=input.dtype,
+        scale_a=x_scale,
+        scale_b=weight_scale,
+        bias=qbias
+    )
 
-    return torch.narrow(output, 0, 0, input.shape[0])
+    return output
 
 class Fp8Linear(torch.nn.Module):
     def __init__(
@@ -45,8 +44,8 @@ class Fp8Linear(torch.nn.Module):
         super().__init__()
         self.dtype = weight.dtype
         self.qweight = weight.t()
+        self.weight_scale = weight_scale.view(1, -1).contiguous()
         self.qbias = bias if bias is not None else None
-        self.weight_scale = weight_scale
         self.input_scale = input_scale
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:

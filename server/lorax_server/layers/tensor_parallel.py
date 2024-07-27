@@ -37,7 +37,7 @@ class TensorParallelHead(SuperLayer):
             should_gather = False
 
         # GPTQ,AWQ,EETQ don't quantize heads (nor embeddings)
-        if config.quantize in ["gptq", "awq", "eetq"]:
+        if config.quantize in ["gptq", "awq", "eetq", "fp8"]:
             quantize = None
         else:
             quantize = config.quantize
@@ -110,12 +110,24 @@ class TensorParallelColumnLinear(SuperLayer):
     def load_multi(cls, config, prefixes: List[str], weights, bias: bool, dim: int):
         weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 
+        input_scale, weight_scale = None, None
+        if config.quantize == 'fp8':
+            weight, input_scale, weight_scale = weight
+
         if bias:
             b = [weights.get_sharded(f"{p}.bias", dim=0) for p in prefixes]
             bias = torch.cat(b, dim=dim)
         else:
             bias = None
-        linear = get_linear(weight, bias, config.quantize)
+
+        linear = get_linear(
+            weight,
+            bias,
+            config.quantize,
+            weight_scale=weight_scale,
+            input_scale=input_scale
+        )
+
         return cls(linear)
 
 
