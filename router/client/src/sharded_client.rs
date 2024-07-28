@@ -1,4 +1,6 @@
-use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList};
+use crate::pb::generate::v1::{
+    ClassifyPredictionList, EmbedResponse, Embedding, Entity, EntityList,
+};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -180,19 +182,24 @@ impl ShardedClient {
             .iter_mut()
             .map(|client| Box::pin(client.classify(batch.clone())))
             .collect();
-        let results: Result<Vec<Vec<EntityList>>> = join_all(futures).await.into_iter().collect();
-        let flat_results: Vec<EntityList> = results?.into_iter().flatten().collect();
-        tracing::info!("Results: {:?}", flat_results);
-        flat_results.iter().for_each(|entity_list| {
-            tracing::info!(
-                "input string: {:?}",
-                decode_tokens(
-                    entity_list.input_ids.clone(),
-                    self.tokenizer.as_ref().unwrap()
-                )
-            )
-        });
-        Ok(flat_results)
+        let results: Result<Vec<Vec<ClassifyPredictionList>>> =
+            join_all(futures).await.into_iter().collect();
+
+        let flat_results: Vec<ClassifyPredictionList> = results?.into_iter().flatten().collect();
+        let entity_lists: Vec<EntityList> = flat_results
+            .into_iter()
+            .map(|prediction| {
+                let entities =
+                    format_ner_output(prediction.clone(), self.tokenizer.as_ref().unwrap());
+                EntityList {
+                    request_id: prediction.request_id,
+                    entities,
+                    input_ids: prediction.input_ids,
+                }
+            })
+            .collect();
+        tracing::info!("Results: {:?}", entity_lists);
+        Ok(entity_lists)
     }
 
     pub async fn download_adapter(
@@ -289,4 +296,68 @@ fn merge_generations(
 fn decode_tokens(input_ids: Vec<u32>, tokenizer: &Tokenizer) -> Result<String> {
     let tokens = tokenizer.decode(&input_ids, false).unwrap();
     Ok(tokens)
+}
+
+fn format_ner_output(
+    classify_prediction_list: ClassifyPredictionList,
+    tokenizer: &Tokenizer,
+) -> Vec<Entity> {
+    let input_ids =
+        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
+    let predicted_token_class =
+        &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
+    let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
+    let tokens: Vec<String> = tokenizer
+        .decode(input_ids, true)
+        .unwrap()
+        .split_whitespace()
+        .map(String::from)
+        .collect();
+
+    let mut ner_results = Vec::new();
+    let mut current_entity: Option<Entity> = None;
+    for (i, ((token, token_class), score)) in tokens
+        .iter()
+        .zip(predicted_token_class.iter())
+        .zip(scores.iter())
+        .enumerate()
+    {
+        if token_class != "O" {
+            let (bi, tag) = get_tag(token_class);
+            if bi == "B"
+                || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
+            {
+                if let Some(entity) = current_entity {
+                    ner_results.push(entity);
+                }
+                current_entity = Some(Entity {
+                    entity: tag,
+                    score: *score,
+                    index: i as u32,
+                    word: token.to_string(),
+                    start: tokenizer.decode(&input_ids[..i], false).unwrap().len() as u32,
+                    end: tokenizer.decode(&input_ids[..=i], false).unwrap().len() as u32,
+                });
+            } else if bi == "I" && current_entity.is_some() {
+                let entity = current_entity.as_mut().unwrap();
+                entity.word += &token.replace("##", "");
+                entity.end = tokenizer.decode(&input_ids[..=i], false).unwrap().len() as u32;
+            }
+        } else if let Some(entity) = current_entity.take() {
+            ner_results.push(entity);
+        }
+    }
+    if let Some(entity) = current_entity {
+        ner_results.push(entity);
+    }
+    ner_results
+}
+
+fn get_tag(token_class: &str) -> (String, String) {
+    let parts: Vec<&str> = token_class.split('-').collect();
+    if parts.len() == 2 {
+        (parts[0].to_string(), parts[1].to_string())
+    } else {
+        ("O".to_string(), "O".to_string())
+    }
 }

@@ -243,20 +243,19 @@ class FlashEmbeddingClassificationBatch(ABC):
     @classmethod
     def to_pb_classify2(
         self, batch, predicted_token_classes, confidence_scores
-    ) -> generate_pb2.ClassifyResponse:
-        # TODO (magdy): either move this to the rust server or consider using multi processing here
+    ) -> generate_pb2.ClassifyResponse2:
         results = []
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
             results.append(
                 generate_pb2.ClassifyPredictionList(
                     request_id=batch.request_ids[i],
-                    prediction_lists=[generate_pb2.Entity(**entity) for entity in res], 
-                    confidence_lists=[generate_pb2.Entity(**entity) for entity in res],
+                    predictions=pred,
+                    scores=con,
                     input_ids=batch.input_ids.tolist()
                 )
             )
 
-        pb_resp = generate_pb2.ClassifyResponse(entity_lists=results)
+        pb_resp = generate_pb2.ClassifyResponse2(classify_prediction_lists=results)
         return pb_resp
 
     @classmethod

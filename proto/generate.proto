@@ -18,7 +18,7 @@ service LoraxService {
     /// Embed
     rpc Embed (EmbedRequest) returns (EmbedResponse);
     /// Classify 
-    rpc Classify (ClassifyRequest) returns (ClassifyResponse);
+    rpc Classify (ClassifyRequest) returns (ClassifyResponse2);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
@@ -296,20 +296,12 @@ message EntityList {
     repeated uint32 input_ids = 4;
 }
 
-message PredicitionList {
-    repeated string prediction = 1;
-}
-
-message ConfidenceList {
-    repeated float confidence = 1;
-}
-
 message ClassifyPredictionList {
     /// Request ID
     uint64 request_id = 1;
     /// Classifications
-    repeated PredicitionList prediction_lists = 2;
-    repeated ConfidenceList confidence_lists = 3;
+    repeated string predictions = 2;
+    repeated float scores = 3;
     repeated uint32 input_ids = 4;
 }
 
