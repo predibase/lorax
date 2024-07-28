@@ -177,6 +177,7 @@ impl ShardedClient {
     /// Classify the given batch
     #[instrument(skip(self))]
     pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+        tracing::info!("Classifying batch");
         let futures: Vec<_> = self
             .clients
             .iter_mut()
