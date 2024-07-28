@@ -151,22 +151,11 @@ class FlashEmbeddingClassificationBatch(ABC):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashEmbeddingClassificationBatch":
-        batch_inputs = []
-        max_truncation = 0
+        batch_tokenized_inputs = []
+        batch_token_type_ids = []
         for r in pb.requests:
-            inputs = tokenizers.get_inputs(r, tokenizer)
-            batch_inputs.append(inputs)
-            max_truncation = max(max_truncation, r.truncate)
-
-        batch_inputs = tokenizer(
-            batch_inputs,
-            return_token_type_ids=True,
-            truncation=True,
-            max_length=max_truncation,
-        )
-
-        batch_tokenized_inputs = batch_inputs["input_ids"]
-        batch_token_type_ids = batch_inputs["token_type_ids"]
+            batch_tokenized_inputs.append(r.tokenized_inputs.ids)
+            batch_token_type_ids.append([0]*len(r.tokenized_inputs.ids))
 
         all_input_ids = []
         position_ids = []
@@ -214,7 +203,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             position_ids=position_ids,
             cu_seqlens=torch.tensor(cu_seqlens, dtype=torch.int32, device=device),
             max_s=max_s,
-            size=len(batch_inputs),
+            size=len(batch_tokenized_inputs),
         )
 
     @classmethod
@@ -227,7 +216,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             res = format_ner_output(pred, con, batch.input_ids, tokenizer)
             results.append(
                 generate_pb2.EntityList(
-                    request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res]
+                    request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res], input_ids=batch.input_ids.tolist()
                 )
             )
 

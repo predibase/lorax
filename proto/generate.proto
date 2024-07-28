@@ -292,6 +292,8 @@ message EntityList {
     uint64 request_id = 1;
     /// Entities 
     repeated Entity entities = 2;
+    /// XXX
+    repeated uint32 input_ids = 4;
 }
 
 message PredicitionList {
@@ -322,8 +324,8 @@ message ClassifyRequest {
 
 message ClassifyResponse {
     /// Classifications
-    // repeated EntityList entity_lists = 1;
-    repeated ClassifyPredictionList classify_prediction_lists = 1;
+    repeated EntityList entity_lists = 1;
+    // repeated ClassifyPredictionList classify_prediction_lists = 1;
     /// Error message on failure
     string errorMsg = 2;
 }

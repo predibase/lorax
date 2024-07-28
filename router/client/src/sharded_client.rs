@@ -1,4 +1,4 @@
-use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList};
+use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList, InputIdList};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -6,6 +6,7 @@ use crate::{
 };
 use crate::{ClientError, Result};
 use futures::future::join_all;
+use tokenizers::tokenizer::Tokenizer;
 use tonic::transport::Uri;
 use tracing::instrument;
 
@@ -13,33 +14,38 @@ use tracing::instrument;
 /// LoRAX gRPC multi client
 pub struct ShardedClient {
     clients: Vec<Client>,
+    tokenizer: Option<Tokenizer>,
 }
 
 impl ShardedClient {
-    fn new(clients: Vec<Client>) -> Self {
-        Self { clients }
+    fn new(clients: Vec<Client>, tokenizer: Option<Tokenizer>) -> Self {
+        Self { clients, tokenizer }
+        // Self { clients }
     }
 
     /// Create a new ShardedClient from a master client. The master client will communicate with
     /// the other shards and returns all uris/unix sockets with the `service_discovery` gRPC method.
-    async fn from_master_client(mut master_client: Client) -> Result<Self> {
+    async fn from_master_client(
+        mut master_client: Client,
+        tokenizer: Option<Tokenizer>,
+    ) -> Result<Self> {
         // Get all uris/unix sockets from the master client
         let uris = master_client.service_discovery().await?;
         let futures = uris.into_iter().map(Client::connect_uds);
         let clients: Result<Vec<Client>> = join_all(futures).await.into_iter().collect();
-        Ok(Self::new(clients?))
+        Ok(Self::new(clients?, tokenizer))
     }
 
     /// Returns a client connected to the given uri
-    pub async fn connect(uri: Uri) -> Result<Self> {
+    pub async fn connect(uri: Uri, tokenizer: Option<Tokenizer>) -> Result<Self> {
         let master_client = Client::connect(uri).await?;
-        Self::from_master_client(master_client).await
+        Self::from_master_client(master_client, tokenizer).await
     }
 
     /// Returns a client connected to the given unix socket
-    pub async fn connect_uds(path: String) -> Result<Self> {
+    pub async fn connect_uds(path: String, tokenizer: Option<Tokenizer>) -> Result<Self> {
         let master_client = Client::connect_uds(path).await?;
-        Self::from_master_client(master_client).await
+        Self::from_master_client(master_client, tokenizer).await
     }
 
     /// Get the model info
@@ -175,7 +181,18 @@ impl ShardedClient {
             .map(|client| Box::pin(client.classify(batch.clone())))
             .collect();
         let results: Result<Vec<Vec<EntityList>>> = join_all(futures).await.into_iter().collect();
-        Ok(results?.into_iter().flatten().collect())
+        let flat_results: Vec<EntityList> = results?.into_iter().flatten().collect();
+        tracing::info!("Results: {:?}", flat_results);
+        flat_results.iter().for_each(|entity_list| {
+            tracing::info!(
+                "input string: {:?}",
+                decode_tokens(
+                    entity_list.input_ids.clone(),
+                    self.tokenizer.as_ref().unwrap()
+                )
+            )
+        });
+        Ok(flat_results)
     }
 
     pub async fn download_adapter(
@@ -267,4 +284,9 @@ fn merge_generations(
         generations.append(&mut shard_generations);
     }
     Ok((generations, next_batch))
+}
+
+fn decode_tokens(input_ids: Vec<u32>, tokenizer: &Tokenizer) -> Result<String> {
+    let tokens = tokenizer.decode(&input_ids, false).unwrap();
+    Ok(tokens)
 }

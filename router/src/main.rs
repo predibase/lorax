@@ -368,7 +368,7 @@ async fn main() -> Result<(), RouterError> {
     };
 
     // Instantiate sharded client from the master unix socket
-    let mut sharded_client = ShardedClient::connect_uds(master_shard_uds_path)
+    let mut sharded_client = ShardedClient::connect_uds(master_shard_uds_path, tokenizer.clone())
         .await
         .map_err(RouterError::Connection)?;
     // Clear the cache; useful if the webserver rebooted

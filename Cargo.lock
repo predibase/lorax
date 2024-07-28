@@ -1243,6 +1243,7 @@ dependencies = [
  "prost",
  "prost-build",
  "thiserror",
+ "tokenizers",
  "tokio",
  "tonic 0.9.2",
  "tonic-build",
