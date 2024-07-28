@@ -153,9 +153,26 @@ class FlashEmbeddingClassificationBatch(ABC):
     ) -> "FlashEmbeddingClassificationBatch":
         batch_tokenized_inputs = []
         batch_token_type_ids = []
+        max_truncation = 0
+
         for r in pb.requests:
-            batch_tokenized_inputs.append(r.tokenized_inputs.ids)
-            batch_token_type_ids.append([0]*len(r.tokenized_inputs.ids))
+            if len(r.tokenized_inputs.ids):
+                batch_tokenized_inputs.append(r.tokenized_inputs.ids)
+                batch_token_type_ids.append([0]*len(r.tokenized_inputs.ids))
+            else:
+                # In the case of warmup.
+                # TODO: (magdy + travis) we need to update the warmup method with 
+                # the new tokenizer change.
+                inputs = tokenizers.get_inputs(r, tokenizer)
+                max_truncation = max(max_truncation, r.truncate)
+                batch_inputs = tokenizer(
+                    inputs,
+                    return_token_type_ids=True,
+                    truncation=True,
+                    max_length=max_truncation,
+                )
+                batch_tokenized_inputs.append(batch_inputs["input_ids"])
+                batch_token_type_ids.append(batch_inputs["token_type_ids"])
 
         all_input_ids = []
         position_ids = []
@@ -217,6 +234,25 @@ class FlashEmbeddingClassificationBatch(ABC):
             results.append(
                 generate_pb2.EntityList(
                     request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res], input_ids=batch.input_ids.tolist()
+                )
+            )
+
+        pb_resp = generate_pb2.ClassifyResponse(entity_lists=results)
+        return pb_resp
+
+    @classmethod
+    def to_pb_classify2(
+        self, batch, predicted_token_classes, confidence_scores
+    ) -> generate_pb2.ClassifyResponse:
+        # TODO (magdy): either move this to the rust server or consider using multi processing here
+        results = []
+        for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
+            results.append(
+                generate_pb2.ClassifyPredictionList(
+                    request_id=batch.request_ids[i],
+                    prediction_lists=[generate_pb2.Entity(**entity) for entity in res], 
+                    confidence_lists=[generate_pb2.Entity(**entity) for entity in res],
+                    input_ids=batch.input_ids.tolist()
                 )
             )
 

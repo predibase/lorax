@@ -304,17 +304,13 @@ message ConfidenceList {
     repeated float confidence = 1;
 }
 
-message InputIdList {
-    repeated uint32 input_id = 1;
-}
-
 message ClassifyPredictionList {
     /// Request ID
     uint64 request_id = 1;
     /// Classifications
     repeated PredicitionList prediction_lists = 2;
     repeated ConfidenceList confidence_lists = 3;
-    repeated InputIdList input_ids = 4;
+    repeated uint32 input_ids = 4;
 }
 
 message ClassifyRequest {
@@ -326,6 +322,14 @@ message ClassifyResponse {
     /// Classifications
     repeated EntityList entity_lists = 1;
     // repeated ClassifyPredictionList classify_prediction_lists = 1;
+    /// Error message on failure
+    string errorMsg = 2;
+}
+
+message ClassifyResponse2 {
+    /// Classifications
+    // repeated EntityList entity_lists = 1;
+    repeated ClassifyPredictionList classify_prediction_lists = 1;
     /// Error message on failure
     string errorMsg = 2;
 }

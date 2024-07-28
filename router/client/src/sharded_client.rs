@@ -1,4 +1,4 @@
-use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList, InputIdList};
+use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
