@@ -294,6 +294,27 @@ message EntityList {
     repeated Entity entities = 2;
 }
 
+message PredicitionList {
+    repeated string prediction = 1;
+}
+
+message ConfidenceList {
+    repeated float confidence = 1;
+}
+
+message InputIdList {
+    repeated uint32 input_id = 1;
+}
+
+message ClassifyPredictionList {
+    /// Request ID
+    uint64 request_id = 1;
+    /// Classifications
+    repeated PredicitionList prediction_lists = 2;
+    repeated ConfidenceList confidence_lists = 3;
+    repeated InputIdList input_ids = 4;
+}
+
 message ClassifyRequest {
     /// Batch
     Batch batch = 1;
@@ -301,7 +322,8 @@ message ClassifyRequest {
 
 message ClassifyResponse {
     /// Classifications
-    repeated EntityList entity_lists = 1;
+    // repeated EntityList entity_lists = 1;
+    repeated ClassifyPredictionList classify_prediction_lists = 1;
     /// Error message on failure
     string errorMsg = 2;
 }

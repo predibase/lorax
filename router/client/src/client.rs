@@ -203,10 +203,16 @@ impl Client {
 
     /// Classify
     #[instrument(skip(self))]
-    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+    pub async fn classify(
+        &mut self,
+        batch: Batch,
+        tokenizer: Tokenizer,
+    ) -> Result<Vec<ClassifyPredictionList>> {
         let request = tonic::Request::new(ClassifyRequest { batch: Some(batch) }).inject_context();
         let response = self.stub.classify(request).await?.into_inner();
-        Ok(response.entity_lists)
+        let formatted_response =
+            self.format_ner_output(response.classify_prediction_lists.clone(), &tokenizer);
+        Ok(response.classify_prediction_lists)
     }
 
     /// Downloads the weights for an adapter.
@@ -296,5 +302,79 @@ impl Client {
             tracing::error!(err_string);
             Err(ClientError::Generation(err_string).into())
         }
+    }
+
+    pub async fn format_ner_output(
+        &mut self,
+        classify_prediction_list: ClassifyPredictionList,
+        tokenizer: &Tokenizer,
+    ) {
+        let tokens: Vec<String> = tokenizer
+            .decode(&input_ids[1..input_ids.len() - 1], true)
+            .unwrap();
+        let predicted_token_class =
+            &classify_prediction_list.predicted_token_class[1..predicted_token_class.len() - 1];
+        let scores = &classify_prediction_list.scores[1..scores.len() - 1];
+        let input_ids = &classify_prediction_list.input_ids[1..input_ids.len() - 1];
+
+        let mut ner_results = Vec::new();
+        let mut current_entity: Option<NerResult> = None;
+
+        for (i, ((token, token_class), score)) in tokens
+            .iter()
+            .zip(predicted_token_class.iter())
+            .zip(scores.iter())
+            .enumerate()
+        {
+            if token_class != "O" {
+                let (bi, tag) = get_tag(token_class);
+                if bi == "B"
+                    || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
+                {
+                    if let Some(entity) = current_entity {
+                        ner_results.push(entity);
+                    }
+                    current_entity = Some(NerResult {
+                        entity: tag,
+                        score: *score,
+                        index: i,
+                        word: token.to_string(),
+                        start: tokenizer.decode(&input_ids[..i], false).unwrap().len(),
+                        end: tokenizer.decode(&input_ids[..=i], false).unwrap().len(),
+                    });
+                } else if bi == "I" && current_entity.is_some() {
+                    let entity = current_entity.as_mut().unwrap();
+                    entity.word += &token.replace("##", "");
+                    entity.end = tokenizer.decode(&input_ids[..=i], false).unwrap().len();
+                }
+            } else if let Some(entity) = current_entity.take() {
+                ner_results.push(entity);
+            }
+        }
+
+        if let Some(entity) = current_entity {
+            ner_results.push(entity);
+        }
+
+        ner_results
+    }
+}
+
+#[derive(Debug, Clone)]
+struct NerResult {
+    entity: String,
+    score: f32,
+    index: usize,
+    word: String,
+    start: usize,
+    end: usize,
+}
+
+fn get_tag(token_class: &str) -> (String, String) {
+    let parts: Vec<&str> = token_class.split('-').collect();
+    if parts.len() == 2 {
+        (parts[0].to_string(), parts[1].to_string())
+    } else {
+        ("O".to_string(), "O".to_string())
     }
 }
