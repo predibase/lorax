@@ -163,6 +163,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             return_token_type_ids=True,
             truncation=True,
             max_length=max_truncation,
+            padding=True,
         )
 
         batch_tokenized_inputs = batch_inputs["input_ids"]
