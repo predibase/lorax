@@ -198,7 +198,6 @@ impl ShardedClient {
                 }
             })
             .collect();
-        tracing::info!("Results: {:?}", entity_lists);
         Ok(entity_lists)
     }
 
