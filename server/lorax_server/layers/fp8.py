@@ -3,8 +3,8 @@ from typing import Optional
 import torch
 from vllm import _custom_ops as ops
 
-
 ####### from vLLM code #######
+
 
 def apply_fp8_linear(
     input: torch.Tensor,
@@ -14,24 +14,14 @@ def apply_fp8_linear(
     input_scale_ub: Optional[torch.Tensor] = None,
     qbias: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-
-    qinput, x_scale = ops.scaled_fp8_quant(
-        input,
-        input_scale,
-        scale_ub=input_scale_ub,
-        use_per_token_if_dynamic=False
-    )
+    qinput, x_scale = ops.scaled_fp8_quant(input, input_scale, scale_ub=input_scale_ub, use_per_token_if_dynamic=False)
 
     output = ops.cutlass_scaled_mm(
-        qinput,
-        qweight,
-        out_dtype=input.dtype,
-        scale_a=x_scale,
-        scale_b=weight_scale,
-        bias=qbias
+        qinput, qweight, out_dtype=input.dtype, scale_a=x_scale, scale_b=weight_scale, bias=qbias
     )
 
     return output
+
 
 class Fp8Linear(torch.nn.Module):
     def __init__(

@@ -34,7 +34,9 @@ def reshape_and_cache(
     if SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
-        torch.ops._C_cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0, 1.0)
+        torch.ops._C_cache_ops.reshape_and_cache(
+            key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0, 1.0
+        )
 
 
 def attention(
@@ -108,7 +110,7 @@ def attention(
             None,
             "fp8" if fp8_supported else "auto",
             1.0,
-            1.0
+            1.0,
         )
     else:
         # Run PagedAttention V2.
@@ -142,5 +144,5 @@ def attention(
             None,
             "fp8" if fp8_supported else "auto",
             1.0,
-            1.0
+            1.0,
         )

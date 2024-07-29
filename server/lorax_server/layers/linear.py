@@ -99,6 +99,7 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False, weight_scale=None, 
         linear = FastLinear(weight, bias)
     elif quantize == "fp8":
         from lorax_server.layers.fp8 import Fp8Linear
+
         linear = Fp8Linear(weight, bias, weight_scale=weight_scale, input_scale=input_scale)
 
     elif quantize == "bitsandbytes":

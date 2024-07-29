@@ -221,10 +221,11 @@ def _load_gqa(config, prefix: str, weights):
         get_linear(
             weight,
             bias=None,
-            quantize=is_fp8_quantized(config, f'{prefix}.q_proj'),
+            quantize=is_fp8_quantized(config, f"{prefix}.q_proj"),
             weight_scale=weight_scale,
-            input_scale=input_scale
-    ))
+            input_scale=input_scale,
+        )
+    )
 
 
 class MistralAttention(torch.nn.Module):

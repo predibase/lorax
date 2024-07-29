@@ -117,27 +117,21 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         else:
             weight_list = self.get_sharded_list("weight", prefixes, dim=0)
-            if quantize == 'fp8' and weight_list[0].dtype == torch.float8_e4m3fn:
+            if quantize == "fp8" and weight_list[0].dtype == torch.float8_e4m3fn:
                 # Since there is no kernel for concatenating two tensors in PyTorch
                 # for fp8 datatypes, we have to cast to fp16, concat, cast back to fp8
                 fp16_weight_list = [w.to(torch.float16) for w in weight_list]
                 weight = torch.cat(fp16_weight_list, dim=dim).to(torch.float8_e4m3fn)
                 input_scale = None
-                if self.has_tensor(f'{prefixes[0]}.input_scale'):
+                if self.has_tensor(f"{prefixes[0]}.input_scale"):
                     # if the layers are being fused, then they have the same inputs
                     # hence their input scales will have to be the same so we pick the first one
-                    input_scale = self.get_tensor(f'{prefixes[0]}.input_scale', use_self_dtype=False)
-                weight_scale_list = [
-                    self.get_tensor(f'{p}.weight_scale', use_self_dtype=False)
-                    for p in prefixes
-                ]
+                    input_scale = self.get_tensor(f"{prefixes[0]}.input_scale", use_self_dtype=False)
+                weight_scale_list = [self.get_tensor(f"{p}.weight_scale", use_self_dtype=False) for p in prefixes]
                 if len(weight_scale_list[0].shape) > 1:
-                    weight_scale_list = self.get_sharded_list('weight_scale', prefixes, dim=0)
+                    weight_scale_list = self.get_sharded_list("weight_scale", prefixes, dim=0)
                 else:
-                    weight_scale_list = [
-                        si.repeat(wi.shape[dim])
-                        for si, wi in zip(weight_scale_list, weight_list)
-                    ]
+                    weight_scale_list = [si.repeat(wi.shape[dim]) for si, wi in zip(weight_scale_list, weight_list)]
                 # weight scales are in fp32 already so no problem with concatenating them
                 weight_scale = torch.cat(weight_scale_list, dim=0)
                 return weight, input_scale, weight_scale

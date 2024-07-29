@@ -125,9 +125,9 @@ class TensorParallelColumnLinear(SuperLayer):
         linear = get_linear(
             weight,
             bias,
-            is_fp8_quantized(config, f'{prefixes[0]}.weight'),
+            is_fp8_quantized(config, f"{prefixes[0]}.weight"),
             weight_scale=weight_scale,
-            input_scale=input_scale
+            input_scale=input_scale,
         )
 
         return cls(linear)
