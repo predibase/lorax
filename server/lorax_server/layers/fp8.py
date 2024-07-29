@@ -1,7 +1,7 @@
 from typing import Optional
-from vllm import _custom_ops as ops
-from vllm.platforms import current_platform
+
 import torch
+from vllm import _custom_ops as ops
 
 
 def is_fp8_quantized(config, layer_name):

@@ -3,8 +3,8 @@ from typing import List
 import torch
 from torch.nn import functional as F
 
-from lorax_server.layers.linear import FastLinear, get_linear
 from lorax_server.layers.fp8 import is_fp8_quantized
+from lorax_server.layers.linear import FastLinear, get_linear
 
 
 class SuperLayer(torch.nn.Module):
