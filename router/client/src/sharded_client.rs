@@ -8,6 +8,7 @@ use crate::{
 };
 use crate::{ClientError, Result};
 use futures::future::join_all;
+use std::sync::Arc;
 use tokenizers::tokenizer::Tokenizer;
 use tonic::transport::Uri;
 use tracing::instrument;
@@ -16,20 +17,19 @@ use tracing::instrument;
 /// LoRAX gRPC multi client
 pub struct ShardedClient {
     clients: Vec<Client>,
-    tokenizer: Option<Tokenizer>,
+    tokenizer: Option<Arc<Tokenizer>>,
 }
 
 impl ShardedClient {
-    fn new(clients: Vec<Client>, tokenizer: Option<Tokenizer>) -> Self {
+    fn new(clients: Vec<Client>, tokenizer: Option<Arc<Tokenizer>>) -> Self {
         Self { clients, tokenizer }
-        // Self { clients }
     }
 
     /// Create a new ShardedClient from a master client. The master client will communicate with
     /// the other shards and returns all uris/unix sockets with the `service_discovery` gRPC method.
     async fn from_master_client(
         mut master_client: Client,
-        tokenizer: Option<Tokenizer>,
+        tokenizer: Option<Arc<Tokenizer>>,
     ) -> Result<Self> {
         // Get all uris/unix sockets from the master client
         let uris = master_client.service_discovery().await?;
@@ -39,13 +39,13 @@ impl ShardedClient {
     }
 
     /// Returns a client connected to the given uri
-    pub async fn connect(uri: Uri, tokenizer: Option<Tokenizer>) -> Result<Self> {
+    pub async fn connect(uri: Uri, tokenizer: Option<Arc<Tokenizer>>) -> Result<Self> {
         let master_client = Client::connect(uri).await?;
         Self::from_master_client(master_client, tokenizer).await
     }
 
     /// Returns a client connected to the given unix socket
-    pub async fn connect_uds(path: String, tokenizer: Option<Tokenizer>) -> Result<Self> {
+    pub async fn connect_uds(path: String, tokenizer: Option<Arc<Tokenizer>>) -> Result<Self> {
         let master_client = Client::connect_uds(path).await?;
         Self::from_master_client(master_client, tokenizer).await
     }
@@ -192,7 +192,7 @@ impl ShardedClient {
             .into_iter()
             .map(|prediction| {
                 let entities =
-                    format_ner_output(prediction.clone(), self.tokenizer.as_ref().unwrap());
+                    format_ner_output(prediction.clone(), self.tokenizer.clone().unwrap());
                 EntityList {
                     request_id: prediction.request_id,
                     entities,
@@ -301,7 +301,7 @@ fn decode_tokens(input_ids: Vec<u32>, tokenizer: &Tokenizer) -> Result<String> {
 
 fn format_ner_output(
     classify_prediction_list: ClassifyPredictionList,
-    tokenizer: &Tokenizer,
+    tokenizer: Arc<Tokenizer>,
 ) -> Vec<Entity> {
     let input_ids =
         &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];

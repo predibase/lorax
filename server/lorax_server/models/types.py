@@ -154,7 +154,6 @@ class FlashEmbeddingClassificationBatch(ABC):
         batch_tokenized_inputs = []
         batch_token_type_ids = []
         max_truncation = 0
-
         for r in pb.requests:
             if len(r.tokenized_inputs.ids):
                 batch_tokenized_inputs.append(r.tokenized_inputs.ids)
@@ -233,7 +232,9 @@ class FlashEmbeddingClassificationBatch(ABC):
             res = format_ner_output(pred, con, batch.input_ids, tokenizer)
             results.append(
                 generate_pb2.EntityList(
-                    request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res], input_ids=batch.input_ids.tolist()
+                    request_id=batch.request_ids[i],
+                    entities=[generate_pb2.Entity(**entity) for entity in res],
+                    input_ids=batch.input_ids.tolist()
                 )
             )
 
