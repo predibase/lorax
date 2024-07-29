@@ -4,6 +4,7 @@ import torch
 from torch.nn import functional as F
 
 from lorax_server.layers.linear import FastLinear, get_linear
+from lorax_server.layers.fp8 import is_fp8_quantized
 
 
 class SuperLayer(torch.nn.Module):
@@ -111,7 +112,7 @@ class TensorParallelColumnLinear(SuperLayer):
         weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 
         input_scale, weight_scale = None, None
-        if config.quantize == 'fp8':
+        if type(weight) == tuple:
             weight, input_scale, weight_scale = weight
 
         if bias:
@@ -123,7 +124,7 @@ class TensorParallelColumnLinear(SuperLayer):
         linear = get_linear(
             weight,
             bias,
-            config.quantize,
+            is_fp8_quantized(config, f'{prefixes[0]}.weight'),
             weight_scale=weight_scale,
             input_scale=input_scale
         )

@@ -31,6 +31,7 @@ from transformers.configuration_utils import PretrainedConfig
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
+from lorax_server.layers.fp8 import is_fp8_quantized
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,
@@ -216,18 +217,11 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
-    quantize = None
-    # check if quantization is fp8 and either of the fused layers is not ignored
-    # typically, either all qkv will be quantized or none so just check for one
-    if config.quantize == 'fp8' and hasattr(config, 'quantization_config'):
-        ignored_layers = set(config.quantization_config.get('ignored_layers', []))
-        if f'{prefix}.q_proj' not in ignored_layers:
-            quantize = 'fp8'
     return TensorParallelColumnLinear(
         get_linear(
             weight,
             bias=None,
-            quantize=quantize,
+            quantize=is_fp8_quantized(config, f'{prefix}.q_proj'),
             weight_scale=weight_scale,
             input_scale=input_scale
     ))

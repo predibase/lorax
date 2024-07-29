@@ -118,6 +118,8 @@ class AbstractWeights(ABC):
         else:
             weight_list = self.get_sharded_list("weight", prefixes, dim=0)
             if quantize == 'fp8' and weight_list[0].dtype == torch.float8_e4m3fn:
+                # Since there is no kernel for concatenating two tensors in PyTorch
+                # for fp8 datatypes, we have to cast to fp16, concat, cast back to fp8
                 fp16_weight_list = [w.to(torch.float16) for w in weight_list]
                 weight = torch.cat(fp16_weight_list, dim=dim).to(torch.float8_e4m3fn)
                 input_scale = None
@@ -136,6 +138,7 @@ class AbstractWeights(ABC):
                         si.repeat(wi.shape[dim])
                         for si, wi in zip(weight_scale_list, weight_list)
                     ]
+                # weight scales are in fp32 already so no problem with concatenating them
                 weight_scale = torch.cat(weight_scale_list, dim=0)
                 return weight, input_scale, weight_scale
             weight = torch.cat(weight_list, dim=dim)

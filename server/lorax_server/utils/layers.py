@@ -11,6 +11,7 @@ from torch.nn import functional as F
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
+from lorax_server.layers.fp8 import is_fp8_quantized
 from lorax_server.utils.sgmv import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
@@ -303,9 +304,10 @@ class TensorParallelRowLinear(SuperLayer):
             bias = None
 
         weight_scale, input_scale = None, None
-        if config.quantize == 'fp8' and 'lm_head' not in prefix:
+        if is_fp8_quantized(config, prefix):
             weight_scale = weights.get_tensor(f'{prefix}.weight_scale', use_self_dtype=False)
-            input_scale = weights.get_tensor(f'{prefix}.input_scale', use_self_dtype=False)
+            if weights.has_tensor(f'{prefix}.input_scale'):
+                input_scale = weights.get_tensor(f'{prefix}.input_scale', use_self_dtype=False)
 
         return cls(
             get_linear(
