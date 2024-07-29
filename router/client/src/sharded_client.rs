@@ -303,10 +303,14 @@ fn format_ner_output(
     classify_prediction_list: ClassifyPredictionList,
     tokenizer: Arc<Tokenizer>,
 ) -> Vec<Entity> {
+    tracing::info!("prediction list {:?}", classify_prediction_list);
     let input_ids =
         &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
     let predicted_token_class =
         &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
+    println!("===============================================");
+    println!("predicted_token_class {:?}", predicted_token_class);
+    println!("===============================================");
     let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
     let tokens: Vec<String> = tokenizer
         .decode(input_ids, true)
@@ -323,6 +327,10 @@ fn format_ner_output(
         .zip(scores.iter())
         .enumerate()
     {
+        println!(
+            "token: {:?} - token_class {:?} - current entity {:?}",
+            token, token_class, current_entity
+        );
         if token_class != "O" {
             let (bi, tag) = get_tag(token_class);
             if bi == "B"

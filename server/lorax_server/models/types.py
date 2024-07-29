@@ -151,28 +151,19 @@ class FlashEmbeddingClassificationBatch(ABC):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashEmbeddingClassificationBatch":
-        batch_tokenized_inputs = []
-        batch_token_type_ids = []
+        batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
-            if len(r.tokenized_inputs.ids):
-                batch_tokenized_inputs.append(r.tokenized_inputs.ids)
-                batch_token_type_ids.append([0]*len(r.tokenized_inputs.ids))
-            else:
-                # In the case of warmup.
-                # TODO: (magdy + travis) we need to update the warmup method with 
-                # the new tokenizer change.
-                inputs = tokenizers.get_inputs(r, tokenizer)
-                max_truncation = max(max_truncation, r.truncate)
-                batch_inputs = tokenizer(
-                    inputs,
-                    return_token_type_ids=True,
-                    truncation=True,
-                    max_length=max_truncation,
-                )
-                batch_tokenized_inputs.append(batch_inputs["input_ids"])
-                batch_token_type_ids.append(batch_inputs["token_type_ids"])
+            inputs = tokenizers.get_inputs(r, tokenizer)
+            batch_inputs.append(inputs)
+            max_truncation = max(max_truncation, r.truncate)
 
+        if all(r.HasField("tokenized_inputs") for r in pb.requests):
+            batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
+        else:
+            batch_tokenized_inputs = tokenizer(batch_inputs, padding=True, truncation=True, max_length=max_truncation)["input_ids"]
+
+        pad_to = max(len(x) for x in batch_tokenized_inputs)
         all_input_ids = []
         position_ids = []
         all_token_type_ids = []
@@ -180,14 +171,15 @@ class FlashEmbeddingClassificationBatch(ABC):
 
         max_s = 0
         cumulative_length = 0
-
-        for i, (r, tokenized_input, token_type_ids) in enumerate(
-            zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)
+    
+        for i, (r, tokenized_input) in enumerate(
+            zip(pb.requests, batch_tokenized_inputs)
         ):
             tokenized_input = tokenized_input[-r.truncate :]
-            token_type_ids = token_type_ids[-r.truncate :]
+            if len(tokenized_input) < pad_to:
+                tokenized_input += [tokenizer.pad_token_id] * (pad_to - len(tokenized_input))
             all_input_ids.append(tokenized_input)
-            all_token_type_ids.append(token_type_ids)
+            all_token_type_ids.append([0] * len(tokenized_input))
 
             input_length = len(tokenized_input)
             max_s = max(max_s, input_length)
