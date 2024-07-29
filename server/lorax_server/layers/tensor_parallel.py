@@ -108,7 +108,7 @@ class TensorParallelColumnLinear(SuperLayer):
 
     @classmethod
     def load_multi(cls, config, prefixes: List[str], weights, bias: bool, dim: int):
-        from lorax_server.layers.fp8 import is_fp8_quantized
+        from lorax_server.utils.torch_utils import is_fp8_quantized
 
         weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 

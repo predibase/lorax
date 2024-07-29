@@ -29,7 +29,6 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
-from lorax_server.layers.fp8 import is_fp8_quantized
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
@@ -53,6 +52,7 @@ from lorax_server.utils.lora import (
     UP_PROJ,
     V_PROJ,
 )
+from lorax_server.utils.torch_utils import is_fp8_quantized
 
 if not HAS_FLASH_ATTN_V2_CUDA:
     raise ImportError("Mistral model requires flash attn v2")

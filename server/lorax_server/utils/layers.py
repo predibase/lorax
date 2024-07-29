@@ -294,7 +294,7 @@ class TensorParallelRowLinear(SuperLayer):
         fan_in_fan_out: bool = False,
         all_reduce: bool = True,
     ):
-        from lorax_server.layers.fp8 import is_fp8_quantized
+        from lorax_server.utils.torch_utils import is_fp8_quantized
 
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
 
