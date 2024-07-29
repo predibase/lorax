@@ -9,7 +9,6 @@ from torch import nn
 from torch.nn import functional as F
 
 from lorax_server.adapters.types import LORA, MEDUSA
-from lorax_server.layers.fp8 import is_fp8_quantized
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
 from lorax_server.utils.sgmv import (
@@ -295,6 +294,8 @@ class TensorParallelRowLinear(SuperLayer):
         fan_in_fan_out: bool = False,
         all_reduce: bool = True,
     ):
+        from lorax_server.layers.fp8 import is_fp8_quantized
+
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
 
         if bias and weights.process_group.rank() == 0:
