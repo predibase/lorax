@@ -8,7 +8,6 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
-from lorax_server.utils.token_classification import format_ner_output
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -161,7 +160,9 @@ class FlashEmbeddingClassificationBatch(ABC):
         if all(r.HasField("tokenized_inputs") for r in pb.requests):
             batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
         else:
-            batch_tokenized_inputs = tokenizer(batch_inputs, padding=True, truncation=True, max_length=max_truncation)["input_ids"]
+            batch_tokenized_inputs = tokenizer(batch_inputs, padding=True, truncation=True, max_length=max_truncation)[
+                "input_ids"
+            ]
 
         pad_to = max(len(x) for x in batch_tokenized_inputs)
         all_input_ids = []
@@ -171,10 +172,8 @@ class FlashEmbeddingClassificationBatch(ABC):
 
         max_s = 0
         cumulative_length = 0
-    
-        for i, (r, tokenized_input) in enumerate(
-            zip(pb.requests, batch_tokenized_inputs)
-        ):
+
+        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             tokenized_input = tokenized_input[-r.truncate :]
             if len(tokenized_input) < pad_to:
                 tokenized_input += [tokenizer.pad_token_id] * (pad_to - len(tokenized_input))
@@ -215,17 +214,12 @@ class FlashEmbeddingClassificationBatch(ABC):
         )
 
     @classmethod
-    def to_pb_classify(
-        self, batch, predicted_token_classes, confidence_scores
-    ) -> generate_pb2.ClassifyResponse2:
+    def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse2:
         results = []
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
             results.append(
                 generate_pb2.ClassifyPredictionList(
-                    request_id=batch.request_ids[i],
-                    predictions=pred,
-                    scores=con,
-                    input_ids=batch.input_ids.tolist()
+                    request_id=batch.request_ids[i], predictions=pred, scores=con, input_ids=batch.input_ids.tolist()
                 )
             )
 
