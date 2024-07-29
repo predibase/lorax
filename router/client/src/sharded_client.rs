@@ -11,6 +11,7 @@ use futures::future::join_all;
 use regex::Regex;
 use std::sync::Arc;
 use tokenizers::tokenizer::Tokenizer;
+use tokio::task;
 use tonic::transport::Uri;
 use tracing::instrument;
 
@@ -187,15 +188,29 @@ impl ShardedClient {
             join_all(futures).await.into_iter().collect();
 
         let flat_results: Vec<ClassifyPredictionList> = results?.into_iter().flatten().collect();
-        let entity_lists: Vec<EntityList> = flat_results
+        let threaded_futures: Vec<_> = flat_results
             .into_iter()
             .map(|prediction| {
-                let entities =
-                    format_ner_output(prediction.clone(), self.tokenizer.clone().unwrap());
-                EntityList {
-                    request_id: prediction.request_id,
-                    entities,
-                    input_ids: prediction.input_ids,
+                let tokenizer = self.tokenizer.clone().unwrap();
+                // Spawn a new task for each format_ner_output call
+                task::spawn(async move {
+                    let entities = format_ner_output(prediction.clone(), tokenizer);
+                    EntityList {
+                        request_id: prediction.request_id,
+                        entities,
+                        input_ids: prediction.input_ids,
+                    }
+                })
+            })
+            .collect();
+        let entity_lists: Vec<EntityList> = join_all(threaded_futures)
+            .await
+            .into_iter()
+            .filter_map(|result| match result {
+                Ok(entity_list) => Some(entity_list),
+                Err(e) => {
+                    tracing::warn!("Error in threaded task: {:?}", e);
+                    None
                 }
             })
             .collect();
