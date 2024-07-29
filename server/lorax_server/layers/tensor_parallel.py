@@ -3,7 +3,6 @@ from typing import List
 import torch
 from torch.nn import functional as F
 
-from lorax_server.layers.fp8 import is_fp8_quantized
 from lorax_server.layers.linear import FastLinear, get_linear
 
 
@@ -109,6 +108,8 @@ class TensorParallelColumnLinear(SuperLayer):
 
     @classmethod
     def load_multi(cls, config, prefixes: List[str], weights, bias: bool, dim: int):
+        from lorax_server.layers.fp8 import is_fp8_quantized
+
         weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 
         input_scale, weight_scale = None, None
