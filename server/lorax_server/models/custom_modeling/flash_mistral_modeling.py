@@ -203,7 +203,7 @@ def _load_gqa(config, prefix: str, weights):
     )
 
     input_scale, weight_scale = None, None
-    if type(weight) == tuple:
+    if type(weight) is tuple:
         weight, input_scale, weight_scale = weight
 
     if config.quantize not in ["gptq", "awq", "fp8"]:

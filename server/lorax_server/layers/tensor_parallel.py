@@ -112,7 +112,7 @@ class TensorParallelColumnLinear(SuperLayer):
         weight = weights.get_multi_weights_col(prefixes, quantize=config.quantize, dim=dim)
 
         input_scale, weight_scale = None, None
-        if type(weight) == tuple:
+        if type(weight) is tuple:
             weight, input_scale, weight_scale = weight
 
         if bias:
