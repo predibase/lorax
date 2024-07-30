@@ -157,7 +157,6 @@ impl ShardedClient {
     /// Embed the given batch
     #[instrument(skip(self))]
     pub async fn embed(&mut self, batch: Batch) -> Result<Vec<Embedding>> {
-        tracing::info!("Embedding batch");
         let futures: Vec<_> = self
             .clients
             .iter_mut()
@@ -170,7 +169,6 @@ impl ShardedClient {
     /// Classify the given batch
     #[instrument(skip(self))]
     pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
-        tracing::info!("Classifying batch");
         let futures: Vec<_> = self
             .clients
             .iter_mut()
