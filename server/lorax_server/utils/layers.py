@@ -296,13 +296,25 @@ class TensorParallelRowLinear(SuperLayer):
     ):
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
 
+        input_scale, weight_scale = None, None
+        if type(weight) is tuple:
+            weight, input_scale, weight_scale = weight
+
         if bias and weights.process_group.rank() == 0:
             # Rank is only on the first rank process
             bias = weights.get_tensor(f"{prefix}.bias")
         else:
             bias = None
+
         return cls(
-            get_linear(weight, bias, config.quantize, fan_in_fan_out=fan_in_fan_out),
+            get_linear(
+                weight,
+                bias,
+                config.quantize,
+                fan_in_fan_out=fan_in_fan_out,
+                weight_scale=weight_scale,
+                input_scale=input_scale,
+            ),
             process_group=weights.process_group,
             all_reduce=all_reduce,
         )

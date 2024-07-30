@@ -89,18 +89,17 @@ class FastLinearROCm(torch.nn.Module):
         return F.linear(inp, self.weight, self.bias)
 
 
-def get_linear(weight, bias, quantize, fan_in_fan_out=False):
+def get_linear(weight, bias, quantize, fan_in_fan_out=False, weight_scale=None, input_scale=None):
     # https://huggingface.co/docs/peft/package_reference/tuners#peft.LoraConfig.fan_in_fan_out
     # Set to True if replacing a Conv1D layer with a Linear layer
     if fan_in_fan_out:
         weight = weight.T.contiguous()
 
-    if quantize is None:
+    if quantize is None or (quantize == 'fp8' and weight_scale is None):
         linear = FastLinear(weight, bias)
     elif quantize == "fp8":
         from lorax_server.layers.fp8 import Fp8Linear
-
-        linear = Fp8Linear(weight, bias)
+        linear = Fp8Linear(weight, bias, weight_scale=weight_scale, input_scale=input_scale)
 
     elif quantize == "bitsandbytes":
         from lorax_server.layers.bnb import Linear8bitLt

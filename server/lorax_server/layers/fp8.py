@@ -1,20 +1,26 @@
+from typing import Optional
+
 import torch
+from vllm import _custom_ops as ops
+
+####### from vLLM code #######
 
 
-def fp8_quantize(weight, qdtype=torch.float8_e4m3fn):
-    # weight, scale = quant_weights(weight, torch.int8, False)
-    finfo = torch.finfo(qdtype)
-    # Calculate the scale as dtype max divided by absmax
-    scale = finfo.max / weight.abs().max().clamp(min=1e-12)
-    # scale and clamp the tensor to bring it to
-    # the representative range of float8 data type
-    # (as default cast is unsaturated)
-    qweight = (weight * scale).clamp(min=finfo.min, max=finfo.max)
-    # Return both float8 data and the inverse scale (as float),
-    # as both required as inputs to torch._scaled_mm
-    qweight = qweight.to(qdtype)
-    scale = scale.float().reciprocal()
-    return qweight, scale
+def apply_fp8_linear(
+    input: torch.Tensor,
+    qweight: torch.Tensor,
+    weight_scale: torch.Tensor,
+    input_scale: Optional[torch.Tensor] = None,
+    input_scale_ub: Optional[torch.Tensor] = None,
+    qbias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    qinput, x_scale = ops.scaled_fp8_quant(input, input_scale, scale_ub=input_scale_ub, use_per_token_if_dynamic=False)
+
+    output = ops.cutlass_scaled_mm(
+        qinput, qweight, out_dtype=input.dtype, scale_a=x_scale, scale_b=weight_scale, bias=qbias
+    )
+
+    return output
 
 
 class Fp8Linear(torch.nn.Module):
@@ -22,24 +28,24 @@ class Fp8Linear(torch.nn.Module):
         self,
         weight,
         bias,
+        weight_scale,
+        input_scale,
     ) -> None:
         super().__init__()
         self.dtype = weight.dtype
-        self.qweight, self.scale = fp8_quantize(weight)
-
-        self.bias = bias if bias is not None else None
+        self.qweight = weight.t()
+        self.weight_scale = weight_scale.view(1, -1).contiguous()
+        self.qbias = bias if bias is not None else None
+        self.input_scale = input_scale
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        qinput, scale = fp8_quantize(input)
-        output, _ = torch._scaled_mm(
-            qinput,
-            self.qweight.t(),
-            out_dtype=self.dtype,
-            scale_a=scale,
-            scale_b=self.scale,
-            bias=self.bias,
+        return apply_fp8_linear(
+            input=input,
+            qweight=self.qweight,
+            weight_scale=self.weight_scale,
+            input_scale=self.input_scale,
+            qbias=self.qbias,
         )
-        return output
 
     @property
     def weight(self) -> torch.Tensor:
