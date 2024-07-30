@@ -294,21 +294,17 @@ class TensorParallelRowLinear(SuperLayer):
         fan_in_fan_out: bool = False,
         all_reduce: bool = True,
     ):
-        from lorax_server.utils.torch_utils import is_fp8_quantized
-
         weight = weights.get_multi_weights_row(prefix, quantize=config.quantize)
+
+        input_scale, weight_scale = None, None
+        if type(weight) is tuple:
+            weight, input_scale, weight_scale = weight
 
         if bias and weights.process_group.rank() == 0:
             # Rank is only on the first rank process
             bias = weights.get_tensor(f"{prefix}.bias")
         else:
             bias = None
-
-        weight_scale, input_scale = None, None
-        if is_fp8_quantized(config, prefix):
-            weight_scale = weights.get_tensor(f"{prefix}.weight_scale", use_self_dtype=False)
-            if weights.has_tensor(f"{prefix}.input_scale"):
-                input_scale = weights.get_tensor(f"{prefix}.input_scale", use_self_dtype=False)
 
         return cls(
             get_linear(

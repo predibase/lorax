@@ -220,6 +220,14 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
+            if quantize == "fp8" and weight.dtype == torch.float8_e4m3fn:
+                # weight_scale could be a tensor but if we're sharding row-wise then no
+                # need to shard the weight_scale as its row dimension would be 1
+                weight_scale = self.get_tensor(f"{prefix}.weight_scale", use_self_dtype=False)
+                input_scale = None
+                if self.has_tensor(f"{prefix}.input_scale"):
+                    input_scale = self.get_tensor(f"{prefix}.input_scale", use_self_dtype=False)
+                return weight, input_scale, weight_scale
         return weight
 
     def _get_bits_and_groupsize(self) -> Tuple[int, int]:

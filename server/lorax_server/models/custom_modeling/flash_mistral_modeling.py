@@ -52,7 +52,6 @@ from lorax_server.utils.lora import (
     UP_PROJ,
     V_PROJ,
 )
-from lorax_server.utils.torch_utils import is_fp8_quantized
 
 if not HAS_FLASH_ATTN_V2_CUDA:
     raise ImportError("Mistral model requires flash attn v2")
@@ -221,7 +220,7 @@ def _load_gqa(config, prefix: str, weights):
         get_linear(
             weight,
             bias=None,
-            quantize=is_fp8_quantized(config, f"{prefix}.q_proj"),
+            quantize=config.quantize,
             weight_scale=weight_scale,
             input_scale=input_scale,
         )
