@@ -1292,6 +1292,7 @@ dependencies = [
  "opentelemetry 0.19.0",
  "opentelemetry-otlp",
  "rand",
+ "regex",
  "reqwest",
  "reqwest-middleware",
  "reqwest-retry",

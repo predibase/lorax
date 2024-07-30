@@ -368,13 +368,10 @@ async fn main() -> Result<(), RouterError> {
         Some(pipeline_tag) => pipeline_tag.as_str() == "lorax",
     };
 
-    let arc_tokenizer = tokenizer.clone().map(Arc::new);
-
     // Instantiate sharded client from the master unix socket
-    let mut sharded_client =
-        ShardedClient::connect_uds(master_shard_uds_path, arc_tokenizer.clone())
-            .await
-            .map_err(RouterError::Connection)?;
+    let mut sharded_client = ShardedClient::connect_uds(master_shard_uds_path)
+        .await
+        .map_err(RouterError::Connection)?;
     // Clear the cache; useful if the webserver rebooted
     sharded_client
         .clear_cache(None)

@@ -10,7 +10,6 @@ use crate::{ClientError, Result};
 use futures::future::join_all;
 use regex::Regex;
 use std::sync::Arc;
-use tokenizers::tokenizer::Tokenizer;
 use tokio::task;
 use tonic::transport::Uri;
 use tracing::instrument;
@@ -19,37 +18,33 @@ use tracing::instrument;
 /// LoRAX gRPC multi client
 pub struct ShardedClient {
     clients: Vec<Client>,
-    tokenizer: Option<Arc<Tokenizer>>,
 }
 
 impl ShardedClient {
-    fn new(clients: Vec<Client>, tokenizer: Option<Arc<Tokenizer>>) -> Self {
-        Self { clients, tokenizer }
+    fn new(clients: Vec<Client>) -> Self {
+        Self { clients }
     }
 
     /// Create a new ShardedClient from a master client. The master client will communicate with
     /// the other shards and returns all uris/unix sockets with the `service_discovery` gRPC method.
-    async fn from_master_client(
-        mut master_client: Client,
-        tokenizer: Option<Arc<Tokenizer>>,
-    ) -> Result<Self> {
+    async fn from_master_client(mut master_client: Client) -> Result<Self> {
         // Get all uris/unix sockets from the master client
         let uris = master_client.service_discovery().await?;
         let futures = uris.into_iter().map(Client::connect_uds);
         let clients: Result<Vec<Client>> = join_all(futures).await.into_iter().collect();
-        Ok(Self::new(clients?, tokenizer))
+        Ok(Self::new(clients?))
     }
 
     /// Returns a client connected to the given uri
-    pub async fn connect(uri: Uri, tokenizer: Option<Arc<Tokenizer>>) -> Result<Self> {
+    pub async fn connect(uri: Uri) -> Result<Self> {
         let master_client = Client::connect(uri).await?;
-        Self::from_master_client(master_client, tokenizer).await
+        Self::from_master_client(master_client).await
     }
 
     /// Returns a client connected to the given unix socket
-    pub async fn connect_uds(path: String, tokenizer: Option<Arc<Tokenizer>>) -> Result<Self> {
+    pub async fn connect_uds(path: String) -> Result<Self> {
         let master_client = Client::connect_uds(path).await?;
-        Self::from_master_client(master_client, tokenizer).await
+        Self::from_master_client(master_client).await
     }
 
     /// Get the model info
@@ -178,7 +173,7 @@ impl ShardedClient {
 
     /// Classify the given batch
     #[instrument(skip(self))]
-    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<ClassifyPredictionList>> {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
@@ -187,34 +182,7 @@ impl ShardedClient {
         let results: Result<Vec<Vec<ClassifyPredictionList>>> =
             join_all(futures).await.into_iter().collect();
 
-        let flat_results: Vec<ClassifyPredictionList> = results?.into_iter().flatten().collect();
-        let threaded_futures: Vec<_> = flat_results
-            .into_iter()
-            .map(|prediction| {
-                let tokenizer = self.tokenizer.clone().unwrap();
-                // Spawn a new task for each format_ner_output call
-                task::spawn(async move {
-                    let entities = format_ner_output(prediction.clone(), tokenizer);
-                    EntityList {
-                        request_id: prediction.request_id,
-                        entities,
-                        input_ids: prediction.input_ids,
-                    }
-                })
-            })
-            .collect();
-        let entity_lists: Vec<EntityList> = join_all(threaded_futures)
-            .await
-            .into_iter()
-            .filter_map(|result| match result {
-                Ok(entity_list) => Some(entity_list),
-                Err(e) => {
-                    tracing::warn!("Error in threaded task: {:?}", e);
-                    None
-                }
-            })
-            .collect();
-        Ok(entity_lists)
+        Ok(results?.into_iter().flatten().collect())
     }
 
     pub async fn download_adapter(
@@ -306,69 +274,4 @@ fn merge_generations(
         generations.append(&mut shard_generations);
     }
     Ok((generations, next_batch))
-}
-
-fn format_ner_output(
-    classify_prediction_list: ClassifyPredictionList,
-    tokenizer: Arc<Tokenizer>,
-) -> Vec<Entity> {
-    let input_ids =
-        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
-    let predicted_token_class =
-        &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
-    let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
-
-    let tokens: Vec<String> = {
-        let re = Regex::new(r"\b\w+\b|\S").unwrap();
-        re.find_iter(&tokenizer.decode(input_ids, true).unwrap())
-            .map(|m| m.as_str().to_string())
-            .collect()
-    };
-
-    let mut ner_results = Vec::new();
-    let mut current_entity: Option<Entity> = None;
-    for (i, ((token, token_class), score)) in tokens
-        .iter()
-        .zip(predicted_token_class.iter())
-        .zip(scores.iter())
-        .enumerate()
-    {
-        if token_class != "O" {
-            let (bi, tag) = get_tag(token_class);
-            if bi == "B"
-                || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
-            {
-                if let Some(entity) = current_entity {
-                    ner_results.push(entity);
-                }
-                current_entity = Some(Entity {
-                    entity: tag,
-                    score: *score,
-                    index: i as u32,
-                    word: token.to_string(),
-                    start: tokenizer.decode(&input_ids[..i], false).unwrap().len() as u32,
-                    end: tokenizer.decode(&input_ids[..=i], false).unwrap().len() as u32,
-                });
-            } else if bi == "I" && current_entity.is_some() {
-                let entity = current_entity.as_mut().unwrap();
-                entity.word += &token.replace("##", "");
-                entity.end = tokenizer.decode(&input_ids[..=i], false).unwrap().len() as u32;
-            }
-        } else if let Some(entity) = current_entity.take() {
-            ner_results.push(entity);
-        }
-    }
-    if let Some(entity) = current_entity {
-        ner_results.push(entity);
-    }
-    ner_results
-}
-
-fn get_tag(token_class: &str) -> (String, String) {
-    let parts: Vec<&str> = token_class.split('-').collect();
-    if parts.len() == 2 {
-        (parts[0].to_string(), parts[1].to_string())
-    } else {
-        ("O".to_string(), "O".to_string())
-    }
 }

@@ -16,12 +16,13 @@ use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
-    Batch, CachedBatch, ClientError, Embedding, EntityList, GeneratedText, Generation,
-    PrefillTokens, PreloadedAdapter, ShardedClient,
+    Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, EntityList, GeneratedText,
+    Generation, PrefillTokens, PreloadedAdapter, ShardedClient,
 };
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
 use nohash_hasher::IntMap;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
@@ -30,6 +31,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use thiserror::Error;
+use tokenizers::Tokenizer;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
 use tracing::{info_span, instrument, Span};
@@ -132,6 +134,8 @@ pub struct Infer {
     chat_template: Option<ChatTemplateRenderer>,
     /// Inference limit
     limit_concurrent_requests: Arc<Semaphore>,
+    /// tokenizer for NER processing
+    tokenizer: Option<Arc<Tokenizer>>,
 }
 
 impl Infer {
@@ -151,6 +155,7 @@ impl Infer {
         generation_health: Arc<AtomicBool>,
         eager_prefill: bool,
         tokenizer_config: HubTokenizerConfig,
+        tokenizer: Option<Arc<Tokenizer>>,
         block_size: u32,
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
@@ -231,6 +236,7 @@ impl Infer {
             adapter_to_index,
             chat_template,
             limit_concurrent_requests: semaphore,
+            tokenizer: tokenizer,
         }
     }
 
@@ -646,11 +652,12 @@ impl Infer {
                     tracing::error!("Received an Embed message in classify. This is a bug.");
                 }
                 InferStreamResponse::Classify {
-                    entities,
+                    predictions,
                     start,
                     queued,
                 } => {
-                    return_entities = Some(entities.entities);
+                    let entities = format_ner_output(predictions, self.tokenizer.clone().unwrap());
+                    return_entities = Some(entities);
                 }
             }
         }
@@ -1011,8 +1018,8 @@ pub(crate) async fn classify(
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            results.into_iter().for_each(|entities| {
-                let id = entities.request_id;
+            results.into_iter().for_each(|predictions| {
+                let id = predictions.request_id;
                 // Get entry
                 // We can `expect` here as the request id should always be in the entries
                 let entry = entries
@@ -1022,7 +1029,7 @@ pub(crate) async fn classify(
                 // Send generation responses back to the infer task
                 // If the receive an error from the Flume channel, it means that the client dropped the
                 // request and we need to stop generating hence why we unwrap_or(true)
-                let stopped = send_classifications(entities, entry)
+                let stopped = send_classifications(predictions, entry)
                     .map_err(|err| {
                         if let SendTimeoutError::Timeout(_) = *err {
                             tracing::error!("Entry response channel timed out.")
@@ -1237,7 +1244,7 @@ fn send_embeddings(
 
 /// Send responses through the `entry` response channel
 fn send_classifications(
-    entities: EntityList,
+    predictions: ClassifyPredictionList,
     entry: &Entry,
 ) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
@@ -1247,7 +1254,7 @@ fn send_classifications(
 
     entry.response_tx.send_timeout(
         Ok(InferStreamResponse::Classify {
-            entities: entities.clone(),
+            predictions: predictions.clone(),
             queued: entry.queue_time,
             start: entry.batch_time.unwrap(),
         }),
@@ -1292,7 +1299,7 @@ pub(crate) enum InferStreamResponse {
         queued: Instant,
     },
     Classify {
-        entities: EntityList,
+        predictions: ClassifyPredictionList,
         start: Instant,
         queued: Instant,
     },
@@ -1344,5 +1351,70 @@ impl InferError {
             InferError::EmbeddingFailure => "embedding_failure",
             InferError::ClassificationFailure => "classification_failure",
         }
+    }
+}
+
+fn format_ner_output(
+    classify_prediction_list: ClassifyPredictionList,
+    tokenizer: Arc<Tokenizer>,
+) -> Vec<Entity> {
+    let input_ids =
+        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
+    let predicted_token_class =
+        &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
+    let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
+
+    let tokens: Vec<String> = {
+        let re = Regex::new(r"\b\w+\b|\S").unwrap();
+        re.find_iter(&tokenizer.decode(input_ids, true).unwrap())
+            .map(|m| m.as_str().to_string())
+            .collect()
+    };
+
+    let mut ner_results = Vec::new();
+    let mut current_entity: Option<Entity> = None;
+    for (i, ((token, token_class), score)) in tokens
+        .iter()
+        .zip(predicted_token_class.iter())
+        .zip(scores.iter())
+        .enumerate()
+    {
+        if token_class != "O" {
+            let (bi, tag) = get_tag(token_class);
+            if bi == "B"
+                || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
+            {
+                if let Some(entity) = current_entity {
+                    ner_results.push(entity);
+                }
+                current_entity = Some(Entity {
+                    entity: tag,
+                    score: *score,
+                    index: i,
+                    word: token.to_string(),
+                    start: tokenizer.decode(&input_ids[..i], false).unwrap().len(),
+                    end: tokenizer.decode(&input_ids[..=i], false).unwrap().len(),
+                });
+            } else if bi == "I" && current_entity.is_some() {
+                let entity = current_entity.as_mut().unwrap();
+                entity.word += &token.replace("##", "");
+                entity.end = tokenizer.decode(&input_ids[..=i], false).unwrap().len();
+            }
+        } else if let Some(entity) = current_entity.take() {
+            ner_results.push(entity);
+        }
+    }
+    if let Some(entity) = current_entity {
+        ner_results.push(entity);
+    }
+    ner_results
+}
+
+fn get_tag(token_class: &str) -> (String, String) {
+    let parts: Vec<&str> = token_class.split('-').collect();
+    if parts.len() == 2 {
+        (parts[0].to_string(), parts[1].to_string())
+    } else {
+        ("O".to_string(), "O".to_string())
     }
 }
