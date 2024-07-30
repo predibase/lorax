@@ -67,7 +67,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=ner-fast
+            type=raw,value=ner-fast2
 
       - name: Create a hash from tags
         env:
