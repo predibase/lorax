@@ -130,7 +130,10 @@ class FlashDistilBert(Model):
         # Note: This is meant to 1) preallocate the memory by doing a forward pass
         # and then just returning the max seqlen since for embeddings we are never generating
         # TODO: (magdy) add the forward pass and debug this
-        # _ = self.embed(batch)
+        if self.supports_classification:
+            self.classify(batch)
+        else:
+            self.embed(batch)
         return batch.max_s
 
     def generate_token(self, batch: FlashEmbeddingClassificationBatch) -> None:

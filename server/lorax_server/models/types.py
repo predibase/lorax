@@ -8,7 +8,6 @@ from transformers import PreTrainedTokenizerBase
 
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
-from lorax_server.utils.token_classification import format_ner_output
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -158,16 +157,14 @@ class FlashEmbeddingClassificationBatch(ABC):
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
-        batch_inputs = tokenizer(
-            batch_inputs,
-            return_token_type_ids=True,
-            truncation=True,
-            max_length=max_truncation,
-        )
+        if all(r.HasField("tokenized_inputs") for r in pb.requests):
+            batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
+        else:
+            batch_tokenized_inputs = tokenizer(batch_inputs, padding=True, truncation=True, max_length=max_truncation)[
+                "input_ids"
+            ]
 
-        batch_tokenized_inputs = batch_inputs["input_ids"]
-        batch_token_type_ids = batch_inputs["token_type_ids"]
-
+        pad_to = max(len(x) for x in batch_tokenized_inputs)
         all_input_ids = []
         position_ids = []
         all_token_type_ids = []
@@ -176,13 +173,12 @@ class FlashEmbeddingClassificationBatch(ABC):
         max_s = 0
         cumulative_length = 0
 
-        for i, (r, tokenized_input, token_type_ids) in enumerate(
-            zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)
-        ):
+        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             tokenized_input = tokenized_input[-r.truncate :]
-            token_type_ids = token_type_ids[-r.truncate :]
+            if len(tokenized_input) < pad_to:
+                tokenized_input += [tokenizer.pad_token_id] * (pad_to - len(tokenized_input))
             all_input_ids.append(tokenized_input)
-            all_token_type_ids.append(token_type_ids)
+            all_token_type_ids.append([0] * len(tokenized_input))
 
             input_length = len(tokenized_input)
             max_s = max(max_s, input_length)
@@ -214,24 +210,20 @@ class FlashEmbeddingClassificationBatch(ABC):
             position_ids=position_ids,
             cu_seqlens=torch.tensor(cu_seqlens, dtype=torch.int32, device=device),
             max_s=max_s,
-            size=len(batch_inputs),
+            size=len(batch_tokenized_inputs),
         )
 
     @classmethod
-    def to_pb_classify(
-        self, batch, predicted_token_classes, confidence_scores, tokenizer
-    ) -> generate_pb2.ClassifyResponse:
-        # TODO (magdy): either move this to the rust server or consider using multi processing here
+    def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse2:
         results = []
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
-            res = format_ner_output(pred, con, batch.input_ids, tokenizer)
             results.append(
-                generate_pb2.EntityList(
-                    request_id=batch.request_ids[i], entities=[generate_pb2.Entity(**entity) for entity in res]
+                generate_pb2.ClassifyPredictionList(
+                    request_id=batch.request_ids[i], predictions=pred, scores=con, input_ids=batch.input_ids.tolist()
                 )
             )
 
-        pb_resp = generate_pb2.ClassifyResponse(entity_lists=results)
+        pb_resp = generate_pb2.ClassifyResponse2(classify_prediction_lists=results)
         return pb_resp
 
     @classmethod

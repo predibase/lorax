@@ -1,4 +1,6 @@
-use crate::pb::generate::v1::{EmbedResponse, Embedding, EntityList};
+use crate::pb::generate::v1::{
+    ClassifyPredictionList, EmbedResponse, Embedding, Entity, EntityList,
+};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -6,6 +8,9 @@ use crate::{
 };
 use crate::{ClientError, Result};
 use futures::future::join_all;
+use regex::Regex;
+use std::sync::Arc;
+use tokio::task;
 use tonic::transport::Uri;
 use tracing::instrument;
 
@@ -168,13 +173,15 @@ impl ShardedClient {
 
     /// Classify the given batch
     #[instrument(skip(self))]
-    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<EntityList>> {
+    pub async fn classify(&mut self, batch: Batch) -> Result<Vec<ClassifyPredictionList>> {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
             .map(|client| Box::pin(client.classify(batch.clone())))
             .collect();
-        let results: Result<Vec<Vec<EntityList>>> = join_all(futures).await.into_iter().collect();
+        let results: Result<Vec<Vec<ClassifyPredictionList>>> =
+            join_all(futures).await.into_iter().collect();
+
         Ok(results?.into_iter().flatten().collect())
     }
 

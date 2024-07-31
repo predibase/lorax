@@ -115,7 +115,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         )
         predicated_token_class, confidence_scores = self.model.classify(batch)
         ner_results = self.model.batch_type.to_pb_classify(
-            batch, predicated_token_class, confidence_scores, self.model.tokenizer
+            batch, predicated_token_class, confidence_scores
         )
         return ner_results
 

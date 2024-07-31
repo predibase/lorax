@@ -1079,6 +1079,7 @@ pub async fn run(
     struct ApiDoc;
 
     let cloned_tokenizer = tokenizer.clone().map(|t| Arc::new(Mutex::new(t)));
+    let arc_tokenizer = tokenizer.clone().map(Arc::new);
 
     // Create state
     let validation = Validation::new(
@@ -1106,6 +1107,7 @@ pub async fn run(
         generation_health,
         eager_prefill,
         tokenizer_config,
+        arc_tokenizer,
         shard_info.block_size,
         shard_info.speculate,
         shard_info.preloaded_adapters,

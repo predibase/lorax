@@ -16,6 +16,7 @@ from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
     load_and_merge_adapters,
 )
+from lorax_server.utils.constants import BLOCK_SIZE
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.state import get_speculative_tokens
 from lorax_server.utils.tokenizer import TokenizerManager
@@ -102,7 +103,9 @@ class Model(ABC):
 
     @property
     def block_size(self) -> int:
-        return 0
+        # TODO: (magdy) revisit if this change works. For now this allows us
+        # to not have to set it for embedding and NER models as well
+        return BLOCK_SIZE
 
     @property
     def sliding_window_blocks(self) -> Optional[int]:
