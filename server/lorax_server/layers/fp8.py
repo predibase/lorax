@@ -36,7 +36,7 @@ class Fp8Linear(torch.nn.Module):
         self.qweight = weight.t()
         self.weight_scale = weight_scale.view(1, -1).contiguous().float()
         self.qbias = bias if bias is not None else None
-        self.input_scale = input_scale.float() if input_scale else input_scale
+        self.input_scale = input_scale.float() if input_scale is not None else None
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return apply_fp8_linear(
