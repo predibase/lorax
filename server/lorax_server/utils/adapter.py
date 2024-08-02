@@ -1,7 +1,7 @@
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Set, Tuple, Union
+from typing import TYPE_CHECKING, Set, Tuple
 
 from loguru import logger
 from safetensors import safe_open
