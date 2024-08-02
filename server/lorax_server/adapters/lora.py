@@ -17,6 +17,7 @@ from lorax_server.utils.sgmv import (
     pad_rank,
     use_cutlass_shrink,
 )
+from lorax_server.utils.weights import load_module_weight
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model
@@ -166,10 +167,10 @@ class LoraWeights(AdapterWeights):
                 return None
 
             lora_a, lora_a_name = module_map[weight_name]["lora_A"]
-            lora_a = lora_a.to(base_device, model.dtype)
+            lora_a = load_module_weight(lora_a_name, lora_a, base_device, model.dtype)
 
             lora_b, lora_b_name = module_map[weight_name]["lora_B"]
-            lora_b = lora_b.to(base_device, model.dtype)
+            lora_b = load_module_weight(lora_b_name, lora_b, base_device, model.dtype)
 
             scale = get_scaling_factor(
                 config.lora_alpha,

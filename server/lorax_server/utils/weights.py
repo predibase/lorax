@@ -267,9 +267,7 @@ class InMemoryWeights(AbstractWeights):
 
     def get_tensor(self, tensor_name: str) -> torch.Tensor:
         tensor = self.weights[tensor_name]
-        tensor = tensor.to(dtype=self.dtype)
-        tensor = tensor.to(device=self.device)
-        return tensor
+        return load_module_weight(tensor_name, tensor, self.device, self.dtype)
 
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.shape
@@ -542,3 +540,18 @@ def download_weights(
             discard_names = []
         # Convert pytorch weights to safetensors
         utils.convert_files(local_pt_files, local_st_files, discard_names)
+
+
+def load_module_weight(name: str, module: Union[torch.Tensor, str], device, dtype):
+    if isinstance(module, torch.Tensor):
+        return module.to(device, dtype)
+
+    if isinstance(device, torch.device):
+        if device.type == "cuda":
+            device = device.index
+        elif device.type == "cpu":
+            device = "cpu"
+
+    # module would be just the filename if lazy loading happened before
+    with safe_open(module, framework="pt", device=device) as f:
+        return f.get_tensor(name).to(dtype)

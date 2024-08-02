@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple
 
 from loguru import logger
+from safetensors import safe_open
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
@@ -78,6 +79,7 @@ def _load_and_merge(
             weight_names,
             api_token,
             trust_remote_code,
+            False,
         )
 
         adapters_to_merge.append((module_map, adapter_config))
@@ -136,6 +138,7 @@ def load_module_map(
     weight_names: Tuple[str],
     api_token: str,
     trust_remote_code: bool = False,
+    lazy_load_weights: bool = True,
 ) -> Tuple["ModuleMap", "AdapterConfig", Set[str], PreTrainedTokenizer]:
     # TODO(geoffrey): refactor this and merge parts of this function with
     # lorax_server/utils/adapter.py::create_merged_weight_files
@@ -157,7 +160,15 @@ def load_module_map(
     adapter_filenames = source.weight_files()
     adapter_weights = {}
     for filename in adapter_filenames:
-        adapter_weights.update(load_file(filename))
+        if lazy_load_weights:
+            result = {}
+            # just fetching the layer names of the module
+            with safe_open(filename, framework="pt") as f:
+                for k in f.keys():
+                    result[k] = filename
+            adapter_weights.update(result)
+        else:
+            adapter_weights.update(load_file(filename))
 
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
     module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
