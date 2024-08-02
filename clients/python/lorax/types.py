@@ -343,3 +343,7 @@ class DeployedModel(BaseModel):
 class EmbedResponse(BaseModel):
     # Embeddings
     embeddings: Optional[List[float]]
+
+class ClassifyResponse(BaseModel):
+    # Classifications
+    entities: Optional[List[dict]]

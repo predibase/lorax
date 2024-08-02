@@ -2,18 +2,18 @@
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
-use crate::json;
 use crate::validation::ValidationError;
+use crate::{json, HubTokenizerConfig};
 use crate::{
     AdapterParameters, AlternativeToken, BestOfSequence, ChatCompletionRequest,
     ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
-    ChatCompletionStreamResponseChoice, ChatMessage, CompatGenerateRequest, CompletionFinishReason,
-    CompletionRequest, CompletionResponse, CompletionResponseChoice,
-    CompletionResponseStreamChoice, CompletionStreamResponse, Details, EmbedRequest, EmbedResponse,
-    ErrorResponse, FinishReason, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, LogProbs, PrefillToken, ResponseFormat, ResponseFormatType,
-    SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse,
-    UsageInfo, Validation,
+    ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest, ClassifyResponse,
+    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
+    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
+    EmbedRequest, EmbedResponse, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest,
+    GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken, ResponseFormat,
+    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
+    TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{request, HeaderMap, Method, StatusCode};
@@ -262,7 +262,51 @@ async fn chat_completions_v1(
         return Err((StatusCode::BAD_REQUEST, Json(err)));
     }
 
-    let mut gen_req = CompatGenerateRequest::from(req);
+    // apply chat template to flatten the request into a single input
+    let inputs = match infer.apply_chat_template(req.messages) {
+        Ok(inputs) => inputs,
+        Err(err) => {
+            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
+            tracing::error!("{err}");
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ErrorResponse {
+                    error: err.to_string(),
+                    error_type: err.error_type().to_string(),
+                }),
+            ));
+        }
+    };
+
+    let mut gen_req = CompatGenerateRequest {
+        inputs: inputs.to_string(),
+        parameters: GenerateParameters {
+            adapter_id: req.model.parse().ok(),
+            adapter_source: req.adapter_source,
+            adapter_parameters: None,
+            api_token: req.api_token,
+            best_of: req.n.map(|x| x as usize),
+            temperature: req.temperature,
+            repetition_penalty: req.repetition_penalty,
+            top_k: req.top_k,
+            top_p: req.top_p,
+            typical_p: None,
+            do_sample: !req.n.is_none(),
+            max_new_tokens: req.max_tokens.map(|x| x as u32),
+            ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
+            return_full_text: None,
+            stop: req.stop,
+            truncate: None,
+            watermark: false,
+            details: true,
+            decoder_input_details: false,
+            return_k_alternatives: None,
+            apply_chat_template: false,
+            seed: req.seed,
+            response_format: req.response_format,
+        },
+        stream: req.stream.unwrap_or(false),
+    };
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -851,6 +895,15 @@ async fn generate_stream_with_callback(
                                             yield Ok(Event::from(err));
                                             break;
                                         }
+                                        InferStreamResponse::Classify {
+                                            ..
+                                        } => {
+                                            let err = InferError::from(ValidationError::ClassifyModelError);
+                                            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
+                                            tracing::error!("{err}");
+                                            yield Ok(Event::from(err));
+                                            break;
+                                        }
                                     }
                                 }
                                 // yield error
@@ -950,11 +1003,13 @@ pub async fn run(
     cors_allow_credentials: Option<AllowCredentials>,
     cors_allow_headers: Option<AllowHeaders>,
     cors_expose_headers: Option<ExposeHeaders>,
+    tokenizer_config: HubTokenizerConfig,
     ngrok: bool,
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
     adapter_source: String,
     embedding_model: bool,
+    eager_prefill: bool,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -1024,6 +1079,7 @@ pub async fn run(
     struct ApiDoc;
 
     let cloned_tokenizer = tokenizer.clone().map(|t| Arc::new(Mutex::new(t)));
+    let arc_tokenizer = tokenizer.clone().map(Arc::new);
 
     // Create state
     let validation = Validation::new(
@@ -1049,6 +1105,12 @@ pub async fn run(
         shard_info.requires_padding,
         shard_info.window_size,
         generation_health,
+        eager_prefill,
+        tokenizer_config,
+        arc_tokenizer,
+        shard_info.block_size,
+        shard_info.speculate,
+        shard_info.preloaded_adapters,
     );
 
     // Duration buckets
@@ -1145,6 +1207,7 @@ pub async fn run(
         docker_label: option_env!("DOCKER_LABEL"),
         request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
         embedding_model,
+        eager_prefill,
     };
 
     DEFAULT_ADAPTER_SOURCE
@@ -1170,6 +1233,7 @@ pub async fn run(
         .route("/info", get(get_model_info))
         .route("/generate", post(generate))
         .route("/embed", post(embed))
+        .route("/classify", post(classify))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
@@ -1306,6 +1370,9 @@ impl From<InferError> for (StatusCode, Json<ErrorResponse>) {
             InferError::Overloaded(_) => StatusCode::TOO_MANY_REQUESTS,
             InferError::ValidationError(_) => StatusCode::UNPROCESSABLE_ENTITY,
             InferError::IncompleteGeneration => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::TemplateError(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            InferError::EmbeddingFailure => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::ClassificationFailure => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (
@@ -1355,6 +1422,31 @@ async fn embed(
     // Inference
     let response = infer.embed(req).await?;
 
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    tag = "Classify",
+    path = "/classify",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Embeddings ids", body = ClassifyResponse),
+    (status = 500, description = "Incomplete embedding", body = ErrorResponse),
+    )
+)]
+#[instrument(skip_all)]
+async fn classify(
+    infer: Extension<Infer>,
+    mut client: Extension<ShardedClient>,
+    Json(req): Json<ClassifyRequest>,
+) -> Result<Json<ClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
+    metrics::increment_counter!("lorax_request_count");
+
+    tracing::debug!("Input: {}", req.inputs);
+    let response = infer.classify(req).await?;
     Ok(Json(response))
 }
 

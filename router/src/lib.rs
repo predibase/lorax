@@ -1,14 +1,16 @@
 /// LoRAX Webserver
 mod adapter;
 mod batch;
+mod block_allocator;
 mod health;
 mod infer;
 mod loader;
 mod queue;
 mod scheduler;
 pub mod server;
+
 mod validation;
-use lorax_client::{AdapterParameters as AdapterParametersMessage, AlternativeTokens};
+use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as EntityMessage};
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use batch::Entry;
@@ -60,6 +62,8 @@ pub struct Info {
     pub max_waiting_tokens: usize,
     #[schema(example = "2")]
     pub validation_workers: usize,
+    #[schema(example = false)]
+    pub eager_prefill: bool,
     /// Router Info
     #[schema(example = "0.5.0")]
     pub version: &'static str,
@@ -483,10 +487,83 @@ struct ResponseFormat {
     schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
 }
 
+#[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
+pub struct Url {
+    url: String,
+}
+
+#[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum MessageChunk {
+    Text { text: String },
+    ImageUrl { image_url: Url },
+}
+
+#[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
+pub struct Message {
+    #[schema(example = "user")]
+    role: String,
+    #[schema(example = "My name is David and I")]
+    pub content: MessageContent,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "\"David\"")]
+    name: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum MessageContent {
+    SingleText(String),
+    MultipleChunks(Vec<MessageChunk>),
+}
+
+// Pushing a chunk to a single text message will convert it to a multiple chunks message
+impl MessageContent {
+    pub fn push(&mut self, chunk: MessageChunk) {
+        match self {
+            MessageContent::SingleText(text) => {
+                *self =
+                    MessageContent::MultipleChunks(vec![MessageChunk::Text { text: text.clone() }]);
+            }
+            MessageContent::MultipleChunks(chunks) => {
+                chunks.push(chunk);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
+pub struct TextMessage {
+    #[schema(example = "user")]
+    pub role: String,
+    #[schema(example = "My name is David and I")]
+    pub content: String,
+}
+
+impl From<Message> for TextMessage {
+    fn from(value: Message) -> Self {
+        TextMessage {
+            role: value.role,
+            content: match value.content {
+                MessageContent::SingleText(text) => text,
+                MessageContent::MultipleChunks(chunks) => chunks
+                    .into_iter()
+                    .map(|chunk| match chunk {
+                        MessageChunk::Text { text } => text,
+                        MessageChunk::ImageUrl { image_url } => format!("![]({})", image_url.url),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(""),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
-    messages: Vec<std::collections::HashMap<String, String>>,
+    messages: Vec<Message>,
     temperature: Option<f32>,
     top_p: Option<f32>,
     n: Option<i32>,
@@ -621,6 +698,8 @@ struct ChatCompletionStreamResponse {
     created: i64,
     model: String,
     choices: Vec<ChatCompletionStreamResponseChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage: Option<UsageInfo>,
 }
 
 #[derive(Serialize, ToSchema, PartialEq)]
@@ -644,6 +723,39 @@ struct EmbedRequest {
 #[derive(Serialize, ToSchema)]
 struct EmbedResponse {
     embeddings: Vec<f32>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ClassifyRequest {
+    inputs: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ClassifyResponse {
+    entities: Vec<Entity>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Entity {
+    entity: String,
+    score: f32,
+    index: usize,
+    word: String,
+    start: usize,
+    end: usize,
+}
+
+impl From<EntityMessage> for Entity {
+    fn from(entity: EntityMessage) -> Self {
+        Entity {
+            entity: entity.entity,
+            score: entity.score,
+            index: entity.index as usize,
+            word: entity.word,
+            start: entity.start as usize,
+            end: entity.end as usize,
+        }
+    }
 }
 
 impl From<CompletionRequest> for CompatGenerateRequest {
@@ -674,40 +786,6 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 apply_chat_template: false,
                 seed: req.seed,
                 response_format: None,
-            },
-            stream: req.stream.unwrap_or(false),
-        }
-    }
-}
-
-impl From<ChatCompletionRequest> for CompatGenerateRequest {
-    fn from(req: ChatCompletionRequest) -> Self {
-        CompatGenerateRequest {
-            inputs: serde_json::to_string(&req.messages).unwrap(),
-            parameters: GenerateParameters {
-                adapter_id: req.model.parse().ok(),
-                adapter_source: req.adapter_source,
-                adapter_parameters: None,
-                api_token: req.api_token,
-                best_of: req.n.map(|x| x as usize),
-                temperature: req.temperature,
-                repetition_penalty: req.repetition_penalty,
-                top_k: req.top_k,
-                top_p: req.top_p,
-                typical_p: None,
-                do_sample: !req.n.is_none(),
-                max_new_tokens: req.max_tokens.map(|x| x as u32),
-                ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
-                return_full_text: None,
-                stop: req.stop,
-                truncate: None,
-                watermark: false,
-                details: true,
-                decoder_input_details: false,
-                return_k_alternatives: None,
-                apply_chat_template: true,
-                seed: req.seed,
-                response_format: req.response_format,
             },
             stream: req.stream.unwrap_or(false),
         }
@@ -824,6 +902,20 @@ impl From<GenerateResponse> for ChatCompletionResponse {
 
 impl From<StreamResponse> for ChatCompletionStreamResponse {
     fn from(resp: StreamResponse) -> Self {
+        let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
+        let completion_tokens = resp.details.as_ref().map(|x| x.generated_tokens);
+        let total_tokens = prompt_tokens + completion_tokens.unwrap_or(0);
+
+        let usage: Option<UsageInfo> = if completion_tokens.is_some() {
+            Some(UsageInfo {
+                prompt_tokens: prompt_tokens,
+                total_tokens: total_tokens,
+                completion_tokens: completion_tokens,
+            })
+        } else {
+            None
+        };
+
         let finish_reason = resp
             .details
             .map(|x| CompletionFinishReason::from(x.finish_reason));
@@ -849,6 +941,7 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                 },
                 finish_reason: finish_reason,
             }],
+            usage: usage,
         }
     }
 }
@@ -859,6 +952,56 @@ impl From<FinishReason> for CompletionFinishReason {
             FinishReason::Length => CompletionFinishReason::Length,
             FinishReason::EndOfSequenceToken => CompletionFinishReason::Stop,
             FinishReason::StopSequence => CompletionFinishReason::ContentFilter,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ChatTemplate {
+    name: String,
+    template: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ChatTemplateVersions {
+    Single(String),
+    Multiple(Vec<ChatTemplate>),
+}
+
+use std::path::Path;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HubTokenizerConfig {
+    pub chat_template: Option<ChatTemplateVersions>,
+    pub completion_template: Option<String>,
+    pub bos_token: Option<TokenizerConfigToken>,
+    pub eos_token: Option<TokenizerConfigToken>,
+    pub tokenizer_class: Option<String>,
+    pub add_bos_token: Option<bool>,
+    pub add_eos_token: Option<bool>,
+}
+
+impl HubTokenizerConfig {
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> Option<Self> {
+        std::fs::read_to_string(filename)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum TokenizerConfigToken {
+    String(String),
+    Object { content: String },
+}
+
+impl TokenizerConfigToken {
+    pub fn as_str(&self) -> &str {
+        match self {
+            TokenizerConfigToken::String(s) => s,
+            TokenizerConfigToken::Object { content } => content,
         }
     }
 }

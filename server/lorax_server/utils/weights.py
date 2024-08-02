@@ -71,7 +71,7 @@ class AbstractWeights(ABC):
             raise NotImplementedError("Let's make that generic when needed")
         # Special case for gptq which shouldn't convert
         # u4 which are disguised as int32
-        if tensor.dtype != torch.int32:
+        if tensor.dtype not in [torch.int32, torch.int64, torch.float8_e4m3fn, torch.float8_e5m2]:
             tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
@@ -118,8 +118,27 @@ class AbstractWeights(ABC):
             bits, groupsize = self._get_bits_and_groupsize()
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         else:
-            w = self.get_sharded_list("weight", prefixes, dim=0)
-            weight = torch.cat(w, dim=dim)
+            weight_list = self.get_sharded_list("weight", prefixes, dim=0)
+            if quantize == "fp8" and weight_list[0].dtype == torch.float8_e4m3fn:
+                # Since there is no kernel for concatenating two tensors in PyTorch
+                # for fp8 datatypes, we have to cast to fp16, concat, cast back to fp8
+                fp16_weight_list = [w.to(torch.float16) for w in weight_list]
+                weight = torch.cat(fp16_weight_list, dim=dim).to(torch.float8_e4m3fn)
+                input_scale = None
+                if self.has_tensor(f"{prefixes[0]}.input_scale"):
+                    # if the layers are being fused, then they have the same inputs
+                    # hence their input scales will have to be the same so we pick the first one
+                    input_scale = self.get_tensor(f"{prefixes[0]}.input_scale", use_self_dtype=False)
+                weight_scale_list = [self.get_tensor(f"{p}.weight_scale", use_self_dtype=False) for p in prefixes]
+                if len(weight_scale_list[0].shape) > 1:
+                    weight_scale_list = self.get_sharded_list("weight_scale", prefixes, dim=0)
+                else:
+                    weight_scale_list = [si.repeat(wi.shape[dim]) for si, wi in zip(weight_scale_list, weight_list)]
+                # weight scales are in fp32 already so no problem with concatenating them
+                weight_scale = torch.cat(weight_scale_list, dim=0)
+                return weight, input_scale, weight_scale
+            weight = torch.cat(weight_list, dim=dim)
+
         return weight
 
     def get_multi_weights_row(self, prefix: str, quantize: str):
@@ -203,6 +222,14 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
+            if quantize == "fp8" and weight.dtype == torch.float8_e4m3fn:
+                # weight_scale could be a tensor but if we're sharding row-wise then no
+                # need to shard the weight_scale as its row dimension would be 1
+                weight_scale = self.get_tensor(f"{prefix}.weight_scale", use_self_dtype=False)
+                input_scale = None
+                if self.has_tensor(f"{prefix}.input_scale"):
+                    input_scale = self.get_tensor(f"{prefix}.input_scale", use_self_dtype=False)
+                return weight, input_scale, weight_scale
         return weight
 
     def _get_bits_and_groupsize(self) -> Tuple[int, int]:
@@ -354,14 +381,15 @@ class Weights(AbstractWeights):
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.get_shape()
 
-    def get_tensor(self, tensor_name: str):
+    def get_tensor(self, tensor_name: str, use_self_dtype: bool = True):
         filename, tensor_name = self.get_filename(tensor_name)
         f = self._get_handle(filename)
         tensor = f.get_tensor(tensor_name)
         # Special case for gptq which shouldn't convert
         # u4 which are disguised as int32
-        if tensor.dtype not in [torch.int32, torch.int64]:
-            tensor = tensor.to(dtype=self.dtype)
+        if tensor.dtype not in [torch.int32, torch.int64, torch.float8_e4m3fn, torch.float8_e5m2]:
+            if use_self_dtype:
+                tensor = tensor.to(dtype=self.dtype)
         tensor = tensor.to(device=self.device)
         return tensor
 

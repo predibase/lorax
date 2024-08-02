@@ -73,6 +73,7 @@ impl std::fmt::Display for Quantization {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Dtype {
+    #[clap(name = "float16")]
     Float16,
     #[clap(name = "bfloat16")]
     BFloat16,
@@ -179,6 +180,10 @@ struct Args {
     /// Defaults to 0, meaning no speculative decoding.
     #[clap(long, env)]
     speculative_tokens: Option<usize>,
+
+    /// The list of adapter ids to preload during initialization (to avoid cold start times).
+    #[clap(long, env)]
+    preloaded_adapter_ids: Vec<String>,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -287,6 +292,12 @@ struct Args {
     #[clap(default_value = "20", long, env)]
     max_waiting_tokens: usize,
 
+    /// Whether to prioritize running prefill before decode to increase batch size during decode (throughput) over
+    /// liveness in earlier requests (latency). For batch use cases that are not latnecy sensitive, this should be set
+    /// to true.
+    #[clap(long, env)]
+    eager_prefill: Option<bool>,
+
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
     #[clap(default_value = "1024", long, env)]
     max_active_adapters: usize,
@@ -391,6 +402,11 @@ struct Args {
     /// Download model weights only
     #[clap(long, env)]
     download_only: bool,
+
+    /// The path to the tokenizer config file. This path is used to load the tokenizer configuration which may
+    /// include a `chat_template`. If not provided, the default config will be used from the model hub.
+    #[clap(long, env)]
+    tokenizer_config_path: Option<String>,
 }
 
 #[derive(Debug)]
@@ -409,6 +425,7 @@ fn shard_manager(
     quantize: Option<Quantization>,
     compile: bool,
     speculative_tokens: Option<usize>,
+    preloaded_adapter_ids: Vec<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -484,6 +501,12 @@ fn shard_manager(
     if let Some(speculative_tokens) = speculative_tokens {
         shard_args.push("--speculative-tokens".to_string());
         shard_args.push(speculative_tokens.to_string())
+    }
+
+    // Preloaded adapters
+    for adapter_id in preloaded_adapter_ids {
+        shard_args.push("--preloaded-adapter-ids".to_string());
+        shard_args.push(adapter_id);
     }
 
     if let Some(dtype) = dtype {
@@ -952,6 +975,7 @@ fn spawn_shards(
         let quantize = args.quantize;
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
+        let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -970,6 +994,7 @@ fn spawn_shards(
                 quantize,
                 compile,
                 speculative_tokens,
+                preloaded_adapter_ids,
                 dtype,
                 trust_remote_code,
                 uds_path,
@@ -1073,6 +1098,12 @@ fn spawn_webserver(
     router_args.push("--adapter-source".to_string());
     router_args.push(adapter_source.to_string());
 
+    // Tokenizer config path
+    if let Some(ref tokenizer_config_path) = args.tokenizer_config_path {
+        router_args.push("--tokenizer-config-path".to_string());
+        router_args.push(tokenizer_config_path.to_string());
+    }
+
     // Model optional max batch total tokens
     if let Some(max_batch_total_tokens) = args.max_batch_total_tokens {
         router_args.push("--max-batch-total-tokens".to_string());
@@ -1127,6 +1158,10 @@ fn spawn_webserver(
 
     if args.embedding_model.unwrap_or(false) {
         router_args.push("--embedding-model".to_string());
+    }
+
+    if args.eager_prefill.unwrap_or(false) {
+        router_args.push("--eager-prefill".to_string());
     }
 
     // Ngrok

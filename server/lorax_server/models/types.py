@@ -57,6 +57,7 @@ class GeneratedText:
             seed=self.seed,
         )
 
+
 @dataclass
 class PrefillTokens:
     token_ids: List[int]
@@ -127,7 +128,7 @@ class Generation:
 
 
 @dataclass
-class FlashEmbeddingBatch(ABC):
+class FlashEmbeddingClassificationBatch(ABC):
     request_ids: List[int]
     input_ids: torch.Tensor
     token_type_ids: torch.Tensor
@@ -142,13 +143,13 @@ class FlashEmbeddingBatch(ABC):
 
     @classmethod
     def from_pb(
-        self, 
+        self,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
-    ) -> "FlashEmbeddingBatch":
+    ) -> "FlashEmbeddingClassificationBatch":
         batch_inputs = []
         max_truncation = 0
         for r in pb.requests:
@@ -156,16 +157,14 @@ class FlashEmbeddingBatch(ABC):
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
-        batch_inputs = tokenizer(
-            batch_inputs, 
-            return_token_type_ids=True, 
-            truncation=True, 
-            max_length=max_truncation,
-        )
+        if all(r.HasField("tokenized_inputs") for r in pb.requests):
+            batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
+        else:
+            batch_tokenized_inputs = tokenizer(batch_inputs, padding=True, truncation=True, max_length=max_truncation)[
+                "input_ids"
+            ]
 
-        batch_tokenized_inputs = batch_inputs["input_ids"]
-        batch_token_type_ids = batch_inputs["token_type_ids"]
-
+        pad_to = max(len(x) for x in batch_tokenized_inputs)
         all_input_ids = []
         position_ids = []
         all_token_type_ids = []
@@ -173,12 +172,13 @@ class FlashEmbeddingBatch(ABC):
 
         max_s = 0
         cumulative_length = 0
-        
-        for i, (r, tokenized_input, token_type_ids) in enumerate(zip(pb.requests, batch_tokenized_inputs, batch_token_type_ids)):
+
+        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             tokenized_input = tokenized_input[-r.truncate :]
-            token_type_ids = token_type_ids[-r.truncate :]
+            if len(tokenized_input) < pad_to:
+                tokenized_input += [tokenizer.pad_token_id] * (pad_to - len(tokenized_input))
             all_input_ids.append(tokenized_input)
-            all_token_type_ids.append(token_type_ids)
+            all_token_type_ids.append([0] * len(tokenized_input))
 
             input_length = len(tokenized_input)
             max_s = max(max_s, input_length)
@@ -189,7 +189,7 @@ class FlashEmbeddingBatch(ABC):
             position_ids.append(request_position_ids)
 
             cumulative_length += input_length
-        
+
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
             final_token_type_ids = np.concatenate(all_token_type_ids, dtype=np.int64)
@@ -198,17 +198,37 @@ class FlashEmbeddingBatch(ABC):
             input_ids = all_input_ids[0]
             final_token_type_ids = all_token_type_ids[0]
             position_ids = position_ids[0]
-        
+
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
         final_token_type_ids = torch.tensor(final_token_type_ids, dtype=torch.int64, device=device)
         position_ids = position_ids.to(device)
 
-        return FlashEmbeddingBatch(
+        return FlashEmbeddingClassificationBatch(
             request_ids=[r.id for r in pb.requests],
             input_ids=input_ids,
             token_type_ids=final_token_type_ids,
             position_ids=position_ids,
             cu_seqlens=torch.tensor(cu_seqlens, dtype=torch.int32, device=device),
             max_s=max_s,
-            size=len(batch_inputs),
+            size=len(batch_tokenized_inputs),
         )
+
+    @classmethod
+    def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse2:
+        results = []
+        for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
+            results.append(
+                generate_pb2.ClassifyPredictionList(
+                    request_id=batch.request_ids[i], predictions=pred, scores=con, input_ids=batch.input_ids.tolist()
+                )
+            )
+
+        pb_resp = generate_pb2.ClassifyResponse2(classify_prediction_lists=results)
+        return pb_resp
+
+    @classmethod
+    def to_pb_embed(self, batch, embeddings) -> generate_pb2.EmbedResponse:
+        embeddings_proto = []
+        for i, embedding in enumerate(embeddings):
+            embeddings_proto.append(generate_pb2.Embedding(request_id=batch.request_ids[i], values=embedding))
+        return generate_pb2.EmbedResponse(embeddings=embeddings_proto)

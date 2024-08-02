@@ -195,7 +195,11 @@ def _load_gqa(config, prefix: str, weights):
         dim=0,
     )
 
-    if config.quantize not in ["gptq", "awq"]:
+    input_scale, weight_scale = None, None
+    if isinstance(weight, tuple):
+        weight, input_scale, weight_scale = weight
+
+    if config.quantize not in ["gptq", "awq", "fp8"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.hidden_size // config.num_attention_heads
@@ -206,7 +210,15 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(get_linear(weight, bias=None, quantize=config.quantize))
+    return TensorParallelColumnLinear(
+        get_linear(
+            weight,
+            bias=None,
+            quantize=config.quantize,
+            weight_scale=weight_scale,
+            input_scale=input_scale,
+        )
+    )
 
 
 class FlashLlamaAttention(torch.nn.Module):

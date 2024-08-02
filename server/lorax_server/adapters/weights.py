@@ -117,7 +117,9 @@ class AdapterBatchData:
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            data[k] = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+            layer_weights = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+            if layer_weights:
+                data[k] = layer_weights
         return AdapterBatchData(meta=meta, data=data, prefill=prefill)
 
     def ranks(self) -> Set[int]:
