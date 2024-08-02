@@ -65,7 +65,7 @@ class UnknownError(Exception):
         super().__init__(f"Error status {code}: {message}")
 
 
-def parse_error(status_code: int, payload: Dict[str, str]) -> Exception:
+def parse_error(status_code: int, payload: Dict[str, str], headers: Dict[str, str] = None) -> Exception:
     """
     Parse error given an HTTP status code and a json payload
 
@@ -79,8 +79,14 @@ def parse_error(status_code: int, payload: Dict[str, str]) -> Exception:
         Exception: parsed exception
 
     """
+    trace_id = ""
+    if headers:
+        trace_id = headers.get("x-b3-traceid", "")
     # Try to parse a LoRAX error
     message = payload.get("error", "")
+
+    if trace_id: 
+        message += f": Trace ID: {trace_id}"
 
     error_type = payload.get("error_type", "")
     if error_type == "generation":
