@@ -34,6 +34,7 @@ def _get_bucket_and_model_id(model_id: str) -> Tuple[str, str]:
         return bucket_name, model_id
 
     bucket = os.getenv("PREDIBASE_MODEL_BUCKET")
+    folder = os.getenv("PREDIBASE_MODEL_FOLDER", "")
     if not bucket:
         # assume that the id preceding the first slash is the bucket name
         if "/" not in model_id:
@@ -46,6 +47,11 @@ def _get_bucket_and_model_id(model_id: str) -> Tuple[str, str]:
         bucket_name, model_id = model_id.split("/", 1)
         return bucket_name, model_id
 
+    if folder:
+        # Make sure to append / if its not present
+        if not folder.endswith("/"):
+            folder += "/"
+        model_id = folder + model_id
     return bucket, model_id
 
 
