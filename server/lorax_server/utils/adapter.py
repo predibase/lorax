@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Set, Tuple, Union
 
-import torch
 from loguru import logger
 from safetensors import safe_open
 from safetensors.torch import load_file
@@ -174,21 +173,6 @@ def load_module_map(
     # map the model weights to the relevant adapter weights (LoRA A and B matrices)
     module_map, adapter_weight_names = adapter_config.map_weights_for_model(adapter_weights, weight_names)
     return module_map, adapter_config, adapter_weight_names, adapter_tokenizer
-
-
-def load_module_weight(name: str, module: Union[torch.Tensor, str], device, dtype):
-    if isinstance(module, torch.Tensor):
-        return module.to(device, dtype)
-
-    if isinstance(device, torch.device):
-        if device.type == "cuda":
-            device = device.index
-        elif device.type == "cpu":
-            device = "cpu"
-
-    # module would be just the filename if lazy loading happened before
-    with safe_open(module, framework="pt", device=device) as f:
-        return f.get_tensor(name).to(dtype)
 
 
 def download_adapter(

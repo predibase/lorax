@@ -9,7 +9,6 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
-from lorax_server.utils.adapter import load_module_weight
 from lorax_server.utils.sgmv import (
     BGMV_MAX_RANK,
     MAX_RANK_CUSTOM,
@@ -18,6 +17,7 @@ from lorax_server.utils.sgmv import (
     pad_rank,
     use_cutlass_shrink,
 )
+from lorax_server.utils.weights import load_module_weight
 
 if TYPE_CHECKING:
     from lorax_server.models.model import Model

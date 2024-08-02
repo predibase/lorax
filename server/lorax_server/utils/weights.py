@@ -11,8 +11,6 @@ from huggingface_hub.utils import EntryNotFoundError, LocalEntryNotFoundError
 from loguru import logger
 from safetensors import safe_open
 
-from lorax_server.utils.adapter import load_module_weight
-
 
 class AbstractWeights(ABC):
     @abstractmethod
@@ -542,3 +540,18 @@ def download_weights(
             discard_names = []
         # Convert pytorch weights to safetensors
         utils.convert_files(local_pt_files, local_st_files, discard_names)
+
+
+def load_module_weight(name: str, module: Union[torch.Tensor, str], device, dtype):
+    if isinstance(module, torch.Tensor):
+        return module.to(device, dtype)
+
+    if isinstance(device, torch.device):
+        if device.type == "cuda":
+            device = device.index
+        elif device.type == "cpu":
+            device = "cpu"
+
+    # module would be just the filename if lazy loading happened before
+    with safe_open(module, framework="pt", device=device) as f:
+        return f.get_tensor(name).to(dtype)
