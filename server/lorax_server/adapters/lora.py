@@ -2,7 +2,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type, Union
 
-from lorax_server.utils.lora import LM_HEAD
 import torch
 from peft import LoraConfig as _LoraConfig
 from torch.distributed import ProcessGroup
@@ -10,6 +9,7 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import (
     BGMV_MAX_RANK,
     MAX_RANK_CUSTOM,
@@ -234,8 +234,8 @@ class BatchLoraWeights(BatchAdapterWeights):
 
     def can_vectorize(self, pg: ProcessGroup) -> bool:
         return (
-            all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values()) and
-            self.layer_name != LM_HEAD
+            all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values())
+            and self.layer_name != LM_HEAD
         )
 
     @classmethod
@@ -355,7 +355,7 @@ class BatchLoraWeights(BatchAdapterWeights):
                     if segment_indices[idx] not in idx_locs:
                         # save the first location of encountering a particular adapter index
                         idx_locs[segment_indices[idx]] = loc
-                
+
                 # second, iterate over the adapter index for each token and find its location in the `indices` array
                 batch_indices = torch.tensor(
                     [

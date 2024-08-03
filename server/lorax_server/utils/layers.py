@@ -2,7 +2,6 @@ import math
 import os
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from lorax_server.utils.lora import LM_HEAD
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
@@ -12,6 +11,7 @@ from torch.nn import functional as F
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
@@ -20,7 +20,7 @@ from lorax_server.utils.sgmv import (
     lora_b_sgmv_cutlass,
     orient_for_rank,
 )
-from lorax_server.utils.state import get_speculative_tokens, is_warmup
+from lorax_server.utils.state import is_warmup
 
 if TYPE_CHECKING:
     from lorax_server.adapters import AdapterBatchData
