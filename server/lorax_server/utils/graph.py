@@ -6,6 +6,7 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
+from lorax_server.utils.lora import LM_HEAD
 import numpy as np
 import torch
 from loguru import logger
@@ -341,6 +342,7 @@ class GraphCache:
             and nranks <= 1
             and max_rank in _allowed_ranks
             and all(k == LORA for k in adapter_keys)
+            and not any(k == LM_HEAD for k in adapter_data.layer_names())
         )
 
     def get_estimated_cache_memory(self) -> int:
