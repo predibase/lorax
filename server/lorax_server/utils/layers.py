@@ -2,6 +2,7 @@ import math
 import os
 from typing import TYPE_CHECKING, Optional, Tuple
 
+from lorax_server.utils.lora import LM_HEAD
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
@@ -19,7 +20,7 @@ from lorax_server.utils.sgmv import (
     lora_b_sgmv_cutlass,
     orient_for_rank,
 )
-from lorax_server.utils.state import is_warmup
+from lorax_server.utils.state import get_speculative_tokens, is_warmup
 
 if TYPE_CHECKING:
     from lorax_server.adapters import AdapterBatchData
@@ -124,6 +125,11 @@ class LoraLinear(nn.Module):
                         if self.process_group.size() > 1:
                             v = self.collect_lora_a(v)
 
+                        print("proj", proj.shape)
+                        print("v", v.shape)
+                        print("lora_b_ptr", lora_b_ptr.shape)
+                        print("rank_segments.indices", rank_segments.indices.shape, rank_segments.indices)
+
                         add_lora_b_bgmv(
                             proj,
                             v,
@@ -135,9 +141,17 @@ class LoraLinear(nn.Module):
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:
+            speculative_tokens = get_speculative_tokens()
+            adapter_indices = adapter_data.meta.adapter_indices
+            if speculative_tokens > 0 and data is not None and data.layer_name == LM_HEAD:
+                print("INDICES BEFORE LORA", adapter_indices, adapter_indices.shape)
+                # repeat every index by the number of speculative tokens to account for fusing
+                adapter_indices = torch.repeat_interleave(adapter_indices, speculative_tokens + 1)
+                print("INDICES AFTER LORA", adapter_indices, adapter_indices.shape)
+
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    adapter_mask = (adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 

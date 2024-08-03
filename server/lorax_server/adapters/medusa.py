@@ -203,7 +203,7 @@ class MedusaV2(torch.nn.Module):
         # Reshape to 2D tensor as SGMV kernels expect this layout
         print("STACKED SHAPE", stacked_x.shape)
         print("STACKED RESHAPED", stacked_x.reshape(-1, stacked_x.shape[-1]).shape)
-        logits = lm_head(stacked_x.reshape(-1, stacked_x.shape[-1]))
+        logits = lm_head(stacked_x.reshape(-1, stacked_x.shape[-1]).contiguous())
         print("LOGITS SHAPE", logits.shape)
         logits = logits.reshape(*stacked_x.shape[:-1], -1)
 
@@ -279,6 +279,7 @@ class BatchMedusaWeights(BatchAdapterWeights):
         cls,
         adapter_weights: Dict[int, AdapterWeights],
         meta: "AdapterBatchMetadata",
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> Optional["BatchMedusaWeights"]:
