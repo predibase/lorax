@@ -141,17 +141,9 @@ class LoraLinear(nn.Module):
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:
-            speculative_tokens = get_speculative_tokens()
-            adapter_indices = adapter_data.meta.adapter_indices
-            if speculative_tokens > 0 and data is not None and data.layer_name == LM_HEAD:
-                print("INDICES BEFORE LORA", adapter_indices, adapter_indices.shape)
-                # repeat every index by the number of speculative tokens to account for fusing
-                adapter_indices = torch.repeat_interleave(adapter_indices, speculative_tokens + 1)
-                print("INDICES AFTER LORA", adapter_indices, adapter_indices.shape)
-
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 

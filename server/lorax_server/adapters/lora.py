@@ -235,7 +235,7 @@ class BatchLoraWeights(BatchAdapterWeights):
     def can_vectorize(self, pg: ProcessGroup) -> bool:
         return (
             all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values()) and
-            (get_speculative_tokens() == 0 or self.layer_name == LM_HEAD)
+            not (get_speculative_tokens() > 0 and self.layer_name == LM_HEAD)
         )
 
     @classmethod
@@ -267,9 +267,8 @@ class BatchLoraWeights(BatchAdapterWeights):
         if not segment_ranks:
             return None
 
-        speculative_tokens = get_speculative_tokens()
         max_rank = max(segment_ranks)
-        if prefill or max_rank > BGMV_MAX_RANK or (speculative_tokens > 0 and layer_name == LM_HEAD):
+        if prefill or max_rank > BGMV_MAX_RANK:
             use_sgmv = True
             lora_a_ptr = torch.tensor(
                 [
@@ -344,11 +343,6 @@ class BatchLoraWeights(BatchAdapterWeights):
                     for i, segment_index in enumerate(indices):
                         segment_starts[i] = prefill_head_segment_starts[segment_index]
                         segment_ends[i] = prefill_head_segment_ends[segment_index]
-                
-                if layer_name == LM_HEAD and speculative_tokens > 0:
-                    # multiple every segment by the number of speculative tokens to account for fusing
-                    segment_starts = segment_starts * (speculative_tokens + 1)
-                    segment_ends = segment_ends * (speculative_tokens + 1)
             else:
                 # `indices` indexes the `segment_indices` which contains segment wise adapter index
                 # `lora_a_ptr` contains segment wise pointers to lora weights
@@ -362,18 +356,11 @@ class BatchLoraWeights(BatchAdapterWeights):
                         # save the first location of encountering a particular adapter index
                         idx_locs[segment_indices[idx]] = loc
                 
-                adapter_indices = meta.adapter_indices
-                if layer_name == LM_HEAD and speculative_tokens > 0:
-                    print("INDICES BEFORE", adapter_indices, adapter_indices.shape)
-                    # repeat every index by the number of speculative tokens to account for fusing
-                    adapter_indices = torch.repeat_interleave(adapter_indices, speculative_tokens + 1)
-                    print("INDICES AFTER", adapter_indices, adapter_indices.shape)
-                
                 # second, iterate over the adapter index for each token and find its location in the `indices` array
                 batch_indices = torch.tensor(
                     [
                         idx_locs[idx] if idx in adapter_weights and adapter_weights[idx].lora_a_r == rank else -1
-                        for idx in adapter_indices.tolist()
+                        for idx in meta.adapter_indices.tolist()
                     ],
                     dtype=torch.int64,
                     device=device,
