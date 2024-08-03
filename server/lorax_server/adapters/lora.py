@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type, Union
 
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.state import get_speculative_tokens
 import torch
 from peft import LoraConfig as _LoraConfig
 from torch.distributed import ProcessGroup
@@ -228,6 +227,7 @@ class BatchLoraWeights(BatchAdapterWeights):
     rank_data: Dict[int, RankSegments]
     use_sgmv: bool
     layer_name: str
+    prefill_head_indices: Optional[torch.Tensor]
 
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
@@ -235,7 +235,7 @@ class BatchLoraWeights(BatchAdapterWeights):
     def can_vectorize(self, pg: ProcessGroup) -> bool:
         return (
             all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values()) and
-            not (get_speculative_tokens() > 0 and self.layer_name == LM_HEAD)
+            self.layer_name != LM_HEAD
         )
 
     @classmethod
@@ -384,6 +384,7 @@ class BatchLoraWeights(BatchAdapterWeights):
             rank_data=rank_data,
             use_sgmv=use_sgmv,
             layer_name=layer_name,
+            prefill_head_indices=prefill_head_indices,
         )
 
 
