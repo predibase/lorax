@@ -125,11 +125,6 @@ class LoraLinear(nn.Module):
                         if self.process_group.size() > 1:
                             v = self.collect_lora_a(v)
 
-                        print("proj", proj.shape)
-                        print("v", v.shape)
-                        print("lora_b_ptr", lora_b_ptr.shape)
-                        print("rank_segments.indices", rank_segments.indices.shape, rank_segments.indices)
-
                         add_lora_b_bgmv(
                             proj,
                             v,
