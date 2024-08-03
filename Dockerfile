@@ -257,5 +257,5 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     rm -rf aws awscliv2.zip
 
 # ENTRYPOINT ["./entrypoint.sh"]
-ENTRYPOINT ["lorax-launcher"]
-CMD ["--json-output"]
+# ENTRYPOINT ["lorax-launcher"]
+# CMD ["--json-output"]
