@@ -200,7 +200,12 @@ class MedusaV2(torch.nn.Module):
         stacked_x = torch.cat([x.unsqueeze(-2), world_output], dim=-2)
 
         # Compute lm head on x + medusa residual x
-        logits = lm_head(stacked_x)
+        # Reshape to 2D tensor as SGMV kernels expect this layout
+        print("STACKED SHAPE", stacked_x.shape)
+        print("STACKED RESHAPED", stacked_x.reshape(-1, stacked_x.shape[-1]).shape)
+        logits = lm_head(stacked_x.reshape(-1, stacked_x.shape[-1]))
+        print("LOGITS SHAPE", logits.shape)
+        logits = logits.reshape(*stacked_x.shape[:-1], -1)
 
         # Finally, split logits from speculative logits
         logits, speculative_logits = torch.split(logits, [1, self.n_medusa_heads], dim=-2)
