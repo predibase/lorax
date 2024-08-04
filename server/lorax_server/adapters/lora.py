@@ -253,68 +253,36 @@ class BatchLoraWeights(BatchAdapterWeights):
         device = first_weights.weights_a.device
         segment_indices = meta.segment_indices
 
-        lora_a = {idx: adapter_weights[idx].weights_a for idx in segment_indices if idx in adapter_weights}
-        lora_b = {idx: adapter_weights[idx].weights_b for idx in segment_indices if idx in adapter_weights}
+        lora_a, lora_b, adapter_index_configs = {}, {}, {}
+        max_rank, rank_indices = 0, defaultdict(list)
+        for segment_idx, adapter_idx in enumerate(segment_indices):
+            if adapter_idx in adapter_weights:
+                adapter_weight = adapter_weights[adapter_idx]
+                adapter_index_configs[adapter_idx] = adapter_weight.adapter_config
+                max_rank = max(max_rank, adapter_weight.lora_a_r)
+                rank_indices[adapter_weight.lora_a_r].append(segment_idx)
+                lora_a[adapter_idx] = adapter_weight.weights_a
+                lora_b[adapter_idx] = adapter_weight.weights_b
 
-        segment_ranks = [adapter_weights[idx].lora_a_r for idx in segment_indices if idx in adapter_weights]
-        if not segment_ranks:
+        if not max_rank:
             return None
 
-        max_rank = max(segment_ranks)
-        if prefill or max_rank > BGMV_MAX_RANK:
-            use_sgmv = True
-            lora_a_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_a.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-            lora_b_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_b.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-        else:
-            use_sgmv = False
-            lora_a_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_a_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-            lora_b_ptr = torch.tensor(
-                [
-                    (adapter_weights[idx].weights_b_t.data_ptr() if idx in adapter_weights else EMPTY_TENSOR.data_ptr())
-                    for idx in segment_indices
-                ],
-                dtype=torch.int64,
-                device=device,
-            )
-
-        adapter_index_configs = {
-            idx: adapter_weights[idx].adapter_config for idx in segment_indices if idx in adapter_weights
-        }
-
-        rank_indices = defaultdict(list)
-        for segment_idx, adapter_idx in enumerate(segment_indices):
-            if adapter_idx not in adapter_weights:
-                continue
-            rank_indices[adapter_weights[adapter_idx].lora_a_r].append(segment_idx)
+        use_sgmv = prefill or max_rank > BGMV_MAX_RANK
 
         if prefill_head_indices is not None:
             j, prefill_head_segment_starts, prefill_head_segment_ends = 1, [0], [0]
+            # prefill_head_indices is used to slice the tokens in the batch such
+            # that we only forward the last token for each request through lm_head
+            # there can be multiple head_index associated with each adapter segment
             for head_index in prefill_head_indices:
-                # j cannot go out of bounds as that would mean there are tokens without corresponding adapters
+                # j cannot go out of bounds as that would mean there are tokens without segments
                 if head_index < meta.adapter_segments[j]:
+                    # head_index is part of the current adapter
+                    # so increment the current segment end
                     prefill_head_segment_ends[-1] += 1
                 else:
+                    # head_index in not part of the current adapter
+                    # close the previous segment and start a new one
                     prefill_head_segment_starts.append(prefill_head_segment_ends[-1])
                     prefill_head_segment_ends.append(prefill_head_segment_ends[-1] + 1)
                     j += 1
@@ -326,44 +294,51 @@ class BatchLoraWeights(BatchAdapterWeights):
             segment_starts = None
             segment_ends = None
             batch_indices = None
+            lora_a_ptr_indices = []
+            lora_b_ptr_indices = []
 
             if use_sgmv:
-                lora_a_ptr_indices = lora_a_ptr[indices]
-                tmp_shrink, tmp_expand = get_tmp_tensors(lora_a_ptr_indices.size(0), rank, device)
+                for segment_idx in indices:
+                    adapter_weight = adapter_weights[segment_indices[segment_idx]]
+                    lora_a_ptr_indices.append(adapter_weight.weights_a.data_ptr())
+                    lora_b_ptr_indices.append(adapter_weight.weights_b.data_ptr())
+                tmp_shrink, tmp_expand = get_tmp_tensors(len(lora_a_ptr_indices), rank, device)
                 segment_starts = meta.adapter_segments[indices]
                 segment_ends = meta.adapter_segments[[i + 1 for i in indices]]
                 if prefill_head_indices is not None:
-                    for i, segment_index in enumerate(indices):
-                        segment_starts[i] = prefill_head_segment_starts[segment_index]
-                        segment_ends[i] = prefill_head_segment_ends[segment_index]
+                    # since prefill_head_indices is present the segment starts and ends
+                    # need to be adjusted according to the number of head tokens in each
+                    for i, segment_idx in enumerate(indices):
+                        segment_starts[i] = prefill_head_segment_starts[segment_idx]
+                        segment_ends[i] = prefill_head_segment_ends[segment_idx]
             else:
-                # `indices` indexes the `segment_indices` which contains segment wise adapter index
-                # `lora_a_ptr` contains segment wise pointers to lora weights
-                # lengths of `lora_a_ptr` and `segment_indices` must be same
-                # `indices` will be used to slice the `lora_a_ptr` tensor
-                # first, find the mapping between adapter index and its location in the `indices` array
-                idx_locs = {}
-                for loc, idx in enumerate(indices):
-                    # use the idx to find the adapter index
-                    if segment_indices[idx] not in idx_locs:
-                        # save the first location of encountering a particular adapter index
-                        idx_locs[segment_indices[idx]] = loc
-                # second, iterate over the adapter index for each token and find its location in the `indices` array
-                batch_indices = torch.tensor(
-                    [
-                        idx_locs[idx] if idx in adapter_weights and adapter_weights[idx].lora_a_r == rank else -1
-                        for idx in meta.adapter_indices.tolist()
-                    ],
-                    dtype=torch.int64,
-                    device=device,
-                )
+                adapter_idx_to_pointer_idx = {}
+                # find out which adapters are present in the segments for this rank
+                # iterate over each segment index and use it to find adapter index and weights
+                for segment_idx in indices:
+                    adapter_idx = segment_indices[segment_idx]
+                    adapter_weight = adapter_weights[adapter_idx]
+                    # if the adapter hasn't been seen before, then append its weight pointers
+                    # and save the index to the just added pointers for later
+                    if adapter_idx not in adapter_idx_to_pointer_idx:
+                        lora_a_ptr_indices.append(adapter_weight.weights_a_t.data_ptr())
+                        lora_b_ptr_indices.append(adapter_weight.weights_b_t.data_ptr())
+                        adapter_idx_to_pointer_idx[adapter_idx] = len(lora_a_ptr_indices) - 1
+                # for each token in the batch, see if its adapter is present in the segments for this rank
+                # if present, then store the index of its weight pointers otherwise store -1
+                batch_indices = torch.tensor([
+                    adapter_idx_to_pointer_idx.get(adapter_idx, -1) for adapter_idx in meta.adapter_indices.tolist()
+                ], dtype=torch.int64, device=device)
+
+            lora_a_ptr_indices = torch.tensor(lora_a_ptr_indices, dtype=torch.int64, device=device)
+            lora_b_ptr_indices = torch.tensor(lora_b_ptr_indices, dtype=torch.int64, device=device)
 
             rank_data[rank] = RankSegments(
                 rank=rank,
                 tmp_shrink=tmp_shrink,
                 tmp_expand=tmp_expand,
-                lora_a_ptr=lora_a_ptr[indices],
-                lora_b_ptr=lora_b_ptr[indices],
+                lora_a_ptr=lora_a_ptr_indices,
+                lora_b_ptr=lora_b_ptr_indices,
                 segment_starts=segment_starts,
                 segment_ends=segment_ends,
                 indices=batch_indices,
