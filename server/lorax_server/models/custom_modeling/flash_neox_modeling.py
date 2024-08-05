@@ -157,6 +157,7 @@ class FlashNeoxAttention(torch.nn.Module):
                 kv_cache[0],
                 kv_cache[1],
                 self.num_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,

@@ -120,6 +120,8 @@ def get_max_graph_state(
                 ),
             },
             use_sgmv=False,  # bgmv during decode
+            layer_name=layer_name,
+            prefill_head_indices=None,
         )
 
     return GraphState(
