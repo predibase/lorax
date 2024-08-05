@@ -9,6 +9,7 @@ from torch.distributed import ProcessGroup
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import (
     BGMV_MAX_RANK,
     MAX_RANK_CUSTOM,
@@ -225,12 +226,17 @@ class BatchLoraWeights(BatchAdapterWeights):
     adapter_index_configs: Dict[int, LoraConfig]
     rank_data: Dict[int, RankSegments]
     use_sgmv: bool
+    layer_name: str
+    prefill_head_indices: Optional[torch.Tensor]
 
     def has_adapter(self, adapter_index: int) -> bool:
         return adapter_index in self.adapter_index_configs
 
     def can_vectorize(self, pg: ProcessGroup) -> bool:
-        return all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values())
+        return (
+            all(rank_data.rank // pg.size() <= MAX_RANK_CUSTOM for rank_data in self.rank_data.values())
+            and self.layer_name != LM_HEAD
+        )
 
     @classmethod
     def key(cls) -> str:
@@ -241,6 +247,7 @@ class BatchLoraWeights(BatchAdapterWeights):
         self,
         adapter_weights: Dict[int, AdapterWeights],
         meta: AdapterBatchMetadata,
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> Optional["BatchLoraWeights"]:
@@ -348,6 +355,7 @@ class BatchLoraWeights(BatchAdapterWeights):
                     if segment_indices[idx] not in idx_locs:
                         # save the first location of encountering a particular adapter index
                         idx_locs[segment_indices[idx]] = loc
+
                 # second, iterate over the adapter index for each token and find its location in the `indices` array
                 batch_indices = torch.tensor(
                     [
@@ -375,6 +383,8 @@ class BatchLoraWeights(BatchAdapterWeights):
             adapter_index_configs=adapter_index_configs,
             rank_data=rank_data,
             use_sgmv=use_sgmv,
+            layer_name=layer_name,
+            prefill_head_indices=prefill_head_indices,
         )
 
 

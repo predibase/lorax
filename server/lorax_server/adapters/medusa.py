@@ -274,6 +274,7 @@ class BatchMedusaWeights(BatchAdapterWeights):
         cls,
         adapter_weights: Dict[int, AdapterWeights],
         meta: "AdapterBatchMetadata",
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> Optional["BatchMedusaWeights"]:

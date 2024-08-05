@@ -44,6 +44,7 @@ def attention(
     query: torch.Tensor,
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
+    num_kv_heads: int,
     kv_head_mapping: torch.Tensor,
     softmax_scale: float,
     block_tables: torch.Tensor,
@@ -71,7 +72,6 @@ def attention(
     block_size = value_cache.shape[3]
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
-    num_kv_heads = 1 + kv_head_mapping.max().item()
 
     if SYSTEM == "xpu":
         query = query.contiguous()

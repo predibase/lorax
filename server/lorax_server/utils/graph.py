@@ -16,6 +16,7 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.constants import BLOCK_SIZE
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
@@ -119,6 +120,8 @@ def get_max_graph_state(
                 ),
             },
             use_sgmv=False,  # bgmv during decode
+            layer_name=layer_name,
+            prefill_head_indices=None,
         )
 
     return GraphState(
@@ -207,6 +210,8 @@ class GraphWrapper:
                         else {}
                     ),
                     use_sgmv=False,  # bgmv during decode
+                    layer_name=layer_name,
+                    prefill_head_indices=None,
                 )
             }
 
@@ -341,6 +346,7 @@ class GraphCache:
             and nranks <= 1
             and max_rank in _allowed_ranks
             and all(k == LORA for k in adapter_keys)
+            and not any(k == LM_HEAD for k in adapter_data.layer_names())
         )
 
     def get_estimated_cache_memory(self) -> int:

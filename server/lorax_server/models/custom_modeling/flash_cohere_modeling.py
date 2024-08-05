@@ -302,6 +302,7 @@ class FlashCohereAttention(torch.nn.Module):
                 kv_cache[0],
                 kv_cache[1],
                 self.num_key_value_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,

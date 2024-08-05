@@ -11,6 +11,7 @@ from torch.nn import functional as F
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
@@ -135,9 +136,14 @@ class LoraLinear(nn.Module):
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
         else:
+            adapter_indices = adapter_data.meta.adapter_indices
+            if data is not None and data.prefill_head_indices is not None and data.layer_name == LM_HEAD:
+                # LM_HEAD inputs have different shape during prefill than other layers
+                adapter_indices = adapter_indices[data.prefill_head_indices]
+
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    adapter_mask = (adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 
