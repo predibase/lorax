@@ -6,7 +6,6 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
-from lorax_server.utils.lora import LM_HEAD
 import numpy as np
 import torch
 from loguru import logger
@@ -17,6 +16,7 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.constants import BLOCK_SIZE
+from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
