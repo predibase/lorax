@@ -208,6 +208,8 @@ class GraphWrapper:
                         else {}
                     ),
                     use_sgmv=False,  # bgmv during decode
+                    layer_name=layer_name,
+                    prefill_head_indices=None,
                 )
             }
 
