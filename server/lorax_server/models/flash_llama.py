@@ -29,8 +29,7 @@ from lorax_server.utils.lora import (
 tracer = trace.get_tracer(__name__)
 
 
-# TODO(travis): re-enable LM_HEAD after resolving issues with outputs
-ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]  # LM_HEAD
+ADAPTER_LAYERS = [Q_PROJ, K_PROJ, V_PROJ, O_PROJ, GATE_PROJ, UP_PROJ, DOWN_PROJ, LM_HEAD]
 ROW_PARALLEL = {O_PROJ, DOWN_PROJ, LM_HEAD}
 
 

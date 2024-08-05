@@ -35,6 +35,7 @@ class FakeBatchAdapterWeights(BatchAdapterWeights):
     def load(
         cls,
         adapter_weights: Dict[int, AdapterWeights],
+        layer_name: str,
         meta: "AdapterBatchMetadata",
         prefill: bool,
         prefill_head_indices: torch.Tensor,
