@@ -51,7 +51,6 @@ class FlashMistral(FlashCausalLM):
         else:
             raise NotImplementedError("FlashLlama is only available on GPU")
 
-        print(">>>>>>>>>.. MODEL ID", model_id)
         tokenizer = AutoTokenizer.from_pretrained(
             model_id,
             revision=revision,
