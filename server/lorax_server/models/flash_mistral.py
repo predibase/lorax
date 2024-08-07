@@ -3,13 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers.models.llama import LlamaTokenizerFast
-from transformers import (
-    PreTrainedTokenizerBase,
-    AutoConfig,
-    AutoTokenizer,
-    GenerationConfig,
-)
+from transformers import AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_mistral_modeling import (
