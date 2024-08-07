@@ -4,6 +4,12 @@ import torch
 import torch.distributed
 from opentelemetry import trace
 from transformers.models.llama import LlamaTokenizerFast
+from transformers import (
+    PreTrainedTokenizerBase,
+    AutoConfig,
+    AutoTokenizer,
+    GenerationConfig,
+)
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_mistral_modeling import (
@@ -51,7 +57,8 @@ class FlashMistral(FlashCausalLM):
         else:
             raise NotImplementedError("FlashLlama is only available on GPU")
 
-        tokenizer = LlamaTokenizerFast.from_pretrained(
+        print(">>>>>>>>>.. MODEL ID", model_id)
+        tokenizer = AutoTokenizer.from_pretrained(
             model_id,
             revision=revision,
             padding_side="left",
