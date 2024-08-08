@@ -58,7 +58,6 @@ ENV HUGGINGFACE_HUB_CACHE=/data \
     PORT=80
 
 # Build vllm CUDA kernels
-FROM kernel-builder as vllm-builder
 WORKDIR /usr/src
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     wget \
@@ -93,9 +92,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     build-essential \
     g++ \
     && rm -rf /var/lib/apt/lists/*
-
-# Final image
-FROM base
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo curl unzip parallel time
 
