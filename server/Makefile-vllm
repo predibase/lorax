@@ -5,7 +5,7 @@ vllm-cuda:
 
 build-vllm-cuda: vllm-cuda
 	cd vllm && git fetch && git checkout 766435e660a786933392eb8ef0a873bc38cf0c8b
-	cd vllm && python setup.py build
+	cd vllm && pip install -e .
 
 install-vllm-cuda: build-vllm-cuda
 	pip uninstall vllm -y || true
