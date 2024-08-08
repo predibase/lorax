@@ -145,7 +145,13 @@ class LoraLinear(nn.Module):
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
                     adapter_mask = (adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
-                    if speculative_tokens > 0:
+                    
+                    # If we're doing speculative decoding, then the input will have 3D shape:
+                    # (batch_size, seq_len, hidden_size)
+                    # If the input shape is not 3D though, then this means we skipped speculation because the
+                    # batch size was too large
+                    if speculative_tokens > 0 and len(input.shape) == 3:
+                        # Expand adapter mask to cover the speculative tokens
                         adapter_mask = adapter_mask.repeat_interleave(speculative_tokens + 1, dim=1).unsqueeze(dim=2)
                     
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
@@ -169,12 +175,6 @@ class LoraLinear(nn.Module):
         if self.process_group.size() > 1:
             a_out = self.collect_lora_a(a_out)
 
-        print("a_out", a_out.shape, a_out)
-        print("lora_b", lora_b.shape, lora_b)
-        print("adapter_mask", adapter_mask.shape, adapter_mask)
-        v = (a_out @ lora_b)
-        print("v", v.shape, v)
-        v2 = v * adapter_mask
         result = (a_out @ lora_b) * adapter_mask
         return result
 
