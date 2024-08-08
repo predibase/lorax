@@ -20,7 +20,7 @@ from lorax_server.utils.sgmv import (
     lora_b_sgmv_cutlass,
     orient_for_rank,
 )
-from lorax_server.utils.state import is_warmup
+from lorax_server.utils.state import get_speculative_tokens, is_warmup
 
 if TYPE_CHECKING:
     from lorax_server.adapters import AdapterBatchData
@@ -140,10 +140,20 @@ class LoraLinear(nn.Module):
             if data is not None and data.prefill_head_indices is not None and data.layer_name == LM_HEAD:
                 # LM_HEAD inputs have different shape during prefill than other layers
                 adapter_indices = adapter_indices[data.prefill_head_indices]
-
+            
+            speculative_tokens = get_speculative_tokens()
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
                     adapter_mask = (adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    
+                    # If we're doing speculative decoding, then the input will have 3D shape:
+                    # (batch_size, seq_len, hidden_size)
+                    # If the input shape is not 3D though, then this means we skipped speculation because the
+                    # batch size was too large
+                    if speculative_tokens > 0 and len(input.shape) == 3:
+                        # Expand adapter mask to cover the speculative tokens
+                        adapter_mask = adapter_mask.repeat_interleave(speculative_tokens + 1, dim=1).unsqueeze(dim=2)
+                    
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 
