@@ -83,11 +83,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-RUN cd server && \
-    make gen-server && \
-    pip install -r requirements.txt && \
-    pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
-
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential \
     g++ \
