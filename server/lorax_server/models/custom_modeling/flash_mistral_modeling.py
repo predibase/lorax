@@ -162,9 +162,8 @@ class MistralRMSNorm(nn.Module):
             return normed_hidden_states, res
 
 
-def load_attention(config, prefix, weights, layer_id):
-    base_layer = load_attention_multi(config, prefix, weights)
-    head_size = config.hidden_size // config.num_attention_heads
+def load_attention(config, prefix, weights, layer_id, head_size):
+    base_layer = load_attention_multi(config, prefix, weights, head_size)
     return TensorParallelMultiAdapterLinear.load(
         base_layer,
         layer_id,
@@ -178,9 +177,9 @@ def load_attention(config, prefix, weights, layer_id):
     )
 
 
-def load_attention_multi(config, prefix, weights):
+def load_attention_multi(config, prefix, weights, head_size):
     if config.num_attention_heads != config.num_key_value_heads:
-        return _load_gqa(config, prefix, weights)
+        return _load_gqa(config, prefix, weights, head_size)
     else:
         return TensorParallelColumnLinear.load_multi(
             config,
@@ -191,7 +190,7 @@ def load_attention_multi(config, prefix, weights):
         )
 
 
-def _load_gqa(config, prefix: str, weights):
+def _load_gqa(config, prefix: str, weights, head_size):
     assert config.hidden_size % config.num_attention_heads == 0
     assert config.num_attention_heads % weights.process_group.size() == 0
 
@@ -208,7 +207,6 @@ def _load_gqa(config, prefix: str, weights):
     if config.quantize not in ["gptq", "awq", "fp8"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
-        head_size = config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
         assert list(weight.shape) == [
@@ -239,8 +237,11 @@ class MistralAttention(torch.nn.Module):
         self.max_past = config.sliding_window if config.sliding_window is not None else -1
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
-        self.head_size = self.hidden_size // self.num_heads
-
+        if hasattr(config, "head_dim"):
+            self.head_size = config.head_dim
+        else:
+            self.head_size = self.hidden_size // self.num_heads
+        
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=self.head_size,
@@ -259,7 +260,7 @@ class MistralAttention(torch.nn.Module):
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
 
-        self.query_key_value = load_attention(config, prefix, weights, layer_id)
+        self.query_key_value = load_attention(config, prefix, weights, layer_id, self.head_size)
 
         self.o_proj = TensorParallelAdapterRowLinear.load(
             TensorParallelRowLinear.load(
