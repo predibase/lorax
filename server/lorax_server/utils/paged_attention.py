@@ -49,6 +49,7 @@ def attention(
     block_tables: torch.Tensor,
     input_lengths: torch.Tensor,
     max_s: int,
+    num_kv_heads: int,
 ):
     # Adapted from: https://github.com/vllm-project/vllm/blob/f8a1e39fae05ca610be8d5a78be9d40f5274e5fc/vllm/model_executor/layers/attention.py
     # Copyright 2023 The vLLM team. All rights
@@ -71,7 +72,6 @@ def attention(
     block_size = value_cache.shape[3]
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
-    num_kv_heads = 1 + kv_head_mapping.max().item()
 
     if SYSTEM == "xpu":
         query = query.contiguous()
