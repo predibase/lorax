@@ -50,6 +50,7 @@ def attention(
     block_tables: torch.Tensor,
     input_lengths: torch.Tensor,
     max_s: int,
+    num_kv_heads: int,
 ):
     # Adapted from: https://github.com/vllm-project/vllm/blob/f8a1e39fae05ca610be8d5a78be9d40f5274e5fc/vllm/model_executor/layers/attention.py
     # Copyright 2023 The vLLM team. All rights
