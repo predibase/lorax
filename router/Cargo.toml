@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 async-stream = "0.3.3"
 axum = { version = "0.6.4", features = ["json"] }
-axum-tracing-opentelemetry = "0.10.0"
+axum-tracing-opentelemetry = "0.14.1"
 lorax-client = { path = "client" }
 clap = { version = "4.1.4", features = ["derive", "env"] }
 flume = "0.10.14"

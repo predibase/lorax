@@ -21,7 +21,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
-use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use clap::error;
 use futures::stream::StreamExt;
 use futures::Stream;
@@ -1255,7 +1255,7 @@ pub async fn run(
         .layer(Extension(compat_return_full_text))
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
-        .layer(opentelemetry_tracing_layer())
+        .layer(OtelAxumLayer::default())
         .layer(cors_layer)
         .layer(Extension(cloned_tokenizer));
 
