@@ -431,6 +431,7 @@ async fn generate(
     metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.0.inputs);
+    tracing::info!("Request Headers: {}", req_headers);
 
     if info.embedding_model {
         metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
