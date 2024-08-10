@@ -15,7 +15,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use thiserror::Error;
 use tokenizers::processors::template::TemplateProcessing;
 use tokenizers::tokenizer::Tokenizer;
