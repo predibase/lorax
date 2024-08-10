@@ -21,7 +21,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
-use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
+use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use clap::error;
 use futures::stream::StreamExt;
 use futures::Stream;
@@ -30,6 +30,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use reqwest::Client;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -960,7 +961,7 @@ async fn request_logger(
     tracing::info!("Request logging enabled, sending logs to {url_string}");
 
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
-    let client = ClientBuilder::new(reqwest::Client::new())
+    let client = ClientBuilder::new(Client::new())
         .with(RetryTransientMiddleware::new_with_policy(retry_policy))
         .build();
     while let Some((tokens, api_token, model_id)) = rx.recv().await {
@@ -1256,6 +1257,7 @@ pub async fn run(
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
         .layer(OtelAxumLayer::default())
+        .layer(OtelInResponseLayer::default())
         .layer(cors_layer)
         .layer(Extension(cloned_tokenizer));
 
