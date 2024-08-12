@@ -535,8 +535,8 @@ async fn generate(
     span.record("inference_time", format!("{inference_time:?}"));
     span.record("time_per_token", format!("{time_per_token:?}"));
     span.record("seed", format!("{:?}", response.generated_text.seed));
-    span.record("prompt_tokens",  format!("{prompt_tokens:?}"));
-    span.record("generated_tokens",  format!("{generated_tokens:?}"));
+    span.record("prompt_tokens", format!("{prompt_tokens:?}"));
+    span.record("generated_tokens", format!("{generated_tokens:?}"));
 
     // Headers
     let mut headers = HeaderMap::new();
