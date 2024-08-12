@@ -851,8 +851,8 @@ async fn generate_stream_with_callback(
                                             span.record("inference_time", format!("{inference_time:?}"));
                                             span.record("time_per_token", format!("{time_per_token:?}"));
                                             span.record("seed", format!("{:?}", generated_text.seed));
-                                            span.record("prompt_tokens",  format!("{prompt_tokens:?}"));
-                                            span.record("generated_tokens",  format!("{generated_tokens:?}"));
+                                            span.record("prompt_tokens",  format!("{prefill_tokens_length:?}"));
+                                            span.record("generated_tokens",  format!("{:?}", generated_text.generated_tokens));
 
                                             // Metrics
                                             metrics::increment_counter!("lorax_request_success");
