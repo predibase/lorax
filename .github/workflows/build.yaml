@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'ner-bert'
       - 'main'
     tags:
       - 'v*'
@@ -67,7 +66,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=bert-ner
 
       - name: Create a hash from tags
         env:
