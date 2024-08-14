@@ -105,6 +105,8 @@ def get_model(
     if model_type == "bert":
         from lorax_server.models.flash_bert import FlashBert
 
+        if config_dict["architectures"][0] == "BertForTokenClassification":
+            return FlashBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
         return FlashBert(model_id, revision=revision, dtype=dtype)
 
     if model_type == "distilbert":
