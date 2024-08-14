@@ -192,3 +192,64 @@ We'd also like to acknowledge [Punica](https://github.com/punica-ai/punica) for 
 ## 🗺️ Roadmap
 
 Our roadmap is tracked [here](https://github.com/predibase/lorax/issues/57).
+# HTTP Status Codes and Solutions
+
+Understanding HTTP status codes is crucial for diagnosing and handling issues with your web applications and APIs. Below is a guide to common HTTP status codes and suggested actions to address them.
+
+## 200 OK
+- **Description:** The request was successful, and the server responded with the requested data.
+- **Solution:** No action needed; your request was successful.
+
+## 201 Created
+- **Description:** The request was successful, and a new resource was created.
+- **Solution:** Confirm that the resource was created correctly. Check the response for the location of the new resource.
+
+## 204 No Content
+- **Description:** The request was successful, but there is no content to return.
+- **Solution:** Ensure that this is the expected behavior (e.g., after a DELETE operation).
+
+## 400 Bad Request
+- **Description:** The server could not understand the request due to invalid syntax.
+- **Solution:** Verify that the request is properly formatted and that all required parameters are included.
+
+## 401 Unauthorized
+- **Description:** Authentication is required and has failed or not been provided.
+- **Solution:** Ensure that valid credentials are provided with the request. Check if the authentication token or API key is correct and has not expired.
+
+## 403 Forbidden
+- **Description:** The server understands the request but refuses to authorize it.
+- **Solution:** Confirm that the user has the appropriate permissions for the requested resource. Check for any IP restrictions or access control settings.
+
+## 404 Not Found
+- **Description:** The requested resource could not be found.
+- **Solution:** Verify that the URL is correct and that the resource exists. Check for typos in the URL or resource identifier.
+
+## 405 Method Not Allowed
+- **Description:** The method specified in the request is not allowed for the resource.
+- **Solution:** Check the HTTP method (e.g., GET, POST, PUT, DELETE) being used and verify that it is supported by the endpoint.
+
+## 408 Request Timeout
+- **Description:** The server timed out waiting for the request.
+- **Solution:** Ensure that the request is being sent in a timely manner and check network conditions. Retry the request if necessary.
+
+## 500 Internal Server Error
+- **Description:** The server encountered an unexpected condition that prevented it from fulfilling the request.
+- **Solution:** This is typically a server-side issue. Review server logs for details, fix the underlying problem, and ensure that your server is functioning correctly.
+
+## 502 Bad Gateway
+- **Description:** The server, while acting as a gateway or proxy, received an invalid response from the upstream server.
+- **Solution:** Check the connectivity and status of upstream servers or services that your server is relying on.
+
+## 503 Service Unavailable
+- **Description:** The server is currently unable to handle the request due to temporary overload or maintenance.
+- **Solution:** Retry the request after some time. If the issue persists, check server logs and system status for potential causes.
+
+## 504 Gateway Timeout
+- **Description:** The server, while acting as a gateway or proxy, did not receive a timely response from the upstream server.
+- **Solution:** Check the upstream server’s response time and address any performance issues. Retry the request after some time.
+
+## 418 I'm a teapot (RFC 2324)
+- **Description:** Any teapot-related error (from the April Fools' Day joke "Hyper Text Coffee Pot Control Protocol").
+- **Solution:** This is generally not used in real-world scenarios. If encountered, it's likely part of a joke or an experimental implementation.
+
+For each status code, ensure that your application or client handles them appropriately, whether that means adjusting the request, notifying the user, or retrying the operation. Understanding these codes helps improve the robustness and user experience of your web applications and APIs.
