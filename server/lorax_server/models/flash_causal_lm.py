@@ -268,7 +268,9 @@ class FlashCausalLMBatch(Batch):
 
         adapter_indices = torch.cat(adapter_indices_list).to(dtype=torch.int64, device=device)
 
-        request_tokenizers = [tokenizers.get_tokenizer(r.adapter_index, tokenizer) for r in pb.requests]
+        # always use the base model tokenizer for the next token chooser until we revisit adding back support
+        # for per-request tokenizers
+        request_tokenizers = [tokenizer for _ in pb.requests]
         next_token_chooser = HeterogeneousNextTokenChooser.from_pb(
             next_token_chooser_parameters, request_tokenizers, dtype, device
         )
