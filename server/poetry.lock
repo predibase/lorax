@@ -2053,17 +2053,18 @@ files = [
 
 [[package]]
 name = "outlines"
-version = "0.0.40"
+version = "0.0.46"
 description = "Probabilistic Generative Model Programming"
 optional = true
 python-versions = ">=3.8"
 files = [
-    {file = "outlines-0.0.40-py3-none-any.whl", hash = "sha256:b23bb0e9268485e5686ddb84be2a82c7b9c1adcf620ce72f95c202a768eb2ba7"},
-    {file = "outlines-0.0.40.tar.gz", hash = "sha256:d32fb8229ff40c915c7679700215d9265cc6b07ac5bf0d26728c2dab1183ad21"},
+    {file = "outlines-0.0.46-py3-none-any.whl", hash = "sha256:fea7b2ccd2dd82ddf11849a55ef14c4d7b72f12136a67d1b105b81639c8ca2b0"},
+    {file = "outlines-0.0.46.tar.gz", hash = "sha256:cd272418a268e0a25b7189180dfdcf9fe1b99f50ac1dfb9ffd83c896c5b3fa3c"},
 ]
 
 [package.dependencies]
 cloudpickle = "*"
+datasets = "*"
 diskcache = "*"
 interegular = "*"
 jinja2 = "*"
@@ -2071,14 +2072,18 @@ jsonschema = "*"
 lark = "*"
 nest-asyncio = "*"
 numba = "*"
-numpy = "*"
+numpy = "<2.0.0"
+pyairports = "*"
+pycountry = "*"
 pydantic = ">=2.0"
 referencing = "*"
 requests = "*"
+tqdm = "*"
+typing-extensions = "*"
 
 [package.extras]
-serve = ["fastapi", "pydantic (>=2.0)", "ray (==2.9.0)", "uvicorn", "vllm (>=0.3.0)"]
-test = ["accelerate", "beartype (<0.16.0)", "coverage[toml] (>=5.1)", "datasets", "diff-cover", "huggingface-hub", "llama-cpp-python", "openai (>=1.0.0)", "pre-commit", "pytest", "pytest-benchmark", "pytest-cov", "pytest-mock", "responses", "torch", "transformers", "vllm"]
+serve = ["fastapi", "pydantic (>=2.0)", "uvicorn", "vllm (>=0.3.0)"]
+test = ["accelerate", "beartype (<0.16.0)", "coverage[toml] (>=5.1)", "diff-cover", "huggingface-hub", "llama-cpp-python", "mlx-lm", "openai (>=1.0.0)", "pre-commit", "pytest", "pytest-benchmark", "pytest-cov", "pytest-mock", "responses", "torch", "transformers", "vllm"]
 
 [[package]]
 name = "packaging"
@@ -2281,6 +2286,17 @@ files = [
 ]
 
 [[package]]
+name = "pyairports"
+version = "2.1.1"
+description = "Airport and other locations database"
+optional = true
+python-versions = "*"
+files = [
+    {file = "pyairports-2.1.1-py3-none-any.whl", hash = "sha256:3dfa0cc3e47696692ade92feccdc6b046968f2a75f5e30f65735d6db7251cb26"},
+    {file = "pyairports-2.1.1.tar.gz", hash = "sha256:3d60a727fce4da81b9c6393ea8ae0b33d67b37ece344dffc863f749e3ad62bcd"},
+]
+
+[[package]]
 name = "pyarrow"
 version = "17.0.0"
 description = "Python library for Apache Arrow"
@@ -2330,6 +2346,17 @@ numpy = ">=1.16.6"
 
 [package.extras]
 test = ["cffi", "hypothesis", "pandas", "pytest", "pytz"]
+
+[[package]]
+name = "pycountry"
+version = "24.6.1"
+description = "ISO country, subdivision, language, currency and script definitions and their translations"
+optional = true
+python-versions = ">=3.8"
+files = [
+    {file = "pycountry-24.6.1-py3-none-any.whl", hash = "sha256:f1a4fb391cd7214f8eefd39556d740adcc233c778a27f8942c8dca351d6ce06f"},
+    {file = "pycountry-24.6.1.tar.gz", hash = "sha256:b61b3faccea67f87d10c1f2b0fc0be714409e8fcdcc1315613174f6466c10221"},
+]
 
 [[package]]
 name = "pycparser"
@@ -4057,4 +4084,4 @@ torch = ["torch"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "d76e6a57ff402a92b627f1282fc2548a1ef0496dfd5f1ea636340ff2bc4c324c"
+content-hash = "af9eb1f8b42b20a531a51f99a7ceaa2a7ec9e38aeb88c3e60a1d810ff78e8f27"
