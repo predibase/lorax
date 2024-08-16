@@ -735,6 +735,16 @@ struct ClassifyResponse {
     entities: Vec<Entity>,
 }
 
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct BatchClassifyRequest {
+    inputs: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BatchClassifyResponse {
+    entities: Vec<Vec<Entity>>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Entity {
     entity: String,
