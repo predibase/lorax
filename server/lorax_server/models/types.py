@@ -217,9 +217,10 @@ class FlashEmbeddingClassificationBatch(ABC):
     def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse2:
         results = []
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
+            input_ids = batch.input_ids[batch.cu_seqlens[i] : batch.cu_seqlens[i + 1]]
             results.append(
                 generate_pb2.ClassifyPredictionList(
-                    request_id=batch.request_ids[i], predictions=pred, scores=con, input_ids=batch.input_ids.tolist()
+                    request_id=batch.request_ids[i], predictions=pred, scores=con, input_ids=input_ids
                 )
             )
 

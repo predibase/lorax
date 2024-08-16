@@ -5,9 +5,9 @@ use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{
-    AdapterParameters, AlternativeToken, ChatTemplate, ChatTemplateVersions, ClassifyRequest,
-    ClassifyResponse, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
-    TextMessage, Token, TokenizerConfigToken,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse, ChatTemplate,
+    ChatTemplateVersions, ClassifyRequest, ClassifyResponse, EmbedRequest, EmbedResponse, Entity,
+    Entry, HubTokenizerConfig, Message, TextMessage, Token, TokenizerConfigToken,
 };
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
@@ -315,6 +315,7 @@ impl Infer {
                 queue_time: Instant::now(),
                 batch_time: None,
                 block_allocation: None,
+                id: None,
             },
         );
 
@@ -527,6 +528,7 @@ impl Infer {
                 queue_time: Instant::now(),
                 batch_time: None,
                 block_allocation: None,
+                id: None,
             },
         );
 
@@ -626,6 +628,7 @@ impl Infer {
                 queue_time: Instant::now(),
                 batch_time: None,
                 block_allocation: None,
+                id: None,
             },
         );
 
@@ -655,6 +658,7 @@ impl Infer {
                     predictions,
                     start,
                     queued,
+                    id,
                 } => {
                     let entities = format_ner_output(predictions, self.tokenizer.clone().unwrap());
                     return_entities = Some(entities);
@@ -671,6 +675,110 @@ impl Infer {
             metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
             tracing::error!("{err}");
             Err(err)
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn classify_batch(
+        &self,
+        request: BatchClassifyRequest,
+    ) -> Result<BatchClassifyResponse, InferError> {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        let adapter = Adapter::new(
+            AdapterParameters {
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
+                ..Default::default()
+            },
+            "hub".to_string(),
+            0,
+            None,
+        );
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = flume::unbounded();
+
+        for (id, r_inputs) in request.inputs.iter().enumerate() {
+            let (inputs, tokenized_inputs, input_length) = self
+                .validation
+                .validate_input(r_inputs.to_string(), None, Some(1))
+                .await?;
+
+            let valid_request = ValidClassifyRequest {
+                inputs,
+                tokenized_inputs,
+                input_length: input_length as u32,
+                adapter: adapter.clone(),
+            };
+
+            // Process the request by sending it to the queue associated with `adapter`
+            self.adapter_scheduler.process(
+                adapter.clone(),
+                Entry {
+                    request: Arc::new(valid_request),
+                    response_tx: response_tx.clone(),
+                    span: Span::current(),
+                    temp_span: None,
+                    queue_time: Instant::now(),
+                    batch_time: None,
+                    block_allocation: None,
+                    id: Some(id as u64),
+                },
+            );
+        }
+
+        drop(response_tx); // Close the sending end
+
+        // Return values
+
+        let mut all_entities = HashMap::new();
+        let mut stream = response_rx.into_stream();
+        while let Some(response) = stream.next().await {
+            match response? {
+                // Add prefill tokens
+                InferStreamResponse::Classify {
+                    predictions,
+                    start,
+                    queued,
+                    id,
+                } => {
+                    let entities =
+                        format_ner_output(predictions.clone(), self.tokenizer.clone().unwrap());
+                    all_entities.insert(id.unwrap(), entities);
+                }
+                _ => {
+                    tracing::error!(
+                        "Received unexpected message type in classify_batch. This is a bug."
+                    );
+                }
+            }
+        }
+        if all_entities.is_empty() {
+            let err = InferError::ClassificationFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
+            tracing::error!("{err}");
+            Err(err)
+        } else {
+            let mut sorted_entries: Vec<_> = all_entities.into_iter().collect();
+            sorted_entries.sort_by_key(|&(id, _)| id);
+
+            let sorted_entities: Vec<Vec<Entity>> = sorted_entries
+                .into_iter()
+                .map(|(_, entities)| entities.into_iter().map(Entity::from).collect())
+                .collect();
+
+            Ok(BatchClassifyResponse {
+                entities: sorted_entities,
+            })
         }
     }
 
@@ -1257,6 +1365,7 @@ fn send_classifications(
             predictions: predictions.clone(),
             queued: entry.queue_time,
             start: entry.batch_time.unwrap(),
+            id: entry.id,
         }),
         Duration::from_millis(10),
     )?;
@@ -1302,6 +1411,7 @@ pub(crate) enum InferStreamResponse {
         predictions: ClassifyPredictionList,
         start: Instant,
         queued: Instant,
+        id: Option<u64>, // to support batching
     },
     // Last message
     End {
