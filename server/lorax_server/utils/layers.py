@@ -494,7 +494,7 @@ try:
                         dtype=dtype,
                         **rope_scaling,
                     )
-                elif rope_type == "su":
+                elif rope_type in ["su", "longrope"]:
                     short_factor = torch.tensor(rope_scaling["short_factor"], dtype=torch.float32, device=device)
                     short_inv_freq = 1.0 / (
                         short_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)
