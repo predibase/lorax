@@ -7,7 +7,7 @@ from loguru import logger
 WARMUP = False
 SPECULATIVE_TOKENS = 0
 
-FLASH_INFER = bool(os.getenv("FLASH_INFER", 1))
+FLASH_INFER = bool(os.environ.get("FLASH_INFER", ""))
 if FLASH_INFER:
     logger.info("Using flashinfer")
 
