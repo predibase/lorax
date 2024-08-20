@@ -80,6 +80,7 @@ class FlashCohere(FlashCausalLM):
             num_layers=len(model.model.layers),
             num_kv_heads=model.model.num_key_value_heads,
             head_size=model.model.head_size,
+            num_heads=model.model.num_heads,
             dtype=dtype,
             device=device,
             rank=rank,

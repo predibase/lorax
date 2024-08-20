@@ -684,6 +684,7 @@ class FlashCausalLM(Model):
         num_layers: int,
         num_kv_heads: int,
         head_size: int,
+        num_heads: int,
         dtype: torch.dtype,
         device: torch.device,
         rank: int = 0,
@@ -700,6 +701,7 @@ class FlashCausalLM(Model):
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
         self.head_size = head_size
+        self.num_heads = num_heads
 
         super(FlashCausalLM, self).__init__(
             model_id=model_id,
@@ -725,6 +727,21 @@ class FlashCausalLM(Model):
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
         self.kv_cache = []
+
+        if FLASH_INFER:
+            from lorax_server.utils.flashinfer_attention import (
+                create_prefill_state,
+                create_decode_state,
+            )
+
+            self.prefill_state = create_prefill_state(device=device)
+
+            if not self.compile:
+                self.decode_state = create_decode_state(
+                    device=device,
+                    num_heads=self.num_heads,
+                    num_kv_heads=self.num_kv_heads,
+                )
 
     @property
     def block_size(self) -> int:

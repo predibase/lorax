@@ -533,6 +533,7 @@ class FlashRWModel(FlashRWPreTrainedModel):
         )
 
         self.head_size = self.h[0].self_attention.head_size
+        self.num_heads = self.h[0].self_attention.num_heads
 
     def forward(
         self,

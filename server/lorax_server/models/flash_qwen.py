@@ -82,6 +82,7 @@ class FlashQwen(FlashCausalLM):
             num_layers=len(model.transformer.h),
             num_kv_heads=model.transformer.num_key_value_heads,
             head_size=model.transformer.head_size,
+            num_heads=model.transformer.num_heads,
             dtype=dtype,
             device=device,
             rank=rank,
