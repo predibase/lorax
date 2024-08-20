@@ -4,8 +4,9 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
+from lorax_server.utils.state import FLASH_INFER
 import numpy as np
 import torch
 from loguru import logger
@@ -79,6 +80,7 @@ class GraphState:
     input_lengths: torch.Tensor
     adapter_data: AdapterBatchData
     traced_adapter_layer_names: Set[str]
+    state: Any = None
 
 
 @lru_cache(maxsize=1)
@@ -169,6 +171,8 @@ class GraphWrapper:
         max_rank: int,
         memory_pool: Tuple[int, int],
         max_total_tokens: int,
+        num_heads: int,
+        num_kv_heads: int,
         sliding_window_blocks: Optional[int] = None,
         traced_adapter_layer_names: Optional[Set[str]] = None,
     ) -> "GraphWrapper":
@@ -214,11 +218,31 @@ class GraphWrapper:
                     prefill_head_indices=None,
                 )
             }
+        
+        state = None
+        if FLASH_INFER:
+            from lorax_server.utils.flashinfer_attention import (
+                create_decode_state_cuda_graphs,
+            )
+
+            block_tables = max_input_state.block_tables[:batch_size]
+            block_tables_ptr = torch.zeros(
+                batch_size + 1, dtype=torch.int32, device=device
+            )
+            last_page_len = torch.ones(batch_size, dtype=torch.int32, device=device)
+            state = create_decode_state_cuda_graphs(
+                device=max_input_state.input_ids.device,
+                block_tables=block_tables.view(-1),
+                block_tables_ptr=block_tables_ptr,
+                last_page_len=last_page_len,
+                num_heads=num_heads,
+                num_kv_heads=num_kv_heads,
+            )
 
         input_state = GraphState(
             input_ids=max_input_state.input_ids[:batch_size],
             position_ids=max_input_state.position_ids[:batch_size],
-            block_tables=max_input_state.block_tables[:batch_size],
+            block_tables=block_tables,
             slots=max_input_state.slots[:batch_size],
             input_lengths=max_input_state.input_lengths[:batch_size],
             adapter_data=AdapterBatchData(
@@ -232,6 +256,7 @@ class GraphWrapper:
                 prefill=False,
             ),
             traced_adapter_layer_names=traced_adapter_layer_names,
+            state=state,
         )
 
         torch.cuda.synchronize(device)
@@ -310,6 +335,8 @@ class GraphCache:
         adapter_layers: List[str],
         default_traced_adapter_layers: List[str],
         max_total_tokens: int,
+        num_heads: int,
+        num_kv_heads: int,
         sliding_window_blocks: Optional[int] = None,
     ):
         self.model = model
@@ -320,6 +347,8 @@ class GraphCache:
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache: Dict[Tuple[int, int], GraphWrapper] = {}
         self.max_total_tokens = max_total_tokens
+        self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads
         self.sliding_window_blocks = sliding_window_blocks
 
     def can_use_graph(
@@ -372,6 +401,8 @@ class GraphCache:
                 max_rank,
                 pool,
                 self.max_total_tokens,
+                self.num_heads,
+                self.num_kv_heads,
                 self.sliding_window_blocks,
                 self.adapter_layers,  # estimate memory assuming all adapters are traced
             )
@@ -413,6 +444,8 @@ class GraphCache:
                         max_rank,
                         pool,
                         self.max_total_tokens,
+                        self.num_heads,
+                        self.num_kv_heads,
                         self.sliding_window_blocks,
                         self.default_traced_adapter_layers,
                     )
@@ -454,6 +487,8 @@ class GraphCache:
                 max_rank,
                 self.memory_pool,
                 self.max_total_tokens,
+                self.num_heads,
+                self.num_kv_heads,
                 self.sliding_window_blocks,
                 adapter_data.layer_names(),
             )

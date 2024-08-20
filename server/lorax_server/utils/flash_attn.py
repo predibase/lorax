@@ -1,5 +1,6 @@
 import os
 
+from lorax_server.utils.state import FLASH_INFER
 import torch
 from loguru import logger
 
@@ -111,8 +112,32 @@ if SYSTEM in {"cuda", "rocm"}:
         logger.warning(f"Unable to use Flash Attention V2: {e}")
         HAS_FLASH_ATTN = True
 
+if FLASH_INFER:
 
-if HAS_FLASH_ATTN_V2_CUDA:
+    def attention(
+        q,
+        k,
+        v,
+        cu_seqlens,
+        max_s,
+        softmax_scale,
+        window_size_left=-1,
+        causal=True,
+        softcap=0.0,
+    ):
+        from lorax_server.utils.flashinfer_attention import prefill_state
+
+        return prefill_state.get().forward(
+            q,
+            k,
+            v,
+            causal=causal,
+            window_left=window_size_left,
+            logits_soft_cap=softcap,
+            sm_scale=softmax_scale,
+        )
+
+elif HAS_FLASH_ATTN_V2_CUDA:
 
     def attention(
         q,

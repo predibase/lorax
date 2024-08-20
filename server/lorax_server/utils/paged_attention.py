@@ -1,3 +1,5 @@
+from typing import Optional
+from lorax_server.utils.state import FLASH_INFER
 import torch
 
 from lorax_server.utils.import_utils import SYSTEM
@@ -50,7 +52,18 @@ def attention(
     block_tables: torch.Tensor,
     input_lengths: torch.Tensor,
     max_s: int,
+    softcap: Optional[float] = None,
 ):
+    if FLASH_INFER:
+        from lorax_server.utils.flashinfer_attention import decode_state
+
+        return decode_state.get().forward(
+            query.contiguous(),
+            paged_kv_cache=(key_cache, value_cache),
+            logits_soft_cap=softcap,
+            sm_scale=softmax_scale,
+        )
+
     # Adapted from: https://github.com/vllm-project/vllm/blob/f8a1e39fae05ca610be8d5a78be9d40f5274e5fc/vllm/model_executor/layers/attention.py
     # Copyright 2023 The vLLM team. All rights
     # reserved.
