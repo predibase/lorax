@@ -222,13 +222,13 @@ class GraphWrapper:
                 )
             }
         
+        block_tables = max_input_state.block_tables[:batch_size]
         state = None
         if FLASH_INFER:
             from lorax_server.utils.flashinfer_attention import (
                 create_decode_state_cuda_graphs,
             )
 
-            block_tables = max_input_state.block_tables[:batch_size]
             block_tables_ptr = torch.zeros(
                 batch_size + 1, dtype=torch.int32, device=device
             )
@@ -265,7 +265,7 @@ class GraphWrapper:
         torch.cuda.synchronize(device)
 
         with forward_context(
-            block_tables=block_tables,
+            block_tables=input_state.block_tables,
             cu_seqlen_prefill=None,
             input_lengths=input_state.input_lengths,
             state=state,
@@ -328,9 +328,9 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
         with self.forward_context(
-            block_tables=block_tables,
+            block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,
-            input_lengths=input_lengths,
+            input_lengths=self.input_state.input_lengths,
             state=self.input_state.state,
         ):
             self.graph.replay()
