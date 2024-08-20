@@ -1,7 +1,15 @@
 from contextlib import contextmanager
+import os
+
+from loguru import logger
+
 
 WARMUP = False
 SPECULATIVE_TOKENS = 0
+
+FLASH_INFER = bool(os.getenv("FLASH_INFER", 1))
+if FLASH_INFER:
+    logger.info("Using flashinfer")
 
 
 def set_warmup(value: bool):
