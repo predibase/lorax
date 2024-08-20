@@ -133,7 +133,7 @@ class Parameters(BaseModel):
 
     @field_validator("adapter_version")
     def valid_adapter_version(cls, v):
-        if not isinstance(v, int) or v < 1:
+        if v < 1:
             raise ValidationError(f"`adapter_version={v}` must be a positive integer")
         return v
 

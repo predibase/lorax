@@ -1,5 +1,7 @@
 import pytest
 
+import pydantic
+
 from lorax.types import Parameters, Request, MergedAdapters
 from lorax.errors import ValidationError
 
@@ -81,7 +83,7 @@ def test_parameters_validation():
     Parameters(adapter_id="test-adapter-id", adapter_version="1")  # Passes, thanks to Pydantic auto-coercion.
     with pytest.raises(ValidationError):
         Parameters(adapter_id="test-adapter-id", adapter_version=0)
-    with pytest.raises(ValidationError):
+    with pytest.raises(pydantic.ValidationError):
         Parameters(adapter_id="test-adapter-id", adapter_version="not_an_integer")
 
 
