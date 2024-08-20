@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 from lorax_server.utils.state import FLASH_INFER
 import numpy as np
@@ -154,12 +154,14 @@ class GraphWrapper:
         input_state: GraphState,
         output_states: Tuple[torch.Tensor, Optional[torch.Tensor]],
         model: nn.Module,
+        forward_context: Optional[Callable[..., Any]],
     ):
         self.graph = graph
         self.memory_pool = memory_pool
         self.input_state = input_state
         self.output_states = output_states
         self.model = model
+        self.forward_context = forward_context
 
     @staticmethod
     def trace(
@@ -167,6 +169,7 @@ class GraphWrapper:
         device: torch.device,
         kv_cache: Dict,
         adapter_layers: Tuple[str],
+        forward_context: Callable[..., Any],
         batch_size: int,
         max_rank: int,
         memory_pool: Tuple[int, int],
@@ -261,24 +264,30 @@ class GraphWrapper:
 
         torch.cuda.synchronize(device)
 
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
-            output_states = model.forward(
-                input_ids=input_state.input_ids,
-                position_ids=input_state.position_ids,
-                cu_seqlen_prefill=None,
-                kv_cache=kv_cache,
-                block_tables=input_state.block_tables,
-                slots=input_state.slots,
-                input_lengths=input_state.input_lengths,
-                max_s=max_total_tokens,
-                adapter_data=input_state.adapter_data,
-                lm_head_indices=None,
-            )
+        with forward_context(
+            block_tables=block_tables,
+            cu_seqlen_prefill=None,
+            input_lengths=input_state.input_lengths,
+            state=state,
+        ):
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
+                output_states = model.forward(
+                    input_ids=input_state.input_ids,
+                    position_ids=input_state.position_ids,
+                    cu_seqlen_prefill=None,
+                    kv_cache=kv_cache,
+                    block_tables=input_state.block_tables,
+                    slots=input_state.slots,
+                    input_lengths=input_state.input_lengths,
+                    max_s=max_total_tokens,
+                    adapter_data=input_state.adapter_data,
+                    lm_head_indices=None,
+                )
 
         torch.cuda.synchronize(device)
 
-        return GraphWrapper(graph, graph.pool(), input_state, output_states, model)
+        return GraphWrapper(graph, graph.pool(), input_state, output_states, model, forward_context)
 
     def forward(
         self,
@@ -318,7 +327,13 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
-        self.graph.replay()
+        with self.forward_context(
+            block_tables=block_tables,
+            cu_seqlen_prefill=None,
+            input_lengths=input_lengths,
+            state=self.input_state.state,
+        ):
+            self.graph.replay()
 
         return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 
@@ -334,6 +349,7 @@ class GraphCache:
         kv_cache: Dict,
         adapter_layers: List[str],
         default_traced_adapter_layers: List[str],
+        forward_context: Callable[..., Any],
         max_total_tokens: int,
         num_heads: int,
         num_kv_heads: int,
@@ -344,6 +360,7 @@ class GraphCache:
         self.kv_cache = kv_cache
         self.adapter_layers = tuple(adapter_layers)
         self.default_traced_adapter_layers = set(default_traced_adapter_layers)
+        self.forward_context = forward_context
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache: Dict[Tuple[int, int], GraphWrapper] = {}
         self.max_total_tokens = max_total_tokens
@@ -397,6 +414,7 @@ class GraphCache:
                 self.device,
                 self.kv_cache,
                 self.adapter_layers,
+                self.forward_context,
                 batch_size,
                 max_rank,
                 pool,
@@ -440,6 +458,7 @@ class GraphCache:
                         self.device,
                         self.kv_cache,
                         self.adapter_layers,
+                        self.forward_context,
                         batch_size,
                         max_rank,
                         pool,
@@ -483,6 +502,7 @@ class GraphCache:
                 self.device,
                 self.kv_cache,
                 self.adapter_layers,
+                self.forward_context,
                 batch_size,
                 max_rank,
                 self.memory_pool,
