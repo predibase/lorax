@@ -33,7 +33,11 @@ def reshape_and_cache(
     value_cache: torch.Tensor,
     slots: torch.Tensor,
 ):
-    if SYSTEM == "xpu":
+    if FLASH_INFER:
+        shape = key_cache.shape
+        key_cache.view(-1, shape[-2], shape[-1])[slots] = key
+        value_cache.view(-1, shape[-2], shape[-1])[slots] = value
+    elif SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
         torch.ops._C_cache_ops.reshape_and_cache(
@@ -42,7 +46,6 @@ def reshape_and_cache(
 
 
 def attention(
-    out: torch.Tensor,
     query: torch.Tensor,
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
@@ -86,9 +89,11 @@ def attention(
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
 
+    out = torch.empty_like(query)
+
     if SYSTEM == "xpu":
         query = query.contiguous()
-        return ipex.llm.modules.PagedAttention.single_query_cached_kv_attention(
+        ipex.llm.modules.PagedAttention.single_query_cached_kv_attention(
             out,
             query,
             key_cache,
@@ -101,6 +106,7 @@ def attention(
             max_s,
             None,
         )
+        return out
 
     # NOTE(woosuk): We use a simple heuristic to decide whether to use
     # PagedAttention V1 or V2. If the number of partitions is 1, we use
@@ -159,3 +165,5 @@ def attention(
             1.0,
             1.0,
         )
+    
+    return out
