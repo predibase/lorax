@@ -78,10 +78,11 @@ def test_parameters_validation():
     Parameters(adapter_id="test-adapter-id")
     Parameters(adapter_id="test-adapter-id/1")
     Parameters(adapter_id="test-adapter-id", adapter_version=1)
+    Parameters(adapter_id="test-adapter-id", adapter_version="1")  # Passes, thanks to Pydantic auto-coercion.
     with pytest.raises(ValidationError):
         Parameters(adapter_id="test-adapter-id", adapter_version=0)
     with pytest.raises(ValidationError):
-        Parameters(adapter_id="test-adapter-id", adapter_version="1")
+        Parameters(adapter_id="test-adapter-id", adapter_version="not_an_integer")
 
 
 def test_request_validation():
