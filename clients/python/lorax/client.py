@@ -143,6 +143,7 @@ class Client:
         self,
         prompt: str,
         adapter_id: Optional[str] = None,
+        adapter_version: Optional[int] = None,
         adapter_source: Optional[str] = None,
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
@@ -173,8 +174,13 @@ class Client:
                 Input text
             adapter_id (`Optional[str]`):
                 Adapter ID to apply to the base model for the request
+            adapter_version: (`Optional[int]`):
+                Adapter version (applicable only when `adapter_source` is "pbase").
+                The format of `adapter_id` is "<ID>[/version]".  If `adapter_version` is
+                specified, then `adapter_id` is suffixed by `/adapter_version`, so for
+                convenience, `adapter_id` and `adapter_version` can be passed in separately.
             adapter_source (`Optional[str]`):
-                Source of the adapter (hub, local, s3)
+                Source of the adapter ("hub", "local", "s3", "pbase")
             merged_adapters (`Optional[MergedAdapters]`):
                 Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
@@ -234,6 +240,7 @@ class Client:
         # Validate parameters
         parameters = Parameters(
             adapter_id=adapter_id,
+            adapter_version=adapter_version,
             adapter_source=adapter_source,
             merged_adapters=merged_adapters,
             api_token=api_token,
@@ -282,6 +289,7 @@ class Client:
         self,
         prompt: str,
         adapter_id: Optional[str] = None,
+        adapter_version: Optional[int] = None,
         adapter_source: Optional[str] = None,
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
@@ -309,8 +317,13 @@ class Client:
                 Input text
             adapter_id (`Optional[str]`):
                 Adapter ID to apply to the base model for the request
+            adapter_version: (`Optional[int]`):
+                Adapter version (applicable only when `adapter_source` is "pbase").
+                The format of `adapter_id` is "<ID>[/version]".  If `adapter_version` is
+                specified, then `adapter_id` is suffixed by `/adapter_version`, so for
+                convenience, `adapter_id` and `adapter_version` can be passed in separately.
             adapter_source (`Optional[str]`):
-                Source of the adapter (hub, local, s3)
+                Source of the adapter ("hub", "local", "s3", "pbase")
             merged_adapters (`Optional[MergedAdapters]`):
                 Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
@@ -364,6 +377,7 @@ class Client:
         # Validate parameters
         parameters = Parameters(
             adapter_id=adapter_id,
+            adapter_version=adapter_version,
             adapter_source=adapter_source,
             merged_adapters=merged_adapters,
             api_token=api_token,

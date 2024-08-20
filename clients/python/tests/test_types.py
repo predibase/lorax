@@ -74,6 +74,15 @@ def test_parameters_validation():
     with pytest.raises(ValidationError):
         Parameters(adapter_id="test/adapter-id", merged_adapters=merged_adapters)
 
+    # Test adapter_id and adapter_version
+    Parameters(adapter_id="test-adapter-id")
+    Parameters(adapter_id="test-adapter-id/1")
+    Parameters(adapter_id="test-adapter-id", adapter_version=1)
+    with pytest.raises(ValidationError):
+        Parameters(adapter_id="test-adapter-id", adapter_version=0)
+    with pytest.raises(ValidationError):
+        Parameters(adapter_id="test-adapter-id", adapter_version="1")
+
 
 def test_request_validation():
     Request(inputs="test")

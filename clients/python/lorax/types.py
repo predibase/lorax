@@ -70,6 +70,8 @@ class ResponseFormat(BaseModel):
 class Parameters(BaseModel):
     # The ID of the adapter to use
     adapter_id: Optional[str] = None
+    # The version of the adapter to use (applicable only when `adapter_source` is "pbase")
+    adapter_version: Optional[int] = None,
     # The source of the adapter to use
     adapter_source: Optional[str] = None
     # Adapter merge parameters
@@ -122,7 +124,18 @@ class Parameters(BaseModel):
         merged_adapters = self.merged_adapters
         if adapter_id is not None and merged_adapters is not None:
             raise ValidationError("you must specify at most one of `adapter_id` or `merged_adapters`")
+
+        adapter_version = self.adapter_version
+        if adapter_id and adapter_version:
+            self.adapter_id = f"{adapter_id}/{adapter_version}"
+
         return self
+
+    @field_validator("adapter_version")
+    def valid_adapter_version(cls, v):
+        if not isinstance(v, int) or v < 1:
+            raise ValidationError(f"`adapter_version={v}` must be a positive integer")
+        return v
 
     @field_validator("adapter_source")
     def valid_adapter_source(cls, v):
