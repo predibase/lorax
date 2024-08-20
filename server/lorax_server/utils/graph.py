@@ -268,7 +268,7 @@ class GraphWrapper:
             block_tables=input_state.block_tables,
             cu_seqlen_prefill=None,
             input_lengths=input_state.input_lengths,
-            state=state,
+            state=input_state.state,
         ):
             graph = torch.cuda.CUDAGraph()
             with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117

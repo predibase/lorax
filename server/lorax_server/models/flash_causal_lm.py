@@ -994,7 +994,7 @@ class FlashCausalLM(Model):
             block_tables=block_tables,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
             input_lengths=input_lengths,
-        ):
+        ) if not self.compile else nullcontext():
             logits = model.forward(
                 input_ids=input_ids,
                 position_ids=position_ids,
