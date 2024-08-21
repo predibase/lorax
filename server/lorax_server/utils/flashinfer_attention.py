@@ -7,9 +7,9 @@ import torch
 
 prefill_state: ContextVar[flashinfer.BatchPrefillWithRaggedKVCacheWrapper] = ContextVar("prefill_state")
 
-prefill_with_paged_kv_state: ContextVar[
-    flashinfer.BatchPrefillWithPagedKVCacheWrapper
-] = ContextVar("prefill_with_paged_kv_state")
+prefill_with_paged_kv_state: ContextVar[flashinfer.BatchPrefillWithPagedKVCacheWrapper] = ContextVar(
+    "prefill_with_paged_kv_state"
+)
 
 decode_state: ContextVar[flashinfer.BatchDecodeWithPagedKVCacheWrapper] = ContextVar("decode_state")
 
@@ -30,9 +30,7 @@ def create_prefill_with_paged_kv_state(
 ):
     """Create a prefill state that uses the KV cache."""
     workspace_buffer = get_workspace(device)
-    return flashinfer.BatchPrefillWithPagedKVCacheWrapper(
-        workspace_buffer, kv_layout="NHD", use_cuda_graph=False
-    )
+    return flashinfer.BatchPrefillWithPagedKVCacheWrapper(workspace_buffer, kv_layout="NHD", use_cuda_graph=False)
 
 
 @contextmanager
@@ -54,9 +52,7 @@ def use_prefill_with_paged_kv_state(
     `attention` function while the context manager is active.
     """
 
-    indptr = torch.zeros(
-        input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32
-    )
+    indptr = torch.zeros(input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32)
     # Round up to page size and then calculate the cumulative sum to get
     # the indices into the block table.
     torch.add(input_lengths, page_size - 1, out=indptr[1:])
@@ -65,13 +61,9 @@ def use_prefill_with_paged_kv_state(
 
     # Get the lengths of the last page in a block.
     if page_size == 1:
-        last_page_len = torch.ones(
-            input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
-        )
+        last_page_len = torch.ones(input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device)
     else:
-        last_page_len = torch.empty(
-            input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
-        )
+        last_page_len = torch.empty(input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device)
         torch.sub(input_lengths, 1, out=last_page_len)
         last_page_len.remainder_(page_size)
         last_page_len += 1
@@ -237,9 +229,7 @@ def block_tables_to_ragged(
     assert len(input_lengths) == len(prefix_lens)
 
     total_len = sum(input_lengths) + sum(prefix_lens)
-    block_tables_ragged = torch.empty(
-        total_len, dtype=torch.int32, device=block_tables.device
-    )
+    block_tables_ragged = torch.empty(total_len, dtype=torch.int32, device=block_tables.device)
 
     offset = 0
     for i, (input_length, prefix_len) in enumerate(zip(input_lengths, prefix_lens)):

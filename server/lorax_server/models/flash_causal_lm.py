@@ -4,7 +4,6 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.flashinfer_attention import block_tables_to_ragged
 import numpy as np
 import torch
 import torch.distributed
@@ -27,6 +26,7 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.dist import MEMORY_FRACTION
+from lorax_server.utils.flashinfer_attention import block_tables_to_ragged
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
@@ -176,7 +176,6 @@ class FlashCausalLMBatch(Batch):
 
         # Cumulative length
         cumulative_length = 0
-        cumulative_max_length = 0
         cumulative_slot_tokens = 0
         prefill_out_cumulative_length = 0
 
@@ -217,9 +216,7 @@ class FlashCausalLMBatch(Batch):
             all_input_ids.append(tokenized_input)
 
             # Position ids
-            request_position_ids = torch.arange(
-                prefix_len, orig_input_length, dtype=torch.int32
-            )
+            request_position_ids = torch.arange(prefix_len, orig_input_length, dtype=torch.int32)
             position_ids.append(request_position_ids)
 
             # Add cumulative lengths of all previous inputs
@@ -794,9 +791,7 @@ class FlashCausalLM(Model):
             )
 
             self.prefill_state = create_prefill_state(device=device)
-            self.prefill_with_paged_kv_state = create_prefill_with_paged_kv_state(
-                device=device
-            )
+            self.prefill_with_paged_kv_state = create_prefill_with_paged_kv_state(device=device)
             self.decode_state = create_decode_state(
                 device=device,
                 num_heads=self.num_heads,
@@ -1002,9 +997,7 @@ class FlashCausalLM(Model):
         # has_prefix_lens = any(prefix_len > 0 for prefix_len in prefix_lens)
         if cu_seqlen_prefill is not None:
             return use_prefill_with_paged_kv_state(
-                state=(
-                    state if state is not None else self.prefill_with_paged_kv_state
-                ),
+                state=(state if state is not None else self.prefill_with_paged_kv_state),
                 # block_tables=block_tables_to_ragged(
                 #     block_tables=block_tables,
                 #     input_lengths=input_lengths,
@@ -1061,16 +1054,14 @@ class FlashCausalLM(Model):
             new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            prefix_lens_tensor = (
-                batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)
-            ).reshape(-1)
+            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
             max_s = max_s + speculative_length
 
             input_ids = new_input_ids
             position_ids = new_position_ids
-        
+
         # Model Forward
         if not use_graph:
             # eager mode
@@ -1081,16 +1072,14 @@ class FlashCausalLM(Model):
                     input_lengths=batch.input_lengths,
                     prefix_lens=batch.prefix_lens,
                 )
-            
-            with (
-                self._forward_context(
-                    block_tables=block_tables,
-                    cu_seqlen_prefill=batch.cu_seqlen_prefill,
-                    input_lengths=batch.input_lengths,
-                    input_lengths_tensor=input_lengths,
-                    prefix_lens=batch.prefix_lens,
-                    prefix_lens_tensor=prefix_lens_tensor,
-                )
+
+            with self._forward_context(
+                block_tables=block_tables,
+                cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                input_lengths=batch.input_lengths,
+                input_lengths_tensor=input_lengths,
+                prefix_lens=batch.prefix_lens,
+                prefix_lens_tensor=prefix_lens_tensor,
             ):
                 out = model.forward(
                     input_ids=input_ids,
@@ -1125,7 +1114,7 @@ class FlashCausalLM(Model):
 
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None
-        
+
         return out
 
     @tracer.start_as_current_span("generate_token")
@@ -1411,9 +1400,9 @@ class FlashCausalLM(Model):
                     out_end_index = batch.prefill_cu_outlens[i + 1]
 
                     # Remove generated token to only have prefill and add nan for first prompt token
-                    request_prefill_logprobs = (
-                        [float("nan")] * (len(prefix_ids) + 1)
-                    ) + prefill_logprobs[out_start_index : out_end_index - 1]
+                    request_prefill_logprobs = ([float("nan")] * (len(prefix_ids) + 1)) + prefill_logprobs[
+                        out_start_index : out_end_index - 1
+                    ]
                     prefill_token_ids = all_input_ids[:-1]
                     prefill_texts = self.tokenizer.batch_decode(
                         prefix_ids + prefill_token_ids,
