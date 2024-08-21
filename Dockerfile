@@ -218,6 +218,9 @@ COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-31
 # Install flash-attention dependencies
 RUN pip install einops --no-cache-dir
 
+# Install flashinfer
+RUN pip install flashinfer -i https://flashinfer.ai/whl/cu124/torch2.4
+
 # Install server
 COPY proto proto
 COPY server server
