@@ -1,11 +1,15 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Optional
+from typing import List, Optional
 
 import flashinfer
 import torch
 
 prefill_state: ContextVar[flashinfer.BatchPrefillWithRaggedKVCacheWrapper] = ContextVar("prefill_state")
+
+prefill_with_paged_kv_state: ContextVar[
+    flashinfer.BatchPrefillWithPagedKVCacheWrapper
+] = ContextVar("prefill_with_paged_kv_state")
 
 decode_state: ContextVar[flashinfer.BatchDecodeWithPagedKVCacheWrapper] = ContextVar("decode_state")
 
@@ -18,6 +22,78 @@ def get_workspace(device):
     if workspace is None:
         workspace = torch.empty(128 * 1024 * 1024, dtype=torch.uint8, device=device)
     return workspace
+
+
+def create_prefill_with_paged_kv_state(
+    *,
+    device: torch.device,
+):
+    """Create a prefill state that uses the KV cache."""
+    workspace_buffer = get_workspace(device)
+    return flashinfer.BatchPrefillWithPagedKVCacheWrapper(
+        workspace_buffer, kv_layout="NHD", use_cuda_graph=False
+    )
+
+
+@contextmanager
+def use_prefill_with_paged_kv_state(
+    *,
+    state: flashinfer.BatchPrefillWithPagedKVCacheWrapper,
+    block_tables: torch.Tensor,
+    cu_seqlens: torch.Tensor,
+    input_lengths: torch.Tensor,
+    num_heads: int,
+    num_kv_heads: int,
+    head_size: int,
+    page_size: int,
+    query_dtype: str = "float16",
+):
+    """
+    Context manager to set the active flashinfer prefill state to the given
+    `state` and parameters. This state will be used by all calls to the
+    `attention` function while the context manager is active.
+    """
+
+    indptr = torch.zeros(
+        input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32
+    )
+    # Round up to page size and then calculate the cumulative sum to get
+    # the indices into the block table.
+    torch.add(input_lengths, page_size - 1, out=indptr[1:])
+    indptr[1:].div_(page_size, rounding_mode="floor")
+    indptr[1:].cumsum_(-1)
+
+    # Get the lengths of the last page in a block.
+    if page_size == 1:
+        last_page_len = torch.ones(
+            input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
+        )
+    else:
+        last_page_len = torch.empty(
+            input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
+        )
+        torch.sub(input_lengths, 1, out=last_page_len)
+        last_page_len.remainder_(page_size)
+        last_page_len += 1
+
+    token = prefill_with_paged_kv_state.set(state)
+    try:
+        state.begin_forward(
+            qo_indptr=cu_seqlens,
+            paged_kv_indptr=indptr,
+            paged_kv_indices=block_tables,
+            paged_kv_last_page_len=last_page_len,
+            num_qo_heads=num_heads,
+            num_kv_heads=num_kv_heads,
+            head_dim=head_size,
+            q_data_type=query_dtype,
+            page_size=page_size,
+        )
+        yield
+    finally:
+        state.end_forward()
+        if token is not None:
+            prefill_with_paged_kv_state.reset(token)
 
 
 def create_prefill_state(
@@ -152,3 +228,23 @@ def use_decode_state(
         state.end_forward()
         if token is not None:
             decode_state.reset(token)
+
+
+def block_tables_to_ragged(
+    *, block_tables: torch.Tensor, input_lengths: List[int], prefix_lens: List[int]
+) -> torch.Tensor:
+    """Convert block table to ragged format compatible with FlashInfer."""
+    assert len(input_lengths) == len(prefix_lens)
+
+    total_len = sum(input_lengths) + sum(prefix_lens)
+    block_tables_ragged = torch.empty(
+        total_len, dtype=torch.int32, device=block_tables.device
+    )
+
+    offset = 0
+    for i, (input_length, prefix_len) in enumerate(zip(input_lengths, prefix_lens)):
+        seq_len = prefix_len + input_length
+        block_tables_ragged[offset : offset + seq_len] = block_tables[i][:seq_len]
+        offset += seq_len
+
+    return block_tables_ragged

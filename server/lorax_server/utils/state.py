@@ -11,6 +11,10 @@ if FLASH_INFER:
     logger.info("Using flashinfer")
 
 
+PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHE", ""))
+logger.info(f"Prefix cache = {PREFIX_CACHING}")
+
+
 def set_warmup(value: bool):
     global WARMUP
     WARMUP = value
