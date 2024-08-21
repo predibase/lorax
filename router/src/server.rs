@@ -1433,7 +1433,7 @@ async fn embed(
 #[utoipa::path(
     post,
     tag = "Classify",
-    path = "/classify",
+    path = "/classify_tokens",
     request_body = TokenizeRequest,
     responses(
     (status = 200, description = "Classifications", body = ClassifyResponse),
@@ -1441,7 +1441,7 @@ async fn embed(
     )
 )]
 #[instrument(skip_all)]
-async fn classify(
+async fn classify_tokens(
     infer: Extension<Infer>,
     mut client: Extension<ShardedClient>,
     Json(req): Json<ClassifyRequest>,
@@ -1458,7 +1458,7 @@ async fn classify(
 #[utoipa::path(
     post,
     tag = "ClassifyBatch",
-    path = "/classify_batch",
+    path = "/classify_tokens_batch",
     request_body = TokenizeRequest,
     responses(
     (status = 200, description = "Classifications", body = BatchClassifyResponse),

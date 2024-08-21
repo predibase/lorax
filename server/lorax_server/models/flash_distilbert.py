@@ -44,7 +44,7 @@ class FlashDistilBertModel(torch.nn.Module):
         return encoder_outputs[cu_seqlens[:-1]]
 
 
-class FlashDistilBertModelForClassification(torch.nn.Module):
+class FlashDistilBertModelForTokenClassification(torch.nn.Module):
     def __init__(self, weights, device, dtype, config: DistilBertConfig):
         super().__init__()
         self.embeddings = DistilBertEmbeddings("distilbert.embeddings", weights, device, dtype, config)
@@ -61,13 +61,35 @@ class FlashDistilBertModelForClassification(torch.nn.Module):
         return logits
 
 
+class FlashDistilBertModelForSequenceClassification(torch.nn.Module):
+    def __init__(self, weights, device, dtype, config: DistilBertConfig):
+        super().__init__()
+        self.embeddings = DistilBertEmbeddings("distilbert.embeddings", weights, device, dtype, config)
+        self.encoder = DistilBertEncoder("distilbert.transformer", weights, device, dtype, config)
+        self.pre_classifier_weight = weights.get_tensor("pre_classifier.weight").to(dtype).to(device)
+        self.pre_classifier_bias = weights.get_tensor("pre_classifier.bias").to(dtype).to(device)
+        self.classifier_weight = weights.get_tensor("classifier.weight").to(dtype).to(device)
+        self.classifier_bias = weights.get_tensor("classifier.bias").to(dtype).to(device)
+
+    def forward(self, input_ids, token_type_ids, position_ids, cu_seqlens, max_s):
+        embeddings = self.embeddings.forward(input_ids, token_type_ids, position_ids)
+        encoder_outputs = self.encoder.forward(embeddings, cu_seqlens, max_s)  # [batch_size * max_s, hidden_size]
+        batch_size = encoder_outputs.shape[0] // max_s
+        encoder_outputs = encoder_outputs.reshape(batch_size, max_s, -1)
+        hidden = torch.nn.functional.linear(encoder_outputs, self.pre_classifier_weight, self.pre_classifier_bias)
+        hidden = torch.nn.functional.relu(hidden)
+        logits = torch.nn.functional.linear(hidden, self.classifier_weight, self.classifier_bias)
+        return logits
+
+
 class FlashDistilBert(Model):
     def __init__(
         self,
         model_id: str,
         revision: Optional[str] = None,
         dtype: Optional[torch.dtype] = None,
-        classifcation_head: bool = False,
+        sequence_classifcation_head: bool = False,
+        token_classifcation_head: bool = False,
     ):
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
@@ -90,13 +112,18 @@ class FlashDistilBert(Model):
             dtype,
             process_group=self.process_group,
         )
-        if classifcation_head:
-            model = FlashDistilBertModelForClassification(weights, device, dtype, config)
+        if token_classifcation_head and sequence_classifcation_head:
+            raise ValueError("Both token classification and sequence classification heads are enabled")
+
+        if token_classifcation_head:
+            model = FlashDistilBertModelForTokenClassification(weights, device, dtype, config)
+        elif sequence_classifcation_head:
+            model = FlashDistilBertModelForSequenceClassification(weights, device, dtype, config)
         else:
             model = FlashDistilBertModel(weights, device, dtype, config)
 
         self.hidden_size = config.hidden_size
-        self.classification_head_enabled = classifcation_head
+        self.classification_enabled  = sequence_classifcation_head or token_classifcation_head
         self.config = config
 
         super(FlashDistilBert, self).__init__(
@@ -124,7 +151,7 @@ class FlashDistilBert(Model):
 
     @property
     def supports_classification(self) -> bool:
-        return self.classification_head_enabled
+        return self.classification_enabled
 
     def warmup(self, batch: FlashEmbeddingClassificationBatch, max_new_tokens: int) -> int | None:
         # Note: This is meant to 1) preallocate the memory by doing a forward pass

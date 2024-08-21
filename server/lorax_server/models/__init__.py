@@ -116,7 +116,10 @@ def get_model(
             return FlashDistilBert(model_id, revision=revision, dtype=dtype)
 
         if config_dict["architectures"][0] == "DistilBertForTokenClassification":
-            return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
+            return FlashDistilBert(model_id, revision=revision, dtype=dtype, token_classifcation_head=True)
+        
+        if config_dict["architectures"][0] == "DistilBertForSequenceClassification":
+            return FlashDistilBert(model_id, revision=revision, dtype=dtype, sequence_classifcation_head=True)
 
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded
