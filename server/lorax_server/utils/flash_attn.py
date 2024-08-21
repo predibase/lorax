@@ -5,6 +5,7 @@ from loguru import logger
 
 from lorax_server.utils.flash_attn_triton import triton_attention
 from lorax_server.utils.import_utils import SYSTEM
+from lorax_server.utils.state import FLASH_INFER
 
 if os.getenv("USE_FLASH_ATTENTION", "").lower() == "false":
     raise ImportError("`USE_FLASH_ATTENTION` is false.")
@@ -111,22 +112,48 @@ if SYSTEM in {"cuda", "rocm"}:
         logger.warning(f"Unable to use Flash Attention V2: {e}")
         HAS_FLASH_ATTN = True
 
-
-if HAS_FLASH_ATTN_V2_CUDA:
+if FLASH_INFER:
 
     def attention(
         q,
         k,
         v,
-        out,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
         causal=True,
+        softcap=0.0,
+    ):
+        from lorax_server.utils.flashinfer_attention import prefill_state
+
+        return prefill_state.get().forward(
+            q,
+            k,
+            v,
+            causal=causal,
+            window_left=window_size_left,
+            logits_soft_cap=softcap,
+            sm_scale=softmax_scale,
+        )
+
+elif HAS_FLASH_ATTN_V2_CUDA:
+
+    def attention(
+        q,
+        k,
+        v,
+        cu_seqlens,
+        max_s,
+        softmax_scale,
+        window_size_left=-1,
+        causal=True,
+        softcap=0.0,
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
+
+        out = torch.empty_like(q)
         return flash_attn_2_cuda.varlen_fwd(
             q,
             k,
@@ -147,7 +174,7 @@ if HAS_FLASH_ATTN_V2_CUDA:
             0,
             False,
             None,
-        )
+        )[0]
 
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
 
@@ -155,12 +182,12 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
         q,
         k,
         v,
-        out,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
         causal=True,
+        softcap=0.0,
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
@@ -170,6 +197,7 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
             )
 
         # RoCm flash API does not take the window_size_left and window_size_right arguments.
+        out = torch.empty_like(q)
         return flash_attn_2_cuda.varlen_fwd(
             q,
             k,
@@ -185,7 +213,7 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
             causal,
             False,
             None,
-        )
+        )[0]
 
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
 
@@ -193,13 +221,14 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
         q,
         k,
         v,
-        out,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
         causal=True,
+        softcap=0.0,
     ):
+        out = torch.empty_like(q)
         output, _ = triton_attention(
             q,
             k,
@@ -220,11 +249,12 @@ elif HAS_FLASH_ATTN:
         q,
         k,
         v,
-        out,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
+        causal=True,
+        softcap=0.0,
     ):
         if window_size_left != -1:
             raise NotImplementedError("window_size_left is only available with flash attn v2")
@@ -255,7 +285,8 @@ elif HAS_FLASH_ATTN:
                     .reshape(original_shape[0], -1, original_shape[2])
                 )
 
-        return flash_attn_cuda.fwd(
+        out = torch.empty_like(q)
+        flash_attn_cuda.fwd(
             q,
             k,
             v,
@@ -272,6 +303,7 @@ elif HAS_FLASH_ATTN:
             0,
             None,
         )
+        return out
 
 else:
     raise NotImplementedError("flash attention is not installed")

@@ -1,7 +1,8 @@
 import math
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -29,7 +30,7 @@ from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import get_speculative_tokens, warmup_mode
+from lorax_server.utils.state import FLASH_INFER, get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
@@ -684,6 +685,7 @@ class FlashCausalLM(Model):
         num_layers: int,
         num_kv_heads: int,
         head_size: int,
+        num_heads: int,
         dtype: torch.dtype,
         device: torch.device,
         rank: int = 0,
@@ -700,6 +702,7 @@ class FlashCausalLM(Model):
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
         self.head_size = head_size
+        self.num_heads = num_heads
 
         super(FlashCausalLM, self).__init__(
             model_id=model_id,
@@ -725,6 +728,21 @@ class FlashCausalLM(Model):
         self.compile = compile
         self.model_graph_wrapper: GraphCache = None
         self.kv_cache = []
+
+        self.prefill_state = None
+        self.decode_state = None
+        if FLASH_INFER:
+            from lorax_server.utils.flashinfer_attention import (
+                create_decode_state,
+                create_prefill_state,
+            )
+
+            self.prefill_state = create_prefill_state(device=device)
+            self.decode_state = create_decode_state(
+                device=device,
+                num_heads=self.num_heads,
+                num_kv_heads=self.num_kv_heads,
+            )
 
     @property
     def block_size(self) -> int:
@@ -756,21 +774,38 @@ class FlashCausalLM(Model):
         element_size = torch.tensor([], dtype=dtype).element_size()
         x = BLOCK_SIZE // element_size
 
-        self.kv_cache = [
-            (
-                torch.empty(
-                    (num_blocks, num_heads, head_size // x, BLOCK_SIZE, x),
-                    dtype=dtype,
-                    device=device,
-                ),
-                torch.empty(
-                    (num_blocks, num_heads, head_size, BLOCK_SIZE),
-                    dtype=dtype,
-                    device=device,
-                ),
-            )
-            for _ in range(num_layers)
-        ]
+        if FLASH_INFER:
+            self.kv_cache = [
+                (
+                    torch.empty(
+                        (num_blocks, BLOCK_SIZE, num_heads, head_size),
+                        dtype=dtype,
+                        device=device,
+                    ),
+                    torch.empty(
+                        (num_blocks, BLOCK_SIZE, num_heads, head_size),
+                        dtype=dtype,
+                        device=device,
+                    ),
+                )
+                for _ in range(num_layers)
+            ]
+        else:
+            self.kv_cache = [
+                (
+                    torch.empty(
+                        (num_blocks, num_heads, head_size // x, BLOCK_SIZE, x),
+                        dtype=dtype,
+                        device=device,
+                    ),
+                    torch.empty(
+                        (num_blocks, num_heads, head_size, BLOCK_SIZE),
+                        dtype=dtype,
+                        device=device,
+                    ),
+                )
+                for _ in range(num_layers)
+            ]
 
     def adapter_memory_size(self) -> int:
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
@@ -817,6 +852,9 @@ class FlashCausalLM(Model):
             if self.world_size > 1:
                 raise ValueError("Cannot enable `--compile` when sharding across multiple GPUs")
 
+            # This will be recalculated in the graph step
+            self.decode_state = None
+
             # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
             # Needs to be estimated here rather than fully initialized as the graph cache relies on the
             # cache manager being set.
@@ -826,7 +864,10 @@ class FlashCausalLM(Model):
                 self.kv_cache,
                 self.adapter_layers,
                 self.default_traced_adapter_layers,
+                self._forward_context,
                 max_total_tokens,
+                self.num_heads,
+                self.num_kv_heads,
                 self.sliding_window_blocks,
             )
             graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
@@ -880,14 +921,52 @@ class FlashCausalLM(Model):
     def decode(self, generated_ids: Union[torch.Tensor, List[int]]) -> str:
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
+    def _forward_context(
+        self,
+        *,
+        block_tables: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        input_lengths: torch.Tensor,
+        state: Optional[Any] = None,
+    ) -> ContextManager:
+        if not FLASH_INFER:
+            return nullcontext()
+
+        from lorax_server.utils.flashinfer_attention import (
+            use_decode_state,
+            use_prefill_state,
+        )
+
+        if cu_seqlen_prefill is not None:
+            return use_prefill_state(
+                state=state if state is not None else self.prefill_state,
+                cu_seqlens=cu_seqlen_prefill,
+                num_heads=self.num_heads,
+                num_kv_heads=self.num_kv_heads,
+                head_size=self.head_size,
+            )
+        else:
+            assert input_lengths is not None
+            return use_decode_state(
+                state=state if state is not None else self.decode_state,
+                input_lengths=input_lengths,
+                block_tables=block_tables.view(-1),
+                num_heads=self.num_heads,
+                num_kv_heads=self.num_kv_heads,
+                head_size=self.head_size,
+                page_size=BLOCK_SIZE,
+            )
+
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
+        use_graph = False
         if (
             self.model_graph_wrapper is not None
             and not prefill
             and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
+            use_graph = True
             model = self.model_graph_wrapper
 
         input_ids = batch.input_ids
@@ -916,21 +995,30 @@ class FlashCausalLM(Model):
             position_ids = new_position_ids
 
         # Model Forward
-        logits = model.forward(
-            input_ids=input_ids,
-            position_ids=position_ids,
-            cu_seqlen_prefill=batch.cu_seqlen_prefill,
-            kv_cache=self.kv_cache,
-            block_tables=block_tables,
-            slots=slots,
-            input_lengths=input_lengths,
-            max_s=max_s,
-            adapter_data=adapter_data,
-            prefill_cache_indices=batch.prefill_cache_indices,
-            lm_head_indices=batch.prefill_head_indices,
-        )
-        if batch.prefill_cache_indices is not None:
-            batch.prefill_cache_indices = None
+        with (
+            self._forward_context(
+                block_tables=block_tables,
+                cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                input_lengths=input_lengths,
+            )
+            if not use_graph
+            else nullcontext()
+        ):
+            logits = model.forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                kv_cache=self.kv_cache,
+                block_tables=block_tables,
+                slots=slots,
+                input_lengths=input_lengths,
+                max_s=max_s,
+                adapter_data=adapter_data,
+                prefill_cache_indices=batch.prefill_cache_indices,
+                lm_head_indices=batch.prefill_head_indices,
+            )
+            if batch.prefill_cache_indices is not None:
+                batch.prefill_cache_indices = None
         return logits
 
     @tracer.start_as_current_span("generate_token")

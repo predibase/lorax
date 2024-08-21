@@ -72,6 +72,7 @@ class FlashSantacoderSharded(FlashCausalLM):
             num_layers=len(model.transformer.h),
             num_kv_heads=1,
             head_size=model.transformer.head_size,
+            num_heads=model.transformer.num_heads,
             dtype=dtype,
             device=device,
             rank=rank,

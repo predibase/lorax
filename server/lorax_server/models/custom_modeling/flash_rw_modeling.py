@@ -173,17 +173,13 @@ class FlashRWAttention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
-        # output
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                attn_output,
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -191,8 +187,7 @@ class FlashRWAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads_kv, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
@@ -288,17 +283,13 @@ class FlashRWLargeAttention(torch.nn.Module):
             slots,
         )
 
-        # output
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=2, index=0),
                 torch.select(kv, dim=2, index=1),
-                attn_output,
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -306,8 +297,7 @@ class FlashRWLargeAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_groups, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
@@ -533,6 +523,7 @@ class FlashRWModel(FlashRWPreTrainedModel):
         )
 
         self.head_size = self.h[0].self_attention.head_size
+        self.num_heads = self.h[0].self_attention.num_heads
 
     def forward(
         self,
