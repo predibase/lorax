@@ -6,7 +6,6 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
-from lorax_server.utils.state import FLASH_INFER
 import numpy as np
 import torch
 from loguru import logger
@@ -19,6 +18,7 @@ from lorax_server.adapters.types import LORA
 from lorax_server.utils.constants import BLOCK_SIZE
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
+from lorax_server.utils.state import FLASH_INFER
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
@@ -221,7 +221,7 @@ class GraphWrapper:
                     prefill_head_indices=None,
                 )
             }
-        
+
         block_tables = max_input_state.block_tables[:batch_size]
         state = None
         if FLASH_INFER:
@@ -229,9 +229,7 @@ class GraphWrapper:
                 create_decode_state_cuda_graphs,
             )
 
-            block_tables_ptr = torch.zeros(
-                batch_size + 1, dtype=torch.int32, device=device
-            )
+            block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
             last_page_len = torch.ones(batch_size, dtype=torch.int32, device=device)
             state = create_decode_state_cuda_graphs(
                 device=max_input_state.input_ids.device,

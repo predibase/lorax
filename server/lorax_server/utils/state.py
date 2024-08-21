@@ -1,8 +1,7 @@
-from contextlib import contextmanager
 import os
+from contextlib import contextmanager
 
 from loguru import logger
-
 
 WARMUP = False
 SPECULATIVE_TOKENS = 0

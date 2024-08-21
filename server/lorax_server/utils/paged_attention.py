@@ -1,8 +1,9 @@
 from typing import Optional
-from lorax_server.utils.state import FLASH_INFER
+
 import torch
 
 from lorax_server.utils.import_utils import SYSTEM
+from lorax_server.utils.state import FLASH_INFER
 
 _PARTITION_SIZE = 512
 
@@ -165,5 +166,5 @@ def attention(
             1.0,
             1.0,
         )
-    
+
     return out

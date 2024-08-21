@@ -1,17 +1,13 @@
-from typing import Optional
-from contextvars import ContextVar
 from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Optional
 
 import flashinfer
 import torch
 
-prefill_state: ContextVar[flashinfer.BatchPrefillWithRaggedKVCacheWrapper] = ContextVar(
-    "prefill_state"
-)
+prefill_state: ContextVar[flashinfer.BatchPrefillWithRaggedKVCacheWrapper] = ContextVar("prefill_state")
 
-decode_state: ContextVar[flashinfer.BatchDecodeWithPagedKVCacheWrapper] = ContextVar(
-    "decode_state"
-)
+decode_state: ContextVar[flashinfer.BatchDecodeWithPagedKVCacheWrapper] = ContextVar("decode_state")
 
 workspace: Optional[torch.Tensor] = None
 
@@ -30,9 +26,7 @@ def create_prefill_state(
 ):
     """Create a prefill state."""
     workspace_buffer = get_workspace(device)
-    return flashinfer.BatchPrefillWithRaggedKVCacheWrapper(
-        workspace_buffer, kv_layout="NHD", use_cuda_graph=False
-    )
+    return flashinfer.BatchPrefillWithRaggedKVCacheWrapper(workspace_buffer, kv_layout="NHD", use_cuda_graph=False)
 
 
 @contextmanager
@@ -127,9 +121,7 @@ def use_decode_state(
     `state` and parameters. This state will be used by all calls to the
     `paged_attention` function while the context manager is active.
     """
-    indptr = torch.zeros(
-        input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32
-    )
+    indptr = torch.zeros(input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32)
     # Round up to page size and then calculate the cumulative sum to get
     # the indices into the block table.
     torch.add(input_lengths, page_size - 1, out=indptr[1:])
@@ -137,9 +129,7 @@ def use_decode_state(
     indptr[1:].cumsum_(-1)
 
     # Get the lengths of the last page in a block.
-    last_page_len = torch.empty(
-        input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
-    )
+    last_page_len = torch.empty(input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device)
     torch.sub(input_lengths, 1, out=last_page_len)
     last_page_len.remainder_(page_size)
     last_page_len += 1

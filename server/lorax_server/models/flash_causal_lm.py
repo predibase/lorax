@@ -1,6 +1,6 @@
-from contextlib import nullcontext
 import math
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
@@ -733,8 +733,8 @@ class FlashCausalLM(Model):
         self.decode_state = None
         if FLASH_INFER:
             from lorax_server.utils.flashinfer_attention import (
-                create_prefill_state,
                 create_decode_state,
+                create_prefill_state,
             )
 
             self.prefill_state = create_prefill_state(device=device)
@@ -851,7 +851,7 @@ class FlashCausalLM(Model):
         if self.compile:
             if self.world_size > 1:
                 raise ValueError("Cannot enable `--compile` when sharding across multiple GPUs")
-            
+
             # This will be recalculated in the graph step
             self.decode_state = None
 
@@ -920,7 +920,7 @@ class FlashCausalLM(Model):
 
     def decode(self, generated_ids: Union[torch.Tensor, List[int]]) -> str:
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-    
+
     def _forward_context(
         self,
         *,
@@ -995,11 +995,15 @@ class FlashCausalLM(Model):
             position_ids = new_position_ids
 
         # Model Forward
-        with self._forward_context(
-            block_tables=block_tables,
-            cu_seqlen_prefill=batch.cu_seqlen_prefill,
-            input_lengths=input_lengths,
-        ) if not use_graph else nullcontext():
+        with (
+            self._forward_context(
+                block_tables=block_tables,
+                cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                input_lengths=input_lengths,
+            )
+            if not use_graph
+            else nullcontext()
+        ):
             logits = model.forward(
                 input_ids=input_ids,
                 position_ids=position_ids,

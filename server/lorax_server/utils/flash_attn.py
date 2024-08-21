@@ -1,11 +1,11 @@
 import os
 
-from lorax_server.utils.state import FLASH_INFER
 import torch
 from loguru import logger
 
 from lorax_server.utils.flash_attn_triton import triton_attention
 from lorax_server.utils.import_utils import SYSTEM
+from lorax_server.utils.state import FLASH_INFER
 
 if os.getenv("USE_FLASH_ATTENTION", "").lower() == "false":
     raise ImportError("`USE_FLASH_ATTENTION` is false.")
@@ -152,7 +152,7 @@ elif HAS_FLASH_ATTN_V2_CUDA:
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
-        
+
         out = torch.empty_like(q)
         return flash_attn_2_cuda.varlen_fwd(
             q,
@@ -228,6 +228,7 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
         causal=True,
         softcap=0.0,
     ):
+        out = torch.empty_like(q)
         output, _ = triton_attention(
             q,
             k,
