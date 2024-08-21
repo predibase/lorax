@@ -729,6 +729,8 @@ class FlashCausalLM(Model):
         self.model_graph_wrapper: GraphCache = None
         self.kv_cache = []
 
+        self.prefill_state = None
+        self.decode_state = None
         if FLASH_INFER:
             from lorax_server.utils.flashinfer_attention import (
                 create_prefill_state,
@@ -736,13 +738,11 @@ class FlashCausalLM(Model):
             )
 
             self.prefill_state = create_prefill_state(device=device)
-
-            if not self.compile:
-                self.decode_state = create_decode_state(
-                    device=device,
-                    num_heads=self.num_heads,
-                    num_kv_heads=self.num_kv_heads,
-                )
+            self.decode_state = create_decode_state(
+                device=device,
+                num_heads=self.num_heads,
+                num_kv_heads=self.num_kv_heads,
+            )
 
     @property
     def block_size(self) -> int:
@@ -851,6 +851,9 @@ class FlashCausalLM(Model):
         if self.compile:
             if self.world_size > 1:
                 raise ValueError("Cannot enable `--compile` when sharding across multiple GPUs")
+            
+            # This will be recalculated in the graph step
+            self.decode_state = None
 
             # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
             # Needs to be estimated here rather than fully initialized as the graph cache relies on the
@@ -957,11 +960,13 @@ class FlashCausalLM(Model):
     def forward(self, batch: FlashCausalLMBatch, adapter_data: AdapterBatchData) -> Tuple[torch.Tensor, torch.Tensor]:
         prefill = batch.cu_seqlen_prefill is not None
         model = self.model
+        use_graph = False
         if (
             self.model_graph_wrapper is not None
             and not prefill
             and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
+            use_graph = True
             model = self.model_graph_wrapper
 
         input_ids = batch.input_ids
@@ -994,7 +999,7 @@ class FlashCausalLM(Model):
             block_tables=block_tables,
             cu_seqlen_prefill=batch.cu_seqlen_prefill,
             input_lengths=input_lengths,
-        ) if not self.compile else nullcontext():
+        ) if not use_graph else nullcontext():
             logits = model.forward(
                 input_ids=input_ids,
                 position_ids=position_ids,
