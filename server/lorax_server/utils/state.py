@@ -6,13 +6,15 @@ from loguru import logger
 WARMUP = False
 SPECULATIVE_TOKENS = 0
 
-FLASH_INFER = bool(os.environ.get("FLASH_INFER", ""))
-if FLASH_INFER:
-    logger.info("Using flashinfer")
-
 
 PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHING", ""))
 logger.info(f"Prefix caching = {PREFIX_CACHING}")
+
+
+# Always use flashinfer when prefix caching is enabled
+FLASH_INFER = bool(os.environ.get("FLASH_INFER", "")) or PREFIX_CACHING
+if FLASH_INFER:
+    logger.info("Using flashinfer")
 
 
 BLOCK_SIZE: int
