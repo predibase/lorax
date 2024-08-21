@@ -16,9 +16,8 @@ from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
     load_and_merge_adapters,
 )
-from lorax_server.utils.constants import BLOCK_SIZE
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import get_speculative_tokens
+from lorax_server.utils.state import BLOCK_SIZE, get_speculative_tokens
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 

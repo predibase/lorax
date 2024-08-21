@@ -26,12 +26,11 @@ from lorax_server.models.types import (
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
-from lorax_server.utils.constants import BLOCK_SIZE
 from lorax_server.utils.dist import MEMORY_FRACTION
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import FLASH_INFER, PREFIX_CACHING, get_speculative_tokens, warmup_mode
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, PREFIX_CACHING, get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))

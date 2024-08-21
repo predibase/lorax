@@ -11,8 +11,15 @@ if FLASH_INFER:
     logger.info("Using flashinfer")
 
 
-PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHE", ""))
-logger.info(f"Prefix cache = {PREFIX_CACHING}")
+PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHING", ""))
+logger.info(f"Prefix caching = {PREFIX_CACHING}")
+
+
+BLOCK_SIZE: int
+if FLASH_INFER:
+    BLOCK_SIZE = 1
+else:
+    BLOCK_SIZE = 16
 
 
 def set_warmup(value: bool):

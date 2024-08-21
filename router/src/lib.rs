@@ -6,6 +6,7 @@ mod health;
 mod infer;
 mod loader;
 mod queue;
+mod radix;
 mod scheduler;
 pub mod server;
 

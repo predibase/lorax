@@ -16,10 +16,9 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.constants import BLOCK_SIZE
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
-from lorax_server.utils.state import FLASH_INFER
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
