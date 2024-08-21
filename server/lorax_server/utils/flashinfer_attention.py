@@ -244,7 +244,6 @@ def block_tables_to_ragged(
     offset = 0
     for i, (input_length, prefix_len) in enumerate(zip(input_lengths, prefix_lens)):
         seq_len = prefix_len + input_length
-        print(block_tables_ragged.shape, block_tables.shape, offset, prefix_len, input_length, seq_len)
         block_tables_ragged[offset : offset + seq_len] = block_tables[i][:seq_len]
         offset += seq_len
 
