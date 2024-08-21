@@ -298,6 +298,11 @@ struct Args {
     #[clap(long, env)]
     eager_prefill: Option<bool>,
 
+    /// Whether to use the prefix caching mechanism.
+    /// TODO(travis): better comment here
+    #[clap(long, env)]
+    prefix_caching: Option<bool>,
+
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
     #[clap(default_value = "1024", long, env)]
     max_active_adapters: usize,
@@ -440,6 +445,7 @@ fn shard_manager(
     watermark_delta: Option<f32>,
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
+    prefix_caching: Option<bool>,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
@@ -547,6 +553,11 @@ fn shard_manager(
         "ADAPTER_MEMORY_FRACTION".into(),
         adapter_memory_fraction.to_string().into(),
     ));
+
+    // Prefix caching
+    if let Some(prefix_caching) = prefix_caching {
+        envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+    }
 
     // Safetensors load fast
     envs.push(("SAFETENSORS_FAST_GPU".into(), "1".into()));
@@ -984,6 +995,7 @@ fn spawn_shards(
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
+        let prefix_caching = args.prefix_caching;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1009,6 +1021,7 @@ fn spawn_shards(
                 watermark_delta,
                 cuda_memory_fraction,
                 adapter_memory_fraction,
+                prefix_caching,
                 otlp_endpoint,
                 status_sender,
                 shutdown,
@@ -1162,6 +1175,10 @@ fn spawn_webserver(
 
     if args.eager_prefill.unwrap_or(false) {
         router_args.push("--eager-prefill".to_string());
+    }
+
+    if args.prefix_caching.unwrap_or(false) {
+        router_args.push("--prefix-caching".to_string());
     }
 
     // Ngrok

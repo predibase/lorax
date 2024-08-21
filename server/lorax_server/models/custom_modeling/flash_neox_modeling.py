@@ -140,6 +140,8 @@ class FlashNeoxAttention(torch.nn.Module):
                 qkv[:, 0],
                 qkv[:, 1],
                 qkv[:, 2],
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,

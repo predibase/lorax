@@ -15,10 +15,10 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.constants import BLOCK_SIZE
+from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
-from lorax_server.utils.state import FLASH_INFER
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
@@ -78,6 +78,8 @@ class GraphState:
     block_tables: torch.Tensor
     slots: torch.Tensor
     input_lengths: torch.Tensor
+    prefix_lens: List[int]
+    prefix_lens_tensor: torch.Tensor
     adapter_data: AdapterBatchData
     traced_adapter_layer_names: Set[str]
     state: Any = None
@@ -223,17 +225,27 @@ class GraphWrapper:
             }
 
         block_tables = max_input_state.block_tables[:batch_size]
+        input_lengths = max_input_state.input_lengths[:batch_size]
+        prefix_lengths = [0] * batch_size
+        prefix_lengths_tensor = torch.zeros(batch_size, dtype=torch.int32, device=device)
         state = None
+
         if FLASH_INFER:
             from lorax_server.utils.flashinfer_attention import (
                 create_decode_state_cuda_graphs,
+            )
+
+            block_tables = block_tables_to_ragged(
+                block_tables=block_tables,
+                input_lengths=input_lengths.tolist(),
+                prefix_lens=prefix_lengths,
             )
 
             block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
             last_page_len = torch.ones(batch_size, dtype=torch.int32, device=device)
             state = create_decode_state_cuda_graphs(
                 device=max_input_state.input_ids.device,
-                block_tables=block_tables.view(-1),
+                block_tables=block_tables,
                 block_tables_ptr=block_tables_ptr,
                 last_page_len=last_page_len,
                 num_heads=num_heads,
@@ -245,7 +257,9 @@ class GraphWrapper:
             position_ids=max_input_state.position_ids[:batch_size],
             block_tables=block_tables,
             slots=max_input_state.slots[:batch_size],
-            input_lengths=max_input_state.input_lengths[:batch_size],
+            input_lengths=input_lengths,
+            prefix_lens=prefix_lengths,
+            prefix_lens_tensor=prefix_lengths_tensor,
             adapter_data=AdapterBatchData(
                 meta=AdapterBatchMetadata(
                     adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
@@ -265,7 +279,10 @@ class GraphWrapper:
         with forward_context(
             block_tables=input_state.block_tables,
             cu_seqlen_prefill=None,
-            input_lengths=input_state.input_lengths,
+            input_lengths=input_lengths,
+            input_lengths_tensor=input_state.input_lengths,
+            prefix_lens=prefix_lengths,
+            prefix_lens_tensor=prefix_lengths_tensor,
             state=input_state.state,
         ):
             graph = torch.cuda.CUDAGraph()
@@ -296,6 +313,8 @@ class GraphWrapper:
         block_tables: torch.Tensor,
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
+        prefix_lens: List[int],
+        prefix_lens_tensor: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -303,10 +322,20 @@ class GraphWrapper:
         pad_and_fill(self.input_state.input_ids, input_ids, 0)
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
-        pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
+        pad_and_fill(self.input_state.input_lengths, input_lengths + prefix_lens_tensor, 0)
 
         self.input_state.block_tables.zero_()
         self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
+
+        if FLASH_INFER:
+            block_tables = block_tables_to_ragged(
+                block_tables=block_tables,
+                input_lengths=input_lengths,
+                prefix_lens=prefix_lens,
+            )
+            self.input_state.block_tables[: block_tables.shape[0]] = block_tables
+        else:
+            self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             # TODO(travis): generalize this to support other adapter types
@@ -328,7 +357,10 @@ class GraphWrapper:
         with self.forward_context(
             block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,
-            input_lengths=self.input_state.input_lengths,
+            input_lengths=input_lengths,
+            input_lengths_tensor=self.input_state.input_lengths,
+            prefix_lens=prefix_lens,
+            prefix_lens_tensor=prefix_lens_tensor,
             state=self.input_state.state,
         ):
             self.graph.replay()

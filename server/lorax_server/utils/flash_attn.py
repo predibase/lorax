@@ -115,9 +115,11 @@ if SYSTEM in {"cuda", "rocm"}:
 if FLASH_INFER:
 
     def attention(
-        q,
-        k,
-        v,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
@@ -125,14 +127,15 @@ if FLASH_INFER:
         causal=True,
         softcap=0.0,
     ):
-        from lorax_server.utils.flashinfer_attention import prefill_state
+        assert window_size_left == -1, "Windowing is not supported with flash infer"
+        from lorax_server.utils.flashinfer_attention import (
+            prefill_with_paged_kv_state,
+        )
 
-        return prefill_state.get().forward(
-            q,
-            k,
-            v,
+        return prefill_with_paged_kv_state.get().forward(
+            q.contiguous(),
             causal=causal,
-            window_left=window_size_left,
+            paged_kv_cache=(key_cache, value_cache),
             logits_soft_cap=softcap,
             sm_scale=softmax_scale,
         )
@@ -140,9 +143,11 @@ if FLASH_INFER:
 elif HAS_FLASH_ATTN_V2_CUDA:
 
     def attention(
-        q,
-        k,
-        v,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
@@ -179,9 +184,11 @@ elif HAS_FLASH_ATTN_V2_CUDA:
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
 
     def attention(
-        q,
-        k,
-        v,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
@@ -218,9 +225,11 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
 
     def attention(
-        q,
-        k,
-        v,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
@@ -246,9 +255,11 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
 elif HAS_FLASH_ATTN:
 
     def attention(
-        q,
-        k,
-        v,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,

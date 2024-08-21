@@ -58,6 +58,7 @@ impl Health {
                 // Block 0 is reserved for health checks
                 blocks: vec![0],
                 slots: (0..16).collect(),
+                prefix_len: 0,
             };
             let batch = Batch {
                 id: BATCH_ID,
