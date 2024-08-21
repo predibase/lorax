@@ -15,7 +15,7 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.flashinfer_attention import block_tables_to_ragged
+from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
