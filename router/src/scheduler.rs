@@ -45,6 +45,7 @@ impl AdapterScheduler {
         adapter_cycle_time_s: u64,
         speculate: u32,
         max_batch_total_tokens: u32,
+        prefix_caching: bool,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -60,6 +61,7 @@ impl AdapterScheduler {
             adapter_cycle_time_s,
             speculate,
             max_batch_total_tokens,
+            prefix_caching,
         ));
 
         Self { sender }
@@ -123,6 +125,7 @@ async fn adapter_scheduler_task(
     adapter_cycle_time_s: u64,
     speculate: u32,
     max_batch_total_tokens: u32,
+    prefix_caching: bool,
 ) {
     let mut state = AdapterSchedulerState::new(
         client,
@@ -133,6 +136,7 @@ async fn adapter_scheduler_task(
         adapter_cycle_time_s,
         speculate,
         max_batch_total_tokens,
+        prefix_caching,
     );
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -204,6 +208,7 @@ impl AdapterSchedulerState {
         adapter_cycle_time_s: u64,
         speculate: u32,
         max_batch_total_tokens: u32,
+        prefix_caching: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
@@ -211,8 +216,14 @@ impl AdapterSchedulerState {
         )));
         let loader = AdapterLoader::new(client.clone());
 
-        let block_allocator = (!requires_padding)
-            .then(|| BlockAllocator::new(max_batch_total_tokens, block_size, window_size));
+        let block_allocator = (!requires_padding).then(|| {
+            BlockAllocator::new(
+                max_batch_total_tokens,
+                block_size,
+                prefix_caching,
+                window_size,
+            )
+        });
 
         Self {
             queues_state,
@@ -373,7 +384,10 @@ impl AdapterSchedulerState {
                         self.speculate
                     );
 
-                    match block_allocator.allocate(tokens).await {
+                    match block_allocator
+                        .allocate(tokens, entry.request.input_ids())
+                        .await
+                    {
                         None => {
                             // Entry is over budget
                             // Add it back to the front
@@ -418,11 +432,12 @@ impl AdapterSchedulerState {
             // Update entry
             entry.temp_span = Some(entry_batch_span);
 
-            let (blocks, slots) = match &block_allocation {
-                None => (Vec::new(), Vec::new()),
+            let (blocks, slots, prefix_len) = match &block_allocation {
+                None => (Vec::new(), Vec::new(), 0),
                 Some(block_allocation) => (
                     block_allocation.blocks.clone(),
                     block_allocation.slots.clone(),
+                    block_allocation.prefix_len,
                 ),
             };
 
@@ -431,7 +446,7 @@ impl AdapterSchedulerState {
             batch_entries
                 .as_mut()
                 .unwrap()
-                .add(id, entry, adapter, blocks, slots);
+                .add(id, entry, adapter, blocks, slots, prefix_len);
         }
 
         if batch_entries.is_none() {

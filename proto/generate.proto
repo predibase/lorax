@@ -135,6 +135,8 @@ message Request {
     repeated uint32 blocks = 9;
     /// Paged attention slots
     repeated uint32 slots = 10;
+    /// Prefix length that can be retrieved from the KV cache
+    uint32 prefix_len = 11;
 }
 
 message Batch {

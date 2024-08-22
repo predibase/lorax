@@ -159,6 +159,7 @@ impl Infer {
         block_size: u32,
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
+        prefix_caching: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -175,6 +176,7 @@ impl Infer {
             adapter_cycle_time_s,
             speculate,
             max_batch_total_tokens,
+            prefix_caching,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0

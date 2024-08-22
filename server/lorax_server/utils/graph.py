@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -15,9 +15,10 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
-from lorax_server.utils.constants import BLOCK_SIZE
+from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
@@ -77,8 +78,11 @@ class GraphState:
     block_tables: torch.Tensor
     slots: torch.Tensor
     input_lengths: torch.Tensor
+    prefix_lens: List[int]
+    prefix_lens_tensor: torch.Tensor
     adapter_data: AdapterBatchData
     traced_adapter_layer_names: Set[str]
+    state: Any = None
 
 
 @lru_cache(maxsize=1)
@@ -152,12 +156,14 @@ class GraphWrapper:
         input_state: GraphState,
         output_states: Tuple[torch.Tensor, Optional[torch.Tensor]],
         model: nn.Module,
+        forward_context: Optional[Callable[..., Any]],
     ):
         self.graph = graph
         self.memory_pool = memory_pool
         self.input_state = input_state
         self.output_states = output_states
         self.model = model
+        self.forward_context = forward_context
 
     @staticmethod
     def trace(
@@ -165,10 +171,13 @@ class GraphWrapper:
         device: torch.device,
         kv_cache: Dict,
         adapter_layers: Tuple[str],
+        forward_context: Callable[..., Any],
         batch_size: int,
         max_rank: int,
         memory_pool: Tuple[int, int],
         max_total_tokens: int,
+        num_heads: int,
+        num_kv_heads: int,
         sliding_window_blocks: Optional[int] = None,
         traced_adapter_layer_names: Optional[Set[str]] = None,
     ) -> "GraphWrapper":
@@ -215,12 +224,42 @@ class GraphWrapper:
                 )
             }
 
+        block_tables = max_input_state.block_tables[:batch_size]
+        input_lengths = max_input_state.input_lengths[:batch_size]
+        prefix_lengths = [0] * batch_size
+        prefix_lengths_tensor = torch.zeros(batch_size, dtype=torch.int32, device=device)
+        state = None
+
+        if FLASH_INFER:
+            from lorax_server.utils.flashinfer_attention import (
+                create_decode_state_cuda_graphs,
+            )
+
+            block_tables = block_tables_to_ragged(
+                block_tables=block_tables,
+                input_lengths=input_lengths.tolist(),
+                prefix_lens=prefix_lengths,
+            )
+
+            block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
+            last_page_len = torch.ones(batch_size, dtype=torch.int32, device=device)
+            state = create_decode_state_cuda_graphs(
+                device=max_input_state.input_ids.device,
+                block_tables=block_tables,
+                block_tables_ptr=block_tables_ptr,
+                last_page_len=last_page_len,
+                num_heads=num_heads,
+                num_kv_heads=num_kv_heads,
+            )
+
         input_state = GraphState(
             input_ids=max_input_state.input_ids[:batch_size],
             position_ids=max_input_state.position_ids[:batch_size],
-            block_tables=max_input_state.block_tables[:batch_size],
+            block_tables=block_tables,
             slots=max_input_state.slots[:batch_size],
-            input_lengths=max_input_state.input_lengths[:batch_size],
+            input_lengths=input_lengths,
+            prefix_lens=prefix_lengths,
+            prefix_lens_tensor=prefix_lengths_tensor,
             adapter_data=AdapterBatchData(
                 meta=AdapterBatchMetadata(
                     adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
@@ -232,28 +271,38 @@ class GraphWrapper:
                 prefill=False,
             ),
             traced_adapter_layer_names=traced_adapter_layer_names,
+            state=state,
         )
 
         torch.cuda.synchronize(device)
 
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
-            output_states = model.forward(
-                input_ids=input_state.input_ids,
-                position_ids=input_state.position_ids,
-                cu_seqlen_prefill=None,
-                kv_cache=kv_cache,
-                block_tables=input_state.block_tables,
-                slots=input_state.slots,
-                input_lengths=input_state.input_lengths,
-                max_s=max_total_tokens,
-                adapter_data=input_state.adapter_data,
-                lm_head_indices=None,
-            )
+        with forward_context(
+            block_tables=input_state.block_tables,
+            cu_seqlen_prefill=None,
+            input_lengths=input_lengths,
+            input_lengths_tensor=input_state.input_lengths,
+            prefix_lens=prefix_lengths,
+            prefix_lens_tensor=prefix_lengths_tensor,
+            state=input_state.state,
+        ):
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
+                output_states = model.forward(
+                    input_ids=input_state.input_ids,
+                    position_ids=input_state.position_ids,
+                    cu_seqlen_prefill=None,
+                    kv_cache=kv_cache,
+                    block_tables=input_state.block_tables,
+                    slots=input_state.slots,
+                    input_lengths=input_state.input_lengths,
+                    max_s=max_total_tokens,
+                    adapter_data=input_state.adapter_data,
+                    lm_head_indices=None,
+                )
 
         torch.cuda.synchronize(device)
 
-        return GraphWrapper(graph, graph.pool(), input_state, output_states, model)
+        return GraphWrapper(graph, graph.pool(), input_state, output_states, model, forward_context)
 
     def forward(
         self,
@@ -264,6 +313,8 @@ class GraphWrapper:
         block_tables: torch.Tensor,
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
+        prefix_lens: List[int],
+        prefix_lens_tensor: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -271,10 +322,20 @@ class GraphWrapper:
         pad_and_fill(self.input_state.input_ids, input_ids, 0)
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
-        pad_and_fill(self.input_state.input_lengths, input_lengths, 0)
+        pad_and_fill(self.input_state.input_lengths, input_lengths + prefix_lens_tensor, 0)
 
         self.input_state.block_tables.zero_()
         self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
+
+        if FLASH_INFER:
+            block_tables = block_tables_to_ragged(
+                block_tables=block_tables,
+                input_lengths=input_lengths,
+                prefix_lens=prefix_lens,
+            )
+            self.input_state.block_tables[: block_tables.shape[0]] = block_tables
+        else:
+            self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             # TODO(travis): generalize this to support other adapter types
@@ -293,7 +354,16 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
-        self.graph.replay()
+        with self.forward_context(
+            block_tables=self.input_state.block_tables,
+            cu_seqlen_prefill=None,
+            input_lengths=input_lengths,
+            input_lengths_tensor=self.input_state.input_lengths,
+            prefix_lens=prefix_lens,
+            prefix_lens_tensor=prefix_lens_tensor,
+            state=self.input_state.state,
+        ):
+            self.graph.replay()
 
         return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 
@@ -309,7 +379,10 @@ class GraphCache:
         kv_cache: Dict,
         adapter_layers: List[str],
         default_traced_adapter_layers: List[str],
+        forward_context: Callable[..., Any],
         max_total_tokens: int,
+        num_heads: int,
+        num_kv_heads: int,
         sliding_window_blocks: Optional[int] = None,
     ):
         self.model = model
@@ -317,9 +390,12 @@ class GraphCache:
         self.kv_cache = kv_cache
         self.adapter_layers = tuple(adapter_layers)
         self.default_traced_adapter_layers = set(default_traced_adapter_layers)
+        self.forward_context = forward_context
         self.memory_pool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
         self.cache: Dict[Tuple[int, int], GraphWrapper] = {}
         self.max_total_tokens = max_total_tokens
+        self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads
         self.sliding_window_blocks = sliding_window_blocks
 
     def can_use_graph(
@@ -368,10 +444,13 @@ class GraphCache:
                 self.device,
                 self.kv_cache,
                 self.adapter_layers,
+                self.forward_context,
                 batch_size,
                 max_rank,
                 pool,
                 self.max_total_tokens,
+                self.num_heads,
+                self.num_kv_heads,
                 self.sliding_window_blocks,
                 self.adapter_layers,  # estimate memory assuming all adapters are traced
             )
@@ -409,10 +488,13 @@ class GraphCache:
                         self.device,
                         self.kv_cache,
                         self.adapter_layers,
+                        self.forward_context,
                         batch_size,
                         max_rank,
                         pool,
                         self.max_total_tokens,
+                        self.num_heads,
+                        self.num_kv_heads,
                         self.sliding_window_blocks,
                         self.default_traced_adapter_layers,
                     )
@@ -450,10 +532,13 @@ class GraphCache:
                 self.device,
                 self.kv_cache,
                 self.adapter_layers,
+                self.forward_context,
                 batch_size,
                 max_rank,
                 self.memory_pool,
                 self.max_total_tokens,
+                self.num_heads,
+                self.num_kv_heads,
                 self.sliding_window_blocks,
                 adapter_data.layer_names(),
             )

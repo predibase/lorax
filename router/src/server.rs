@@ -1014,6 +1014,7 @@ pub async fn run(
     adapter_source: String,
     embedding_model: bool,
     eager_prefill: bool,
+    prefix_caching: bool,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -1115,6 +1116,7 @@ pub async fn run(
         shard_info.block_size,
         shard_info.speculate,
         shard_info.preloaded_adapters,
+        prefix_caching,
     );
 
     // Duration buckets

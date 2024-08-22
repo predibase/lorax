@@ -1,6 +1,9 @@
+from typing import Optional
+
 import torch
 
 from lorax_server.utils.import_utils import SYSTEM
+from lorax_server.utils.state import FLASH_INFER
 
 _PARTITION_SIZE = 512
 
@@ -31,7 +34,11 @@ def reshape_and_cache(
     value_cache: torch.Tensor,
     slots: torch.Tensor,
 ):
-    if SYSTEM == "xpu":
+    if FLASH_INFER:
+        shape = key_cache.shape
+        key_cache.view(-1, shape[-2], shape[-1])[slots] = key
+        value_cache.view(-1, shape[-2], shape[-1])[slots] = value
+    elif SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
         torch.ops._C_cache_ops.reshape_and_cache(
@@ -40,7 +47,6 @@ def reshape_and_cache(
 
 
 def attention(
-    out: torch.Tensor,
     query: torch.Tensor,
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
@@ -50,7 +56,18 @@ def attention(
     block_tables: torch.Tensor,
     input_lengths: torch.Tensor,
     max_s: int,
+    softcap: Optional[float] = None,
 ):
+    if FLASH_INFER:
+        from lorax_server.utils.flashinfer_attention import decode_state
+
+        return decode_state.get().forward(
+            query.contiguous(),
+            paged_kv_cache=(key_cache, value_cache),
+            logits_soft_cap=softcap,
+            sm_scale=softmax_scale,
+        )
+
     # Adapted from: https://github.com/vllm-project/vllm/blob/f8a1e39fae05ca610be8d5a78be9d40f5274e5fc/vllm/model_executor/layers/attention.py
     # Copyright 2023 The vLLM team. All rights
     # reserved.
@@ -73,9 +90,11 @@ def attention(
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
 
+    out = torch.empty_like(query)
+
     if SYSTEM == "xpu":
         query = query.contiguous()
-        return ipex.llm.modules.PagedAttention.single_query_cached_kv_attention(
+        ipex.llm.modules.PagedAttention.single_query_cached_kv_attention(
             out,
             query,
             key_cache,
@@ -88,6 +107,7 @@ def attention(
             max_s,
             None,
         )
+        return out
 
     # NOTE(woosuk): We use a simple heuristic to decide whether to use
     # PagedAttention V1 or V2. If the number of partitions is 1, we use
@@ -146,3 +166,5 @@ def attention(
             1.0,
             1.0,
         )
+
+    return out
