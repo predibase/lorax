@@ -102,7 +102,7 @@ Given a prompt, generate the following text
   - adapter_id (`Optional[str]`):
   Adapter ID to apply to the base model for the request
   - adapter_source (`Optional[str]`):
-  Source of the adapter (hub, local, s3)
+  Source of the adapter ("hub", "local", "s3", "pbase")
   - merged_adapters (`Optional[MergedAdapters]`):
   Merged adapters to apply to the base model for the request
   - api_token (`Optional[str]`):
