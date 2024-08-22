@@ -72,7 +72,6 @@ def __init__(base_url: str,
 def generate(prompt: str,
              adapter_id: Optional[str] = None,
              adapter_source: Optional[str] = None,
-             adapter_version: Optional[int] = None,
              merged_adapters: Optional[MergedAdapters] = None,
              api_token: Optional[str] = None,
              do_sample: bool = False,
@@ -102,8 +101,6 @@ Given a prompt, generate the following text
   Input text
   - adapter_id (`Optional[str]`):
   Adapter ID to apply to the base model for the request
-  - adapter_version: (`Optional[int]`):
-  The version of the adapter to use (applicable only when `adapter_source` is "pbase")
   - adapter_source (`Optional[str]`):
   Source of the adapter ("hub", "local", "s3", "pbase")
   - merged_adapters (`Optional[MergedAdapters]`):
@@ -167,7 +164,6 @@ Given a prompt, generate the following text
 ```python
 def generate_stream(prompt: str,
                     adapter_id: Optional[str] = None,
-                    adapter_version: Optional[int] = None,
                     adapter_source: Optional[str] = None,
                     merged_adapters: Optional[MergedAdapters] = None,
                     api_token: Optional[str] = None,
@@ -196,8 +192,6 @@ Given a prompt, generate the following stream of tokens
   Input text
   - adapter_id (`Optional[str]`):
   Adapter ID to apply to the base model for the request
-  - adapter_version: (`Optional[int]`):
-  The version of the adapter to use (applicable only when `adapter_source` is "pbase")
   - adapter_source (`Optional[str]`):
   Source of the adapter (hub, local, s3)
   - merged_adapters (`Optional[MergedAdapters]`):
@@ -308,7 +302,6 @@ def __init__(base_url: str,
 ```python
 async def generate(prompt: str,
                    adapter_id: Optional[str] = None,
-                   adapter_version: Optional[int] = None,
                    adapter_source: Optional[str] = None,
                    merged_adapters: Optional[MergedAdapters] = None,
                    api_token: Optional[str] = None,
@@ -339,8 +332,6 @@ Given a prompt, generate the following text asynchronously
   Input text
   - adapter_id (`Optional[str]`):
   Adapter ID to apply to the base model for the request
-  - adapter_version: (`Optional[int]`):
-  The version of the adapter to use (applicable only when `adapter_source` is "pbase")
   - adapter_source (`Optional[str]`):
   Source of the adapter (hub, local, s3)
   - merged_adapters (`Optional[MergedAdapters]`):
@@ -405,7 +396,6 @@ Given a prompt, generate the following text asynchronously
 async def generate_stream(
         prompt: str,
         adapter_id: Optional[str] = None,
-        adapter_version: Optional[int] = None,
         adapter_source: Optional[str] = None,
         merged_adapters: Optional[MergedAdapters] = None,
         api_token: Optional[str] = None,
@@ -434,8 +424,6 @@ Given a prompt, generate the following stream of tokens asynchronously
   Input text
   - adapter_id (`Optional[str]`):
   Adapter ID to apply to the base model for the request
-  - adapter_version: (`Optional[int]`):
-  The version of the adapter to use (applicable only when `adapter_source` is "pbase")
   - adapter_source (`Optional[str]`):
   Source of the adapter (hub, local, s3)
   - merged_adapters (`Optional[MergedAdapters]`):
