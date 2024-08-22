@@ -114,6 +114,23 @@ message TokenizedInputs {
     repeated uint32 ids = 1;
 }
 
+message Image {
+    /// Binary image data.
+    bytes data = 1;
+  
+    /// Image MIME type.
+    string mimetype = 2;
+  }
+  
+  message InputChunk {
+    oneof chunk {
+      /// Plain text data
+      string text = 1;
+      /// Image data
+      Image image = 2;
+    }
+  }
+
 message Request {
     /// Request ID
     uint64 id = 1;
@@ -137,6 +154,8 @@ message Request {
     repeated uint32 slots = 10;
     /// Prefix length that can be retrieved from the KV cache
     uint32 prefix_len = 11;
+    /// Input chunks
+    repeated InputChunk input_chunks = 12;
 }
 
 message Batch {

@@ -223,6 +223,8 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "VlmCausalLMBatch":
+        # split text into chunks using this regex: r"!\[\]\([^\)]*\)"
+
         # TODO(travis)
         # batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
         #     pb.requests, tokenizer, processor, config
