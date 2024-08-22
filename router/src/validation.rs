@@ -1,5 +1,6 @@
 use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
+use crate::config::Config;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest, HubPreprocessorConfig, Idefics2Preprocessor};
@@ -8,9 +9,9 @@ use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
 use std::io::Cursor;
+use std::iter;
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
-use tokenizers::TruncationDirection;
 use tokio::sync::oneshot;
 use tracing::{instrument, Span};
 use {once_cell::sync::Lazy, regex::Regex};
@@ -31,6 +32,8 @@ impl Validation {
     pub(crate) fn new(
         workers: usize,
         tokenizer: Option<Tokenizer>,
+        config: Option<Config>,
+        preprocessor_config: Option<HubPreprocessorConfig>,
         max_best_of: usize,
         max_stop_sequences: usize,
         max_input_length: usize,
@@ -44,11 +47,18 @@ impl Validation {
             // Create workers
             for _ in 0..workers {
                 let tokenizer_clone = tokenizer.clone();
+                let config_clone = config.clone();
+                let preprocessor_config_clone = preprocessor_config.clone();
                 let receiver_clone = validation_receiver.clone();
 
                 // Spawn worker
                 tokio::task::spawn_blocking(move || {
-                    tokenizer_worker(tokenizer_clone, receiver_clone)
+                    tokenizer_worker(
+                        tokenizer_clone,
+                        config_clone,
+                        preprocessor_config_clone,
+                        receiver_clone,
+                    )
                 });
             }
             Some(validation_sender)
@@ -70,7 +80,7 @@ impl Validation {
         &self,
         inputs: String,
         truncate: Option<usize>,
-    ) -> Result<Option<(tokenizers::Encoding, String)>, ValidationError> {
+    ) -> Result<Option<(tokenizers::Encoding, Vec<Chunk>)>, ValidationError> {
         // If we have a fast tokenizer
         if let Some(sender) = &self.sender {
             // Create response channel
@@ -83,8 +93,8 @@ impl Validation {
 
             // Await on response channel
             // Unwrap is safe here
-            let encoding = response_receiver.await.unwrap()?;
-            Ok(Some(encoding))
+            let resp = response_receiver.await.unwrap()?;
+            Ok(Some(resp))
         } else {
             Ok(None)
         }
@@ -96,9 +106,9 @@ impl Validation {
         inputs: String,
         truncate: Option<usize>,
         max_new_tokens: Option<u32>,
-    ) -> Result<(String, Option<TokenizedInputs>, usize), ValidationError> {
+    ) -> Result<(Option<TokenizedInputs>, usize), ValidationError> {
         // If we have a fast tokenizer
-        if let Some((encoding, inputs)) = self.tokenize(inputs.clone(), truncate).await? {
+        if let Some((encoding, chunks)) = self.tokenize(inputs.clone(), truncate).await? {
             // Create response channel
             let input_length = encoding.len();
 
@@ -126,10 +136,25 @@ impl Validation {
 
             let tokenized_inputs = Some(TokenizedInputs {
                 ids: encoding.get_ids().to_vec(),
+                input_chunks: chunks
+                    .clone()
+                    .into_iter()
+                    .map(|c| lorax_client::InputChunk {
+                        chunk: Some(match c {
+                            Chunk::Text(text) => lorax_client::input_chunk::Chunk::Text(text),
+                            Chunk::Image(image) => {
+                                lorax_client::input_chunk::Chunk::Image(lorax_client::Image {
+                                    data: image.data,
+                                    mimetype: image.mimetype,
+                                })
+                            }
+                        }),
+                    })
+                    .collect(),
             });
 
             metrics::histogram!("lorax_request_input_length", input_length as f64);
-            Ok((inputs, tokenized_inputs, input_length))
+            Ok((tokenized_inputs, input_length))
         }
         // Return inputs without validation
         else {
@@ -147,7 +172,7 @@ impl Validation {
                 }
             }
 
-            Ok((inputs, None, input_length))
+            Ok((None, input_length))
         }
     }
 
@@ -299,7 +324,8 @@ impl Validation {
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
         // Validate inputs
-        let (inputs, tokenized_inputs, input_length) = self
+        let inputs = request.inputs.clone();
+        let (tokenized_inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
 
@@ -364,12 +390,23 @@ impl Validation {
 }
 
 /// Start tokenization workers
-fn tokenizer_worker(tokenizer: Tokenizer, receiver: flume::Receiver<TokenizerRequest>) {
+fn tokenizer_worker(
+    tokenizer: Tokenizer,
+    config: Option<Config>,
+    preprocessor_config: Option<HubPreprocessorConfig>,
+    receiver: flume::Receiver<TokenizerRequest>,
+) {
     // Loop over requests
     while let Ok(((inputs, truncate), response_tx, parent_span)) = receiver.recv() {
         parent_span.in_scope(|| {
             response_tx
-                .send(prepare_input(inputs, truncate, &tokenizer))
+                .send(prepare_input(
+                    inputs,
+                    truncate,
+                    &tokenizer,
+                    config.as_ref(),
+                    preprocessor_config.as_ref(),
+                ))
                 .unwrap_or(())
         })
     }
@@ -546,7 +583,7 @@ fn prepare_input(
 
 type TokenizerRequest = (
     (String, Option<usize>),
-    oneshot::Sender<Result<(tokenizers::Encoding, String), ValidationError>>,
+    oneshot::Sender<Result<(tokenizers::Encoding, Vec<Chunk>), ValidationError>>,
     Span,
 );
 
@@ -663,9 +700,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
@@ -690,9 +730,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
@@ -717,9 +760,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
@@ -760,9 +806,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
