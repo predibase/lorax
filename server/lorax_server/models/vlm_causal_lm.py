@@ -167,7 +167,7 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         # sizes to insert correct number of image tokens.
         images = []
         for r in requests:
-            for chunk in r.input_chunks.chunks:
+            for chunk in r.tokenized_inputs.input_chunks:
                 chunk_type = chunk.WhichOneof("chunk")
                 if chunk_type == "text":
                     pass
@@ -190,7 +190,7 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         image_id = 0
         for r in requests:
             full_text = ""
-            for chunk in r.input_chunks.chunks:
+            for chunk in r.tokenized_inputs.input_chunks:
                 chunk_type = chunk.WhichOneof("chunk")
                 if chunk_type == "text":
                     full_text += chunk.text
@@ -220,15 +220,15 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
+        processor,
+        config,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "VlmCausalLMBatch":
-        # split text into chunks using this regex: r"!\[\]\([^\)]*\)"
-
         # TODO(travis)
-        # batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
-        #     pb.requests, tokenizer, processor, config
-        # )
+        batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
+            pb.requests, tokenizer, processor, config
+        )
         image_inputs = None
       
         batch = super().from_pb(pb, tokenizer, tokenizers, dtype, device)
@@ -280,7 +280,7 @@ class VlmCausalLM(FlashCausalLM):
             raise NotImplementedError("Vlm do not work with prefix caching yet")
         if processor_kwargs is None:
             processor_kwargs = {}
-        self.processor = processor_class.from_pretrained(
+        processor = processor_class.from_pretrained(
             model_id,
             revision=revision,
             trust_remote_code=trust_remote_code,
@@ -329,6 +329,7 @@ class VlmCausalLM(FlashCausalLM):
             adapter_id=adapter_id,
             adapter_source=adapter_source,
             trust_remote_code=trust_remote_code,
+            processor=processor,
         )
 
     @property

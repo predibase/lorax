@@ -40,11 +40,13 @@ class Model(ABC):
         adapter_source: str = HUB,
         dynamic_adapter_loading_enabled: bool = True,
         trust_remote_code: bool = False,
+        processor = None
     ):
         self.model_id = model_id
         self.model = model.eval()
         self.tokenizer = tokenizer
         self.tokenizers = TokenizerManager()
+        self.processor = processor
 
         self.all_special_ids = set(tokenizer.all_special_ids)
 

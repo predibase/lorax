@@ -37,6 +37,8 @@ class BloomCausalLMBatch(CausalLMBatch):
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
+        processor,
+        config,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":

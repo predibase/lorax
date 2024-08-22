@@ -131,6 +131,8 @@ class FlashCausalLMBatch(Batch):
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
+        processor,
+        config,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashCausalLMBatch":
@@ -746,6 +748,7 @@ class FlashCausalLM(Model):
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         adapter_source: str = HUB,
         trust_remote_code: bool = False,
+        processor = None,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -769,6 +772,7 @@ class FlashCausalLM(Model):
             adapter_source=adapter_source,
             dynamic_adapter_loading_enabled=True,
             trust_remote_code=trust_remote_code,
+            processor=processor,
         )
 
         if sliding_window is not None:
