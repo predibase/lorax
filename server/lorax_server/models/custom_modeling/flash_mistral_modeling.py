@@ -416,9 +416,8 @@ class MistralMLP(nn.Module):
 
 
 class MistralLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
         self.self_attn = MistralAttention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -477,16 +476,17 @@ class MistralLayer(nn.Module):
 
 
 class MistralModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=f"{prefix}.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
                 MistralLayer(
+                    f"{prefix}.layers.{layer_id}",
                     layer_id,
                     config,
                     weights,
@@ -494,7 +494,7 @@ class MistralModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MistralRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = MistralRMSNorm(prefix=f"{prefix}.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -544,14 +544,24 @@ class MistralModel(torch.nn.Module):
 
 
 class FlashMistralForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix, config, weights, name=None):
         super().__init__()
 
-        self.model = MistralModel(config, weights)
+        if name is None:
+            name = "model"
+
+        self.model = MistralModel(
+            prefix=name if not prefix else f"{prefix}.{name}",
+            config=config, 
+            weights=weights,
+        )
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                # TODO dirty hack for idefics2.
+                prefix=(
+                    "lm_head" if not prefix or name != "model" else f"{prefix}.lm_head"
+                ),
                 weights=weights,
             ),
             0,

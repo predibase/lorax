@@ -1,11 +1,15 @@
+from lorax_server.utils.dist import initialize_torch_distributed
+from lorax_server.utils.sources.hub import weight_files
+from lorax_server.utils.weights import Weights
 import torch
+import torch.distributed
 from PIL import Image
 from io import BytesIO
 
 from opentelemetry import trace
 from typing import Iterable, Optional, Tuple, List, Type, Dict
 
-from transformers import PreTrainedTokenizerBase
+from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
 from transformers.image_processing_utils import select_best_resolution
 from lorax_server.pb import generate_pb2
 from lorax_server.models.flash_causal_lm import (
@@ -13,7 +17,7 @@ from lorax_server.models.flash_causal_lm import (
     FlashCausalLM,
     block_tables_to_ragged,
 )
-from lorax_server.utils.state import PREFIX_CACHING, ATTENTION
+from lorax_server.utils.state import PREFIX_CACHING, FLASH_INFER
 from transformers import AutoProcessor
 
 tracer = trace.get_tracer(__name__)
@@ -246,14 +250,27 @@ class VlmCausalLM(FlashCausalLM):
     def __init__(
         self,
         model_id: str,
+        model_class,
         *,
         processor_class=AutoProcessor,
         processor_kwargs=None,
         batch_class=VlmCausalLMBatch,
-        revision,
-        trust_remote_code: bool,
+        adapter_id: str,
+        adapter_source: str,
+        revision: Optional[str] = None,
+        quantize: Optional[str] = None,
+        compile: bool = False,
+        dtype: Optional[torch.dtype] = None,
+        trust_remote_code: bool = False,
         **kwargs,
     ):
+        self.process_group, rank, world_size = initialize_torch_distributed()
+        if torch.cuda.is_available():
+            device = torch.device(f"cuda:{rank}")
+            dtype = torch.float16 if dtype is None else dtype
+        else:
+            raise NotImplementedError("VlmCausalLM is only available on GPU")
+        
         if PREFIX_CACHING:
             raise NotImplementedError("Vlm do not work with prefix caching yet")
         if processor_kwargs is None:
@@ -265,11 +282,48 @@ class VlmCausalLM(FlashCausalLM):
             **processor_kwargs,
         )
         self.batch_class = batch_class
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id,
+            revision=revision,
+            padding_side="left",
+            truncation_side="left",
+            trust_remote_code=trust_remote_code,
+        )
+
+        config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
+        config.quantize = quantize
+
+        torch.distributed.barrier(group=self.process_group)
+
+        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
+        weights = Weights(
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
+        )
+        weights._set_config(model_id, config)
+
+        prefix = ""
+        model = model_class(prefix, config, weights)
+
         super().__init__(
             model_id=model_id,
-            revision=revision,
+            model=model,
+            tokenizer=tokenizer,
+            num_layers=config.num_hidden_layers,
+            num_kv_heads=config.num_key_value_heads,
+            head_size=config.hidden_size // config.num_attention_heads,
+            num_heads=config.num_attention_heads,
+            dtype=dtype,
+            device=device,
+            rank=rank,
+            world_size=world_size,
+            compile=compile,
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
             trust_remote_code=trust_remote_code,
-            **kwargs,
         )
 
     @property
@@ -400,7 +454,7 @@ class VlmCausalLM(FlashCausalLM):
         # Static inputs are potentially padded
         cuda_graph["input_ids"][: input_ids.shape[0]] = input_ids
         cuda_graph["position_ids"][: position_ids.shape[0]] = position_ids
-        if ATTENTION == "flashinfer":
+        if FLASH_INFER:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
                 input_lengths=batch.input_lengths,
