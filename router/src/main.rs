@@ -15,7 +15,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use thiserror::Error;
 use tokenizers::processors::template::TemplateProcessing;
 use tokenizers::tokenizer::Tokenizer;
@@ -513,7 +512,6 @@ fn init_logging(otlp_endpoint: Option<String>, json_output: bool) {
 
         if let Ok(tracer) = tracer {
             layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
-            axum_tracing_opentelemetry::init_propagator().unwrap();
         };
     }
 
