@@ -1,5 +1,8 @@
+from loguru import logger
+from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.utils.dist import initialize_torch_distributed
 from lorax_server.utils.sources.hub import weight_files
+from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import Weights
 import torch
 import torch.distributed
@@ -59,10 +62,8 @@ def image_text_replacement(processor, image_input, config, image_id: int) -> str
     elif config.model_type == "llava_next":
         height, width = image_input["image_sizes"][image_id]
         num_features = get_number_of_features(height, width, config)
-        from loguru import logger
 
-        log_master(
-            logger.info,
+        logger.info(
             f"Found {num_features} features in image of resolution {height}x{width}",
         )
         return "<image>" * num_features
@@ -214,19 +215,21 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         return batch_tokenized_inputs, image_inputs
 
     @classmethod
-    def from_pb_processor(
+    def from_pb(
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
-        processor,
-        config,
+        tokenizers: TokenizerManager,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "VlmCausalLMBatch":
-        batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
-            pb.requests, tokenizer, processor, config
-        )
-        batch = cls.from_tokenized(pb, tokenizer, batch_tokenized_inputs, dtype, device)
+        # TODO(travis)
+        # batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
+        #     pb.requests, tokenizer, processor, config
+        # )
+        image_inputs = None
+      
+        batch = super().from_pb(pb, tokenizer, tokenizers, dtype, device)
         if image_inputs is not None:
             batch.pixel_values = image_inputs["pixel_values"].to(device=device)
             if "pixel_attention_mask" in image_inputs:
@@ -336,7 +339,7 @@ class VlmCausalLM(FlashCausalLM):
     def forward(
         self,
         batch: VlmCausalLMBatch,
-        adapter_data: Optional[Dict[str, torch.Tensor]] = None,
+        adapter_data: AdapterBatchData,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         # Model Forward
         if batch.speculative_ids is not None:
@@ -399,16 +402,18 @@ class VlmCausalLM(FlashCausalLM):
             # This makes sure the max_s for the decode pass is correct.
             max_s = min(self.max_past(), max_s)
 
-        bs = input_ids.shape[0]
-        # Try to find an associated cuda graph
-        bs = input_ids.shape[0]
-        sorted_padded_bs = sorted([k for k in self.cuda_graphs.keys() if k >= bs])
-        if sorted_padded_bs:
-            # Get associated cuda graph
-            cuda_graph = self.cuda_graphs[sorted_padded_bs[0]]
-        else:
-            cuda_graph = None
-        if cu_seqlen_prefill is not None or cuda_graph is None:
+        prefill = batch.cu_seqlen_prefill is not None
+        model = self.model
+        use_graph = False
+        if (
+            self.model_graph_wrapper is not None
+            and not prefill
+            and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
+        ):
+            use_graph = True
+            model = self.model_graph_wrapper
+        
+        if not use_graph:
             input_lengths = input_lengths + prefix_lens_tensor
             if PREFIX_CACHING:
                 block_tables = block_tables_to_ragged(
@@ -424,62 +429,47 @@ class VlmCausalLM(FlashCausalLM):
                 prefix_lens=batch.prefix_lens,
                 prefix_lens_tensor=prefix_lens_tensor,
             ):
-                input_lengths = Seqlen(input_lengths=input_lengths)
-                logits, speculative_logits = self.model.forward(
+                # input_lengths = Seqlen(input_lengths=input_lengths)
+                out = model.forward(
                     input_ids=input_ids,
                     position_ids=position_ids,
-                    cu_seqlen_prefill=cu_seqlen_prefill,
-                    kv_cache=kv_cache,
+                    cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                    kv_cache=self.kv_cache,
                     block_tables=block_tables,
                     slots=slots,
                     input_lengths=input_lengths,
                     max_s=max_s,
+                    adapter_data=adapter_data,
                     prefill_cache_indices=batch.prefill_cache_indices,
-                    lm_head_indices=lm_head_indices,
+                    lm_head_indices=batch.prefill_head_indices,
                     pixel_values=batch.pixel_values,
                     pixel_attention_mask=batch.pixel_attention_mask,
                     image_sizes=batch.image_sizes,
                 )
-                if batch.prefill_cache_indices is not None:
-                    batch.prefill_cache_indices = None
-                if batch.pixel_values is not None:
-                    batch.pixel_values = None
-                if batch.pixel_attention_mask is not None:
-                    batch.pixel_attention_mask = None
-                if batch.image_sizes is not None:
-                    batch.image_sizes = None
-                return logits, speculative_logits
-
-        # Copy inputs to the static inputs of the cuda graph
-        # Static inputs are potentially padded
-        cuda_graph["input_ids"][: input_ids.shape[0]] = input_ids
-        cuda_graph["position_ids"][: position_ids.shape[0]] = position_ids
-        if FLASH_INFER:
-            block_tables = block_tables_to_ragged(
-                block_tables=block_tables,
-                input_lengths=batch.input_lengths,
-                prefix_lens=batch.prefix_lens,
-            )
-            cuda_graph["block_tables"][: block_tables.shape[0]] = block_tables
         else:
-            cuda_graph["block_tables"][
-                : block_tables.shape[0], : block_tables.shape[1]
-            ] = block_tables
-        cuda_graph["slots"].fill_(-1)
-        cuda_graph["slots"][: slots.shape[0]] = slots
-        cuda_graph["input_lengths"].zero_()
-        cuda_graph["input_lengths"][: input_lengths.shape[0]] = (
-            input_lengths + prefix_lens_tensor
-        )
+            # CUDA graph mode
+            out = model.forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                cu_seqlen_prefill=batch.cu_seqlen_prefill,
+                kv_cache=self.kv_cache,
+                block_tables=block_tables,
+                slots=slots,
+                input_lengths=input_lengths,
+                prefix_lens=batch.prefix_lens,
+                prefix_lens_tensor=prefix_lens_tensor,
+                max_s=max_s,
+                adapter_data=adapter_data,
+                prefill_cache_indices=batch.prefill_cache_indices,
+                lm_head_indices=batch.prefill_head_indices,
+            )
 
-        # Replay the graph
-        cuda_graph["graph"].replay()
-
-        # Slice output to the correct shape
-        speculative_logits = (
-            cuda_graph["speculative_logits"][:bs]
-            if cuda_graph["speculative_logits"] is not None
-            else None
-        )
-        logits = cuda_graph["logits"][:bs]
-        return logits, speculative_logits
+        if batch.prefill_cache_indices is not None:
+            batch.prefill_cache_indices = None
+        if batch.pixel_values is not None:
+            batch.pixel_values = None
+        if batch.pixel_attention_mask is not None:
+            batch.pixel_attention_mask = None
+        if batch.image_sizes is not None:
+            batch.image_sizes = None
+        return out

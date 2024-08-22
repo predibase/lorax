@@ -278,11 +278,10 @@ class LlavaNextForConditionalGeneration(nn.Module):
             slots=slots,
             input_lengths=input_lengths,
             max_s=max_s,
-            true_max_s=max_s,
             prefill_cache_indices=None,
             adapter_data=adapter_data,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        logits, speculative_logits = self.text_model.lm_head(hidden_states)
+        logits, speculative_logits = self.text_model.lm_head(hidden_states, adapter_data)
         return logits, speculative_logits
