@@ -498,6 +498,7 @@ class FlashLlamaModel(torch.nn.Module):
         input_lengths: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
+        prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = inputs_embeds
 
@@ -580,6 +581,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             input_lengths,
             max_s,
             adapter_data,
+            prefill_cache_indices,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
