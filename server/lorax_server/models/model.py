@@ -40,7 +40,7 @@ class Model(ABC):
         adapter_source: str = HUB,
         dynamic_adapter_loading_enabled: bool = True,
         trust_remote_code: bool = False,
-        processor = None
+        processor=None,
     ):
         self.model_id = model_id
         self.model = model.eval()

@@ -33,16 +33,12 @@ def load_vision_model(prefix, config, weights):
             CLIPVisionTransformer,
         )
 
-        return CLIPVisionTransformer(
-            prefix=f"{prefix}.vision_model", config=config, weights=weights
-        )
+        return CLIPVisionTransformer(prefix=f"{prefix}.vision_model", config=config, weights=weights)
     if config.model_type == "siglip_vision_model":
         from lorax_server.models.custom_modeling.siglip import (
             SiglipVisionTransformer,
         )
 
-        return SiglipVisionTransformer(
-            prefix="vision_tower.vision_model", config=config, weights=weights
-        )
+        return SiglipVisionTransformer(prefix="vision_tower.vision_model", config=config, weights=weights)
     else:
         raise RuntimeError(f"Unsupported model type {config.model_type}")

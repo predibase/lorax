@@ -1,27 +1,26 @@
-from loguru import logger
-from lorax_server.adapters.weights import AdapterBatchData
-from lorax_server.utils.dist import initialize_torch_distributed
-from lorax_server.utils.sources.hub import weight_files
-from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.weights import Weights
+from io import BytesIO
+from typing import Iterable, List, Optional, Tuple, Type
+
 import torch
 import torch.distributed
-from PIL import Image
-from io import BytesIO
-
+from loguru import logger
 from opentelemetry import trace
-from typing import Iterable, Optional, Tuple, List, Type, Dict
-
-from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizerBase
+from PIL import Image
+from transformers import AutoConfig, AutoProcessor, AutoTokenizer, PreTrainedTokenizerBase
 from transformers.image_processing_utils import select_best_resolution
-from lorax_server.pb import generate_pb2
+
+from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.models.flash_causal_lm import (
-    FlashCausalLMBatch,
     FlashCausalLM,
+    FlashCausalLMBatch,
     block_tables_to_ragged,
 )
-from lorax_server.utils.state import PREFIX_CACHING, FLASH_INFER
-from transformers import AutoProcessor
+from lorax_server.pb import generate_pb2
+from lorax_server.utils.dist import initialize_torch_distributed
+from lorax_server.utils.sources.hub import weight_files
+from lorax_server.utils.state import PREFIX_CACHING
+from lorax_server.utils.tokenizer import TokenizerManager
+from lorax_server.utils.weights import Weights
 
 tracer = trace.get_tracer(__name__)
 
@@ -76,9 +75,7 @@ def image_text_replacement(processor, image_input, config, image_id: int) -> str
 
 def image_text_replacement_fixup(config, text: str) -> str:
     if config.model_type == "idefics2":
-        return text.replace(
-            f"{IDEFICS2_FAKE_TOKEN}{IDEFICS2_FAKE_TOKEN}", IDEFICS2_FAKE_TOKEN
-        )
+        return text.replace(f"{IDEFICS2_FAKE_TOKEN}{IDEFICS2_FAKE_TOKEN}", IDEFICS2_FAKE_TOKEN)
     return text
 
 
@@ -159,9 +156,7 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         return batch
 
     @classmethod
-    def batch_tokenized_inputs(
-        cls, requests: Iterable[generate_pb2.Request], tokenizer, processor, config
-    ):
+    def batch_tokenized_inputs(cls, requests: Iterable[generate_pb2.Request], tokenizer, processor, config):
         # Process images first. We need all of them so that the processor
         # can make the image splits the same size. And we need the final
         # sizes to insert correct number of image tokens.
@@ -195,9 +190,7 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
                 if chunk_type == "text":
                     full_text += chunk.text
                 elif chunk_type == "image":
-                    full_text += image_text_replacement(
-                        processor, image_inputs, config, image_id
-                    )
+                    full_text += image_text_replacement(processor, image_inputs, config, image_id)
                     image_id += 1
 
             full_text = image_text_replacement_fixup(config, full_text)
@@ -225,17 +218,15 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "VlmCausalLMBatch":
-        batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
-            pb.requests, tokenizer, processor, config
+        batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(pb.requests, tokenizer, processor, config)
+
+        batch = super().from_pb(
+            pb, tokenizer, tokenizers, processor, config, dtype, device, batch_tokenized_inputs=batch_tokenized_inputs
         )
-      
-        batch = super().from_pb(pb, tokenizer, tokenizers, processor, config, dtype, device, batch_tokenized_inputs=batch_tokenized_inputs)
         if image_inputs is not None:
             batch.pixel_values = image_inputs["pixel_values"].to(device=device)
             if "pixel_attention_mask" in image_inputs:
-                batch.pixel_attention_mask = image_inputs["pixel_attention_mask"].to(
-                    device=device
-                )
+                batch.pixel_attention_mask = image_inputs["pixel_attention_mask"].to(device=device)
             else:
                 batch.pixel_attention_mask = None
             if "image_sizes" in image_inputs:
@@ -273,7 +264,7 @@ class VlmCausalLM(FlashCausalLM):
             dtype = torch.float16 if dtype is None else dtype
         else:
             raise NotImplementedError("VlmCausalLM is only available on GPU")
-        
+
         if PREFIX_CACHING:
             raise NotImplementedError("Vlm do not work with prefix caching yet")
         if processor_kwargs is None:
@@ -347,40 +338,25 @@ class VlmCausalLM(FlashCausalLM):
             input_ids = batch.input_ids
             position_ids = batch.position_ids
             cu_seqlen_prefill = batch.cu_seqlen_prefill
-            kv_cache = self.kv_cache
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
             max_s = batch.max_seqlen
-            lm_head_indices = batch.prefill_head_indices
 
             speculative_ids = batch.speculative_ids
 
             B, speculative_length = speculative_ids.shape
             new_length = speculative_length + 1
-            new_input_ids = torch.cat(
-                [input_ids.unsqueeze(-1), speculative_ids], dim=1
-            ).reshape(-1)
+            new_input_ids = torch.cat([input_ids.unsqueeze(-1), speculative_ids], dim=1).reshape(-1)
             arange = torch.arange(new_length, device=position_ids.device).unsqueeze(0)
             arange_int = arange.to(dtype=torch.int32)
-            new_position_ids = (
-                position_ids.unsqueeze(-1).expand(B, new_length) + arange
-            ).view(-1)
+            new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            input_lengths = (
-                input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int
-            ).view(-1)
-            prefix_lens_tensor = (
-                batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)
-            ).reshape(-1)
+            input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
+            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             # Add Copy the block tables for all members
-            block_tables = (
-                block_tables.unsqueeze(1)
-                .expand(B, new_length, -1)
-                .reshape(B * new_length, -1)
-                .contiguous()
-            )
+            block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
             max_s = max_s + speculative_length
 
             input_ids = new_input_ids
@@ -389,13 +365,11 @@ class VlmCausalLM(FlashCausalLM):
             input_ids = batch.input_ids
             position_ids = batch.position_ids
             cu_seqlen_prefill = batch.cu_seqlen_prefill
-            kv_cache = self.kv_cache
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
             prefix_lens_tensor = batch.prefix_lens_tensor
             max_s = batch.max_seqlen
-            lm_head_indices = batch.prefill_head_indices
 
         if cu_seqlen_prefill is None and self.max_past() is not None:
             # In decode, not prefill, we're actually overwriting the KV-cache
@@ -413,7 +387,7 @@ class VlmCausalLM(FlashCausalLM):
         ):
             use_graph = True
             model = self.model_graph_wrapper
-        
+
         if not use_graph:
             input_lengths = input_lengths + prefix_lens_tensor
             if PREFIX_CACHING:

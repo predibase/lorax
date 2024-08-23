@@ -135,7 +135,7 @@ class FlashCausalLMBatch(Batch):
         config,
         dtype: torch.dtype,
         device: torch.device,
-        batch_tokenized_inputs = None,
+        batch_tokenized_inputs=None,
     ) -> "FlashCausalLMBatch":
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
@@ -151,7 +151,9 @@ class FlashCausalLMBatch(Batch):
             if all(r.HasField("tokenized_inputs") for r in pb.requests):
                 batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
             else:
-                batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)["input_ids"]
+                batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)[
+                    "input_ids"
+                ]
 
         position_ids = []
         cu_seqlen_prefill = [0]
@@ -750,7 +752,7 @@ class FlashCausalLM(Model):
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         adapter_source: str = HUB,
         trust_remote_code: bool = False,
-        processor = None,
+        processor=None,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS

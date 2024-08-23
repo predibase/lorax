@@ -1,19 +1,19 @@
-from typing import Optional, Tuple
-import warnings
 import math
+import warnings
+from typing import Optional, Tuple
+
 import torch
 from torch import nn
-
+from torch.nn.init import _calculate_fan_in_and_fan_out
+from transformers import SiglipConfig, SiglipVisionConfig
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import (
     BaseModelOutputWithPooling,
 )
-from transformers import SiglipConfig, SiglipVisionConfig
-from torch.nn.init import _calculate_fan_in_and_fan_out
 
 from lorax_server.layers.tensor_parallel import (
-    TensorParallelEmbedding,
     TensorParallelColumnLinear,
+    TensorParallelEmbedding,
     TensorParallelRowLinear,
 )
 
@@ -40,9 +40,7 @@ class SiglipVisionEmbeddings(nn.Module):
         )
         self.num_patches = (self.image_size // self.patch_size) ** 2
         self.num_positions = self.num_patches
-        self.position_embedding = TensorParallelEmbedding(
-            prefix=f"{prefix}.position_embedding", weights=weights
-        )
+        self.position_embedding = TensorParallelEmbedding(prefix=f"{prefix}.position_embedding", weights=weights)
         self.register_buffer(
             "position_ids",
             torch.arange(self.num_positions, device=weights.device).expand((1, -1)),
@@ -50,9 +48,7 @@ class SiglipVisionEmbeddings(nn.Module):
         )
 
     def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
-        patch_embeds = self.patch_embedding(
-            pixel_values
-        )  # shape = [*, width, grid, grid]
+        patch_embeds = self.patch_embedding(pixel_values)  # shape = [*, width, grid, grid]
         embeddings = patch_embeds.flatten(2).transpose(1, 2)
 
         embeddings = embeddings + self.position_embedding(self.position_ids)
@@ -79,25 +75,13 @@ class SiglipAttention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.dropout = config.attention_dropout
 
-        self.k_proj = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.k_proj", weights=weights, bias=True
-        )
-        self.v_proj = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.v_proj", weights=weights, bias=True
-        )
-        self.q_proj = TensorParallelColumnLinear.load(
-            config, prefix=f"{prefix}.q_proj", weights=weights, bias=True
-        )
-        self.out_proj = TensorParallelRowLinear.load(
-            config, prefix=f"{prefix}.out_proj", weights=weights, bias=True
-        )
+        self.k_proj = TensorParallelColumnLinear.load(config, prefix=f"{prefix}.k_proj", weights=weights, bias=True)
+        self.v_proj = TensorParallelColumnLinear.load(config, prefix=f"{prefix}.v_proj", weights=weights, bias=True)
+        self.q_proj = TensorParallelColumnLinear.load(config, prefix=f"{prefix}.q_proj", weights=weights, bias=True)
+        self.out_proj = TensorParallelRowLinear.load(config, prefix=f"{prefix}.out_proj", weights=weights, bias=True)
 
     def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
-        return (
-            tensor.view(bsz, seq_len, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-            .contiguous()
-        )
+        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
 
     def forward(
         self,
@@ -130,19 +114,12 @@ class SiglipAttention(nn.Module):
                 raise ValueError(
                     f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is {attention_mask.size()}"
                 )
-            attn_weights = (
-                attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-                + attention_mask
-            )
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attention_mask
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
         # upcast attention to fp32
-        attn_weights = nn.functional.softmax(
-            attn_weights, dim=-1, dtype=torch.float32
-        ).to(attn_weights.dtype)
-        attn_weights = nn.functional.dropout(
-            attn_weights, p=self.dropout, training=self.training
-        )
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(attn_weights.dtype)
+        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz * self.num_heads, tgt_len, self.head_size):
@@ -183,16 +160,10 @@ class SiglipEncoderLayer(nn.Module):
     def __init__(self, prefix, config: SiglipConfig, weights):
         super().__init__()
         self.embed_dim = config.hidden_size
-        self.self_attn = SiglipAttention(
-            prefix=f"{prefix}.self_attn", config=config, weights=weights
-        )
-        self.layer_norm1 = nn.LayerNorm.load(
-            prefix=f"{prefix}.layer_norm1", weights=weights, eps=config.layer_norm_eps
-        )
+        self.self_attn = SiglipAttention(prefix=f"{prefix}.self_attn", config=config, weights=weights)
+        self.layer_norm1 = nn.LayerNorm.load(prefix=f"{prefix}.layer_norm1", weights=weights, eps=config.layer_norm_eps)
         self.mlp = SiglipMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
-        self.layer_norm2 = nn.LayerNorm.load(
-            prefix=f"{prefix}.layer_norm2", weights=weights, eps=config.layer_norm_eps
-        )
+        self.layer_norm2 = nn.LayerNorm.load(prefix=f"{prefix}.layer_norm2", weights=weights, eps=config.layer_norm_eps)
 
     def forward(
         self,
@@ -220,9 +191,7 @@ class SiglipMultiheadAttentionPoolingHead(nn.Module):
         super().__init__()
 
         self.probe = nn.Parameter(torch.randn(1, 1, config.hidden_size))
-        self.attention = torch.nn.MultiheadAttention(
-            config.hidden_size, config.num_attention_heads, batch_first=True
-        )
+        self.attention = torch.nn.MultiheadAttention(config.hidden_size, config.num_attention_heads, batch_first=True)
         self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.mlp = SiglipMLP(prefix, config, weights)
 
@@ -352,9 +321,7 @@ class SiglipEncoder(nn.Module):
         self.config = config
         self.layers = nn.ModuleList(
             [
-                SiglipEncoderLayer(
-                    prefix=f"{prefix}.layers.{i}", config=config, weights=weights
-                )
+                SiglipEncoderLayer(prefix=f"{prefix}.layers.{i}", config=config, weights=weights)
                 for i in range(config.num_hidden_layers)
             ]
         )
@@ -364,7 +331,6 @@ class SiglipEncoder(nn.Module):
         inputs_embeds,
         attention_mask: Optional[torch.Tensor] = None,
     ):
-
         hidden_states = inputs_embeds
         for idx, encoder_layer in enumerate(self.layers):
             hidden_states, _ = encoder_layer(
@@ -380,12 +346,8 @@ class SiglipVisionTransformer(nn.Module):
         super().__init__()
         self.config = config
 
-        self.embeddings = SiglipVisionEmbeddings(
-            prefix=f"{prefix}.embeddings", config=config, weights=weights
-        )
-        self.encoder = SiglipEncoder(
-            prefix=f"{prefix}.encoder", config=config, weights=weights
-        )
+        self.embeddings = SiglipVisionEmbeddings(prefix=f"{prefix}.embeddings", config=config, weights=weights)
+        self.encoder = SiglipEncoder(prefix=f"{prefix}.encoder", config=config, weights=weights)
         self.post_layernorm = nn.LayerNorm.load(
             prefix=f"{prefix}.post_layernorm",
             weights=weights,

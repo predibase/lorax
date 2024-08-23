@@ -12,24 +12,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch Llava-NeXT model."""
+"""PyTorch Llava-NeXT model."""
 
 from typing import List, Optional, Tuple
 
 import torch
 import torch.utils.checkpoint
 from torch import nn
-
 from transformers.activations import ACT2FN
 from transformers.image_processing_utils import select_best_resolution
 
-from lorax_server.models.custom_modeling.vlm import (
-    load_text_model,
-    load_vision_model,
-)
 from lorax_server.layers import (
     TensorParallelColumnLinear,
     TensorParallelRowLinear,
+)
+from lorax_server.models.custom_modeling.vlm import (
+    load_text_model,
+    load_vision_model,
 )
 
 
@@ -141,9 +140,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
             config=config.text_config,
             weights=weights,
         )
-        self.pad_token_id = (
-            config.pad_token_id if config.pad_token_id is not None else -1
-        )
+        self.pad_token_id = config.pad_token_id if config.pad_token_id is not None else -1
 
     def _merge_input_ids_with_image_features(
         self,
@@ -188,9 +185,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
 
             # 2. Merge text and images
             num_images, num_patches, channels, height, width = pixel_values.shape
-            pixel_values = pixel_values.view(
-                num_images * num_patches, channels, height, width
-            )
+            pixel_values = pixel_values.view(num_images * num_patches, channels, height, width)
             image_features = self.vision_tower(pixel_values)
 
             # selected_image_feature = image_features.hidden_states[self.config.vision_feature_layer]
@@ -202,9 +197,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
             elif self.config.vision_feature_select_strategy == "full":
                 selected_image_feature = selected_image_feature
             else:
-                raise RuntimeError(
-                    f"Strategy `{self.config.vision_feature_select_strategy}` is not supported/valid."
-                )
+                raise RuntimeError(f"Strategy `{self.config.vision_feature_select_strategy}` is not supported/valid.")
 
             image_features = self.multi_modal_projector(selected_image_feature)
 
@@ -215,10 +208,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
             image_features = torch.split(image_features, split_sizes, dim=0)
 
             # NOTE we only support multimodal_patch_merge_type == "spatial_unpad"
-            height = width = (
-                self.config.vision_config.image_size
-                // self.config.vision_config.patch_size
-            )
+            height = width = self.config.vision_config.image_size // self.config.vision_config.patch_size
 
             new_image_features = []
             for image_idx, image_feature in enumerate(image_features):
@@ -227,9 +217,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
                     image_feature = image_feature[1:]
 
                     if height * width != base_image_feature.shape[0]:
-                        raise ValueError(
-                            "The number of patches is not consistent with the image size."
-                        )
+                        raise ValueError("The number of patches is not consistent with the image size.")
 
                     # Dimensions are intentionally swapped to be bug-compatible with
                     # upstream: https://github.com/LLaVA-VL/LLaVA-NeXT/issues/59
@@ -238,36 +226,26 @@ class LlavaNextForConditionalGeneration(nn.Module):
                         self.config.image_grid_pinpoints,
                         self.config.vision_config.image_size,
                     )
-                    image_feature = image_feature.view(
-                        num_patch_height, num_patch_width, height, width, -1
-                    )
+                    image_feature = image_feature.view(num_patch_height, num_patch_width, height, width, -1)
                     image_feature = image_feature.permute(4, 0, 2, 1, 3).contiguous()
                     image_feature = image_feature.flatten(1, 2).flatten(2, 3)
                     image_feature = unpad_image(image_feature, image_sizes[image_idx])
                     image_feature = torch.cat(
                         (
                             image_feature,
-                            self.image_newline[:, None, None].expand(
-                                *image_feature.shape[:-1], 1
-                            ),
+                            self.image_newline[:, None, None].expand(*image_feature.shape[:-1], 1),
                         ),
                         dim=-1,
                     )
                     image_feature = image_feature.flatten(1, 2).transpose(0, 1)
-                    image_feature = torch.cat(
-                        (base_image_feature, image_feature), dim=0
-                    )
+                    image_feature = torch.cat((base_image_feature, image_feature), dim=0)
                 else:
                     image_feature = image_feature[0]
-                    image_feature = torch.cat(
-                        (image_feature, self.image_newline[None]), dim=0
-                    )
+                    image_feature = torch.cat((image_feature, self.image_newline[None]), dim=0)
                 new_image_features.append(image_feature)
             image_features = torch.stack(new_image_features, dim=0)
 
-            inputs_embeds = self._merge_input_ids_with_image_features(
-                input_ids, inputs_embeds, image_features
-            )
+            inputs_embeds = self._merge_input_ids_with_image_features(input_ids, inputs_embeds, image_features)
 
         hidden_states = self.text_model.model(
             inputs_embeds=inputs_embeds,
