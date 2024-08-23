@@ -883,7 +883,6 @@ impl From<ChatCompletionRequest> for CompatGenerateRequest {
     }
 }
 
->>>>>>> 8ee43b8 (feat: Function calling schema)
 impl From<GenerateResponse> for CompletionResponse {
     fn from(resp: GenerateResponse) -> Self {
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
