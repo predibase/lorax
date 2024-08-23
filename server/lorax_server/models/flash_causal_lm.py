@@ -135,21 +135,23 @@ class FlashCausalLMBatch(Batch):
         config,
         dtype: torch.dtype,
         device: torch.device,
+        batch_tokenized_inputs = None,
     ) -> "FlashCausalLMBatch":
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
 
-        batch_inputs = []
-        max_truncation = 0
-        for r in pb.requests:
-            inputs = tokenizers.get_inputs(r, tokenizer)
-            batch_inputs.append(inputs)
-            max_truncation = max(max_truncation, r.truncate)
+        if batch_tokenized_inputs is None:
+            batch_inputs = []
+            max_truncation = 0
+            for r in pb.requests:
+                inputs = tokenizers.get_inputs(r, tokenizer)
+                batch_inputs.append(inputs)
+                max_truncation = max(max_truncation, r.truncate)
 
-        if all(r.HasField("tokenized_inputs") for r in pb.requests):
-            batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
-        else:
-            batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)["input_ids"]
+            if all(r.HasField("tokenized_inputs") for r in pb.requests):
+                batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
+            else:
+                batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)["input_ids"]
 
         position_ids = []
         cu_seqlen_prefill = [0]

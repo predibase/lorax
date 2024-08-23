@@ -225,13 +225,11 @@ class VlmCausalLMBatch(FlashCausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "VlmCausalLMBatch":
-        # TODO(travis)
         batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
             pb.requests, tokenizer, processor, config
         )
-        image_inputs = None
       
-        batch = super().from_pb(pb, tokenizer, tokenizers, dtype, device)
+        batch = super().from_pb(pb, tokenizer, tokenizers, processor, config, dtype, device, batch_tokenized_inputs=batch_tokenized_inputs)
         if image_inputs is not None:
             batch.pixel_values = image_inputs["pixel_values"].to(device=device)
             if "pixel_attention_mask" in image_inputs:
