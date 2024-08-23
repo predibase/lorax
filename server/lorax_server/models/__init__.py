@@ -341,7 +341,7 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
-    if model_type == "llava_next":
+    if model_type == "llava_next" or model_type == "llava_next":
         from lorax_server.models.custom_modeling.llava_next import LlavaNextForConditionalGeneration
         from lorax_server.models.vlm_causal_lm import VlmCausalLM
 
