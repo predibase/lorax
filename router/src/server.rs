@@ -304,6 +304,7 @@ async fn chat_completions_v1(
             apply_chat_template: false,
             seed: req.seed,
             response_format: req.response_format,
+            tools: req.tools,
         },
         stream: req.stream.unwrap_or(false),
     };

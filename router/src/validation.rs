@@ -3,7 +3,7 @@ use crate::batch::ValidGenerateRequest;
 /// Payload validation logic
 use crate::validation::ValidationError::{AmbiguousSchema, BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest, Tool};
-use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters};
+use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
 use serde_json::json;
 use thiserror::Error;
