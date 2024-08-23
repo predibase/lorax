@@ -402,9 +402,8 @@ class LlamaMLP(nn.Module):
 
 
 class FlashLlamaLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, layer_id, prefix: str, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
         self.self_attn = FlashLlamaAttention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -461,24 +460,26 @@ class FlashLlamaLayer(nn.Module):
 
 
 class FlashLlamaModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashLlamaLayer(
                     layer_id,
-                    config,
-                    weights,
+                    prefix=(
+                        f"model.layers.{layer_id}" if not prefix else f"{prefix}.model.layers.{layer_id}"
+                    ),
+                    config=config,
+                    weights=weights,
                 )
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = LlamaRMSNorm(prefix="model.norm" if not prefix else f"{prefix}.model.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -488,7 +489,7 @@ class FlashLlamaModel(torch.nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        inputs_embeds: torch.Tensor,
         position_ids: torch.Tensor,
         cu_seqlen_prefill: Optional[torch.Tensor],
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
@@ -498,7 +499,7 @@ class FlashLlamaModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
-        hidden_states = self.embed_tokens(input_ids)
+        hidden_states = inputs_embeds
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
@@ -526,14 +527,27 @@ class FlashLlamaModel(torch.nn.Module):
 
 
 class FlashLlamaForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
-        self.model = FlashLlamaModel(config, weights)
+        self.embed_tokens = TensorParallelEmbedding(
+            prefix=(
+                "model.embed_tokens"
+                if not prefix
+                else f"{prefix}.model.embed_tokens"
+            ),
+            weights=weights,
+        )
+        self.model = FlashLlamaModel(prefix, config, weights)
+        if config.tie_word_embeddings:
+            suffix = "model.embed_tokens"
+        else:
+            suffix = "lm_head"
+        
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=suffix if not prefix else f"{prefix}.{suffix}",
                 weights=weights,
             ),
             0,
@@ -555,8 +569,9 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        inputs_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
-            input_ids,
+            inputs_embeds,
             position_ids,
             cu_seqlen_prefill,
             kv_cache,

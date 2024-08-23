@@ -87,7 +87,8 @@ class FlashLlama(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashLlamaForCausalLM(config, weights)
+        prefix = ""
+        model = FlashLlamaForCausalLM(prefix, config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashLlama, self).__init__(
