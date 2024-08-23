@@ -546,6 +546,7 @@ fn prepare_input(
     static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"!\[\]\([^\)]*\)").unwrap());
     let (tokenizer_query, input_chunks) = match config {
         Some(config @ (Idefics | Idefics2(_) | Paligemma(_) | LlavaNext(_))) => {
+            tracing::info!("!!! LLAVA NEXT !!!");
             let mut input_chunks = Vec::new();
             let mut tokenizer_query = String::with_capacity(inputs.len());
             let mut start = 0;
@@ -557,6 +558,10 @@ fn prepare_input(
                     tokenizer_query.push_str(&inputs[start..chunk_start]);
                 }
                 let (data, mimetype, height, width) = fetch_image(&inputs[chunk_start..chunk_end])?;
+
+                // height=2245 width=1692
+                tracing::info!("!!! IMAGE height={} width={}", height, width);
+
                 input_chunks.push(Chunk::Image(Image { data, mimetype }));
                 tokenizer_query.push_str(&image_tokens(config, preprocessor_config, height, width));
                 start = chunk_end;
@@ -570,13 +575,21 @@ fn prepare_input(
 
             (tokenizer_query, input_chunks)
         }
-        _ => (inputs.clone(), vec![Chunk::Text(inputs)]),
+        _ => {
+            tracing::info!("!!! NOT LLAVA NEXT !!!");
+            (inputs.clone(), vec![Chunk::Text(inputs)])
+        }
     };
+
+    // tracing::info!("!!! TOKENIZER QUERY {}", tokenizer_query);
 
     // Get the number of tokens in the input
     let encoding = tokenizer
         .encode(tokenizer_query, true)
         .map_err(|err| ValidationError::Tokenizer(err.to_string()))?;
+
+    // log number of tokens
+    tracing::info!("!!! Number of tokens: {}", encoding.len());
 
     Ok((encoding, input_chunks))
 }
