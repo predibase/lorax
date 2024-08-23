@@ -35,7 +35,15 @@ class MPTCausalLMBatch(CausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "CausalLMBatch":
-        batch = super().from_pb(pb=pb, tokenizer=tokenizer, tokenizers=tokenizers, dtype=dtype, device=device)
+        batch = super().from_pb(
+            pb=pb,
+            tokenizer=tokenizer,
+            tokenizers=tokenizers,
+            processor=processor,
+            config=config,
+            dtype=dtype,
+            device=device,
+        )
         batch.keys_head_dim_last = False
         return batch
 

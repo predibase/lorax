@@ -470,16 +470,16 @@ class FlashLlamaModel(torch.nn.Module):
             [
                 FlashLlamaLayer(
                     layer_id,
-                    prefix=(
-                        f"model.layers.{layer_id}" if not prefix else f"{prefix}.model.layers.{layer_id}"
-                    ),
+                    prefix=(f"model.layers.{layer_id}" if not prefix else f"{prefix}.model.layers.{layer_id}"),
                     config=config,
                     weights=weights,
                 )
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(prefix="model.norm" if not prefix else f"{prefix}.model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = LlamaRMSNorm(
+            prefix="model.norm" if not prefix else f"{prefix}.model.norm", weights=weights, eps=config.rms_norm_eps
+        )
 
         self.gradient_checkpointing = False
 
@@ -532,11 +532,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         super().__init__()
 
         self.embed_tokens = TensorParallelEmbedding(
-            prefix=(
-                "model.embed_tokens"
-                if not prefix
-                else f"{prefix}.model.embed_tokens"
-            ),
+            prefix=("model.embed_tokens" if not prefix else f"{prefix}.model.embed_tokens"),
             weights=weights,
         )
         self.model = FlashLlamaModel(prefix, config, weights)
@@ -544,7 +540,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             suffix = "model.embed_tokens"
         else:
             suffix = "lm_head"
-        
+
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
