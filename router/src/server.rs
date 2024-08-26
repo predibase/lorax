@@ -352,10 +352,9 @@ async fn health(
     mut client: Extension<ShardedClient>,
     mut health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    println!("{:?}", health.shard_info());
     if health.shard_info().supports_classification {
         let classify_request = ClassifyRequest {
-            inputs: "Johnny is a nice guy and lives in Manchester".to_string(),
+            inputs: "San Francisco".to_string(),
         };
         match classify(infer.clone(), client.clone(), Json(classify_request)).await {
             Ok(_) => {}
@@ -366,7 +365,7 @@ async fn health(
     }
     if health.shard_info().supports_embeddings {
         let embed_request = EmbedRequest {
-            inputs: "Johnny is a nice guy and lives in Manchester".to_string(),
+            inputs: "San Francisco".to_string(),
         };
         match embed(infer.clone(), client, Json(embed_request)).await {
             Ok(_) => {}
@@ -377,7 +376,7 @@ async fn health(
     }
     if health.shard_info().supports_generation {
         let generate_request = GenerateRequest {
-            inputs: "Where should Johnny live?".to_string(),
+            inputs: "Who?".to_string(),
             parameters: GenerateParameters {
                 adapter_id: None,
                 adapter_source: None,

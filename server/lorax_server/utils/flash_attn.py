@@ -128,6 +128,7 @@ if FLASH_INFER:
         causal=True,
         softcap=0.0,
     ):
+        assert window_size_left == -1, "Windowing is not supported with flash infer when using kv cache"
         from lorax_server.utils.flashinfer_attention import prefill_state, prefill_with_paged_kv_state
 
         if key_cache is None or value_cache is None:
@@ -140,8 +141,6 @@ if FLASH_INFER:
                 logits_soft_cap=softcap,
                 sm_scale=softmax_scale,
             )
-
-        assert window_size_left == -1, "Windowing is not supported with flash infer when using kv cache"
 
         return prefill_with_paged_kv_state.get().forward(
             q.contiguous(),
