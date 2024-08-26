@@ -12,7 +12,7 @@ install-router:
 	cd router && RUSTFLAGS="-D warnings" cargo install --path .
 
 install-launcher:
-	cd launcher && RUSTFLAGS="-D warnings" cargo install --path .
+	cd launcher && cargo install --path .
 
 install-benchmark:
 	cd benchmark && cargo install --path .

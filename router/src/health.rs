@@ -8,7 +8,6 @@ use std::sync::Arc;
 // Note: Request ids and batch ids cannot collide.
 #[allow(dead_code)]
 const LIVENESS_ID: u64 = u64::MAX;
-#[allow(dead_code)]
 const BATCH_ID: u64 = u64::MAX;
 
 #[derive(Clone, Debug)]
