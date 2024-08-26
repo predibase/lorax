@@ -34,6 +34,7 @@ class DistilBertEncoder:
 class FlashDistilBertModel(torch.nn.Module):
     def __init__(self, weights, device, dtype, config: DistilBertConfig):
         super().__init__()
+        self.config = config
         self.embeddings = DistilBertEmbeddings("distilbert.embeddings", weights, device, dtype, config)
         self.encoder = DistilBertEncoder("distilbert.transformer", weights, device, dtype, config)
 
@@ -47,6 +48,7 @@ class FlashDistilBertModel(torch.nn.Module):
 class FlashDistilBertModelForClassification(torch.nn.Module):
     def __init__(self, weights, device, dtype, config: DistilBertConfig):
         super().__init__()
+        self.config = config
         self.embeddings = DistilBertEmbeddings("distilbert.embeddings", weights, device, dtype, config)
         self.encoder = DistilBertEncoder("distilbert.transformer", weights, device, dtype, config)
         self.classifier_weight = weights.get_tensor("classifier.weight").to(dtype).to(device)

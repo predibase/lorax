@@ -39,6 +39,7 @@ class BertEncoder:
 class FlashBertModel(torch.nn.Module):
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
         super().__init__()
+        self.config = config
         self.embeddings = BertEmbeddings(_format_prefix(prefix, "embeddings"), weights, device, dtype, config)
         self.encoder = BertEncoder(_format_prefix(prefix, "encoder"), weights, device, dtype, config)
 
@@ -52,6 +53,7 @@ class FlashBertModel(torch.nn.Module):
 class FlashBertModelForClassification(torch.nn.Module):
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
         super().__init__()
+        self.config = config
         self.embeddings = BertEmbeddings(_format_prefix(prefix, "embeddings"), weights, device, dtype, config)
         self.encoder = BertEncoder(_format_prefix(prefix, "encoder"), weights, device, dtype, config)
         self.classifier_weight = weights.get_tensor("classifier.weight").to(dtype).to(device)

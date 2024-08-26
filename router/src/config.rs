@@ -172,6 +172,8 @@ pub enum Config {
     Qwen2,
     Opt,
     T5,
+    Bert,
+    Distilbert,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
