@@ -530,6 +530,7 @@ class FlashLlamaModel(torch.nn.Module):
 class FlashLlamaForCausalLM(torch.nn.Module):
     def __init__(self, prefix: str, config, weights):
         super().__init__()
+        self.config = config
 
         self.embed_tokens = TensorParallelEmbedding(
             prefix=("model.embed_tokens" if not prefix else f"{prefix}.model.embed_tokens"),

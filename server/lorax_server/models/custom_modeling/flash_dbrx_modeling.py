@@ -979,6 +979,7 @@ class DbrxModel(torch.nn.Module):
 class FlashDbrxForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
 
         self.model = DbrxModel(config, weights)
         self.lm_head = MultiAdapterHead.load(

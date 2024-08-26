@@ -545,6 +545,7 @@ class MistralModel(torch.nn.Module):
 class FlashMistralForCausalLM(torch.nn.Module):
     def __init__(self, prefix, config, weights, name=None):
         super().__init__()
+        self.config = config
 
         if name is None:
             name = "model"

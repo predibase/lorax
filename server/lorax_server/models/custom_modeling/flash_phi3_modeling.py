@@ -476,6 +476,7 @@ class FlashPhi3Model(torch.nn.Module):
 class FlashPhi3ForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
 
         self.model = FlashPhi3Model(config, weights)
         self.lm_head = MultiAdapterHead.load(

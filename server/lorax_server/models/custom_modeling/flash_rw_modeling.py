@@ -569,6 +569,7 @@ class FlashRWModel(FlashRWPreTrainedModel):
 class FlashRWForCausalLM(FlashRWPreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
+        self.config = config
 
         self.transformer = FlashRWModel(config, weights)
 
