@@ -355,7 +355,7 @@ async fn health(
         let classify_request = ClassifyRequest {
             inputs: "San Francisco".to_string(),
         };
-        match classify(infer.clone(), client.clone(), Json(classify_request)).await {
+        match classify(infer.clone(), Json(classify_request)).await {
             Ok(_) => {}
             Err((status, error)) => {
                 return Err((status, error));
@@ -366,7 +366,7 @@ async fn health(
         let embed_request = EmbedRequest {
             inputs: "San Francisco".to_string(),
         };
-        match embed(infer.clone(), client, Json(embed_request)).await {
+        match embed(infer.clone(), Json(embed_request)).await {
             Ok(_) => {}
             Err((status, error)) => {
                 return Err((status, error));
