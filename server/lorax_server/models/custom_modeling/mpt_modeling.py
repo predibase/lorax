@@ -911,6 +911,7 @@ class MPTModel(MPTPreTrainedModel):
 class MPTForCausalLM(MPTPreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
+        self.config = config
         if not config.tie_word_embeddings:
             raise ValueError("MPTForCausalLM only supports tied word embeddings")
         self.transformer = MPTModel(config, weights)

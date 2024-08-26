@@ -416,9 +416,8 @@ class MistralMLP(nn.Module):
 
 
 class MistralLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
         self.self_attn = MistralAttention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -477,16 +476,16 @@ class MistralLayer(nn.Module):
 
 
 class MistralModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
         self.layers = nn.ModuleList(
             [
                 MistralLayer(
+                    f"{prefix}.layers.{layer_id}",
                     layer_id,
                     config,
                     weights,
@@ -494,7 +493,7 @@ class MistralModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MistralRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = MistralRMSNorm(prefix=f"{prefix}.norm", weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -504,7 +503,7 @@ class MistralModel(torch.nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        inputs_embeds: torch.Tensor,
         position_ids: torch.Tensor,
         cu_seqlen_prefill: Optional[torch.Tensor],
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
@@ -515,7 +514,7 @@ class MistralModel(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
     ) -> torch.Tensor:
-        hidden_states = self.embed_tokens(input_ids)
+        hidden_states = inputs_embeds
 
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
@@ -544,14 +543,27 @@ class MistralModel(torch.nn.Module):
 
 
 class FlashMistralForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix, config, weights, name=None):
         super().__init__()
+        self.config = config
 
-        self.model = MistralModel(config, weights)
+        if name is None:
+            name = "model"
+
+        self.embed_tokens = TensorParallelEmbedding(
+            prefix=(f"{name}.embed_tokens" if not prefix else f"{prefix}.{name}.embed_tokens"),
+            weights=weights,
+        )
+        self.model = MistralModel(
+            prefix=name if not prefix else f"{prefix}.{name}",
+            config=config,
+            weights=weights,
+        )
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                # TODO dirty hack for idefics2.
+                prefix=("lm_head" if not prefix or name != "model" else f"{prefix}.lm_head"),
                 weights=weights,
             ),
             0,
@@ -584,8 +596,9 @@ class FlashMistralForCausalLM(torch.nn.Module):
             max_s = min(self.max_past, max_s)
             input_lengths = torch.clamp(input_lengths, max=self.max_past)
 
+        inputs_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
-            input_ids,
+            inputs_embeds,
             position_ids,
             cu_seqlen_prefill,
             kv_cache,

@@ -493,6 +493,7 @@ class GemmaModel(torch.nn.Module):
 class GemmaForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
 
         self.model = GemmaModel(config, weights)
         self.embed_t = self.model.embed_tokens.weight.T.contiguous()

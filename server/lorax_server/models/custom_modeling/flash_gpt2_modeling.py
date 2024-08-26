@@ -348,6 +348,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
 class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
+        self.config = config
         self.transformer = FlashGPT2Model(config, weights)
         self.wte_t = self.transformer.wte.weight.T.contiguous()
 

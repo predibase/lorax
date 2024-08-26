@@ -805,6 +805,7 @@ class BloomModel(BloomPreTrainedModel):
 class BloomForCausalLM(BloomPreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
+        self.config = config
         self.transformer = BloomModel(config, weights)
 
         self.lm_head = TensorParallelAdapterRowLinear.load(

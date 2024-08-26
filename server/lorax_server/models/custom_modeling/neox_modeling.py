@@ -569,6 +569,7 @@ class GPTNeoxForCausalLM(GPTNeoXPreTrainedModel):
 
     def __init__(self, config, weights):
         super().__init__(config)
+        self.config = config
         self.gpt_neox = GPTNeoXModel(config, weights)
         self.embed_out = TensorParallelHead.load(config, prefix="embed_out", weights=weights)
 
