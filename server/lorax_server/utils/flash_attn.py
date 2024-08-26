@@ -2,6 +2,7 @@ import os
 
 import torch
 from loguru import logger
+from typing import Union
 
 from lorax_server.utils.flash_attn_triton import triton_attention
 from lorax_server.utils.import_utils import SYSTEM
@@ -118,8 +119,8 @@ if FLASH_INFER:
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        key_cache: torch.Tensor,
-        value_cache: torch.Tensor,
+        key_cache: Union[torch.Tensor, None],
+        value_cache: Union[torch.Tensor, None],
         cu_seqlens,
         max_s,
         softmax_scale,
@@ -127,10 +128,22 @@ if FLASH_INFER:
         causal=True,
         softcap=0.0,
     ):
-        assert window_size_left == -1, "Windowing is not supported with flash infer"
         from lorax_server.utils.flashinfer_attention import (
-            prefill_with_paged_kv_state,
+            prefill_with_paged_kv_state, prefill_state
         )
+        
+        if key_cache is None or value_cache is None:
+            return prefill_state.get().forward(
+                q,
+                k,
+                v,
+                causal=causal,
+                window_left=window_size_left,
+                logits_soft_cap=softcap,
+                sm_scale=softmax_scale,
+            )
+
+        assert window_size_left == -1, "Windowing is not supported with flash infer when using kv cache"
 
         return prefill_with_paged_kv_state.get().forward(
             q.contiguous(),

@@ -98,6 +98,9 @@ class Model(ABC):
             block_size=self.block_size,
             speculate=get_speculative_tokens(),
             preloaded_adapters=self.preloaded_adapters,
+            supports_generation=self.supports_text_generation,
+            supports_embeddings=self.supports_embeddings,
+            supports_classification=self.supports_classification,
         )
 
     @property

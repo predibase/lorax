@@ -56,6 +56,9 @@ message InfoResponse {
     uint32 block_size = 5;
     uint32 speculate = 6;
     repeated PreloadedAdapter preloaded_adapters = 7;
+    bool supports_generation = 8;
+    bool supports_embeddings = 9;
+    bool supports_classification = 10;
 }
 
 /// Empty request

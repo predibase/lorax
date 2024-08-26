@@ -67,8 +67,6 @@ struct Args {
     #[clap(long, env)]
     json_output: bool,
     #[clap(long, env)]
-    embedding_model: bool,
-    #[clap(long, env)]
     otlp_endpoint: Option<String>,
     #[clap(long, env)]
     cors_allow_origin: Option<Vec<String>>,
@@ -119,7 +117,6 @@ async fn main() -> Result<(), RouterError> {
         revision,
         validation_workers,
         json_output,
-        embedding_model,
         otlp_endpoint,
         cors_allow_origin,
         cors_allow_method,
@@ -464,7 +461,6 @@ async fn main() -> Result<(), RouterError> {
         ngrok_authtoken,
         ngrok_edge,
         adapter_source,
-        embedding_model,
         eager_prefill,
         prefix_caching,
     )

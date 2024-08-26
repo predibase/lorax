@@ -74,8 +74,6 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
     #[schema(nullable = true, example = "http://localhost:8899")]
     pub request_logger_url: Option<String>,
-    #[schema(example = false)]
-    pub embedding_model: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]

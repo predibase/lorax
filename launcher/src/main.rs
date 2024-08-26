@@ -153,12 +153,6 @@ struct Args {
     #[clap(long, env)]
     sharded: Option<bool>,
 
-    /// Whether this model is mean for embeddings or text generation.
-    /// By default models are for text generation.
-    /// Setting it to `true` will enable the embedding endpoints and disable the generation ones.
-    #[clap(long, env)]
-    embedding_model: Option<bool>,
-
     /// The number of shards to use if you don't want to use all GPUs on a given machine.
     /// You can use `CUDA_VISIBLE_DEVICES=0,1 lorax-launcher... --num_shard 2`
     /// and `CUDA_VISIBLE_DEVICES=2,3 lorax-launcher... --num_shard 2` to
@@ -1167,10 +1161,6 @@ fn spawn_webserver(
     for origin in args.cors_allow_credentials.into_iter() {
         router_args.push("--cors-allow-credentials".to_string());
         router_args.push(origin.to_string());
-    }
-
-    if args.embedding_model.unwrap_or(false) {
-        router_args.push("--embedding-model".to_string());
     }
 
     if args.eager_prefill.unwrap_or(false) {
