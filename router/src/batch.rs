@@ -266,6 +266,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+    #[allow(dead_code)]
     fn state(&self) -> &BatchEntriesState;
     fn mut_state(&mut self) -> &mut BatchEntriesState;
 

@@ -1,7 +1,7 @@
 /// HTTP Server logic
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::config::Config;
-use crate::health::{self, Health};
+use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
@@ -348,8 +348,7 @@ async fn health(
     info: Extension<Info>,
     request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
-    mut client: Extension<ShardedClient>,
-    mut health: Extension<Health>,
+    health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if health.shard_info().supports_classification {
         let classify_request = ClassifyRequest {
@@ -411,7 +410,7 @@ async fn health(
         )
         .await
         {
-            Ok(mut response) => {
+            Ok(response) => {
                 if response.1.generated_text.len() == 0 {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -1025,7 +1024,7 @@ pub async fn run(
     client: ShardedClient,
     config: Option<Config>,
     tokenizer: Option<Tokenizer>,
-    (preprocessor_config, processor_config): (Option<HubPreprocessorConfig>, HubProcessorConfig),
+    (preprocessor_config, _processor_config): (Option<HubPreprocessorConfig>, HubProcessorConfig),
     validation_workers: usize,
     addr: SocketAddr,
     cors_allow_origin: Option<AllowOrigin>, // exact match

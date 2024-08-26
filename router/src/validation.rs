@@ -604,6 +604,7 @@ pub enum Chunk {
 /// compat for backends that haven't implemented chunked inputs.
 pub trait ChunksToString {
     /// Convert chunks to string.
+    #[allow(dead_code)]
     fn chunks_to_string(&self) -> String;
 }
 
