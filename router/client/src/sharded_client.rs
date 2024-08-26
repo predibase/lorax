@@ -1,6 +1,4 @@
-use crate::pb::generate::v1::{
-    ClassifyPredictionList, EmbedResponse, Embedding, Entity, EntityList,
-};
+use crate::pb::generate::v1::{ClassifyPredictionList, Embedding};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -8,9 +6,6 @@ use crate::{
 };
 use crate::{ClientError, Result};
 use futures::future::join_all;
-use regex::Regex;
-use std::sync::Arc;
-use tokio::task;
 use tonic::transport::Uri;
 use tracing::instrument;
 

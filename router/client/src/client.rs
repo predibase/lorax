@@ -6,7 +6,6 @@ use crate::Result;
 use grpc_metadata::InjectTelemetryContext;
 use std::cmp::min;
 use tonic::transport::{Channel, Uri};
-use tonic::Response;
 use tracing::instrument;
 
 /// LoRAX gRPC client

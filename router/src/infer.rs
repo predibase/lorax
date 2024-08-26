@@ -5,7 +5,7 @@ use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse, ChatTemplate,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse,
     ChatTemplateVersions, ClassifyRequest, ClassifyResponse, EmbedRequest, EmbedResponse, Entity,
     Entry, HubTokenizerConfig, Message, TextMessage, Token, TokenizerConfigToken,
 };
@@ -16,8 +16,8 @@ use futures::future::try_join_all;
 use futures::stream::StreamExt;
 use itertools::multizip;
 use lorax_client::{
-    Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, EntityList, GeneratedText,
-    Generation, PrefillTokens, PreloadedAdapter, ShardedClient,
+    Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, GeneratedText, Generation,
+    PrefillTokens, PreloadedAdapter, ShardedClient,
 };
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
@@ -56,6 +56,7 @@ struct ChatTemplateRenderer {
     template: Template<'static, 'static>,
     bos_token: Option<String>,
     eos_token: Option<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     use_default_tool_template: bool,
 }
 
@@ -92,7 +93,7 @@ impl ChatTemplateRenderer {
 
     fn apply(
         &self,
-        mut messages: Vec<Message>,
+        messages: Vec<Message>,
         // grammar_with_prompt: Option<(GrammarType, String)>,
     ) -> Result<String, InferError> {
         // TODO(travis): revisit when we add tool usage
@@ -452,7 +453,7 @@ impl Infer {
     #[instrument(skip(self))]
     pub(crate) async fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
-        let permit = self
+        let _permit = self
             .clone()
             .limit_concurrent_requests
             .try_acquire_owned()
@@ -558,8 +559,8 @@ impl Infer {
                 }
                 InferStreamResponse::Embed {
                     embedding,
-                    start,
-                    queued,
+                    start: _,
+                    queued: _,
                 } => {
                     return_embeddings = Some(embedding.values);
                 }
@@ -584,7 +585,7 @@ impl Infer {
         request: ClassifyRequest,
     ) -> Result<ClassifyResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
-        let permit = self
+        let _permit = self
             .clone()
             .limit_concurrent_requests
             .try_acquire_owned()
@@ -658,9 +659,9 @@ impl Infer {
                 }
                 InferStreamResponse::Classify {
                     predictions,
-                    start,
-                    queued,
-                    id,
+                    start: _,
+                    queued: _,
+                    id: _,
                 } => {
                     let entities = format_ner_output(predictions, self.tokenizer.clone().unwrap());
                     return_entities = Some(entities);
@@ -686,7 +687,7 @@ impl Infer {
         request: BatchClassifyRequest,
     ) -> Result<BatchClassifyResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
-        let permit = self
+        let _permit = self
             .clone()
             .limit_concurrent_requests
             .try_acquire_owned()
@@ -749,8 +750,8 @@ impl Infer {
                 // Add prefill tokens
                 InferStreamResponse::Classify {
                     predictions,
-                    start,
-                    queued,
+                    start: _,
+                    queued: _,
                     id,
                 } => {
                     let entities =
@@ -1406,12 +1407,20 @@ pub(crate) enum InferStreamResponse {
     // Embeddings
     Embed {
         embedding: Embedding,
+        // For now allow this field even though it is unused.
+        // TODO:(magdy) enable tracing for these requests
+        #[allow(dead_code)]
         start: Instant,
+        #[allow(dead_code)]
         queued: Instant,
     },
     Classify {
         predictions: ClassifyPredictionList,
+        // For now allow this field even though it is unused.
+        // TODO:(magdy) enable tracing for these requests
+        #[allow(dead_code)]
         start: Instant,
+        #[allow(dead_code)]
         queued: Instant,
         id: Option<u64>, // to support batching
     },

@@ -172,7 +172,7 @@ impl Validation {
             adapter_parameters,
             decoder_input_details,
             return_k_alternatives,
-            apply_chat_template,
+            apply_chat_template: _,
             response_format,
             ..
         } = request.parameters;
