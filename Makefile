@@ -9,10 +9,10 @@ install-integration-tests:
 	cd clients/python && pip install .
 
 install-router:
-	cd router && cargo install --path .
+	cd router && RUSTFLAGS="-D warnings" cargo install --path .
 
 install-launcher:
-	cd launcher && cargo install --path .
+	cd launcher && RUSTFLAGS="-D warnings" cargo install --path .
 
 install-benchmark:
 	cd benchmark && cargo install --path .
