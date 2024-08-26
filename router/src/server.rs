@@ -469,7 +469,6 @@ async fn generate(
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
-    tracing::info!("Request params: {:?}", req.0.parameters);
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
