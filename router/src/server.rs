@@ -343,33 +343,8 @@ responses(
 example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 )
 )]
-#[instrument(skip(health))]
 /// Health check method
-async fn health(mut health: Extension<Health>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    match health.check().await {
-        true => Ok(()),
-        false => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "unhealthy".to_string(),
-                error_type: "healthcheck".to_string(),
-            }),
-        )),
-    }
-}
-
-#[utoipa::path(
-get,
-tag = "LoRAX",
-path = "/health2",
-responses(
-(status = 200, description = "Everything is working fine"),
-(status = 503, description = "LoRAX is down", body = ErrorResponse,
-example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
-)
-)]
-/// Health check method
-async fn health2(
+async fn health(
     infer: Extension<Infer>,
     info: Extension<Info>,
     request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
@@ -1292,7 +1267,6 @@ pub async fn run(
         .route("/invocations", post(compat_generate))
         // Base Health route
         .route("/health", get(health))
-        .route("/health2", get(health2))
         // Inference API health route
         .route("/", get(health))
         // AWS Sagemaker health route
