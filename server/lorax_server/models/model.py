@@ -40,11 +40,13 @@ class Model(ABC):
         adapter_source: str = HUB,
         dynamic_adapter_loading_enabled: bool = True,
         trust_remote_code: bool = False,
+        processor=None,
     ):
         self.model_id = model_id
         self.model = model.eval()
         self.tokenizer = tokenizer
         self.tokenizers = TokenizerManager()
+        self.processor = processor
 
         self.all_special_ids = set(tokenizer.all_special_ids)
 
@@ -98,6 +100,9 @@ class Model(ABC):
             block_size=self.block_size,
             speculate=get_speculative_tokens(),
             preloaded_adapters=self.preloaded_adapters,
+            supports_generation=self.supports_text_generation,
+            supports_embeddings=self.supports_embeddings,
+            supports_classification=self.supports_classification,
         )
 
     @property

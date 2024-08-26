@@ -4,7 +4,10 @@ use clap::Parser;
 use hf_hub::api::tokio::{Api, ApiBuilder, ApiRepo};
 use hf_hub::{Cache, Repo, RepoType};
 use lorax_client::{ClientError, ShardedClient};
-use lorax_router::{server, HubModelInfo, HubTokenizerConfig};
+use lorax_router::{
+    config::Config, server, HubModelInfo, HubPreprocessorConfig, HubProcessorConfig,
+    HubTokenizerConfig,
+};
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace;
 use opentelemetry::sdk::trace::Sampler;
@@ -66,8 +69,6 @@ struct Args {
     #[clap(long, env)]
     json_output: bool,
     #[clap(long, env)]
-    embedding_model: bool,
-    #[clap(long, env)]
     otlp_endpoint: Option<String>,
     #[clap(long, env)]
     cors_allow_origin: Option<Vec<String>>,
@@ -118,7 +119,6 @@ async fn main() -> Result<(), RouterError> {
         revision,
         validation_workers,
         json_output,
-        embedding_model,
         otlp_endpoint,
         cors_allow_origin,
         cors_allow_method,
@@ -260,10 +260,10 @@ async fn main() -> Result<(), RouterError> {
     // Load tokenizer and model info
     let (
         tokenizer_filename,
-        _config_filename,
+        config_filename,
         tokenizer_config_filename,
-        _preprocessor_config_filename,
-        _processor_config_filename,
+        preprocessor_config_filename,
+        processor_config_filename,
         model_info,
     ) = match api {
         Type::None => (
@@ -361,6 +361,26 @@ async fn main() -> Result<(), RouterError> {
         tracing::warn!("Rust input length validation and truncation is disabled");
     }
 
+    let config: Option<Config> = config_filename.and_then(|filename| {
+        std::fs::read_to_string(filename)
+            .ok()
+            .as_ref()
+            .and_then(|c| {
+                let config: Result<Config, _> = serde_json::from_str(c);
+                if let Err(err) = &config {
+                    tracing::warn!("Could not parse config {err:?}");
+                }
+                config.ok()
+            })
+    });
+
+    let processor_config = processor_config_filename
+        .and_then(HubProcessorConfig::from_file)
+        .unwrap_or_default();
+
+    let preprocessor_config: Option<HubPreprocessorConfig> =
+        preprocessor_config_filename.and_then(HubPreprocessorConfig::from_file);
+
     // if pipeline-tag == lorax we default to return_full_text = true
     let compat_return_full_text = match &model_info.pipeline_tag {
         None => {
@@ -450,7 +470,9 @@ async fn main() -> Result<(), RouterError> {
         max_active_adapters,
         adapter_cycle_time_s,
         sharded_client,
+        config,
         tokenizer,
+        (preprocessor_config, processor_config),
         validation_workers,
         addr,
         cors_allow_origin,
@@ -463,7 +485,6 @@ async fn main() -> Result<(), RouterError> {
         ngrok_authtoken,
         ngrok_edge,
         adapter_source,
-        embedding_model,
         eager_prefill,
         prefix_caching,
     )

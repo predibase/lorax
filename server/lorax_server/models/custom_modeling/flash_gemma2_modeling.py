@@ -479,6 +479,7 @@ class FlashGemma2Model(torch.nn.Module):
 class FlashGemma2ForCausalLM(torch.nn.Module):
     def __init__(self, prefix, config, weights, causal: bool):
         super().__init__()
+        self.config = config
 
         embed_norm = config.hidden_size**0.5
         if not prefix:

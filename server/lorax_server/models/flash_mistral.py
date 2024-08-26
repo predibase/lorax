@@ -73,7 +73,8 @@ class FlashMistral(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashMistralForCausalLM(config, weights)
+        prefix = ""
+        model = FlashMistralForCausalLM(prefix, config, weights)
 
         torch.distributed.barrier(group=self.process_group)
         super(FlashMistral, self).__init__(
