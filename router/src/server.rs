@@ -400,7 +400,7 @@ async fn health(
                 return_k_alternatives: None,
                 apply_chat_template: false,
                 response_format: None,
-                max_new_tokens: Some(64),
+                max_new_tokens: Some(1),
                 ignore_eos_token: false,
             },
         };
@@ -413,7 +413,17 @@ async fn health(
         )
         .await
         {
-            Ok(_) => {}
+            Ok(mut response) => {
+                if response.1.generated_text.len() == 0 {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "Empty generation".to_string(),
+                            error_type: "failed healthcheck".to_string(),
+                        }),
+                    ));
+                }
+            }
             Err((status, error)) => {
                 return Err((status, error));
             }
