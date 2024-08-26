@@ -270,14 +270,12 @@ class VlmCausalLM(FlashCausalLM):
         if processor_kwargs is None:
             processor_kwargs = {}
         
-        print("!!! PROCESSOR CLASS !!!", processor_class)
         processor = processor_class.from_pretrained(
             model_id,
             revision=revision,
             trust_remote_code=trust_remote_code,
             **processor_kwargs,
         )
-        print("!!! PROCESSOR !!!", processor)
         self.batch_class = batch_class
 
         tokenizer = AutoTokenizer.from_pretrained(

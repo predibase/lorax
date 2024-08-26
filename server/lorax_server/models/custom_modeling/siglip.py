@@ -48,14 +48,12 @@ class SiglipVisionEmbeddings(nn.Module):
         )
 
     def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
-        print("pixel_values", pixel_values.shape)
         # TODO(travis): check why this is necessary
         pixel_values = pixel_values.to(self.patch_embedding.weight.dtype)
         
         patch_embeds = self.patch_embedding(pixel_values)  # shape = [*, width, grid, grid]
         embeddings = patch_embeds.flatten(2).transpose(1, 2)
 
-        print("embeddings", embeddings.shape, self.position_embedding(self.position_ids).shape)
         embeddings = embeddings + self.position_embedding(self.position_ids)
         return embeddings
 
