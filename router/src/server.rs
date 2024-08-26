@@ -1,7 +1,7 @@
 /// HTTP Server logic
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::config::Config;
-use crate::health::Health;
+use crate::health::{self, Health};
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
@@ -83,16 +83,6 @@ async fn compat_generate(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
 
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
-    }
-
     // default return_full_text given the pipeline_tag
     if req.parameters.return_full_text.is_none() {
         req.parameters.return_full_text = Some(default_return_full_text.0)
@@ -161,16 +151,6 @@ async fn completions_v1(
         req.model = "".to_string();
     }
     let mut gen_req = CompatGenerateRequest::from(req);
-
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
-    }
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -251,16 +231,6 @@ async fn chat_completions_v1(
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
-    }
-
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
     }
 
     // apply chat template to flatten the request into a single input
@@ -374,19 +344,92 @@ responses(
 example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 )
 )]
-#[instrument(skip(health))]
 /// Health check method
-async fn health(mut health: Extension<Health>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    match health.check().await {
-        true => Ok(()),
-        false => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "unhealthy".to_string(),
-                error_type: "healthcheck".to_string(),
-            }),
-        )),
+async fn health(
+    infer: Extension<Infer>,
+    info: Extension<Info>,
+    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
+    req_headers: HeaderMap,
+    mut client: Extension<ShardedClient>,
+    mut health: Extension<Health>,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if health.shard_info().supports_classification {
+        let classify_request = ClassifyRequest {
+            inputs: "San Francisco".to_string(),
+        };
+        match classify(infer.clone(), client.clone(), Json(classify_request)).await {
+            Ok(_) => {}
+            Err((status, error)) => {
+                return Err((status, error));
+            }
+        }
     }
+    if health.shard_info().supports_embeddings {
+        let embed_request = EmbedRequest {
+            inputs: "San Francisco".to_string(),
+        };
+        match embed(infer.clone(), client, Json(embed_request)).await {
+            Ok(_) => {}
+            Err((status, error)) => {
+                return Err((status, error));
+            }
+        }
+    }
+    if health.shard_info().supports_generation {
+        let generate_request = GenerateRequest {
+            inputs: "Who?".to_string(),
+            parameters: GenerateParameters {
+                adapter_id: None,
+                adapter_source: None,
+                adapter_parameters: None,
+                api_token: None,
+                best_of: None,
+                temperature: None,
+                top_k: None,
+                top_p: None,
+                typical_p: None,
+                do_sample: false,
+                seed: None,
+                repetition_penalty: None,
+                watermark: false,
+                return_full_text: None,
+                stop: vec![],
+                truncate: None,
+                details: false,
+                decoder_input_details: false,
+                return_k_alternatives: None,
+                apply_chat_template: false,
+                response_format: None,
+                max_new_tokens: Some(1),
+                ignore_eos_token: false,
+            },
+        };
+        match generate(
+            infer,
+            info,
+            request_logger_sender,
+            req_headers,
+            Json(generate_request),
+        )
+        .await
+        {
+            Ok(mut response) => {
+                if response.1.generated_text.len() == 0 {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "Empty generation".to_string(),
+                            error_type: "failed healthcheck".to_string(),
+                        }),
+                    ));
+                }
+            }
+            Err((status, error)) => {
+                return Err((status, error));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Generate tokens
@@ -431,16 +474,6 @@ async fn generate(
     metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.0.inputs);
-
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
-    }
 
     let compute_characters = req.0.inputs.chars().count();
     let mut add_prompt = None;
@@ -761,13 +794,6 @@ async fn generate_stream_with_callback(
     headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let stream = async_stream::stream! {
-        if info.embedding_model {
-            let err = InferError::from(ValidationError::EmbeddingModel);
-            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-            tracing::error!("{err}");
-            yield Ok(Event::from(err));
-        } else {
-
             // Inference
             let mut end_reached = false;
             let mut error = false;
@@ -935,7 +961,6 @@ async fn generate_stream_with_callback(
                     yield Ok(Event::from(err));
                 }
             }
-        }
     };
 
     (headers, stream)
@@ -1015,7 +1040,6 @@ pub async fn run(
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
     adapter_source: String,
-    embedding_model: bool,
     eager_prefill: bool,
     prefix_caching: bool,
 ) -> Result<(), axum::BoxError> {
@@ -1101,7 +1125,11 @@ pub async fn run(
         max_total_tokens,
     );
     let generation_health = Arc::new(AtomicBool::new(false));
-    let health_ext = Health::new(client.clone(), generation_health.clone());
+    let health_ext = Health::new(
+        client.clone(),
+        generation_health.clone(),
+        shard_info.clone(),
+    );
     let infer = Infer::new(
         client.clone(),
         validation,
@@ -1217,7 +1245,6 @@ pub async fn run(
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
         request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
-        embedding_model,
         eager_prefill,
     };
 
