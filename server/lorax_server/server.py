@@ -78,6 +78,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             request.batch,
             self.model.tokenizer,
             self.model.tokenizers,
+            self.model.processor,
+            self.model.model.config,
             self.model.dtype,
             self.model.device,
         )
@@ -90,6 +92,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             request.batch,
             self.model.tokenizer,
             self.model.tokenizers,
+            self.model.processor,
+            self.model.model.config,
             self.model.dtype,
             self.model.device,
         )
@@ -110,6 +114,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             request.batch,
             self.model.tokenizer,
             self.model.tokenizers,
+            self.model.processor,
+            self.model.model.config,
             self.model.dtype,
             self.model.device,
         )
@@ -125,6 +131,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             request.batch,
             self.model.tokenizer,
             self.model.tokenizers,
+            self.model.processor,
+            self.model.model.config,
             self.model.dtype,
             self.model.device,
         )

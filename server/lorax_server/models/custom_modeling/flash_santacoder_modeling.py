@@ -402,6 +402,7 @@ class FlashSantacoderModel(nn.Module):
 class FlashSantacoderForCausalLM(nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
         self.transformer = FlashSantacoderModel(config, weights)
         self.lm_head = TensorParallelHead.load(config, prefix="transformer.wte", weights=weights)
 

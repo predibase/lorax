@@ -2,6 +2,7 @@
 mod adapter;
 mod batch;
 mod block_allocator;
+pub mod config;
 mod health;
 mod infer;
 mod loader;
@@ -1012,6 +1013,40 @@ impl TokenizerConfigToken {
             TokenizerConfigToken::String(s) => s,
             TokenizerConfigToken::Object { content } => content,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "processor_class")]
+pub enum HubPreprocessorConfig {
+    Idefics2Processor(Idefics2Preprocessor),
+}
+
+impl HubPreprocessorConfig {
+    pub fn from_file<P: AsRef<std::path::Path>>(filename: P) -> Option<Self> {
+        let content = std::fs::read_to_string(filename).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Idefics2Preprocessor {
+    #[serde(default)]
+    do_image_splitting: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HubProcessorConfig {
+    pub chat_template: Option<ChatTemplateVersions>,
+    pub image_seq_len: usize,
+    pub processor_class: Option<String>,
+}
+
+impl HubProcessorConfig {
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> Option<Self> {
+        std::fs::read_to_string(filename)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
     }
 }
 

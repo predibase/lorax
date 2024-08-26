@@ -341,6 +341,22 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
+    if model_type == "llava_next" or model_type == "llava":
+        from lorax_server.models.custom_modeling.llava_next import LlavaNextForConditionalGeneration
+        from lorax_server.models.vlm_causal_lm import VlmCausalLM
+
+        return VlmCausalLM(
+            model_class=LlavaNextForConditionalGeneration,
+            model_id=model_id,
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
+            revision=revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
     if model_type == "opt":
         return OPTSharded(
             model_id,
