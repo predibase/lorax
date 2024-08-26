@@ -452,6 +452,7 @@ class FlashQwenModel(torch.nn.Module):
 class FlashQwenForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
 
         self.transformer = FlashQwenModel(config, weights)
         self.lm_head = MultiAdapterHead.load(

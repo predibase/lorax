@@ -1,9 +1,10 @@
 /// HTTP Server logic
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
+use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
-use crate::{json, HubTokenizerConfig};
+use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
     AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse,
     BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
@@ -999,7 +1000,9 @@ pub async fn run(
     max_active_adapters: usize,
     adapter_cycle_time_s: u64,
     client: ShardedClient,
+    config: Option<Config>,
     tokenizer: Option<Tokenizer>,
+    (preprocessor_config, processor_config): (Option<HubPreprocessorConfig>, HubProcessorConfig),
     validation_workers: usize,
     addr: SocketAddr,
     cors_allow_origin: Option<AllowOrigin>, // exact match
@@ -1090,6 +1093,8 @@ pub async fn run(
     let validation = Validation::new(
         validation_workers,
         tokenizer,
+        config,
+        preprocessor_config,
         max_best_of,
         max_stop_sequences,
         max_input_length,

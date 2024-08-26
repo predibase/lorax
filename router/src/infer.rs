@@ -504,7 +504,8 @@ impl Infer {
         //         err
         //     })?;
 
-        let (inputs, tokenized_inputs, input_length) = self
+        let inputs = request.inputs.clone();
+        let (tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
@@ -604,7 +605,8 @@ impl Infer {
             None,
         );
 
-        let (inputs, tokenized_inputs, input_length) = self
+        let inputs = request.inputs.clone();
+        let (tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
@@ -710,7 +712,8 @@ impl Infer {
         let (response_tx, response_rx) = flume::unbounded();
 
         for (id, r_inputs) in request.inputs.iter().enumerate() {
-            let (inputs, tokenized_inputs, input_length) = self
+            let inputs = r_inputs.to_string().clone();
+            let (tokenized_inputs, input_length) = self
                 .validation
                 .validate_input(r_inputs.to_string(), None, Some(1))
                 .await?;

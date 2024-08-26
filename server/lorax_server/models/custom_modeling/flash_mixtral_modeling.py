@@ -920,6 +920,7 @@ class MixtralModel(torch.nn.Module):
 class FlashMixtralForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
 
         self.model = MixtralModel(config, weights)
         self.lm_head = MultiAdapterHead.load(

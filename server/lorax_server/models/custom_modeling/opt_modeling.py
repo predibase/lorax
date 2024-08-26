@@ -652,6 +652,7 @@ class OPTModel(OPTPreTrainedModel):
 class OPTForCausalLM(OPTPreTrainedModel):
     def __init__(self, config, weights):
         super().__init__(config)
+        self.config = config
 
         self.model = OPTModel(config, weights)
 

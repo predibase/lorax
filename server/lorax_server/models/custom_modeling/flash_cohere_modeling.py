@@ -483,6 +483,7 @@ class FlashCohereModel(torch.nn.Module):
 class FlashCohereForCausalLM(torch.nn.Module):
     def __init__(self, config, weights):
         super().__init__()
+        self.config = config
 
         self.model = FlashCohereModel(config, weights)
         try:
