@@ -1,8 +1,8 @@
 import os
+from typing import Union
 
 import torch
 from loguru import logger
-from typing import Union
 
 from lorax_server.utils.flash_attn_triton import triton_attention
 from lorax_server.utils.import_utils import SYSTEM
@@ -128,10 +128,8 @@ if FLASH_INFER:
         causal=True,
         softcap=0.0,
     ):
-        from lorax_server.utils.flashinfer_attention import (
-            prefill_with_paged_kv_state, prefill_state
-        )
-        
+        from lorax_server.utils.flashinfer_attention import prefill_state, prefill_with_paged_kv_state
+
         if key_cache is None or value_cache is None:
             return prefill_state.get().forward(
                 q,
