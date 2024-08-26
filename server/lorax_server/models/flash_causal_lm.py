@@ -148,7 +148,7 @@ class FlashCausalLMBatch(Batch):
                 batch_inputs.append(inputs)
                 max_truncation = max(max_truncation, r.truncate)
 
-            if all(r.HasField("tokenized_inputs") for r in pb.requests):
+            if all(r.HasField("tokenized_inputs") and len(r.tokenized_inputs.ids) > 0 for r in pb.requests):
                 batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
             else:
                 batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)[
