@@ -256,6 +256,7 @@ pub(crate) struct GenerateParameters {
     pub return_k_alternatives: Option<i32>,
     #[serde(default)]
     #[schema(default = "false")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     pub apply_chat_template: bool,
     #[serde(default)]
     #[schema(
@@ -483,6 +484,7 @@ enum ResponseFormatType {
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
+    #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
     schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
 }
@@ -571,9 +573,13 @@ struct ChatCompletionRequest {
     #[serde(default)]
     stop: Vec<String>,
     stream: Option<bool>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
     // Additional parameters
@@ -590,6 +596,7 @@ struct ChatCompletionRequest {
 struct CompletionRequest {
     model: String,
     prompt: String,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     suffix: Option<String>,
     max_tokens: Option<i32>,
     temperature: Option<f32>,
@@ -600,10 +607,14 @@ struct CompletionRequest {
     echo: Option<bool>,
     #[serde(default)]
     stop: Vec<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
     best_of: Option<i32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
     // Additional parameters
@@ -712,6 +723,7 @@ pub(crate) enum CompletionFinishReason {
     #[schema(rename = "content_filter")]
     ContentFilter,
     #[schema(rename = "tool_calls")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     ToolCalls,
 }
 

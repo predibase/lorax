@@ -1,7 +1,7 @@
 /// HTTP Server logic
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::config::Config;
-use crate::health::{self, Health};
+use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
@@ -17,19 +17,18 @@ use crate::{
     Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
-use axum::http::{request, HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
-use clap::error;
 use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -44,7 +43,6 @@ use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
 use tracing::{info_span, instrument, Instrument};
-use utoipa::openapi::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -350,14 +348,13 @@ async fn health(
     info: Extension<Info>,
     request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
-    mut client: Extension<ShardedClient>,
-    mut health: Extension<Health>,
+    health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if health.shard_info().supports_classification {
         let classify_request = ClassifyRequest {
             inputs: "San Francisco".to_string(),
         };
-        match classify(infer.clone(), client.clone(), Json(classify_request)).await {
+        match classify(infer.clone(), Json(classify_request)).await {
             Ok(_) => {}
             Err((status, error)) => {
                 return Err((status, error));
@@ -368,7 +365,7 @@ async fn health(
         let embed_request = EmbedRequest {
             inputs: "San Francisco".to_string(),
         };
-        match embed(infer.clone(), client, Json(embed_request)).await {
+        match embed(infer.clone(), Json(embed_request)).await {
             Ok(_) => {}
             Err((status, error)) => {
                 return Err((status, error));
@@ -413,7 +410,7 @@ async fn health(
         )
         .await
         {
-            Ok(mut response) => {
+            Ok(response) => {
                 if response.1.generated_text.len() == 0 {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -716,7 +713,7 @@ async fn generate_stream(
     info: Extension<Info>,
     request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
-    mut req: Json<GenerateRequest>,
+    req: Json<GenerateRequest>,
 ) -> (
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
@@ -1027,7 +1024,7 @@ pub async fn run(
     client: ShardedClient,
     config: Option<Config>,
     tokenizer: Option<Tokenizer>,
-    (preprocessor_config, processor_config): (Option<HubPreprocessorConfig>, HubProcessorConfig),
+    (preprocessor_config, _processor_config): (Option<HubPreprocessorConfig>, HubProcessorConfig),
     validation_workers: usize,
     addr: SocketAddr,
     cors_allow_origin: Option<AllowOrigin>, // exact match
@@ -1449,18 +1446,12 @@ impl From<InferError> for Event {
 #[instrument(skip_all)]
 async fn embed(
     infer: Extension<Infer>,
-    mut client: Extension<ShardedClient>,
     Json(req): Json<EmbedRequest>,
 ) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let span = tracing::Span::current();
-    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
-
     tracing::debug!("Input: {}", req.inputs);
-
     // Inference
     let response = infer.embed(req).await?;
-
     Ok(Json(response))
 }
 
@@ -1477,13 +1468,9 @@ async fn embed(
 #[instrument(skip_all)]
 async fn classify(
     infer: Extension<Infer>,
-    mut client: Extension<ShardedClient>,
     Json(req): Json<ClassifyRequest>,
 ) -> Result<Json<ClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let span = tracing::Span::current();
-    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
-
     tracing::debug!("Input: {}", req.inputs);
     let response = infer.classify(req).await?;
     Ok(Json(response))
@@ -1502,13 +1489,9 @@ async fn classify(
 #[instrument(skip_all)]
 async fn classify_batch(
     infer: Extension<Infer>,
-    mut client: Extension<ShardedClient>,
     Json(req): Json<BatchClassifyRequest>,
 ) -> Result<Json<BatchClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let span = tracing::Span::current();
-    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
-
     tracing::debug!("Inputs: {:?}", req.inputs);
     let response = infer.classify_batch(req).await?;
     Ok(Json(response))

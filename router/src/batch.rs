@@ -12,9 +12,8 @@ use lorax_client::{
     StoppingCriteriaParameters, TokenizedInputs,
 };
 use nohash_hasher::{BuildNoHashHasher, IntMap};
-use tokenizers::Token;
 use tokio::time::Instant;
-use tracing::{info_span, span, Instrument, Span};
+use tracing::{Instrument, Span};
 
 use crate::{
     adapter::Adapter,
@@ -267,6 +266,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+    #[allow(dead_code)]
     fn state(&self) -> &BatchEntriesState;
     fn mut_state(&mut self) -> &mut BatchEntriesState;
 
@@ -529,10 +529,10 @@ impl BatchEntries for EmbedBatchEntries {
 
     async fn process_next(
         &mut self,
-        client: &mut ShardedClient,
-        batches: Vec<CachedBatch>,
-        span: Span,
-        generation_health: &Arc<AtomicBool>,
+        _client: &mut ShardedClient,
+        _batches: Vec<CachedBatch>,
+        _span: Span,
+        _generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(travis): send error (programming eroor) if we get here
         None
@@ -652,10 +652,10 @@ impl BatchEntries for ClassifyBatchEntries {
 
     async fn process_next(
         &mut self,
-        client: &mut ShardedClient,
-        batches: Vec<CachedBatch>,
-        span: Span,
-        generation_health: &Arc<AtomicBool>,
+        _client: &mut ShardedClient,
+        _batches: Vec<CachedBatch>,
+        _span: Span,
+        _generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(magdy): send error (programming eroor) if we get here
         None

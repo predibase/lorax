@@ -201,7 +201,7 @@ impl Validation {
             adapter_parameters,
             decoder_input_details,
             return_k_alternatives,
-            apply_chat_template,
+            apply_chat_template: _,
             response_format,
             ..
         } = request.parameters;
@@ -604,6 +604,7 @@ pub enum Chunk {
 /// compat for backends that haven't implemented chunked inputs.
 pub trait ChunksToString {
     /// Convert chunks to string.
+    #[allow(dead_code)]
     fn chunks_to_string(&self) -> String;
 }
 

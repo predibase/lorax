@@ -1,19 +1,17 @@
 use crate::{
     adapter::Adapter,
-    batch::{self, BatchEntries, Entry},
+    batch::{BatchEntries, Entry},
     block_allocator::BlockAllocator,
     queue::{AdapterEvent, AdapterQueuesState},
     AdapterLoader,
 };
-use lorax_client::{Batch, Request, ShardedClient};
-use nohash_hasher::{BuildNoHashHasher, IntMap};
+use lorax_client::{Batch, ShardedClient};
 use std::{
     cmp::{max, min},
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::Arc,
 };
 use tokio::sync::{oneshot, Mutex};
-use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
 enum AdapterSchedulerCommand {
@@ -182,9 +180,11 @@ struct AdapterSchedulerState {
     /// Id of the next batch
     next_batch_id: u64,
 
+    #[allow(dead_code)] // currently unused
     /// Whether the model is using padding
     requires_padding: bool,
 
+    #[allow(dead_code)] // currently unused
     /// Paged Attention block size
     block_size: u32,
 

@@ -8,7 +8,6 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use grpc_metadata::InjectTelemetryContext;
 use std::cmp::min;
 use tonic::transport::{Channel, Uri};
-use tonic::Response;
 use tracing::instrument;
 
 use self::input_chunk::Chunk;
