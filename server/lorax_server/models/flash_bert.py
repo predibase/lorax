@@ -97,7 +97,9 @@ class FlashBert(Model):
             dtype,
             process_group=self.process_group,
         )
-        prefix = None if (model_id == "WhereIsAI/UAE-Large-V1") else "bert"
+        prefix = "bert"
+        if model_id in ["WhereIsAI/UAE-Large-V1", "BAAI/bge-base-en-v1.5"]:
+            prefix = None
         if classifcation_head:
             model = FlashBertModelForClassification(prefix, weights, device, dtype, config)
         else:
