@@ -1,8 +1,8 @@
 from typing import Dict, List, Optional, Tuple
 
-from loguru import logger
 import torch
 import torch.distributed
+from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer, GenerationConfig
 
@@ -90,7 +90,7 @@ class FlashLlama(FlashCausalLM):
             )
             self.dynamic_adapter_loading_enabled = False
             self.adapter_id = adapter_id
-        
+
         weights = Weights(
             filenames,
             device,

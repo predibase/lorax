@@ -1,27 +1,35 @@
-from collections import defaultdict
 import os
-from pathlib import Path
 import warnings
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple
 
-from filelock import FileLock
-from loguru import logger
-from lorax_server.utils.sources.hub import weight_files
-from safetensors import safe_open
-from safetensors.torch import load_file, save_file
 import torch
+from filelock import FileLock
+from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
+from loguru import logger
 from peft import LoraConfig
 from peft.utils import transpose
+from safetensors import safe_open
+from safetensors.torch import load_file, save_file
 from tqdm import tqdm
-from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 
 from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.pb import generate_pb2
 from lorax_server.utils.merges.strategies import merge_adapters
-from lorax_server.utils.sources import HUB, LOCAL, PBASE, S3, get_config_path, get_model_source, map_pbase_model_id_to_s3
+from lorax_server.utils.sources import (
+    HUB,
+    LOCAL,
+    PBASE,
+    S3,
+    get_config_path,
+    get_model_source,
+    map_pbase_model_id_to_s3,
+)
+from lorax_server.utils.sources.hub import weight_files
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig, ModuleMap
@@ -250,17 +258,14 @@ def enum_string_to_adapter_source(adapter_source: str) -> int:
     else:
         raise ValueError(f"Unknown adapter source {adapter_source}")
 
+
 def compute_delta_weight(
-    lora_A: torch.Tensor, 
-    lora_B: torch.Tensor, 
-    fan_in_fan_out: bool, 
-    alpha: float, 
-    r: float
+    lora_A: torch.Tensor, lora_B: torch.Tensor, fan_in_fan_out: bool, alpha: float, r: float
 ) -> torch.Tensor:
     """Computes the delta weight for a Linear layer given A and B LoRA matrices.
-    
+
     TODO: add logic for other module types beyond Linear layers.
-    
+
     Reference: https://github.com/huggingface/peft/blob/v0.4.0/src/peft/tuners/lora.py#L799-L806
     """
     scaling = alpha / r
@@ -269,9 +274,7 @@ def compute_delta_weight(
 
 
 def merge_adapter_weights(
-    model_weights: Dict[str, torch.Tensor], 
-    adapter_weights: Dict[str, torch.Tensor], 
-    adapter_config: LoraConfig
+    model_weights: Dict[str, torch.Tensor], adapter_weights: Dict[str, torch.Tensor], adapter_config: LoraConfig
 ) -> Tuple[Dict[str, torch.Tensor], Set[str]]:
     """
     Merges the adapter weights into the model weights.
@@ -300,27 +303,30 @@ def merge_adapter_weights(
     # merge adapter weights into model weights
     merged_weights = {}
     for weight_name, adapter_weight_names in tqdm(
-        module_mapping.items(), desc="Merging adapter weights", total=len(module_mapping)):
-
+        module_mapping.items(), desc="Merging adapter weights", total=len(module_mapping)
+    ):
         # TODO: support adapter types beyond LoRA
         # TODO: put this on GPU if it is available. This should greatly speedup compute_delta_weight
         lora_A = adapter_weights[adapter_weight_names["lora_A"]]
         lora_B = adapter_weights[adapter_weight_names["lora_B"]]
         delta_weight = compute_delta_weight(
-            lora_A, lora_B, adapter_config.fan_in_fan_out, adapter_config.lora_alpha, adapter_config.r)
+            lora_A, lora_B, adapter_config.fan_in_fan_out, adapter_config.lora_alpha, adapter_config.r
+        )
 
         # transpose delta weight if necessary
         # TODO(geoffrey): I believe this is required when using Conv1D layers (gpt2).
         # We can likely take this out once we've switched to using Linear layers.
-        if (delta_weight.shape != model_weights[weight_name].shape and 
-            delta_weight.T.shape == model_weights[weight_name].shape):
+        if (
+            delta_weight.shape != model_weights[weight_name].shape
+            and delta_weight.T.shape == model_weights[weight_name].shape
+        ):
             delta_weight = delta_weight.T
         merged_weights[weight_name] = model_weights[weight_name] + delta_weight
     return merged_weights, processed_adapter_weight_names
 
 
 def create_merged_weight_files(
-    adapter_id: str, 
+    adapter_id: str,
     model_id: str,
     model_weight_filenames: List[Path],
     adapter_source: str = "hub",
@@ -354,7 +360,7 @@ def create_merged_weight_files(
 
     merged_weight_directory = Path(HUGGINGFACE_HUB_CACHE) / f"models--{adapter_id.replace('/', '--')}-merged"
     # just grab the existing files if they already exist and return immediately
-    lock = FileLock(str(merged_weight_directory)+ ".lock")
+    lock = FileLock(str(merged_weight_directory) + ".lock")
     with lock:
         if merged_weight_directory.is_dir():
             logger.info(f"Merged weight directory {merged_weight_directory} exist, skipping merge computation.")
@@ -371,21 +377,20 @@ def create_merged_weight_files(
             )
             model_weights = load_file(filename)
             merged_weights, processed_adapter_weight_names = merge_adapter_weights(
-                model_weights, adapter_weights, adapter_config)
+                model_weights, adapter_weights, adapter_config
+            )
 
             merged_adapter_filename = Path(merged_weight_directory, os.path.basename(filename))
             save_file(merged_weights, merged_adapter_filename)
             logger.debug(f"Saved merged weights into {merged_adapter_filename}")
 
             merged_weight_filenames.append(merged_adapter_filename)
-            remaining_adapter_weight_names = remaining_adapter_weight_names.difference(
-                processed_adapter_weight_names)
+            remaining_adapter_weight_names = remaining_adapter_weight_names.difference(processed_adapter_weight_names)
 
         if len(remaining_adapter_weight_names) > 0:
             logger.warning("WARNING: The following lora weights were not merged into the model weights:")
             for lora_name in remaining_adapter_weight_names:
                 logger.warning("\t" + lora_name)
 
-        logger.info(
-            f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}")
+        logger.info(f"Finished merging adapter weights. Merged weight files saved to: {merged_weight_directory}")
         return merged_weight_filenames
