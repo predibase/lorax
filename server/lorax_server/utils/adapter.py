@@ -21,7 +21,7 @@ from transformers import AutoConfig, AutoTokenizer, PreTrainedTokenizer
 from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.pb import generate_pb2
 from lorax_server.utils.merges.strategies import merge_adapters
-from lorax_server.utils.sources import HUB, LOCAL, PBASE, S3, get_config_path, get_model_source
+from lorax_server.utils.sources import HUB, LOCAL, PBASE, S3, get_config_path, get_model_source, map_pbase_model_id_to_s3
 
 if TYPE_CHECKING:
     from lorax_server.adapters.config import AdapterConfig, ModuleMap
@@ -326,7 +326,16 @@ def create_merged_weight_files(
     adapter_source: str = "hub",
 ) -> List[Path]:
     """Creates merged weight files for the given adapter ID and filenames."""
-    download_adapter_weights(adapter_id, adapter_source, api_token=None)
+    api_token = None
+    if adapter_source == PBASE:
+        api_token = api_token or os.environ.get("PREDIBASE_API_TOKEN")
+        adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
+        adapter_source = S3
+
+    download_adapter_weights(adapter_id, adapter_source, api_token=api_token)
+
+    if adapter_source == PBASE:
+        adapter_source = S3
 
     source = get_model_source(adapter_source, adapter_id)
     adapter_filenames = source.weight_files()
