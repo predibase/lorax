@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 
+from loguru import logger
 import torch
 import torch.distributed
 from opentelemetry import trace
@@ -15,6 +16,7 @@ from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
 )
+from lorax_server.utils.adapter import create_merged_weight_files
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,
@@ -79,11 +81,22 @@ class FlashLlama(FlashCausalLM):
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors")
+        merged_weight_filenames = None
+        if len(adapter_id) > 0:
+            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
+            # Need to pass the adapter source here
+            merged_weight_filenames = create_merged_weight_files(
+                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
+            )
+            self.dynamic_adapter_loading_enabled = False
+            self.adapter_id = adapter_id
+        
         weights = Weights(
             filenames,
             device,
             dtype,
             process_group=self.process_group,
+            merged_weight_filenames=merged_weight_filenames,
         )
         weights._set_config(model_id, config)
 
