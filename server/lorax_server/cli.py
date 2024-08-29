@@ -48,6 +48,7 @@ def serve(
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
     preloaded_adapter_ids: Optional[List[str]] = typer.Option(None),
+    merge_adapter_weights: bool = False,
 ):
     preloaded_adapter_ids = preloaded_adapter_ids or []
 
@@ -98,6 +99,7 @@ def serve(
         adapter_source,
         speculative_tokens,
         preloaded_adapter_ids,
+        merge_adapter_weights,
     )
 
 
@@ -126,8 +128,8 @@ def download_weights(
         diagnose=False,
     )
     _download_weights(model_id, revision, extension, auto_convert, source, api_token)
-    # if adapter_id:
-        # _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
+    if adapter_id:
+        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
 
 
 @app.command()

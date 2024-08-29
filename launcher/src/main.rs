@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use nix::libc::ip_mreq_source;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::Deserialize;
@@ -292,10 +293,16 @@ struct Args {
     #[clap(long, env)]
     eager_prefill: Option<bool>,
 
-    /// Whether to use the prefix caching mechanism.
-    /// TODO(travis): better comment here
+    /// Whether to use the prefix caching mechanism. This will skip computing attention on previously cached prefixes
+    /// in the prompt. Useful in cases where many queries need to be run over a shared context, or for long multi-turn
+    /// chats conversations.
     #[clap(long, env)]
     prefix_caching: Option<bool>,
+
+    /// Whether to merge the weights of the adapter with the base model weights. This will disable dynamic adapter
+    /// loading.
+    #[clap(long, env, value_enum)]
+    merge_adapter_weights: bool,
 
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
     #[clap(default_value = "1024", long, env)]
@@ -440,6 +447,7 @@ fn shard_manager(
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
     prefix_caching: Option<bool>,
+    merge_adapter_weights: bool,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
@@ -507,6 +515,11 @@ fn shard_manager(
     for adapter_id in preloaded_adapter_ids {
         shard_args.push("--preloaded-adapter-ids".to_string());
         shard_args.push(adapter_id);
+    }
+
+    // Merge adapter weights
+    if merge_adapter_weights {
+        shard_args.push("--merge-adapter-weights".to_string());
     }
 
     if let Some(dtype) = dtype {
@@ -990,6 +1003,7 @@ fn spawn_shards(
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
         let prefix_caching = args.prefix_caching;
+        let merge_adapter_weights = args.merge_adapter_weights;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1016,6 +1030,7 @@ fn spawn_shards(
                 cuda_memory_fraction,
                 adapter_memory_fraction,
                 prefix_caching,
+                merge_adapter_weights,
                 otlp_endpoint,
                 status_sender,
                 shutdown,

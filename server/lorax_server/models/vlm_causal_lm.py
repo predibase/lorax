@@ -252,21 +252,13 @@ class VlmCausalLM(FlashCausalLM):
         adapter_id: str,
         adapter_source: str,
         revision: Optional[str] = None,
-        quantize: Optional[str] = None,
-        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
         **kwargs,
     ):
-        self.process_group, rank, world_size = initialize_torch_distributed()
-        if torch.cuda.is_available():
-            device = torch.device(f"cuda:{rank}")
-            dtype = torch.float16 if dtype is None else dtype
-        else:
-            raise NotImplementedError("VlmCausalLM is only available on GPU")
-
         if PREFIX_CACHING:
             raise NotImplementedError("Vlm do not work with prefix caching yet")
+        
         if processor_kwargs is None:
             processor_kwargs = {}
 
@@ -276,50 +268,19 @@ class VlmCausalLM(FlashCausalLM):
             trust_remote_code=trust_remote_code,
             **processor_kwargs,
         )
+
         self.batch_class = batch_class
-
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            revision=revision,
-            padding_side="left",
-            truncation_side="left",
-            trust_remote_code=trust_remote_code,
-        )
-
-        config = AutoConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
-        config.quantize = quantize
-
-        torch.distributed.barrier(group=self.process_group)
-
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-        )
-        weights._set_config(model_id, config)
-
-        prefix = ""
-        model = model_class(prefix, config, weights)
 
         super().__init__(
             model_id=model_id,
-            model=model,
-            tokenizer=tokenizer,
-            num_layers=config.text_config.num_hidden_layers,
-            num_kv_heads=config.text_config.num_key_value_heads,
-            head_size=config.text_config.hidden_size // config.text_config.num_attention_heads,
-            num_heads=config.text_config.num_attention_heads,
+            model_cls=model_class,
             dtype=dtype,
-            device=device,
-            rank=rank,
-            world_size=world_size,
-            compile=compile,
+            revision=revision,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            trust_remote_code=trust_remote_code,
             processor=processor,
+            trust_remote_code=trust_remote_code,
+            **kwargs,
         )
 
     @property

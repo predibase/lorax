@@ -4,13 +4,15 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
+from lorax_server.utils.sources.hub import weight_files
+from lorax_server.utils.weights import Weights
 import numpy as np
 import torch
 import torch.distributed
 from loguru import logger
 from opentelemetry import trace
 from tqdm import tqdm
-from transformers import PreTrainedTokenizerBase
+from transformers import AutoConfig, AutoTokenizer, GenerationConfig, PretrainedConfig, PreTrainedTokenizerBase
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models.model import Model
@@ -24,9 +26,9 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.dist import MEMORY_FRACTION
+from lorax_server.utils.dist import MEMORY_FRACTION, initialize_torch_distributed
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
@@ -737,30 +739,124 @@ class FlashCausalLM(Model):
     def __init__(
         self,
         model_id: str,
-        model: torch.nn.Module,
-        tokenizer: PreTrainedTokenizerBase,
-        num_layers: int,
-        num_kv_heads: int,
-        head_size: int,
-        num_heads: int,
+        model_cls: Type[torch.nn.Module],
         dtype: torch.dtype,
-        device: torch.device,
-        rank: int = 0,
-        world_size: int = 1,
-        sliding_window: Optional[int] = None,
-        compile: bool = False,
+        revision: Optional[str] = None,
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         adapter_source: str = HUB,
+        tokenizer_cls: Type[PreTrainedTokenizerBase] = AutoTokenizer,
+        config_cls: Type[PretrainedConfig] = AutoConfig,
+        # Used for Santacoder override of config
+        num_kv_heads: Optional[int] = None,
+        # Deepseek V2 uses different QK and V dims.
+        head_size: Optional[int] = None,
+        quantize: Optional[str] = None,
+        compile: bool = False,
+        merge_adapter_weights: bool = False,
         trust_remote_code: bool = False,
         processor=None,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
 
-        self.num_layers = num_layers
-        self.num_kv_heads = num_kv_heads
-        self.head_size = head_size
-        self.num_heads = num_heads
+        self.process_group, rank, world_size = initialize_torch_distributed()
+        if torch.cuda.is_available():
+            device = torch.device(f"cuda:{rank}")
+            dtype = torch.float16 if dtype is None else dtype
+        else:
+            raise NotImplementedError("FlashLlama is only available on GPU")
+
+        tokenizer = tokenizer_cls.from_pretrained(
+            model_id,
+            revision=revision,
+            padding_side="left",
+            truncation_side="left",
+            trust_remote_code=trust_remote_code,
+        )
+
+        try:
+            # Override the tokenizer's eos_token_id with the one from the generation_config
+            # if it is a list or set. We need to do this by adding a new property as the tokenizer
+            # does not officially support multiple eos_token_ids.
+            generation_config = GenerationConfig.from_pretrained(
+                model_id, revision=revision, trust_remote_code=trust_remote_code
+            )
+
+            if isinstance(generation_config.eos_token_id, (list, set)):
+                tokenizer.eos_token_ids = set(generation_config.eos_token_id)
+        except Exception:
+            pass
+
+        config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
+        config.quantize = quantize
+
+        torch.distributed.barrier(group=self.process_group)
+
+        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
+        merged_weight_filenames = None
+        if merge_adapter_weights:
+            if len(adapter_id) > 0:
+                logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
+                # Need to pass the adapter source here
+                merged_weight_filenames = create_merged_weight_files(
+                    adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
+                )
+                self.dynamic_adapter_loading_enabled = False
+                self.adapter_id = adapter_id
+            else:
+                raise ValueError("Cannot merge adapter weights without an adapter_id")
+
+        weights = Weights(
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
+            merged_weight_filenames=merged_weight_filenames,
+        )
+        weights._set_config(model_id, config)
+
+        prefix = ""
+        model = model_cls(prefix, config, weights)
+
+        torch.distributed.barrier(group=self.process_group)
+
+        # VLM models define the config we care about in their text_config
+        text_config = getattr(config, "text_config", None)
+        if text_config is not None:
+            config = text_config
+
+        sliding_window = None
+        if getattr(config, "sliding_window", None) is not None:
+            sliding_window = config.sliding_window
+        else:
+            config.sliding_window = None
+
+        self.num_layers = config.num_hidden_layers
+        self.num_heads = config.num_attention_heads // self.process_group.size()
+        # Validation is done in the model itself
+        if num_kv_heads is None:
+            num_kv_heads = getattr(config, "num_key_value_heads", None)
+            # GPT-2 workaround
+            if num_kv_heads is None:
+                num_kv_heads = getattr(config, "n_head", None)
+        if num_kv_heads is None:
+            raise ValueError("Cannot get the number of key/value heads")
+        self.num_kv_heads = (
+            num_kv_heads // self.process_group.size()
+            if num_kv_heads > 1
+            else num_kv_heads
+        )
+        assert self.num_kv_heads > 0
+
+        if head_size is None:
+            # Some models use GQA and different sizes for o_proj
+            # and q_proj, that allows for that.
+            if hasattr(config, "head_dim"):
+                self.head_size = config.head_dim
+            else:
+                self.head_size = config.hidden_size // config.num_attention_heads
+        else:
+            self.head_size = head_size
 
         super(FlashCausalLM, self).__init__(
             model_id=model_id,
@@ -774,7 +870,7 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            dynamic_adapter_loading_enabled=True,
+            dynamic_adapter_loading_enabled=not merge_adapter_weights,
             trust_remote_code=trust_remote_code,
             processor=processor,
         )

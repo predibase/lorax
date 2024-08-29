@@ -42,84 +42,18 @@ class FlashLlama(FlashCausalLM):
         adapter_id: str,
         adapter_source: str,
         revision: Optional[str] = None,
-        quantize: Optional[str] = None,
-        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
-        trust_remote_code: bool = False,
+        **kwargs,
     ):
-        self.process_group, rank, world_size = initialize_torch_distributed()
-        if torch.cuda.is_available():
-            device = torch.device(f"cuda:{rank}")
-            dtype = torch.float16 if dtype is None else dtype
-        else:
-            raise NotImplementedError("FlashLlama is only available on GPU")
-
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            revision=revision,
-            padding_side="left",
-            truncation_side="left",
-            trust_remote_code=trust_remote_code,
-        )
-
-        try:
-            # Override the tokenizer's eos_token_id with the one from the generation_config
-            # if it is a list or set. We need to do this by adding a new property as the tokenizer
-            # does not officially support multiple eos_token_ids.
-            generation_config = GenerationConfig.from_pretrained(
-                model_id, revision=revision, trust_remote_code=trust_remote_code
-            )
-
-            if isinstance(generation_config.eos_token_id, (list, set)):
-                tokenizer.eos_token_ids = set(generation_config.eos_token_id)
-        except Exception:
-            pass
-
-        config = LlamaConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
-        config.quantize = quantize
-
-        torch.distributed.barrier(group=self.process_group)
-
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        merged_weight_filenames = None
-        if len(adapter_id) > 0:
-            logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
-            # Need to pass the adapter source here
-            merged_weight_filenames = create_merged_weight_files(
-                adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
-            )
-            self.dynamic_adapter_loading_enabled = False
-            self.adapter_id = adapter_id
-
-        weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-            merged_weight_filenames=merged_weight_filenames,
-        )
-        weights._set_config(model_id, config)
-
-        prefix = ""
-        model = FlashLlamaForCausalLM(prefix, config, weights)
-
-        torch.distributed.barrier(group=self.process_group)
-        super(FlashLlama, self).__init__(
+        super().__init__(
             model_id=model_id,
-            model=model,
-            tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
-            num_heads=model.model.num_heads,
+            model_cls=FlashLlamaForCausalLM,
             dtype=dtype,
-            device=device,
-            rank=rank,
-            world_size=world_size,
-            compile=compile,
+            revision=revision,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            trust_remote_code=trust_remote_code,
+            config_cls=LlamaConfig,
+            **kwargs,
         )
 
     @property

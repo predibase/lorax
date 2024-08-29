@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
+from lorax_server.adapters.utils import download_adapter_weights
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -74,15 +75,15 @@ class Model(ABC):
 
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
-        # if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
-        #     download_adapter_weights(adapter_id, adapter_source, api_token=None)
-        #     self.load_adapter(
-        #         AdapterParameters(adapter_ids=[adapter_id]),
-        #         adapter_source,
-        #         adapter_index=0,
-        #         api_token=None,
-        #         dynamic=False,
-        #     )
+        if dynamic_adapter_loading_enabled and adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
+            download_adapter_weights(adapter_id, adapter_source, api_token=None)
+            self.load_adapter(
+                AdapterParameters(adapter_ids=[adapter_id]),
+                adapter_source,
+                adapter_index=0,
+                api_token=None,
+                dynamic=False,
+            )
 
         self.check_initialized()
 
