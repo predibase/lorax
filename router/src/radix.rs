@@ -151,8 +151,10 @@ impl Allocator for RadixAllocator {
                 // This means that while processing this request there was a
                 // partially overlapping request that had A..=E in its
                 // prefill. In this case we need to free the blocks D E.
-                self.free_blocks
-                    .extend(&blocks[allocation.cached_prefix_len..prefix_len]);
+                if prefix_len > allocation.cached_prefix_len {
+                    self.free_blocks
+                        .extend(&blocks[allocation.cached_prefix_len..prefix_len]);
+                }
             }
 
             // Free non-prefill blocks.
