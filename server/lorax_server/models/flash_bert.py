@@ -3,9 +3,9 @@ from typing import Optional, Type
 import torch
 from opentelemetry import trace
 from transformers import AutoTokenizer
+from transformers.modeling_outputs import TokenClassifierOutput
 from transformers.models.bert import BertConfig
 from transformers.models.bert.modeling_bert import BertForTokenClassification
-from transformers.modeling_outputs import TokenClassifierOutput
 
 from lorax_server.models import Model
 from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
