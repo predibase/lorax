@@ -4,6 +4,8 @@ import torch
 from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.bert import BertConfig
+from transformers.models.bert.modeling_bert import BertForTokenClassification
+from transformers.modeling_outputs import TokenClassifierOutput
 
 from lorax_server.models import Model
 from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
@@ -101,7 +103,7 @@ class FlashBert(Model):
         if model_id in ["WhereIsAI/UAE-Large-V1", "BAAI/bge-base-en-v1.5"]:
             prefix = None
         if classifcation_head:
-            model = FlashBertModelForClassification(prefix, weights, device, dtype, config)
+            model = BertForTokenClassification.from_pretrained(model_id).to(device)
         else:
             model = FlashBertModel(prefix, weights, device, dtype, config)
 
@@ -166,13 +168,13 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("classify")
     def classify(self, batch: FlashEmbeddingClassificationBatch):
-        logits: torch.Tensor = self.model.forward(
-            input_ids=batch.input_ids,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-            cu_seqlens=batch.cu_seqlens,
-            max_s=batch.max_s,
+        model_out: TokenClassifierOutput = self.model.forward(
+            input_ids=batch.input_ids.unsqueeze(0),
+            attention_mask=None,
+            token_type_ids=batch.token_type_ids.unsqueeze(0),
+            position_ids=batch.position_ids.unsqueeze(0),
         )
+        logits = model_out.logits
         probabilities = torch.nn.functional.softmax(logits, dim=2)
         confidence_scores, predictions = torch.max(probabilities, dim=2)
         predicted_token_class = [[self.config.id2label[t.item()] for t in prediction] for prediction in predictions]

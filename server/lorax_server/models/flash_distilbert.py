@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 from transformers.models.distilbert import DistilBertConfig
 
 from lorax_server.models import Model
-from lorax_server.models.custom_modeling.flash_bert_modeling import DistilBertEmbeddings, DistilBertLayer
+from lorax_server.models.custom_modeling.flash_distilbert_modeling import DistilBertEmbeddings, DistilBertLayer
 from lorax_server.models.types import FlashEmbeddingClassificationBatch
 from lorax_server.pb.generate_pb2 import Embedding
 from lorax_server.utils import (
