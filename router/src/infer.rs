@@ -1,4 +1,3 @@
-/// Batching and inference logic
 use crate::adapter::{extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID};
 use crate::batch::{ValidClassifyRequest, ValidEmbedRequest};
 use crate::queue::AdapterEvent;
@@ -14,6 +13,8 @@ use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
+/// Batching and inference logic
+use itertools::izip;
 use itertools::multizip;
 use lorax_client::{
     Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, GeneratedText, Generation,
@@ -22,7 +23,6 @@ use lorax_client::{
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
 use nohash_hasher::IntMap;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
@@ -613,7 +613,7 @@ impl Infer {
             .await?;
 
         let valid_request = ValidClassifyRequest {
-            inputs,
+            inputs: inputs.clone(),
             tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
@@ -665,7 +665,11 @@ impl Infer {
                     queued: _,
                     id: _,
                 } => {
-                    let entities = format_ner_output(predictions, self.tokenizer.clone().unwrap());
+                    let entities = aggregate_ner_output_simple(
+                        inputs.clone(),
+                        predictions,
+                        self.tokenizer.clone().unwrap(),
+                    );
                     return_entities = Some(entities);
                 }
             }
@@ -712,6 +716,13 @@ impl Infer {
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = flume::unbounded();
 
+        let request_id_map: HashMap<u64, String> = request
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(id, input)| (id as u64, input.clone()))
+            .collect();
+
         for (id, r_inputs) in request.inputs.iter().enumerate() {
             let inputs = r_inputs.to_string().clone();
             let (tokenized_inputs, input_length) = self
@@ -757,8 +768,12 @@ impl Infer {
                     queued: _,
                     id,
                 } => {
-                    let entities =
-                        format_ner_output(predictions.clone(), self.tokenizer.clone().unwrap());
+                    let request_inputs = request_id_map.get(&id.unwrap()).unwrap().clone();
+                    let entities = aggregate_ner_output_simple(
+                        request_inputs,
+                        predictions.clone(),
+                        self.tokenizer.clone().unwrap(),
+                    );
                     all_entities.insert(id.unwrap(), entities);
                 }
                 _ => {
@@ -1478,31 +1493,35 @@ impl InferError {
     }
 }
 
-fn format_ner_output(
+fn get_tag(token_class: &str) -> (String, String) {
+    let parts: Vec<&str> = token_class.split('-').collect();
+    if parts.len() == 2 {
+        (parts[0].to_string(), parts[1].to_string())
+    } else {
+        ("O".to_string(), "O".to_string())
+    }
+}
+
+fn aggregate_ner_output_simple(
+    input: String,
     classify_prediction_list: ClassifyPredictionList,
     tokenizer: Arc<Tokenizer>,
 ) -> Vec<Entity> {
-    let input_ids =
-        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
     let predicted_token_class =
         &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
     let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
 
-    let tokens: Vec<String> = {
-        let re = Regex::new(r"\b\w+\b|\S").unwrap();
-        re.find_iter(&tokenizer.decode(input_ids, true).unwrap())
-            .map(|m| m.as_str().to_string())
-            .collect()
-    };
+    let encoded = tokenizer.encode(input, false).unwrap();
 
     let mut ner_results = Vec::new();
     let mut current_entity: Option<Entity> = None;
-    for (i, ((token, token_class), score)) in tokens
-        .iter()
-        .zip(predicted_token_class.iter())
-        .zip(scores.iter())
-        .enumerate()
-    {
+    for (i, token, offset, token_class, score) in izip!(
+        0..,
+        encoded.get_tokens(),
+        encoded.get_offsets(),
+        predicted_token_class,
+        scores
+    ) {
         if token_class != "O" {
             let (bi, tag) = get_tag(token_class);
             if bi == "B"
@@ -1516,29 +1535,20 @@ fn format_ner_output(
                     score: *score,
                     index: i,
                     word: token.to_string(),
-                    start: tokenizer.decode(&input_ids[..i], false).unwrap().len(),
-                    end: tokenizer.decode(&input_ids[..=i], false).unwrap().len(),
+                    start: offset.0,
+                    end: offset.1,
                 });
             } else if bi == "I" && current_entity.is_some() {
                 let entity = current_entity.as_mut().unwrap();
                 entity.word += &token.replace("##", "");
-                entity.end = tokenizer.decode(&input_ids[..=i], false).unwrap().len();
+                entity.end = offset.1;
             }
         } else if let Some(entity) = current_entity.take() {
             ner_results.push(entity);
         }
     }
-    if let Some(entity) = current_entity {
+    if let Some(entity) = current_entity.take() {
         ner_results.push(entity);
     }
     ner_results
-}
-
-fn get_tag(token_class: &str) -> (String, String) {
-    let parts: Vec<&str> = token_class.split('-').collect();
-    if parts.len() == 2 {
-        (parts[0].to_string(), parts[1].to_string())
-    } else {
-        ("O".to_string(), "O".to_string())
-    }
 }
