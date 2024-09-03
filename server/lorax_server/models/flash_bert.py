@@ -143,7 +143,7 @@ class FlashBert(Model):
         # and then just returning the max seqlen since for embeddings we are never generating
         if self.supports_classification:
             self.classify(batch)
-        if self.supports_embeddings:
+        elif self.supports_embeddings:
             self.embed(batch)
         return batch.max_s
 
