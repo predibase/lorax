@@ -144,17 +144,13 @@ class BertModel:
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor,
         position_ids: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor]:
-        if attention_mask is None:
-            attention_mask = torch.ones_like(input_ids)
-        if token_type_ids is None:
-            token_type_ids = torch.zeros_like(input_ids)
         if position_ids is None:
             position_ids = torch.arange(input_ids.size(1), dtype=torch.long, device=input_ids.device).unsqueeze(0).expand_as(input_ids)
 
+        attention_mask = torch.ones_like(input_ids)
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
@@ -176,20 +172,9 @@ class BertForTokenClassification(torch.nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        token_type_ids: Optional[torch.Tensor] = None,
+        token_type_ids: torch.Tensor,
         position_ids: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
     ) -> Union[Tuple[torch.Tensor], TokenClassifierOutput]:
-        sequence_output = self.bert.forward(input_ids, attention_mask, token_type_ids, position_ids)
+        sequence_output = self.bert.forward(input_ids, token_type_ids, position_ids)
         logits = F.linear(sequence_output, self.classifier_weight, self.classifier_bias)
-
-        loss = None
-        if labels is not None:
-            loss_fct = F.cross_entropy
-            loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-
-        return TokenClassifierOutput(
-            loss=loss,
-            logits=logits,
-        )
+        return logits
