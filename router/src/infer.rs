@@ -1507,19 +1507,27 @@ fn aggregate_ner_output_simple(
     classify_prediction_list: ClassifyPredictionList,
     tokenizer: Arc<Tokenizer>,
 ) -> Vec<Entity> {
-    let predicted_token_class =
+    // Encode the input
+    let encoded = tokenizer.encode(input, false).unwrap();
+
+    // Extract relevant data from classify_prediction_list, trimming first and last elements
+    let input_ids =
+        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
+    let predicted_token_classes =
         &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
     let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
 
-    let encoded = tokenizer.encode(input, false).unwrap();
-
+    // Initialize result and tracking variables
     let mut ner_results = Vec::new();
     let mut current_entity: Option<Entity> = None;
+    let mut entity_start_index = 0;
+    let mut entity_scores = Vec::new();
+
     for (i, token, offset, token_class, score) in izip!(
         0..,
         encoded.get_tokens(),
         encoded.get_offsets(),
-        predicted_token_class,
+        predicted_token_classes,
         scores
     ) {
         if token_class != "O" {
@@ -1527,8 +1535,11 @@ fn aggregate_ner_output_simple(
             if bi == "B"
                 || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
             {
-                if let Some(entity) = current_entity {
+                if let Some(entity) = current_entity.take() {
                     ner_results.push(entity);
+                    entity_start_index = i;
+                    entity_scores.clear();
+                    entity_scores.push(*score);
                 }
                 current_entity = Some(Entity {
                     entity: tag,
@@ -1538,13 +1549,20 @@ fn aggregate_ner_output_simple(
                     start: offset.0,
                     end: offset.1,
                 });
-            } else if bi == "I" && current_entity.is_some() {
+            } else if current_entity.is_some() {
+                entity_scores.push(*score);
                 let entity = current_entity.as_mut().unwrap();
-                entity.word += &token.replace("##", "");
+                entity.score = entity_scores.iter().sum::<f32>() / entity_scores.len() as f32;
+                entity.word = tokenizer
+                    .decode(&input_ids[entity_start_index..i + 1], true)
+                    .unwrap();
                 entity.end = offset.1;
             }
         } else if let Some(entity) = current_entity.take() {
             ner_results.push(entity);
+            entity_start_index = i;
+            entity_scores.clear();
+            entity_scores.push(*score);
         }
     }
     if let Some(entity) = current_entity.take() {
