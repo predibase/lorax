@@ -742,26 +742,16 @@ struct ClassifyRequest {
     inputs: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ClassifyResponse {
-    entities: Vec<Entity>,
-}
-
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchClassifyRequest {
     inputs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct BatchClassifyResponse {
-    entities: Vec<Vec<Entity>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct Entity {
-    entity: String,
+    entity_group: String,
     score: f32,
-    index: usize,
+    // index: usize,
     word: String,
     start: usize,
     end: usize,
@@ -770,9 +760,9 @@ struct Entity {
 impl From<EntityMessage> for Entity {
     fn from(entity: EntityMessage) -> Self {
         Entity {
-            entity: entity.entity,
+            entity_group: entity.entity,
             score: entity.score,
-            index: entity.index as usize,
+            // index: entity.index as usize,
             word: entity.word,
             start: entity.start as usize,
             end: entity.end as usize,

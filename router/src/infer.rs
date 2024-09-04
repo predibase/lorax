@@ -4,9 +4,9 @@ use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse,
-    ChatTemplateVersions, ClassifyRequest, ClassifyResponse, EmbedRequest, EmbedResponse, Entity,
-    Entry, HubTokenizerConfig, Message, TextMessage, Token, TokenizerConfigToken,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, ChatTemplateVersions,
+    ClassifyRequest, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
+    TextMessage, Token, TokenizerConfigToken,
 };
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
@@ -584,7 +584,7 @@ impl Infer {
     pub(crate) async fn classify(
         &self,
         request: ClassifyRequest,
-    ) -> Result<ClassifyResponse, InferError> {
+    ) -> Result<Vec<Entity>, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
         let _permit = self
             .clone()
@@ -676,9 +676,7 @@ impl Infer {
         }
 
         if let Some(return_entities) = return_entities {
-            Ok(ClassifyResponse {
-                entities: return_entities.into_iter().map(Entity::from).collect(),
-            })
+            Ok(return_entities.into_iter().map(Entity::from).collect())
         } else {
             let err = InferError::ClassificationFailure;
             metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
@@ -691,7 +689,7 @@ impl Infer {
     pub(crate) async fn classify_batch(
         &self,
         request: BatchClassifyRequest,
-    ) -> Result<BatchClassifyResponse, InferError> {
+    ) -> Result<Vec<Vec<Entity>>, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
         let _permit = self
             .clone()
@@ -797,9 +795,7 @@ impl Infer {
                 .map(|(_, entities)| entities.into_iter().map(Entity::from).collect())
                 .collect();
 
-            Ok(BatchClassifyResponse {
-                entities: sorted_entities,
-            })
+            Ok(sorted_entities)
         }
     }
 
@@ -1533,7 +1529,8 @@ fn aggregate_ner_output_simple(
         if token_class != "O" {
             let (bi, tag) = get_tag(token_class);
             if bi == "B"
-                || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
+                || (current_entity.is_some()
+                    && tag != current_entity.as_ref().unwrap().entity_group)
             {
                 if let Some(entity) = current_entity.take() {
                     ner_results.push(entity);
@@ -1542,9 +1539,9 @@ fn aggregate_ner_output_simple(
                     entity_scores.push(*score);
                 }
                 current_entity = Some(Entity {
-                    entity: tag,
+                    entity_group: tag,
                     score: *score,
-                    index: i,
+                    // index: i,
                     word: token.to_string(),
                     start: offset.0,
                     end: offset.1,
