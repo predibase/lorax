@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, List
 
 import torch
 import torch.utils.checkpoint
@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from transformers import BertConfig
 from typing import Optional, Tuple, Union
 from lorax_server.utils.layers import FastLayerNorm
+from lorax_server.utils.flash_attn import attention
 
 class BertEmbeddings:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
@@ -58,6 +59,7 @@ class BertSdpaSelfAttention:
         key_layer = self.transpose_for_scores(key)
         value_layer = self.transpose_for_scores(value)
 
+        # attn_output = attention(query, key, value, None, None, cu_seqlens, max_s, self.softmax_scale, causal=False)
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_layer,
             key_layer,
@@ -145,7 +147,9 @@ class BertModel:
         self,
         input_ids: torch.Tensor,
         token_type_ids: torch.Tensor,
-        position_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor],
+        cu_seqlens: List[int],
+        max_s: int,
     ) -> Tuple[torch.Tensor]:
         if position_ids is None:
             position_ids = torch.arange(input_ids.size(1), dtype=torch.long, device=input_ids.device).unsqueeze(0).expand_as(input_ids)
@@ -156,9 +160,11 @@ class BertModel:
 
         embedding_output = self.embeddings.forward(input_ids, token_type_ids, position_ids)
         encoder_outputs = self.encoder.forward(embedding_output, extended_attention_mask)
-        sequence_output = encoder_outputs
+        encoder_outputs = encoder_outputs.squeeze(0)
+        batch_size = encoder_outputs.shape[0] // max_s
+        encoder_outputs = encoder_outputs.reshape(batch_size, max_s, -1)
 
-        return sequence_output
+        return encoder_outputs
 
 class BertForTokenClassification(torch.nn.Module):
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
@@ -173,8 +179,10 @@ class BertForTokenClassification(torch.nn.Module):
         self,
         input_ids: torch.Tensor,
         token_type_ids: torch.Tensor,
-        position_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor],
+        cu_seqlens: List[int],
+        max_s: int,
     ) -> Union[Tuple[torch.Tensor], TokenClassifierOutput]:
-        sequence_output = self.bert.forward(input_ids, token_type_ids, position_ids)
-        logits = F.linear(sequence_output, self.classifier_weight, self.classifier_bias)
+        encoder_outputs = self.bert.forward(input_ids, token_type_ids, position_ids, cu_seqlens, max_s)
+        logits = F.linear(encoder_outputs, self.classifier_weight, self.classifier_bias)
         return logits

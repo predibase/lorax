@@ -176,6 +176,8 @@ class FlashBert(Model):
             input_ids=batch.input_ids,
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
+            cu_seqlens=batch.cu_seqlens,
+            max_s=batch.max_s,
         )
         probabilities = torch.nn.functional.softmax(logits, dim=2)
         confidence_scores, predictions = torch.max(probabilities, dim=2)
