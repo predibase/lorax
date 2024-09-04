@@ -43,13 +43,14 @@ class BertSdpaSelfAttention:
         self.key_bias = weights.get_tensor(f"{prefix}.self.key.bias").to(dtype).to(device)
         self.value_weight = weights.get_tensor(f"{prefix}.self.value.weight").to(dtype).to(device)
         self.value_bias = weights.get_tensor(f"{prefix}.self.value.bias").to(dtype).to(device)
+        self.softmax_scale = self.attention_head_size**-0.5
 
     def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: Optional[torch.FloatTensor] = None) -> Tuple[torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor, cu_seqlens: List[int], max_s: int) -> Tuple[torch.Tensor]:
         bsz, tgt_len, _ = hidden_states.size()
         query = F.linear(hidden_states, self.query_weight, self.query_bias)
         key = F.linear(hidden_states, self.key_weight, self.key_bias)
@@ -59,18 +60,22 @@ class BertSdpaSelfAttention:
         key_layer = self.transpose_for_scores(key)
         value_layer = self.transpose_for_scores(value)
 
-        # attn_output = attention(query, key, value, None, None, cu_seqlens, max_s, self.softmax_scale, causal=False)
+
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_layer,
             key_layer,
             value_layer,
             dropout_p=0,
         )
-
+        attn_output_bad= attention(query_layer.squeeze(0), key_layer.squeeze(0), value_layer.squeeze(0), None, None, cu_seqlens, max_s, self.softmax_scale, causal=False)
+        breakpoint()
+        attn_output_bad.unsqueeze(0)
+        print("norm -> this should be 0:", torch.norm(attn_output_bad - attn_output))
         attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.reshape(bsz, tgt_len, self.all_head_size)
 
         return attn_output
+
 
 class BertSelfOutput:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
@@ -89,8 +94,8 @@ class BertAttention:
         self.self = BertSdpaSelfAttention(prefix, weights, device, dtype, config)
         self.output = BertSelfOutput(prefix, weights, device, dtype, config)
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: Optional[torch.FloatTensor] = None) -> torch.Tensor:
-        self_output = self.self.forward(hidden_states, attention_mask)
+    def forward(self, hidden_states: torch.Tensor, cu_seqlens: List[int], max_s: int) -> torch.Tensor:
+        self_output = self.self.forward(hidden_states, cu_seqlens, max_s) 
         attention_output = self.output.forward(self_output, hidden_states)
         return attention_output
 
@@ -123,8 +128,8 @@ class BertLayer:
         self.intermediate = BertIntermediate(prefix, weights, device, dtype, config)
         self.output = BertOutput(prefix, weights, device, dtype, config)
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: Optional[torch.FloatTensor] = None) -> torch.Tensor:
-        attention_output = self.attention.forward(hidden_states, attention_mask)
+    def forward(self, hidden_states: torch.Tensor, cu_seqlens: List[int], max_s: int) -> torch.Tensor:
+        attention_output = self.attention.forward(hidden_states, cu_seqlens, max_s)
         intermediate_output = self.intermediate.forward(attention_output)
         layer_output = self.output.forward(intermediate_output, attention_output)
         return layer_output
@@ -133,9 +138,9 @@ class BertEncoder:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
         self.layers = [BertLayer(f"{prefix}.layer.{i}", weights, device, dtype, config) for i in range(config.num_hidden_layers)]
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: Optional[torch.FloatTensor] = None) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, cu_seqlens: List[int], max_s: int) -> torch.Tensor:
         for layer in self.layers:
-            hidden_states = layer.forward(hidden_states, attention_mask)
+            hidden_states = layer.forward(hidden_states, cu_seqlens, max_s)
         return hidden_states
 
 class BertModel:
@@ -154,12 +159,8 @@ class BertModel:
         if position_ids is None:
             position_ids = torch.arange(input_ids.size(1), dtype=torch.long, device=input_ids.device).unsqueeze(0).expand_as(input_ids)
 
-        attention_mask = torch.ones_like(input_ids)
-        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
-
         embedding_output = self.embeddings.forward(input_ids, token_type_ids, position_ids)
-        encoder_outputs = self.encoder.forward(embedding_output, extended_attention_mask)
+        encoder_outputs = self.encoder.forward(embedding_output, cu_seqlens, max_s)
         encoder_outputs = encoder_outputs.squeeze(0)
         batch_size = encoder_outputs.shape[0] // max_s
         encoder_outputs = encoder_outputs.reshape(batch_size, max_s, -1)
