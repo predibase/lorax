@@ -11,22 +11,22 @@ import torch
 import torch.nn.functional as F
 from transformers import BertConfig
 from typing import Optional, Tuple, Union
+from lorax_server.utils.layers import FastLayerNorm
 
 class BertEmbeddings:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
         self.word_embeddings_weight = weights.get_tensor(f"{prefix}.word_embeddings.weight").to(dtype).to(device)
         self.token_type_embeddings_weight = weights.get_tensor(f"{prefix}.token_type_embeddings.weight").to(dtype).to(device)
         self.position_embeddings_weight = weights.get_tensor(f"{prefix}.position_embeddings.weight").to(dtype).to(device)
-        self.layer_norm_weight = weights.get_tensor(f"{prefix}.LayerNorm.weight").to(dtype).to(device)
-        self.layer_norm_bias = weights.get_tensor(f"{prefix}.LayerNorm.bias").to(dtype).to(device)
-        self.layer_norm_eps = config.layer_norm_eps
+        self.layer_norm = FastLayerNorm.load(prefix=f"{prefix}.LayerNorm", weights=weights, eps=config.layer_norm_eps)
 
     def forward(self, input_ids, token_type_ids, position_ids):
         inputs_embeds = F.embedding(input_ids, self.word_embeddings_weight)
         token_type_embeds = F.embedding(token_type_ids, self.token_type_embeddings_weight)
         position_embeds = F.embedding(position_ids, self.position_embeddings_weight)
         embeddings = inputs_embeds + token_type_embeds + position_embeds
-        embeddings = F.layer_norm(embeddings, self.layer_norm_weight.shape, self.layer_norm_weight, self.layer_norm_bias, self.layer_norm_eps)
+        embeddings, _ = self.layer_norm.forward(embeddings)
+        embeddings = embeddings.unsqueeze(0)
         return embeddings
 
 class BertSdpaSelfAttention:
@@ -74,13 +74,12 @@ class BertSelfOutput:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
         self.dense_weight = weights.get_tensor(f"{prefix}.output.dense.weight").to(dtype).to(device)
         self.dense_bias = weights.get_tensor(f"{prefix}.output.dense.bias").to(dtype).to(device)
-        self.layer_norm_weight = weights.get_tensor(f"{prefix}.output.LayerNorm.weight").to(dtype).to(device)
-        self.layer_norm_bias = weights.get_tensor(f"{prefix}.output.LayerNorm.bias").to(dtype).to(device)
-        self.layer_norm_eps = config.layer_norm_eps
+        self.layer_norm = FastLayerNorm.load(prefix=f"{prefix}.output.LayerNorm", weights=weights, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         hidden_states = F.linear(hidden_states, self.dense_weight, self.dense_bias)
-        hidden_states = F.layer_norm(hidden_states + input_tensor, self.layer_norm_weight.shape, self.layer_norm_weight, self.layer_norm_bias, self.layer_norm_eps)
+        hidden_states, _ = self.layer_norm.forward(hidden_states.squeeze(0), input_tensor.squeeze(0))
+        hidden_states = hidden_states.unsqueeze(0)
         return hidden_states
 
 class BertAttention:
@@ -108,13 +107,12 @@ class BertOutput:
     def __init__(self, prefix, weights, device, dtype, config: BertConfig):
         self.dense_weight = weights.get_tensor(f"{prefix}.output.dense.weight").to(dtype).to(device)
         self.dense_bias = weights.get_tensor(f"{prefix}.output.dense.bias").to(dtype).to(device)
-        self.layer_norm_weight = weights.get_tensor(f"{prefix}.output.LayerNorm.weight").to(dtype).to(device)
-        self.layer_norm_bias = weights.get_tensor(f"{prefix}.output.LayerNorm.bias").to(dtype).to(device)
-        self.layer_norm_eps = config.layer_norm_eps
+        self.layer_norm = FastLayerNorm.load(prefix=f"{prefix}.output.LayerNorm", weights=weights, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         hidden_states = F.linear(hidden_states, self.dense_weight, self.dense_bias)
-        hidden_states = F.layer_norm(hidden_states + input_tensor, self.layer_norm_weight.shape, self.layer_norm_weight, self.layer_norm_bias, self.layer_norm_eps)
+        hidden_states, _ = self.layer_norm.forward(hidden_states.squeeze(0), input_tensor.squeeze(0))
+        hidden_states = hidden_states.unsqueeze(0)
         return hidden_states
 
 class BertLayer:

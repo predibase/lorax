@@ -173,14 +173,14 @@ class FlashBert(Model):
     @tracer.start_as_current_span("classify")
     def classify(self, batch: FlashEmbeddingClassificationBatch):
         # reshape the input tensor to be of (batch_size, max_s)
-        input_ids = batch.input_ids.reshape(-1, batch.max_s)    
-        token_type_ids = batch.token_type_ids.reshape(-1, batch.max_s)
-        position_ids = batch.position_ids.reshape(-1, batch.max_s)
+        # input_ids = batch.input_ids.reshape(-1, batch.max_s)    
+        # token_type_ids = batch.token_type_ids.reshape(-1, batch.max_s)
+        # position_ids = batch.position_ids.reshape(-1, batch.max_s)
         model_out: TokenClassifierOutput = self.model.forward(
-            input_ids=input_ids,
+            input_ids=batch.input_ids,
             attention_mask=None,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
+            token_type_ids=batch.token_type_ids,
+            position_ids=batch.position_ids,
         )
         logits = model_out.logits
         probabilities = torch.nn.functional.softmax(logits, dim=2)
