@@ -5,9 +5,9 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.modeling_outputs import TokenClassifierOutput
 from transformers.models.bert import BertConfig
-from transformers.models.bert.modeling_bert import BertForTokenClassification
 
 from lorax_server.models import Model
+from lorax_server.models.custom_modeling.transformers_bert import BertForTokenClassification
 from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
 from lorax_server.models.types import FlashEmbeddingClassificationBatch
 from lorax_server.pb.generate_pb2 import Embedding
@@ -103,7 +103,8 @@ class FlashBert(Model):
         if model_id in ["WhereIsAI/UAE-Large-V1", "BAAI/bge-base-en-v1.5"]:
             prefix = None
         if classifcation_head:
-            model = BertForTokenClassification.from_pretrained(model_id).to(device)
+            # model = BertForTokenClassification.from_pretrained(model_id).to(device)
+            model = BertForTokenClassification(prefix, weights, device, dtype, config)
         else:
             model = FlashBertModel(prefix, weights, device, dtype, config)
 
