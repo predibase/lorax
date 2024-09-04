@@ -67,10 +67,6 @@ class BertSdpaSelfAttention:
             value_layer,
             dropout_p=0,
         )
-        attn_output_bad= attention(query_layer.squeeze(0), key_layer.squeeze(0), value_layer.squeeze(0), None, None, cu_seqlens, max_s, self.softmax_scale, causal=False)
-        breakpoint()
-        attn_output_bad.unsqueeze(0)
-        print("norm -> this should be 0:", torch.norm(attn_output_bad - attn_output))
         attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.reshape(bsz, tgt_len, self.all_head_size)
 
