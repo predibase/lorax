@@ -1504,11 +1504,8 @@ fn aggregate_ner_output_simple(
     tokenizer: Arc<Tokenizer>,
 ) -> Vec<Entity> {
     // Encode the input
-    let encoded = tokenizer.encode(input, false).unwrap();
+    let encoded = tokenizer.encode(input.clone(), false).unwrap();
 
-    // Extract relevant data from classify_prediction_list, trimming first and last elements
-    let input_ids =
-        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
     let predicted_token_classes =
         &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
     let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
@@ -1516,16 +1513,11 @@ fn aggregate_ner_output_simple(
     // Initialize result and tracking variables
     let mut ner_results = Vec::new();
     let mut current_entity: Option<Entity> = None;
-    let mut entity_start_index = 0;
     let mut entity_scores = Vec::new();
 
-    for (i, token, offset, token_class, score) in izip!(
-        0..,
-        encoded.get_tokens(),
-        encoded.get_offsets(),
-        predicted_token_classes,
-        scores
-    ) {
+    for (offset, token_class, score) in
+        izip!(encoded.get_offsets(), predicted_token_classes, scores)
+    {
         if token_class != "O" {
             let (bi, tag) = get_tag(token_class);
             if bi == "B"
@@ -1534,15 +1526,13 @@ fn aggregate_ner_output_simple(
             {
                 if let Some(entity) = current_entity.take() {
                     ner_results.push(entity);
-                    entity_start_index = i;
                     entity_scores.clear();
                     entity_scores.push(*score);
                 }
                 current_entity = Some(Entity {
                     entity_group: tag,
                     score: *score,
-                    // index: i,
-                    word: token.to_string(),
+                    word: "".to_string(),
                     start: offset.0,
                     end: offset.1,
                 });
@@ -1550,14 +1540,10 @@ fn aggregate_ner_output_simple(
                 entity_scores.push(*score);
                 let entity = current_entity.as_mut().unwrap();
                 entity.score = entity_scores.iter().sum::<f32>() / entity_scores.len() as f32;
-                entity.word = tokenizer
-                    .decode(&input_ids[entity_start_index..i + 1], true)
-                    .unwrap();
                 entity.end = offset.1;
             }
         } else if let Some(entity) = current_entity.take() {
             ner_results.push(entity);
-            entity_start_index = i;
             entity_scores.clear();
             entity_scores.push(*score);
         }
@@ -1565,5 +1551,10 @@ fn aggregate_ner_output_simple(
     if let Some(entity) = current_entity.take() {
         ner_results.push(entity);
     }
-    ner_results
+    let mut new_ner_results = Vec::with_capacity(ner_results.len());
+    for mut entity in ner_results {
+        entity.word = input[entity.start..entity.end].to_string();
+        new_ner_results.push(entity);
+    }
+    new_ner_results
 }
