@@ -1532,7 +1532,7 @@ fn aggregate_ner_output_simple(
                 current_entity = Some(Entity {
                     entity_group: tag,
                     score: *score,
-                    word: "".to_string(),
+                    word: "".to_string(), // stub for now. set later in second pass
                     start: offset.0,
                     end: offset.1,
                 });
