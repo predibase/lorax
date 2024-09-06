@@ -181,13 +181,14 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("embed")
     def embed(self, batch: FlashEmbeddingClassificationBatch) -> Embedding:
-        embedding: torch.Tensor = self.model.forward(
-            input_ids=batch.input_ids,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-            cu_seqlens=batch.cu_seqlens,
-            max_s=batch.max_s,
-        )
+        with self._forward_context(cu_seqlens=batch.cu_seqlens):
+            embedding: torch.Tensor = self.model.forward(
+                input_ids=batch.input_ids,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+                cu_seqlens=batch.cu_seqlens,
+                max_s=batch.max_s,
+            )
         embedding = embedding.reshape(embedding.shape[0], -1)[:, : self.hidden_size]
 
         cpu_results = embedding.cpu().tolist()
