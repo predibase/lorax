@@ -1,7 +1,6 @@
 from contextlib import nullcontext
-from typing import Any, ContextManager, List, Optional, Type
+from typing import Any, ContextManager, Optional, Type
 
-from lorax_server.utils.state import FLASH_INFER
 import torch
 from opentelemetry import trace
 from transformers import AutoTokenizer
@@ -16,6 +15,7 @@ from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
 )
+from lorax_server.utils.state import FLASH_INFER
 
 tracer = trace.get_tracer(__name__)
 
@@ -117,6 +117,7 @@ class FlashBert(Model):
 
         if FLASH_INFER:
             from lorax_server.utils.flashinfer_attention import create_prefill_state
+
             self.prefill_state = create_prefill_state(device=device)
 
         super(FlashBert, self).__init__(
@@ -156,7 +157,7 @@ class FlashBert(Model):
         if not self.supports_text_generation:
             raise NotImplementedError("This model does not support text generation")
         return None
-    
+
     def _forward_context(
         self,
         *,
