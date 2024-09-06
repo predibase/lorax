@@ -751,7 +751,6 @@ struct BatchClassifyRequest {
 struct Entity {
     entity_group: String,
     score: f32,
-    // index: usize,
     word: String,
     start: usize,
     end: usize,
@@ -762,7 +761,6 @@ impl From<EntityMessage> for Entity {
         Entity {
             entity_group: entity.entity,
             score: entity.score,
-            // index: entity.index as usize,
             word: entity.word,
             start: entity.start as usize,
             end: entity.end as usize,
