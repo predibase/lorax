@@ -3,11 +3,9 @@ from typing import Optional, Type
 import torch
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from transformers.modeling_outputs import TokenClassifierOutput
 from transformers.models.bert import BertConfig
 
 from lorax_server.models import Model
-from lorax_server.models.custom_modeling.transformers_bert import BertForTokenClassification
 from lorax_server.models.custom_modeling.flash_bert_modeling import BertEmbeddings, BertLayer
 from lorax_server.models.types import FlashEmbeddingClassificationBatch
 from lorax_server.pb.generate_pb2 import Embedding
@@ -103,8 +101,7 @@ class FlashBert(Model):
         if model_id in ["WhereIsAI/UAE-Large-V1", "BAAI/bge-base-en-v1.5"]:
             prefix = None
         if classifcation_head:
-            # model = BertForTokenClassification.from_pretrained(model_id).to(device)
-            model = BertForTokenClassification(prefix, weights, device, dtype, config)
+            model = FlashBertModelForClassification(prefix, weights, device, dtype, config)
         else:
             model = FlashBertModel(prefix, weights, device, dtype, config)
 
@@ -142,10 +139,7 @@ class FlashBert(Model):
     def warmup(self, batch: FlashEmbeddingClassificationBatch, max_new_tokens: int) -> int | None:
         # Note: This is meant to 1) preallocate the memory by doing a forward pass
         # and then just returning the max seqlen since for embeddings we are never generating
-        if self.supports_classification:
-            self.classify(batch)
-        elif self.supports_embeddings:
-            self.embed(batch)
+        _ = self.embed(batch)
         return batch.max_s
 
     def generate_token(self, batch: FlashEmbeddingClassificationBatch) -> None:
@@ -172,7 +166,7 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("classify")
     def classify(self, batch: FlashEmbeddingClassificationBatch):
-        logits = self.model.forward(
+        logits: torch.Tensor = self.model.forward(
             input_ids=batch.input_ids,
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
