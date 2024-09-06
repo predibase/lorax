@@ -1,4 +1,5 @@
-from typing import Optional, Type
+from contextlib import nullcontext
+from typing import Any, ContextManager, Optional, Type
 
 import torch
 from opentelemetry import trace
@@ -14,6 +15,7 @@ from lorax_server.utils import (
     initialize_torch_distributed,
     weight_files,
 )
+from lorax_server.utils.state import FLASH_INFER
 
 tracer = trace.get_tracer(__name__)
 
@@ -109,6 +111,15 @@ class FlashBert(Model):
         self.hidden_size = config.hidden_size
         self.config = config
 
+        self.num_heads = config.num_attention_heads
+        self.num_kv_heads = config.num_attention_heads
+        self.head_size = config.hidden_size // config.num_attention_heads
+
+        if FLASH_INFER:
+            from lorax_server.utils.flashinfer_attention import create_prefill_state
+
+            self.prefill_state = create_prefill_state(device=device)
+
         super(FlashBert, self).__init__(
             model_id=model_id,
             model=model,
@@ -147,18 +158,38 @@ class FlashBert(Model):
             raise NotImplementedError("This model does not support text generation")
         return None
 
+    def _forward_context(
+        self,
+        *,
+        cu_seqlens: torch.Tensor,
+        state: Optional[Any] = None,
+    ) -> ContextManager:
+        if not FLASH_INFER:
+            return nullcontext()
+
+        from lorax_server.utils.flashinfer_attention import use_prefill_state
+
+        return use_prefill_state(
+            state=(state if state is not None else self.prefill_state),
+            cu_seqlens=cu_seqlens,
+            num_heads=self.num_heads,
+            num_kv_heads=self.num_kv_heads,
+            head_size=self.head_size,
+        )
+
     def forward(self, batch: FlashEmbeddingClassificationBatch):
         return self.embed(batch)
 
     @tracer.start_as_current_span("embed")
     def embed(self, batch: FlashEmbeddingClassificationBatch) -> Embedding:
-        embedding: torch.Tensor = self.model.forward(
-            input_ids=batch.input_ids,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-            cu_seqlens=batch.cu_seqlens,
-            max_s=batch.max_s,
-        )
+        with self._forward_context(cu_seqlens=batch.cu_seqlens):
+            embedding: torch.Tensor = self.model.forward(
+                input_ids=batch.input_ids,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+                cu_seqlens=batch.cu_seqlens,
+                max_s=batch.max_s,
+            )
         embedding = embedding.reshape(embedding.shape[0], -1)[:, : self.hidden_size]
 
         cpu_results = embedding.cpu().tolist()
@@ -166,13 +197,14 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("classify")
     def classify(self, batch: FlashEmbeddingClassificationBatch):
-        logits: torch.Tensor = self.model.forward(
-            input_ids=batch.input_ids,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-            cu_seqlens=batch.cu_seqlens,
-            max_s=batch.max_s,
-        )
+        with self._forward_context(cu_seqlens=batch.cu_seqlens):
+            logits: torch.Tensor = self.model.forward(
+                input_ids=batch.input_ids,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+                cu_seqlens=batch.cu_seqlens,
+                max_s=batch.max_s,
+            )
         probabilities = torch.nn.functional.softmax(logits, dim=2)
         confidence_scores, predictions = torch.max(probabilities, dim=2)
         predicted_token_class = [[self.config.id2label[t.item()] for t in prediction] for prediction in predictions]

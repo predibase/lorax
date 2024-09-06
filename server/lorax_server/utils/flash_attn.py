@@ -137,6 +137,7 @@ if FLASH_INFER:
                 k,
                 v,
                 causal=causal,
+                pos_encoding_mode="NONE",
                 window_left=window_size_left,
                 logits_soft_cap=softcap,
                 sm_scale=softmax_scale,
