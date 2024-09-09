@@ -269,7 +269,7 @@ class VlmCausalLM(FlashCausalLM):
             raise NotImplementedError("Vlm do not work with prefix caching yet")
         if processor_kwargs is None:
             processor_kwargs = {}
-        
+
         processor = processor_class.from_pretrained(
             model_id,
             revision=revision,

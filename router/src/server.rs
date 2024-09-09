@@ -6,15 +6,15 @@ use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse,
-    BestOfSequence, ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
     ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
-    ClassifyResponse, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
-    CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
-    CompletionStreamResponse, Details, EmbedRequest, EmbedResponse, ErrorResponse, FinishReason,
-    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs,
-    PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse,
-    Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
+    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
+    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
+    EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken,
+    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
+    TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -1469,7 +1469,7 @@ async fn embed(
 async fn classify(
     infer: Extension<Infer>,
     Json(req): Json<ClassifyRequest>,
-) -> Result<Json<ClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<Entity>>, (StatusCode, Json<ErrorResponse>)> {
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Input: {}", req.inputs);
     let response = infer.classify(req).await?;
@@ -1490,7 +1490,7 @@ async fn classify(
 async fn classify_batch(
     infer: Extension<Infer>,
     Json(req): Json<BatchClassifyRequest>,
-) -> Result<Json<BatchClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<Vec<Entity>>>, (StatusCode, Json<ErrorResponse>)> {
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Inputs: {:?}", req.inputs);
     let response = infer.classify_batch(req).await?;
