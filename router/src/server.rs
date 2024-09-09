@@ -1269,7 +1269,7 @@ pub async fn run(
         .route("/generate", post(generate))
         .route("/embed", post(embed))
         .route("/classify", post(classify))
-        // .route("/classify_batch", post(classify_batch))
+        .route("/classify_batch", post(classify_batch))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
@@ -1476,26 +1476,26 @@ async fn classify(
     Ok(Json(response))
 }
 
-// #[utoipa::path(
-//     post,
-//     tag = "ClassifyBatch",
-//     path = "/classify_batch",
-//     request_body = TokenizeRequest,
-//     responses(
-//     (status = 200, description = "Classifications", body = BatchClassifyResponse),
-//     (status = 500, description = "Incomplete classification", body = ErrorResponse),
-//     )
-// )]
-// #[instrument(skip_all)]
-// async fn classify_batch(
-//     infer: Extension<Infer>,
-//     Json(req): Json<BatchClassifyRequest>,
-// ) -> Result<Json<Vec<Vec<Entity>>>, (StatusCode, Json<ErrorResponse>)> {
-//     metrics::increment_counter!("lorax_request_count");
-//     tracing::debug!("Inputs: {:?}", req.inputs);
-//     let response = infer.classify_batch(req).await?;
-//     Ok(Json(response))
-// }
+#[utoipa::path(
+    post,
+    tag = "ClassifyBatch",
+    path = "/classify_batch",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Classifications", body = BatchClassifyResponse),
+    (status = 500, description = "Incomplete classification", body = ErrorResponse),
+    )
+)]
+#[instrument(skip_all)]
+async fn classify_batch(
+    infer: Extension<Infer>,
+    Json(req): Json<BatchClassifyRequest>,
+) -> Result<Json<Vec<Vec<Entity>>>, (StatusCode, Json<ErrorResponse>)> {
+    metrics::increment_counter!("lorax_request_count");
+    tracing::debug!("Inputs: {:?}", req.inputs);
+    let response = infer.classify_batch(req).await?;
+    Ok(Json(response))
+}
 
 /// Tokenize inputs
 #[utoipa::path(

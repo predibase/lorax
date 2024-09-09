@@ -165,6 +165,8 @@ pub(crate) struct Entry {
     pub batch_time: Option<Instant>,
     /// Block Allocation
     pub block_allocation: Option<BlockAllocation>,
+    /// Optional entry id
+    pub id: Option<u64>,
 }
 
 #[derive(Debug)]
