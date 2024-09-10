@@ -18,9 +18,7 @@ service LoraxService {
     /// Embed
     rpc Embed (EmbedRequest) returns (EmbedResponse);
     /// Classify 
-    // rpc Classify (ClassifyRequest) returns (ClassifyResponse);
-    /// Classify 
-    rpc Classify (ClassifyRequest) returns (ClassifyResponse2);
+    rpc Classify (ClassifyRequest) returns (ClassifyResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
@@ -329,7 +327,6 @@ message ClassifyPredictionList {
     /// Classifications
     repeated string predictions = 2;
     repeated float scores = 3;
-    repeated uint32 input_ids = 4;
 }
 
 message ClassifyRequest {
@@ -339,15 +336,6 @@ message ClassifyRequest {
 
 message ClassifyResponse {
     /// Classifications
-    repeated EntityList entity_lists = 1;
-    // repeated ClassifyPredictionList classify_prediction_lists = 1;
-    /// Error message on failure
-    string errorMsg = 2;
-}
-
-message ClassifyResponse2 {
-    /// Classifications
-    // repeated EntityList entity_lists = 1;
     repeated ClassifyPredictionList classify_prediction_lists = 1;
     /// Error message on failure
     string errorMsg = 2;
