@@ -1553,7 +1553,9 @@ fn aggregate_ner_output_simple(
     }
     let mut new_ner_results = Vec::with_capacity(ner_results.len());
     for mut entity in ner_results {
-        entity.word = input[entity.start..entity.end].to_string();
+        entity.word = input[entity.start..entity.end]
+            .to_string()
+            .to_ascii_lowercase(); // Needed to match the huggingface NER format
         new_ner_results.push(entity);
     }
     new_ner_results
