@@ -1555,7 +1555,7 @@ fn aggregate_ner_output_simple(
     for mut entity in ner_results {
         entity.word = input[entity.start..entity.end]
             .to_string()
-            .to_ascii_lowercase();
+            .to_ascii_lowercase(); // Needed to match the huggingface NER format
         new_ner_results.push(entity);
     }
     new_ner_results
