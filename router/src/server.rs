@@ -38,7 +38,7 @@ use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
@@ -1469,11 +1469,59 @@ async fn embed(
 async fn classify(
     infer: Extension<Infer>,
     Json(req): Json<ClassifyRequest>,
-) -> Result<Json<Vec<Entity>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<Entity>>), (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Input: {}", req.inputs);
     let response = infer.classify(req).await?;
-    Ok(Json(response))
+
+    // Timings
+    let total_time = start_time.elapsed();
+    let validation_time = response.queued - start_time;
+    let queue_time = response.start - response.queued;
+    let inference_time = Instant::now() - response.start;
+
+    // Rust Tracing metadata
+    span.record("total_time", format!("{total_time:?}"));
+    span.record("validation_time", format!("{validation_time:?}"));
+    span.record("queue_time", format!("{queue_time:?}"));
+    span.record("inference_time", format!("{inference_time:?}"));
+
+    // Headers
+    let mut headers = HeaderMap::new();
+    headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+    headers.insert(
+        "x-compute-time",
+        total_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-validation-time",
+        validation_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-queue-time",
+        queue_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-inference-time",
+        inference_time.as_millis().to_string().parse().unwrap(),
+    );
+
+    // Metrics
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_validation_duration",
+        validation_time.as_secs_f64()
+    );
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_inference_duration",
+        inference_time.as_secs_f64()
+    );
+
+    Ok((headers, Json(response.predictions)))
 }
 
 #[utoipa::path(
@@ -1490,11 +1538,71 @@ async fn classify(
 async fn classify_batch(
     infer: Extension<Infer>,
     Json(req): Json<BatchClassifyRequest>,
-) -> Result<Json<Vec<Vec<Entity>>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<Vec<Entity>>>), (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Inputs: {:?}", req.inputs);
-    let response = infer.classify_batch(req).await?;
-    Ok(Json(response))
+    let responses = infer.classify_batch(req).await?;
+
+    // Timings
+    let now = Instant::now();
+    let total_time = start_time.elapsed();
+    let mut validation_times = Vec::with_capacity(responses.len());
+    let mut queue_times = Vec::with_capacity(responses.len());
+    let mut inference_times = Vec::with_capacity(responses.len());
+
+    for r in &responses {
+        validation_times.push(r.queued - r.start);
+        queue_times.push(r.start - r.queued);
+        inference_times.push(now - r.start);
+    }
+
+    let validation_time = validation_times.iter().sum::<Duration>() / responses.len() as u32;
+    let queue_time = queue_times.iter().sum::<Duration>() / responses.len() as u32;
+    let inference_time = inference_times.iter().sum::<Duration>() / responses.len() as u32;
+
+    // Rust Tracing metadata
+    span.record("total_time", format!("{total_time:?}"));
+    span.record("validation_time", format!("{validation_time:?}"));
+    span.record("queue_time", format!("{queue_time:?}"));
+    span.record("inference_time", format!("{inference_time:?}"));
+
+    // Headers
+    let mut headers = HeaderMap::new();
+    headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+    headers.insert(
+        "x-compute-time",
+        total_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-validation-time",
+        validation_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-queue-time",
+        queue_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-inference-time",
+        inference_time.as_millis().to_string().parse().unwrap(),
+    );
+
+    // Metrics
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_validation_duration",
+        validation_time.as_secs_f64()
+    );
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_inference_duration",
+        inference_time.as_secs_f64()
+    );
+
+    let batch_entity_vec = responses.into_iter().map(|r| r.predictions).collect();
+    Ok((headers, Json(batch_entity_vec)))
 }
 
 /// Tokenize inputs
