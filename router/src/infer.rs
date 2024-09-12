@@ -1490,11 +1490,12 @@ impl InferError {
 }
 
 fn get_tag(token_class: &str) -> (String, String) {
+    // TODO: don't make the null tag hardcoded
     let parts: Vec<&str> = token_class.split('-').collect();
     if parts.len() == 2 {
         (parts[0].to_string(), parts[1].to_string())
     } else {
-        ("0".to_string(), "0".to_string()) /// TODO: don't make this hardcoded
+        ("0".to_string(), "0".to_string())
     }
 }
 
