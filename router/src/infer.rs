@@ -1494,7 +1494,7 @@ fn get_tag(token_class: &str) -> (String, String) {
     if parts.len() == 2 {
         (parts[0].to_string(), parts[1].to_string())
     } else {
-        ("O".to_string(), "O".to_string())
+        ("0".to_string(), "0".to_string()) /// TODO: don't make this hardcoded
     }
 }
 
@@ -1518,34 +1518,27 @@ fn aggregate_ner_output_simple(
     for (offset, token_class, score) in
         izip!(encoded.get_offsets(), predicted_token_classes, scores)
     {
-        if token_class != "O" {
-            let (bi, tag) = get_tag(token_class);
-            if bi == "B"
-                || (current_entity.is_some()
-                    && tag != current_entity.as_ref().unwrap().entity_group)
-            {
-                if let Some(entity) = current_entity.take() {
-                    ner_results.push(entity);
-                    entity_scores.clear();
-                    entity_scores.push(*score);
-                }
-                current_entity = Some(Entity {
-                    entity_group: tag,
-                    score: *score,
-                    word: "".to_string(), // stub for now. set later in second pass
-                    start: offset.0,
-                    end: offset.1,
-                });
-            } else if current_entity.is_some() {
+        let (bi, tag) = get_tag(token_class);
+        if bi == "B"
+            || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity_group)
+        {
+            if let Some(entity) = current_entity.take() {
+                ner_results.push(entity);
+                entity_scores.clear();
                 entity_scores.push(*score);
-                let entity = current_entity.as_mut().unwrap();
-                entity.score = entity_scores.iter().sum::<f32>() / entity_scores.len() as f32;
-                entity.end = offset.1;
             }
-        } else if let Some(entity) = current_entity.take() {
-            ner_results.push(entity);
-            entity_scores.clear();
+            current_entity = Some(Entity {
+                entity_group: tag,
+                score: *score,
+                word: "".to_string(), // stub for now. set later in second pass
+                start: offset.0,
+                end: offset.1,
+            });
+        } else if current_entity.is_some() {
             entity_scores.push(*score);
+            let entity = current_entity.as_mut().unwrap();
+            entity.score = entity_scores.iter().sum::<f32>() / entity_scores.len() as f32;
+            entity.end = offset.1;
         }
     }
     if let Some(entity) = current_entity.take() {
