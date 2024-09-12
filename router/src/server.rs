@@ -345,19 +345,22 @@ example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 /// Health check method
 async fn health(
     infer: Extension<Infer>,
-    info: Extension<Info>,
-    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
-    req_headers: HeaderMap,
     health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if health.shard_info().supports_classification {
         let classify_request = ClassifyRequest {
             inputs: "San Francisco".to_string(),
         };
-        match classify(infer.clone(), Json(classify_request)).await {
+        match infer.classify(classify_request).await {
             Ok(_) => {}
-            Err((status, error)) => {
-                return Err((status, error));
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
             }
         }
     }
@@ -365,10 +368,16 @@ async fn health(
         let embed_request = EmbedRequest {
             inputs: "San Francisco".to_string(),
         };
-        match embed(infer.clone(), Json(embed_request)).await {
+        match infer.embed(embed_request).await {
             Ok(_) => {}
-            Err((status, error)) => {
-                return Err((status, error));
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
             }
         }
     }
@@ -401,17 +410,9 @@ async fn health(
                 ignore_eos_token: false,
             },
         };
-        match generate(
-            infer,
-            info,
-            request_logger_sender,
-            req_headers,
-            Json(generate_request),
-        )
-        .await
-        {
+        match infer.generate(generate_request).await {
             Ok(response) => {
-                if response.1.generated_text.len() == 0 {
+                if response.generated_text.text.len() == 0 {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -421,8 +422,14 @@ async fn health(
                     ));
                 }
             }
-            Err((status, error)) => {
-                return Err((status, error));
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
             }
         }
     }
