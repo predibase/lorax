@@ -179,6 +179,15 @@ struct Args {
     #[clap(long, env)]
     preloaded_adapter_ids: Vec<String>,
 
+    /// The source to use for the preloaded adapters.
+    /// If unset, will default to using the `adapter_source` value.
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(long, env)]
+    preloaded_adapter_source: Option<String>,
+
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
     dtype: Option<Dtype>,
@@ -425,6 +434,7 @@ fn shard_manager(
     compile: bool,
     speculative_tokens: Option<usize>,
     preloaded_adapter_ids: Vec<String>,
+    preloaded_adapter_source: Option<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -507,6 +517,12 @@ fn shard_manager(
     for adapter_id in preloaded_adapter_ids {
         shard_args.push("--preloaded-adapter-ids".to_string());
         shard_args.push(adapter_id);
+    }
+
+    // Preloaded adapter source
+    if let Some(preloaded_adapter_source) = preloaded_adapter_source {
+        shard_args.push("--preloaded-adapter-source".to_string());
+        shard_args.push(preloaded_adapter_source);
     }
 
     if let Some(dtype) = dtype {
@@ -981,6 +997,7 @@ fn spawn_shards(
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
+        let preloaded_adapter_source = args.preloaded_adapter_source.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -1001,6 +1018,7 @@ fn spawn_shards(
                 compile,
                 speculative_tokens,
                 preloaded_adapter_ids,
+                preloaded_adapter_source,
                 dtype,
                 trust_remote_code,
                 uds_path,

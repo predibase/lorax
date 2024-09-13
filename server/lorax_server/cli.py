@@ -48,8 +48,10 @@ def serve(
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
     preloaded_adapter_ids: Optional[List[str]] = typer.Option(None),
+    preloaded_adapter_source: Optional[str] = None,
 ):
     preloaded_adapter_ids = preloaded_adapter_ids or []
+    preloaded_adapter_source = preloaded_adapter_source or adapter_source
 
     if sharded:
         assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
@@ -98,6 +100,7 @@ def serve(
         adapter_source,
         speculative_tokens,
         preloaded_adapter_ids,
+        preloaded_adapter_source,
     )
 
 
