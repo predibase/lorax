@@ -93,6 +93,28 @@ impl std::fmt::Display for Dtype {
     }
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+enum Backend {
+    #[clap(name = "fa2")]
+    FA2,
+    #[clap(name = "flashinfer")]
+    FlashInfer,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // To keep in sync with `server`.
+        match self {
+            Backend::FA2 => {
+                write!(f, "fa2")
+            }
+            Backend::FlashInfer => {
+                write!(f, "flashinfer")
+            }
+        }
+    }
+}
+
 /// App Configuration
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -415,6 +437,10 @@ struct Args {
     /// include a `chat_template`. If not provided, the default config will be used from the model hub.
     #[clap(long, env)]
     tokenizer_config_path: Option<String>,
+
+    /// The backend to use for the model. Can be `fa2` or `flashinfer`.
+    #[clap(long, env, value_enum)]
+    backend: Option<Backend>,
 }
 
 #[derive(Debug)]
@@ -450,6 +476,7 @@ fn shard_manager(
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
     prefix_caching: Option<bool>,
+    backend: Option<Backend>,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
@@ -567,6 +594,13 @@ fn shard_manager(
     // Prefix caching
     if let Some(prefix_caching) = prefix_caching {
         envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+    }
+
+    // Backend
+    if let Some(backend) = backend {
+        if backend == Backend::FlashInfer {
+            envs.push(("FLASH_INFER".into(), "1".into()));
+        }
     }
 
     // Safetensors load fast
@@ -1007,6 +1041,7 @@ fn spawn_shards(
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
         let prefix_caching = args.prefix_caching;
+        let backend = args.backend;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1034,6 +1069,7 @@ fn spawn_shards(
                 cuda_memory_fraction,
                 adapter_memory_fraction,
                 prefix_caching,
+                backend,
                 otlp_endpoint,
                 status_sender,
                 shutdown,
