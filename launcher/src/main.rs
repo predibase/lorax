@@ -439,8 +439,8 @@ struct Args {
     tokenizer_config_path: Option<String>,
 
     /// The backend to use for the model. Can be `fa2` or `flashinfer`.
-    #[clap(long, env, value_enum)]
-    backend: Option<Backend>,
+    #[clap(default_value = "fa2", long, env, value_enum)]
+    backend: Backend,
 }
 
 #[derive(Debug)]
@@ -476,7 +476,7 @@ fn shard_manager(
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
     prefix_caching: Option<bool>,
-    backend: Option<Backend>,
+    backend: Backend,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
@@ -597,10 +597,8 @@ fn shard_manager(
     }
 
     // Backend
-    if let Some(backend) = backend {
-        if backend == Backend::FlashInfer {
-            envs.push(("FLASH_INFER".into(), "1".into()));
-        }
+    if backend == Backend::FlashInfer {
+        envs.push(("FLASH_INFER".into(), "1".into()));
     }
 
     // Safetensors load fast
