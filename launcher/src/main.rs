@@ -93,6 +93,28 @@ impl std::fmt::Display for Dtype {
     }
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+enum Backend {
+    #[clap(name = "fa2")]
+    FA2,
+    #[clap(name = "flashinfer")]
+    FlashInfer,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // To keep in sync with `server`.
+        match self {
+            Backend::FA2 => {
+                write!(f, "fa2")
+            }
+            Backend::FlashInfer => {
+                write!(f, "flashinfer")
+            }
+        }
+    }
+}
+
 /// App Configuration
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -178,6 +200,15 @@ struct Args {
     /// The list of adapter ids to preload during initialization (to avoid cold start times).
     #[clap(long, env)]
     preloaded_adapter_ids: Vec<String>,
+
+    /// The source to use for the preloaded adapters.
+    /// If unset, will default to using the `adapter_source` value.
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(long, env)]
+    preloaded_adapter_source: Option<String>,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -406,6 +437,10 @@ struct Args {
     /// include a `chat_template`. If not provided, the default config will be used from the model hub.
     #[clap(long, env)]
     tokenizer_config_path: Option<String>,
+
+    /// The backend to use for the model. Can be `fa2` or `flashinfer`.
+    #[clap(default_value = "fa2", long, env, value_enum)]
+    backend: Backend,
 }
 
 #[derive(Debug)]
@@ -425,6 +460,7 @@ fn shard_manager(
     compile: bool,
     speculative_tokens: Option<usize>,
     preloaded_adapter_ids: Vec<String>,
+    preloaded_adapter_source: Option<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -440,6 +476,7 @@ fn shard_manager(
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
     prefix_caching: Option<bool>,
+    backend: Backend,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
@@ -509,6 +546,12 @@ fn shard_manager(
         shard_args.push(adapter_id);
     }
 
+    // Preloaded adapter source
+    if let Some(preloaded_adapter_source) = preloaded_adapter_source {
+        shard_args.push("--preloaded-adapter-source".to_string());
+        shard_args.push(preloaded_adapter_source);
+    }
+
     if let Some(dtype) = dtype {
         shard_args.push("--dtype".to_string());
         shard_args.push(dtype.to_string())
@@ -551,6 +594,11 @@ fn shard_manager(
     // Prefix caching
     if let Some(prefix_caching) = prefix_caching {
         envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+    }
+
+    // Backend
+    if backend == Backend::FlashInfer {
+        envs.push(("FLASH_INFER".into(), "1".into()));
     }
 
     // Safetensors load fast
@@ -981,6 +1029,7 @@ fn spawn_shards(
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
+        let preloaded_adapter_source = args.preloaded_adapter_source.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -990,6 +1039,7 @@ fn spawn_shards(
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
         let prefix_caching = args.prefix_caching;
+        let backend = args.backend;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1001,6 +1051,7 @@ fn spawn_shards(
                 compile,
                 speculative_tokens,
                 preloaded_adapter_ids,
+                preloaded_adapter_source,
                 dtype,
                 trust_remote_code,
                 uds_path,
@@ -1016,6 +1067,7 @@ fn spawn_shards(
                 cuda_memory_fraction,
                 adapter_memory_fraction,
                 prefix_caching,
+                backend,
                 otlp_endpoint,
                 status_sender,
                 shutdown,
