@@ -38,7 +38,7 @@ use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
@@ -345,19 +345,22 @@ example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 /// Health check method
 async fn health(
     infer: Extension<Infer>,
-    info: Extension<Info>,
-    request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
-    req_headers: HeaderMap,
     health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if health.shard_info().supports_classification {
         let classify_request = ClassifyRequest {
             inputs: "San Francisco".to_string(),
         };
-        match classify(infer.clone(), Json(classify_request)).await {
+        match infer.classify(classify_request).await {
             Ok(_) => {}
-            Err((status, error)) => {
-                return Err((status, error));
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
             }
         }
     }
@@ -365,10 +368,16 @@ async fn health(
         let embed_request = EmbedRequest {
             inputs: "San Francisco".to_string(),
         };
-        match embed(infer.clone(), Json(embed_request)).await {
+        match infer.embed(embed_request).await {
             Ok(_) => {}
-            Err((status, error)) => {
-                return Err((status, error));
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
             }
         }
     }
@@ -401,17 +410,9 @@ async fn health(
                 ignore_eos_token: false,
             },
         };
-        match generate(
-            infer,
-            info,
-            request_logger_sender,
-            req_headers,
-            Json(generate_request),
-        )
-        .await
-        {
+        match infer.generate(generate_request).await {
             Ok(response) => {
-                if response.1.generated_text.len() == 0 {
+                if response.generated_text.text.len() == 0 {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -421,8 +422,14 @@ async fn health(
                     ));
                 }
             }
-            Err((status, error)) => {
-                return Err((status, error));
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
             }
         }
     }
@@ -1469,11 +1476,59 @@ async fn embed(
 async fn classify(
     infer: Extension<Infer>,
     Json(req): Json<ClassifyRequest>,
-) -> Result<Json<Vec<Entity>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<Entity>>), (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Input: {}", req.inputs);
     let response = infer.classify(req).await?;
-    Ok(Json(response))
+
+    // Timings
+    let total_time = start_time.elapsed();
+    let validation_time = response.queued - start_time;
+    let queue_time = response.start - response.queued;
+    let inference_time = Instant::now() - response.start;
+
+    // Rust Tracing metadata
+    span.record("total_time", format!("{total_time:?}"));
+    span.record("validation_time", format!("{validation_time:?}"));
+    span.record("queue_time", format!("{queue_time:?}"));
+    span.record("inference_time", format!("{inference_time:?}"));
+
+    // Headers
+    let mut headers = HeaderMap::new();
+    headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+    headers.insert(
+        "x-compute-time",
+        total_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-validation-time",
+        validation_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-queue-time",
+        queue_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-inference-time",
+        inference_time.as_millis().to_string().parse().unwrap(),
+    );
+
+    // Metrics
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_validation_duration",
+        validation_time.as_secs_f64()
+    );
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_inference_duration",
+        inference_time.as_secs_f64()
+    );
+
+    Ok((headers, Json(response.predictions)))
 }
 
 #[utoipa::path(
@@ -1490,11 +1545,71 @@ async fn classify(
 async fn classify_batch(
     infer: Extension<Infer>,
     Json(req): Json<BatchClassifyRequest>,
-) -> Result<Json<Vec<Vec<Entity>>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<Vec<Entity>>>), (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Inputs: {:?}", req.inputs);
-    let response = infer.classify_batch(req).await?;
-    Ok(Json(response))
+    let responses = infer.classify_batch(req).await?;
+
+    // Timings
+    let now = Instant::now();
+    let total_time = start_time.elapsed();
+    let mut validation_times = Vec::with_capacity(responses.len());
+    let mut queue_times = Vec::with_capacity(responses.len());
+    let mut inference_times = Vec::with_capacity(responses.len());
+
+    for r in &responses {
+        validation_times.push(r.queued - r.start);
+        queue_times.push(r.start - r.queued);
+        inference_times.push(now - r.start);
+    }
+
+    let validation_time = validation_times.iter().sum::<Duration>() / responses.len() as u32;
+    let queue_time = queue_times.iter().sum::<Duration>() / responses.len() as u32;
+    let inference_time = inference_times.iter().sum::<Duration>() / responses.len() as u32;
+
+    // Rust Tracing metadata
+    span.record("total_time", format!("{total_time:?}"));
+    span.record("validation_time", format!("{validation_time:?}"));
+    span.record("queue_time", format!("{queue_time:?}"));
+    span.record("inference_time", format!("{inference_time:?}"));
+
+    // Headers
+    let mut headers = HeaderMap::new();
+    headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+    headers.insert(
+        "x-compute-time",
+        total_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-validation-time",
+        validation_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-queue-time",
+        queue_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-inference-time",
+        inference_time.as_millis().to_string().parse().unwrap(),
+    );
+
+    // Metrics
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_validation_duration",
+        validation_time.as_secs_f64()
+    );
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_inference_duration",
+        inference_time.as_secs_f64()
+    );
+
+    let batch_entity_vec = responses.into_iter().map(|r| r.predictions).collect();
+    Ok((headers, Json(batch_entity_vec)))
 }
 
 /// Tokenize inputs

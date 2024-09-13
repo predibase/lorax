@@ -584,7 +584,7 @@ impl Infer {
     pub(crate) async fn classify(
         &self,
         request: ClassifyRequest,
-    ) -> Result<Vec<Entity>, InferError> {
+    ) -> Result<InferClassifyResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
         let _permit = self
             .clone()
@@ -639,6 +639,8 @@ impl Infer {
 
         // Return values
         let mut return_entities = None;
+        let mut result_start = None;
+        let mut result_queued = None;
 
         let mut stream = response_rx.into_stream();
         while let Some(response) = stream.next().await {
@@ -661,8 +663,8 @@ impl Infer {
                 }
                 InferStreamResponse::Classify {
                     predictions,
-                    start: _,
-                    queued: _,
+                    start,
+                    queued,
                     id: _,
                 } => {
                     let entities = aggregate_ner_output_simple(
@@ -671,12 +673,18 @@ impl Infer {
                         self.tokenizer.clone().unwrap(),
                     );
                     return_entities = Some(entities);
+                    result_start = Some(start);
+                    result_queued = Some(queued);
                 }
             }
         }
 
         if let Some(return_entities) = return_entities {
-            Ok(return_entities.into_iter().map(Entity::from).collect())
+            Ok(InferClassifyResponse {
+                predictions: return_entities,
+                queued: result_queued.unwrap(),
+                start: result_start.unwrap(),
+            })
         } else {
             let err = InferError::ClassificationFailure;
             metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
@@ -689,7 +697,7 @@ impl Infer {
     pub(crate) async fn classify_batch(
         &self,
         request: BatchClassifyRequest,
-    ) -> Result<Vec<Vec<Entity>>, InferError> {
+    ) -> Result<Vec<InferClassifyResponse>, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
         let _permit = self
             .clone()
@@ -762,8 +770,8 @@ impl Infer {
                 // Add prefill tokens
                 InferStreamResponse::Classify {
                     predictions,
-                    start: _,
-                    queued: _,
+                    start,
+                    queued,
                     id,
                 } => {
                     let request_inputs = request_id_map.get(&id.unwrap()).unwrap().clone();
@@ -772,7 +780,14 @@ impl Infer {
                         predictions.clone(),
                         self.tokenizer.clone().unwrap(),
                     );
-                    all_entities.insert(id.unwrap(), entities);
+                    all_entities.insert(
+                        id.unwrap(),
+                        InferClassifyResponse {
+                            predictions: entities,
+                            queued,
+                            start,
+                        },
+                    );
                 }
                 _ => {
                     tracing::error!(
@@ -787,15 +802,15 @@ impl Infer {
             tracing::error!("{err}");
             Err(err)
         } else {
-            let mut sorted_entries: Vec<_> = all_entities.into_iter().collect();
-            sorted_entries.sort_by_key(|&(id, _)| id);
+            let mut sorted_responses: Vec<_> = all_entities.into_iter().collect();
+            sorted_responses.sort_by_key(|&(id, _)| id);
 
-            let sorted_entities: Vec<Vec<Entity>> = sorted_entries
+            let sorted_responses: Vec<InferClassifyResponse> = sorted_responses
                 .into_iter()
-                .map(|(_, entities)| entities.into_iter().map(Entity::from).collect())
+                .map(|(_, response)| response)
                 .collect();
 
-            Ok(sorted_entities)
+            Ok(sorted_responses)
         }
     }
 
@@ -1487,6 +1502,13 @@ impl InferError {
             InferError::ClassificationFailure => "classification_failure",
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct InferClassifyResponse {
+    pub(crate) predictions: Vec<Entity>,
+    pub(crate) queued: Instant,
+    pub(crate) start: Instant,
 }
 
 fn get_tag(token_class: &str) -> (String, String) {
