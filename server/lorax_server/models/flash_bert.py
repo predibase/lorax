@@ -1,6 +1,8 @@
 from contextlib import nullcontext
 from typing import Any, ContextManager, Optional, Type
 
+from loguru import logger
+from lorax_server.utils.embed_graph import EmbedGraphCache
 import torch
 from opentelemetry import trace
 from transformers import AutoTokenizer
@@ -119,6 +121,8 @@ class FlashBert(Model):
             from lorax_server.utils.flashinfer_attention import create_prefill_state
 
             self.prefill_state = create_prefill_state(device=device)
+        
+        self.model_graph_wrapper: GraphCache = None
 
         super(FlashBert, self).__init__(
             model_id=model_id,
@@ -151,6 +155,27 @@ class FlashBert(Model):
         # Note: This is meant to 1) preallocate the memory by doing a forward pass
         # and then just returning the max seqlen since for embeddings we are never generating
         _ = self.embed(batch)
+
+        max_total_tokens = batch.max_s
+        print("!!! max_total_tokens", max_total_tokens, batch.max_s, max_new_tokens)
+        self.model_graph_wrapper = EmbedGraphCache(
+            self.model,
+            self.device,
+            self._forward_context,
+            max_total_tokens,
+            self.num_heads,
+            self.num_kv_heads,
+        )
+        graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
+        logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
+        torch.cuda.synchronize(self.device)
+
+        if self.model_graph_wrapper is not None:
+            # Warmup the graph cache. Needs to be done after setting cache manager as
+            # tracing will use the static kv cache tensors
+            self.model_graph_wrapper.warmup()
+            torch.cuda.synchronize(self.device)
+
         return batch.max_s
 
     def generate_token(self, batch: FlashEmbeddingClassificationBatch) -> None:
@@ -197,14 +222,33 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("classify")
     def classify(self, batch: FlashEmbeddingClassificationBatch):
-        with self._forward_context(cu_seqlens=batch.cu_seqlens):
-            logits: torch.Tensor = self.model.forward(
+        use_graph = False
+        if (
+            self.model_graph_wrapper is not None
+            and self.model_graph_wrapper.can_use_graph(batch)
+        ):
+            use_graph = True
+            model = self.model_graph_wrapper
+        
+        if use_graph:
+            # CUDA graph mode
+            print("!!! USE CUDA GRAPH")
+            logits: torch.Tensor = model.forward(
                 input_ids=batch.input_ids,
                 token_type_ids=batch.token_type_ids,
                 position_ids=batch.position_ids,
                 cu_seqlens=batch.cu_seqlens,
                 max_s=batch.max_s,
             )
+        else:
+            with self._forward_context(cu_seqlens=batch.cu_seqlens):
+                logits: torch.Tensor = self.model.forward(
+                    input_ids=batch.input_ids,
+                    token_type_ids=batch.token_type_ids,
+                    position_ids=batch.position_ids,
+                    cu_seqlens=batch.cu_seqlens,
+                    max_s=batch.max_s,
+                )
         probabilities = torch.nn.functional.softmax(logits, dim=2)
         confidence_scores, predictions = torch.max(probabilities, dim=2)
         predicted_token_class = [[self.config.id2label[t.item()] for t in prediction] for prediction in predictions]
