@@ -220,6 +220,28 @@ class Request(BaseModel):
         return field_value
 
 
+class BatchRequest(BaseModel):
+    # Prompt
+    inputs: List[str]
+    # Generation parameters
+    parameters: Optional[Parameters] = None
+    # Whether to stream output tokens
+    stream: bool = False
+
+    @field_validator("inputs")
+    def valid_input(cls, v):
+        if not v:
+            raise ValidationError("`inputs` cannot be empty")
+        return v
+
+    @field_validator("stream")
+    def valid_best_of_stream(cls, field_value, values):
+        parameters = values.data["parameters"]
+        if parameters is not None and parameters.best_of is not None and parameters.best_of > 1 and field_value:
+            raise ValidationError("`best_of` != 1 is not supported when `stream` == True")
+        return field_value
+
+
 # Decoder input tokens
 class InputToken(BaseModel):
     # Token ID from the model tokenizer

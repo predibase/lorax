@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from typing import Any, Dict, Optional, List, AsyncIterator, Iterator, Union
 
 from lorax.types import (
+    BatchRequest,
     StreamResponse,
     Response,
     Request,
@@ -484,7 +485,7 @@ class Client:
         Returns: 
             List[Entities]: Entities found in the input text
         """
-        request = Request(inputs=inputs)
+        request = BatchRequest(inputs=inputs)
 
         resp = requests.post(
             self.classify_batch_endpoint,
