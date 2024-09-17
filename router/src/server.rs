@@ -4,9 +4,7 @@ use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
-use crate::{
-    json, ClassifyResponse, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig,
-};
+use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
     AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
     ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
@@ -1478,7 +1476,7 @@ async fn embed(
 async fn classify(
     infer: Extension<Infer>,
     Json(req): Json<ClassifyRequest>,
-) -> Result<(HeaderMap, Json<ClassifyResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<Entity>>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
@@ -1530,7 +1528,7 @@ async fn classify(
         inference_time.as_secs_f64()
     );
 
-    Ok((headers, Json(response.into())))
+    Ok((headers, Json(response.predictions)))
 }
 
 #[utoipa::path(

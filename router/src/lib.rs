@@ -16,7 +16,7 @@ use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as Enti
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use batch::Entry;
-use infer::{Infer, InferClassifyResponse};
+use infer::Infer;
 use loader::AdapterLoader;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -742,25 +742,12 @@ struct ClassifyRequest {
     inputs: String,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
-struct ClassifyResponse {
-    entities: Vec<Entity>,
-}
-
-impl From<InferClassifyResponse> for ClassifyResponse {
-    fn from(resp: InferClassifyResponse) -> Self {
-        ClassifyResponse {
-            entities: resp.predictions,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchClassifyRequest {
     inputs: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Entity {
     entity_group: String,
     score: f32,
