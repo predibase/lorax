@@ -3,7 +3,6 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
-from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
@@ -14,12 +13,12 @@ from tqdm import tqdm
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 
 if TYPE_CHECKING:
-    from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
+    from lorax_server.models.types import FlashEmbeddingClassificationBatch
     from lorax_server.models.model import Model
 
 
 # TODO(travis): make this configurable by model / user
-MAX_BATCH_SIZE = 256
+MAX_BATCH_SIZE = 1024
 MAX_RANK = BGMV_MAX_RANK
 
 SLOT_PAD_VALUE = -1
@@ -70,10 +69,10 @@ def get_max_graph_state(
     device: torch.device,
     max_total_tokens: int,
 ) -> GraphState:
-    input_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
-    token_type_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
-    position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
-    cu_seqlens = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
+    input_ids = torch.zeros((MAX_BATCH_SIZE * max_total_tokens,), dtype=torch.int64, device=device)
+    token_type_ids = torch.zeros((MAX_BATCH_SIZE * max_total_tokens,), dtype=torch.int64, device=device)
+    position_ids = torch.zeros((MAX_BATCH_SIZE * max_total_tokens,), dtype=torch.int32, device=device)
+    cu_seqlens = torch.zeros((MAX_BATCH_SIZE + 1,), dtype=torch.int32, device=device)
 
     return GraphState(
         input_ids=input_ids,
@@ -89,7 +88,7 @@ class GraphWrapper:
         graph: torch.cuda.CUDAGraph,
         memory_pool: Tuple[int, int],
         input_state: GraphState,
-        output_states: Tuple[torch.Tensor, Optional[torch.Tensor]],
+        output_states: torch.Tensor,
         model: nn.Module,
         forward_context: Optional[Callable[..., Any]],
     ):
@@ -114,11 +113,13 @@ class GraphWrapper:
         max_input_state = get_max_graph_state(device, max_total_tokens)
 
         input_state = GraphState(
-            input_ids=max_input_state.input_ids[:batch_size],
-            token_type_ids=max_input_state.token_type_ids[:batch_size],
-            position_ids=max_input_state.position_ids[:batch_size],
-            cu_seqlens=max_input_state.cu_seqlens[:batch_size],
+            input_ids=max_input_state.input_ids[:batch_size * max_total_tokens],
+            token_type_ids=max_input_state.token_type_ids[:batch_size * max_total_tokens],
+            position_ids=max_input_state.position_ids[:batch_size * max_total_tokens],
+            cu_seqlens=max_input_state.cu_seqlens[:batch_size + 1],
         )
+
+        print("!!! BATCH SIZE", batch_size, max_total_tokens, input_state.input_ids.shape[0])
 
         torch.cuda.synchronize(device)
 
@@ -152,7 +153,7 @@ class GraphWrapper:
         with self.forward_context(cu_seqlens=cu_seqlens):
             self.graph.replay()
 
-        return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
+        return self.output_states[: cu_seqlens.shape[0] - 1]
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -179,10 +180,10 @@ class EmbedGraphCache:
 
     def can_use_graph(
         self,
-        batch: "FlashCausalLMBatch",
+        batch: "FlashEmbeddingClassificationBatch",
     ) -> bool:
         batch_size = batch.input_ids.shape[0]
-        max_s = batch.max_seqlen
+        max_s = batch.max_s
 
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
@@ -199,8 +200,8 @@ class EmbedGraphCache:
         # Use the largest batch size to overestimate memory overhead
         batch_size = CACHED_BATCH_SIZES[-1]
 
-        samples = []
         torch.cuda.synchronize(self.device)
+        free_memory_before, _ = torch.cuda.mem_get_info(self.device)
 
         key = (batch_size,)
         graph = GraphWrapper.trace(
@@ -215,11 +216,13 @@ class EmbedGraphCache:
         )
         tmp_cache[key] = graph
         pool = graph.memory_pool
+        
         torch.cuda.synchronize(self.device)
+        free_memory_after, _ = torch.cuda.mem_get_info(self.device)
 
         # Estimate memory usage for all batch sizes and ranks
         ngraphs = len(CACHED_BATCH_SIZES)
-        per_graph_memory = median(samples)
+        per_graph_memory = free_memory_before - free_memory_after
         return ngraphs * per_graph_memory
 
     def warmup(self):

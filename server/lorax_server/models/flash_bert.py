@@ -66,6 +66,7 @@ class FlashBertModelForClassification(torch.nn.Module):
     def forward(self, input_ids, token_type_ids, position_ids, cu_seqlens, max_s):
         embeddings = self.embeddings.forward(input_ids, token_type_ids, position_ids)
         encoder_outputs = self.encoder.forward(embeddings, cu_seqlens, max_s)
+        print("!!! encoder_outputs", encoder_outputs.shape, max_s, encoder_outputs.shape[0] // max_s)
         batch_size = encoder_outputs.shape[0] // max_s
         encoder_outputs = encoder_outputs.reshape(batch_size, max_s, -1)
         logits = torch.nn.functional.linear(encoder_outputs, self.classifier_weight, self.classifier_bias)
