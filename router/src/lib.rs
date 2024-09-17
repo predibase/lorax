@@ -16,7 +16,7 @@ use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as Enti
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use batch::Entry;
-use infer::Infer;
+use infer::{Infer, InferClassifyResponse};
 use loader::AdapterLoader;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -745,6 +745,14 @@ struct ClassifyRequest {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 struct ClassifyResponse {
     entities: Vec<Entity>,
+}
+
+impl From<InferClassifyResponse> for ClassifyResponse {
+    fn from(resp: InferClassifyResponse) -> Self {
+        ClassifyResponse {
+            entities: resp.predictions,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]

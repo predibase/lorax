@@ -1530,10 +1530,7 @@ async fn classify(
         inference_time.as_secs_f64()
     );
 
-    let resp = ClassifyResponse {
-        entities: response.predictions,
-    };
-    Ok((headers, Json(resp)))
+    Ok((headers, Json(response.into())))
 }
 
 #[utoipa::path(
@@ -1550,7 +1547,7 @@ async fn classify(
 async fn classify_batch(
     infer: Extension<Infer>,
     Json(req): Json<BatchClassifyRequest>,
-) -> Result<(HeaderMap, Json<Vec<Vec<Entity>>>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<ClassifyResponse>>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
@@ -1613,7 +1610,7 @@ async fn classify_batch(
         inference_time.as_secs_f64()
     );
 
-    let batch_entity_vec = responses.into_iter().map(|r| r.predictions).collect();
+    let batch_entity_vec = responses.into_iter().map(|r| r.into()).collect();
     Ok((headers, Json(batch_entity_vec)))
 }
 

@@ -69,6 +69,7 @@ class Client:
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
         self.classify_endpoint = f"{base_url}/classify"
+        self.classify_batch_endpoint = f"{base_url}/classify_batch"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
@@ -470,8 +471,34 @@ class Client:
         if resp.status_code != 200:
             raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
         
-        print(payload)
         return ClassifyResponse(**payload)
+    
+    def classify_batch(self, inputs: List[str]) -> List[ClassifyResponse]:
+        """
+        Given a list of inputs, run token classification on the text using the model
+
+        Args:
+            inputs (`List[str]`):
+                List of input texts
+        
+        Returns: 
+            List[Entities]: Entities found in the input text
+        """
+        request = Request(inputs=inputs)
+
+        resp = requests.post(
+            self.classify_batch_endpoint,
+            json=request.dict(by_alias=True),
+            headers=self.headers,
+            cookies=self.cookies,
+            timeout=self.timeout,
+        )
+
+        payload = resp.json()
+        if resp.status_code != 200:
+            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
+        
+        return [ClassifyResponse(**p) for p in payload]
 
 
 class AsyncClient:
