@@ -499,7 +499,7 @@ class Client:
         if resp.status_code != 200:
             raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
         
-        return [ClassifyResponse(**p) for p in payload]
+        return [ClassifyResponse(entities=e) for e in payload]
 
 
 class AsyncClient:
