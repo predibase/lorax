@@ -742,12 +742,17 @@ struct ClassifyRequest {
     inputs: String,
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+struct ClassifyResponse {
+    entities: Vec<Entity>,
+}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchClassifyRequest {
     inputs: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Entity {
     entity_group: String,
     score: f32,
