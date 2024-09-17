@@ -472,7 +472,7 @@ class Client:
         if resp.status_code != 200:
             raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
         
-        return ClassifyResponse(**payload)
+        return ClassifyResponse(entities=payload)
     
     def classify_batch(self, inputs: List[str]) -> List[ClassifyResponse]:
         """
