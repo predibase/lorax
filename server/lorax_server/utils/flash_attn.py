@@ -34,7 +34,8 @@ if SYSTEM == "xpu":
 
         if window_size_left != -1:
             raise ValueError(
-                f"XPU version of Flash Attention does not support window attention (window_size_left != -1, got window_size_left={window_size_left})."
+                "XPU version of Flash Attention does not support window attention (window_size_left != -1, "
+                f"got window_size_left={window_size_left})."
             )
         return ipex.llm.functional.varlen_attention(
             q,
@@ -83,7 +84,8 @@ if SYSTEM in {"cuda", "rocm"}:
             raise ImportError(
                 "Flash Attention V2 is not installed.\n"
                 "Use the official Docker image (ghcr.io/huggingface/text-generation-inference:latest) "
-                f"or install flash attention v2 with `cd server && make install install-flash-attention-v2{architecture_suffix}`"
+                "or install flash attention v2 with `cd server && make install install-flash-attention-v2"
+                f"{architecture_suffix}`"
             )
         if SYSTEM == "cuda" and not (is_sm8x or is_sm90):
             raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported for " "Flash Attention V2")
@@ -102,7 +104,7 @@ if SYSTEM in {"cuda", "rocm"}:
                 "Use the official Docker image (ghcr.io/predibase/lorax:latest) "
                 "or install flash attention with `cd server && make install install-flash-attention`"
             ) from e
-
+        print(SYSTEM, is_sm75, is_sm8x, is_sm90)
         if SYSTEM == "cuda" and not (is_sm75 or is_sm8x or is_sm90):
             raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported") from e
         elif SYSTEM == "rocm":
@@ -211,7 +213,8 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
             raise ValueError("`window_size_left` must be > 0 or -1")
         if window_size_left != -1:
             raise ValueError(
-                f"RoCm version of Flash Attention v2 does not support window attention (window_size_left != -1, got window_size_left={window_size_left})."
+                "RoCm version of Flash Attention v2 does not support window attention "
+                f"(window_size_left != -1, got window_size_left={window_size_left})."
             )
 
         # RoCm flash API does not take the window_size_left and window_size_right arguments.
