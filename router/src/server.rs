@@ -1135,7 +1135,7 @@ pub async fn run(
         shard_info.clone(),
     );
 
-    let is_causal_lm = false;
+    let is_causal_lm = shard_info.supports_generation;
     let infer = Infer::new(
         client.clone(),
         validation,
