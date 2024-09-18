@@ -200,9 +200,6 @@ struct AdapterSchedulerState {
 
     /// Paged Attention Block Allocation
     block_allocator: Option<BlockAllocator>,
-
-    /// Whether the model is causal, which determines whether we need the block allocator
-    is_causal_lm: bool,
 }
 
 impl AdapterSchedulerState {
@@ -224,6 +221,7 @@ impl AdapterSchedulerState {
         )));
         let loader = AdapterLoader::new(client.clone());
 
+        // Only causal LMs require the block allocator, due to paged attention
         let block_allocator = (!requires_padding && is_causal_lm).then(|| {
             BlockAllocator::new(
                 max_batch_total_tokens,
@@ -242,7 +240,6 @@ impl AdapterSchedulerState {
             window_size,
             speculate,
             block_allocator,
-            is_causal_lm,
         }
     }
 
@@ -317,8 +314,6 @@ impl AdapterSchedulerState {
                 adapters_in_use,
                 self.queues_state.clone(),
             );
-
-            tracing::info!("!!! Queues: {length}", length = queues_state.len());
         }
 
         // Pop entries starting from the front of the queue
