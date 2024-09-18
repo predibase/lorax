@@ -11,7 +11,7 @@ use crate::{
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
 use flume::SendTimeoutError;
-use futures::future::{join_all, try_join_all};
+use futures::future::try_join_all;
 use futures::stream::StreamExt;
 /// Batching and inference logic
 use itertools::izip;
@@ -737,7 +737,6 @@ impl Infer {
             .collect();
 
         let all_tokenized_inputs = try_join_all(futures).await?;
-        println!("!!! Tokenized inputs: {}", all_tokenized_inputs.len());
 
         for ((id, r_inputs), (tokenized_inputs, input_length)) in
             request.inputs.iter().enumerate().zip(all_tokenized_inputs)
@@ -764,39 +763,7 @@ impl Infer {
                     id: Some(id as u64),
                 },
             );
-            println!("!!! Sent classify request to adapter {id}");
         }
-
-        // for (id, r_inputs) in request.inputs.iter().enumerate() {
-        //     let inputs = r_inputs.to_string().clone();
-        //     let (tokenized_inputs, input_length) = self
-        //         .validation
-        //         .validate_input(r_inputs.to_string(), None, Some(1))
-        //         .await?;
-
-        //     let valid_request = ValidClassifyRequest {
-        //         inputs,
-        //         tokenized_inputs,
-        //         input_length: input_length as u32,
-        //         adapter: adapter.clone(),
-        //     };
-
-        //     // Process the request by sending it to the queue associated with `adapter`
-        //     self.adapter_scheduler.process(
-        //         adapter.clone(),
-        //         Entry {
-        //             request: Arc::new(valid_request),
-        //             response_tx: response_tx.clone(),
-        //             span: Span::current(),
-        //             temp_span: None,
-        //             queue_time: Instant::now(),
-        //             batch_time: None,
-        //             block_allocation: None,
-        //             id: Some(id as u64),
-        //         },
-        //     );
-        //     println!("!!! Sent classify request to adapter {id}");
-        // }
 
         drop(response_tx); // Close the sending end
 
