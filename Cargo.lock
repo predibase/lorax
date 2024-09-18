@@ -1531,6 +1531,7 @@ dependencies = [
  "prost",
  "prost-build",
  "regex",
+ "rustls 0.22.4",
  "thiserror",
  "tokenizers",
  "tokio",
@@ -1538,6 +1539,7 @@ dependencies = [
  "tonic-build",
  "tower",
  "tracing",
+ "webpki",
 ]
 
 [[package]]
@@ -1586,6 +1588,7 @@ dependencies = [
  "reqwest",
  "reqwest-middleware",
  "reqwest-retry",
+ "rustls 0.22.4",
  "serde",
  "serde_json",
  "slotmap",
@@ -1599,6 +1602,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "vergen",
+ "webpki",
 ]
 
 [[package]]
@@ -2942,9 +2946,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.22.2"
+version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e87c9956bd9807afa1f77e0f7594af32566e830e088a5576d27c5b6f30f49d41"
+checksum = "bf4ef73721ac7bcd79b2b315da7779d8fc09718c6b3d2d1b2d94850eb8c18432"
 dependencies = [
  "log",
  "ring 0.17.8",
@@ -3946,7 +3950,7 @@ dependencies = [
  "log",
  "native-tls",
  "once_cell",
- "rustls 0.22.2",
+ "rustls 0.22.4",
  "rustls-pki-types",
  "rustls-webpki",
  "serde",
@@ -4189,12 +4193,12 @@ dependencies = [
 
 [[package]]
 name = "webpki"
-version = "0.22.0"
+version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
+checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
 dependencies = [
- "ring 0.16.20",
- "untrusted 0.7.1",
+ "ring 0.17.8",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
