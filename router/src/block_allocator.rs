@@ -37,10 +37,8 @@ impl BlockAllocator {
         prefix_caching: bool,
         window_size: Option<u32>,
     ) -> Self {
-        let max_batch_total_tokens = 32000;
         // Create channel
         let (sender, receiver) = mpsc::unbounded_channel();
-        println!("!!! MAX TOTAL TOKENS: {}", max_batch_total_tokens);
 
         // Launch background queue task
         tokio::spawn(block_allocator_task(

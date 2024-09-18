@@ -125,6 +125,7 @@ async fn adapter_scheduler_task(
     max_batch_total_tokens: u32,
     prefix_caching: bool,
 ) {
+    let is_causal_lm = false;
     let mut state = AdapterSchedulerState::new(
         client,
         requires_padding,
@@ -135,6 +136,7 @@ async fn adapter_scheduler_task(
         speculate,
         max_batch_total_tokens,
         prefix_caching,
+        is_causal_lm,
     );
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -196,6 +198,9 @@ struct AdapterSchedulerState {
 
     /// Paged Attention Block Allocation
     block_allocator: Option<BlockAllocator>,
+
+    /// Whether the model is causal, which determines whether we need the block allocator
+    is_causal_lm: bool,
 }
 
 impl AdapterSchedulerState {
@@ -209,6 +214,7 @@ impl AdapterSchedulerState {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
@@ -216,7 +222,7 @@ impl AdapterSchedulerState {
         )));
         let loader = AdapterLoader::new(client.clone());
 
-        let block_allocator = (!requires_padding).then(|| {
+        let block_allocator = (!requires_padding && is_causal_lm).then(|| {
             BlockAllocator::new(
                 max_batch_total_tokens,
                 block_size,
@@ -234,6 +240,7 @@ impl AdapterSchedulerState {
             window_size,
             speculate,
             block_allocator,
+            is_causal_lm,
         }
     }
 
