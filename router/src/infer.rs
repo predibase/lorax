@@ -161,6 +161,7 @@ impl Infer {
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -178,6 +179,7 @@ impl Infer {
             speculate,
             max_batch_total_tokens,
             prefix_caching,
+            is_causal_lm,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
@@ -228,6 +230,7 @@ impl Infer {
             generation_health,
             adapter_scheduler.clone(),
             eager_prefill,
+            is_causal_lm,
         ));
 
         // Inference limit with a semaphore
@@ -869,14 +872,19 @@ async fn batching_task(
     mut client: ShardedClient,
     waiting_served_ratio: f32,
     max_batch_prefill_tokens: u32,
-    max_batch_total_tokens: u32,
+    mut max_batch_total_tokens: u32,
     max_waiting_tokens: usize,
     adapter_event: Arc<AdapterEvent>,
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
     eager_prefill: bool,
+    is_causal_lm: bool,
 ) {
-    let max_batch_total_tokens = max_batch_prefill_tokens;
+    if !is_causal_lm {
+        // If we are not using a causal LM, total tokens equals prefill tokens
+        max_batch_total_tokens = max_batch_prefill_tokens;
+    }
+
     // Infinite loop
     loop {
         // Fire if a new request comes in or an adapter becomes ready

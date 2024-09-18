@@ -1134,6 +1134,8 @@ pub async fn run(
         generation_health.clone(),
         shard_info.clone(),
     );
+
+    let is_causal_lm = false;
     let infer = Infer::new(
         client.clone(),
         validation,
@@ -1154,6 +1156,7 @@ pub async fn run(
         shard_info.speculate,
         shard_info.preloaded_adapters,
         prefix_caching,
+        is_causal_lm,
     );
 
     // Duration buckets
