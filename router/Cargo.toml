@@ -58,6 +58,8 @@ async-trait = "0.1.80"
 minijinja = { version = "2.0.2" }
 minijinja-contrib = { version = "2.0.2", features = ["pycompat"] }
 image = "0.25.1"
+rustls = "0.22.4"
+webpki = "0.22.2"
 base64 = "0.22.0"
 
 [build-dependencies]
