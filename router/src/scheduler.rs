@@ -308,6 +308,8 @@ impl AdapterSchedulerState {
                 adapters_in_use,
                 self.queues_state.clone(),
             );
+
+            tracing::info!("!!! Queues: {length}", length = queues_state.len());
         }
 
         // Pop entries starting from the front of the queue
@@ -363,7 +365,7 @@ impl AdapterSchedulerState {
                     {
                         // Entry is over budget
                         // Add it back to the front
-                        tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
+                        tracing::info!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
                         self.queues_state
                             .lock()
                             .await
@@ -391,7 +393,7 @@ impl AdapterSchedulerState {
                         None => {
                             // Entry is over budget
                             // Add it back to the front
-                            tracing::debug!("Over budget: not enough free blocks");
+                            tracing::info!("Over budget: not enough free blocks");
                             self.queues_state
                                 .lock()
                                 .await
