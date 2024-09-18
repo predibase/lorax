@@ -18,9 +18,10 @@ python = "^3.8"
 pydantic = "> 2, < 3"
 aiohttp = "^3.9"
 huggingface-hub = ">= 0.12, < 1.0"
+certifi = "2024.7.4"
 
 [tool.poetry.dev-dependencies]
-pytest = "^6.2.5"
+pytest = "^7.3.0"
 pytest-asyncio = "^0.17.2"
 pytest-cov = "^3.0.0"
 
