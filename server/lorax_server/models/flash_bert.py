@@ -197,7 +197,6 @@ class FlashBert(Model):
 
     @tracer.start_as_current_span("classify")
     def classify(self, batch: FlashEmbeddingClassificationBatch):
-        print("!!! BATCH", len(batch.request_ids))
         with self._forward_context(cu_seqlens=batch.cu_seqlens):
             logits: torch.Tensor = self.model.forward(
                 input_ids=batch.input_ids,
