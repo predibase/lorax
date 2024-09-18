@@ -372,7 +372,7 @@ impl AdapterSchedulerState {
                     {
                         // Entry is over budget
                         // Add it back to the front
-                        tracing::info!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
+                        tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
                         self.queues_state
                             .lock()
                             .await
@@ -400,7 +400,7 @@ impl AdapterSchedulerState {
                         None => {
                             // Entry is over budget
                             // Add it back to the front
-                            tracing::info!("Over budget: not enough free blocks");
+                            tracing::debug!("Over budget: not enough free blocks");
                             self.queues_state
                                 .lock()
                                 .await
