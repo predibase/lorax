@@ -161,6 +161,7 @@ impl Infer {
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -178,6 +179,7 @@ impl Infer {
             speculate,
             max_batch_total_tokens,
             prefix_caching,
+            is_causal_lm,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
@@ -729,13 +731,19 @@ impl Infer {
             .map(|(id, input)| (id as u64, input.clone()))
             .collect();
 
-        for (id, r_inputs) in request.inputs.iter().enumerate() {
-            let inputs = r_inputs.to_string().clone();
-            let (tokenized_inputs, input_length) = self
-                .validation
-                .validate_input(r_inputs.to_string(), None, Some(1))
-                .await?;
+        // Call validate_input on every input in the request and await the results
+        let futures: Vec<_> = request
+            .inputs
+            .iter()
+            .map(|input| self.validation.validate_input(input.clone(), None, Some(1)))
+            .collect();
 
+        let all_tokenized_inputs = try_join_all(futures).await?;
+
+        for ((id, r_inputs), (tokenized_inputs, input_length)) in
+            request.inputs.iter().enumerate().zip(all_tokenized_inputs)
+        {
+            let inputs = r_inputs.to_string().clone();
             let valid_request = ValidClassifyRequest {
                 inputs,
                 tokenized_inputs,
