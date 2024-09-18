@@ -1135,13 +1135,20 @@ pub async fn run(
         shard_info.clone(),
     );
 
+    // For non-causal LMs, the max batch total tokens is equal to the max batch prefill tokens
     let is_causal_lm = shard_info.supports_generation;
+    let effective_max_batch_total_tokens = if is_causal_lm {
+        max_batch_total_tokens
+    } else {
+        max_batch_prefill_tokens
+    };
+
     let infer = Infer::new(
         client.clone(),
         validation,
         waiting_served_ratio,
         max_batch_prefill_tokens,
-        max_batch_total_tokens,
+        effective_max_batch_total_tokens,
         max_waiting_tokens,
         max_concurrent_requests,
         max_active_adapters,
