@@ -1582,7 +1582,7 @@ async fn classify_batch(
 
     // Rust Tracing metadata
     span.record("total_time", format!("{total_time:?}"));
-    span.record("num_inputs", num_inputs as u64);
+    span.record("num_inputs", num_inputs);
     span.record("validation_time", format!("{validation_time:?}"));
     span.record("queue_time", format!("{queue_time:?}"));
     span.record("inference_time", format!("{inference_time:?}"));
@@ -1610,6 +1610,7 @@ async fn classify_batch(
     // Metrics
     metrics::increment_counter!("lorax_request_success");
     metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!("lorax_request_input_count", num_inputs as f64);
     metrics::histogram!(
         "lorax_request_validation_duration",
         validation_time.as_secs_f64()
