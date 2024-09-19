@@ -1560,6 +1560,7 @@ async fn classify_batch(
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Inputs: {:?}", req.inputs);
+    let num_inputs = req.inputs.len();
     let responses = infer.classify_batch(req).await?;
 
     // Timings
@@ -1581,6 +1582,7 @@ async fn classify_batch(
 
     // Rust Tracing metadata
     span.record("total_time", format!("{total_time:?}"));
+    span.record("num_inputs", num_inputs as u64);
     span.record("validation_time", format!("{validation_time:?}"));
     span.record("queue_time", format!("{queue_time:?}"));
     span.record("inference_time", format!("{inference_time:?}"));
