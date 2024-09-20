@@ -877,6 +877,7 @@ class FlashCausalLM(Model):
         max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
+        print("!!!!!! Num layers: ", self.num_layers)
         try:
             self.init_kv_cache(
                 batch.num_blocks,
@@ -887,16 +888,18 @@ class FlashCausalLM(Model):
                 self.device,
             )
 
+            print("KV cache: ", self.kv_cache)
+
             with warmup_mode():
                 logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
-                with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
-                    for _ in range(max_new_tokens):
-                        cur_seqlen = batch.max_seqlen
-                        _, batch = self.generate_token(batch, is_warmup=True)
-                        new_seqlen = batch.max_seqlen
-                        pbar.update(new_seqlen - cur_seqlen)
-                        if new_seqlen >= max_total_tokens - get_speculative_tokens():
-                            break
+                # with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
+                #     for _ in range(max_new_tokens):
+                #         cur_seqlen = batch.max_seqlen
+                #         _, batch = self.generate_token(batch, is_warmup=True)
+                #         new_seqlen = batch.max_seqlen
+                #         pbar.update(new_seqlen - cur_seqlen)
+                #         if new_seqlen >= max_total_tokens - get_speculative_tokens():
+                #             break
                 logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):

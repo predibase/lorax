@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union, Type
 
 import torch
 import torch.distributed
@@ -6,6 +6,7 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
 
+from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     ATTN_K_PROJ,
@@ -23,6 +24,8 @@ from lorax_server.utils import (
     weight_files,
 )
 from lorax_server.utils.lora import LM_HEAD
+from lorax_server.models.types import FlashEmbeddingClassificationBatch
+from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
 
 tracer = trace.get_tracer(__name__)
 
@@ -84,6 +87,7 @@ class FlashQwen2(FlashCausalLM):
         weights._set_config(model_id, config)
 
         model = FlashQwen2ForCausalLM(config, weights)
+        self._supports_embeddings = not weights.has_tensor("lm_head.weight")
 
         self.config = config
 
@@ -110,6 +114,14 @@ class FlashQwen2(FlashCausalLM):
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+
+    @property
+    def supports_embeddings(self) -> bool:
+        return self._supports_embeddings
+
+    @property
+    def supports_text_generation(self) -> bool:
+        return not self._supports_embeddings
 
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
@@ -151,8 +163,24 @@ class FlashQwen2(FlashCausalLM):
     def default_traced_adapter_layers(self) -> List[str]:
         return [ATTN_Q_PROJ, ATTN_V_PROJ]
 
+    # @property
+    # def batch_type(self) -> Union[Type[FlashCausalLMBatch], Type[FlashEmbeddingClassificationBatch]]:
+    #     if self._supports_embeddings:
+    #         return FlashEmbeddingClassificationBatch
+    #     return FlashCausalLMBatch
+
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
+    
+    def embed(self, batch) -> torch.Tensor:
+        adapter_meta = batch.adapter_meta
+        prefill = False
+        adapter_data = AdapterBatchData.from_meta(
+            adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+        )
+        embedding: torch.Tensor = self.forward(batch, adapter_data=adapter_data)
+        breakpoint()
+        return embedding

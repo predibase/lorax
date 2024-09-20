@@ -419,6 +419,7 @@ class FlashQwen2Model(torch.nn.Module):
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
         cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
+        breakpoint()
 
         residual = None
         for i, layer in enumerate(self.layers):
@@ -448,16 +449,18 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         self.config = config
 
         self.model = FlashQwen2Model(config, weights)
-        self.lm_head = MultiAdapterHead.load(
-            TensorParallelHead.load(
-                config,
-                prefix="lm_head",
-                weights=weights,
-            ),
-            0,
-            LM_HEAD,
-            process_group=weights.process_group,
-        )
+        self.lm_head = None
+        if weights.has_tensor("lm_head.weight"):
+            self.lm_head = MultiAdapterHead.load(
+                TensorParallelHead.load(
+                    config,
+                    prefix="lm_head",
+                    weights=weights,
+                ),
+                0,
+                LM_HEAD,
+                process_group=weights.process_group,
+            )
 
         self.max_past = config.sliding_window
 
@@ -496,6 +499,10 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             prefill_cache_indices,
             adapter_data,
         )
+
+        if not self.lm_head:
+            return hidden_states, None
+
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
         logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
