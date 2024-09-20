@@ -16,6 +16,7 @@ use tracing::{info_span, instrument, Instrument, Span};
 
 enum AdapterSchedulerCommand {
     Append(Adapter, Entry),
+    AppendBatch(Adapter, Vec<Entry>),
     RemoveErroredAdapters {},
     NextBatch {
         adapters_in_use: HashSet<Adapter>,
@@ -72,6 +73,14 @@ impl AdapterScheduler {
         // the adapter manager task will handle the actual processing
         self.sender
             .send(AdapterSchedulerCommand::Append(adapter, entry))
+            .unwrap();
+    }
+
+    pub(crate) fn process_batch(&self, adapter: Adapter, entries: Vec<Entry>) {
+        // only blocks until the message is sent
+        // the adapter manager task will handle the actual processing
+        self.sender
+            .send(AdapterSchedulerCommand::AppendBatch(adapter, entries))
             .unwrap();
     }
 
@@ -145,6 +154,11 @@ async fn adapter_scheduler_task(
         match cmd {
             AdapterSchedulerCommand::Append(adapter, entry) => {
                 state.append(adapter, adapter_event.clone(), entry).await;
+            }
+            AdapterSchedulerCommand::AppendBatch(adapter, entries) => {
+                state
+                    .append_batch(adapter, adapter_event.clone(), entries)
+                    .await;
             }
             AdapterSchedulerCommand::RemoveErroredAdapters {} => {
                 state.remove_errored_adapters().await;
@@ -250,6 +264,31 @@ impl AdapterSchedulerState {
         let mut queues_state = self.queues_state.lock().await;
 
         let download = queues_state.append(adapter.clone(), adapter_event.clone(), entry);
+        if download {
+            // Download the adapter async
+            self.loader
+                .download_adapter(adapter.clone(), self.queues_state.clone());
+        }
+
+        adapter_event.batching_task.notify_one();
+    }
+
+    /// Append entry to the appropriate queue
+    async fn append_batch(
+        &mut self,
+        adapter: Adapter,
+        adapter_event: Arc<AdapterEvent>,
+        entries: Vec<Entry>,
+    ) {
+        // check if queue_map has adapter_key as key
+        // if not, then add a new Queue and download the adapter
+        let mut queues_state = self.queues_state.lock().await;
+
+        let mut download = false;
+        for entry in entries {
+            download |= queues_state.append(adapter.clone(), adapter_event.clone(), entry);
+        }
+
         if download {
             // Download the adapter async
             self.loader

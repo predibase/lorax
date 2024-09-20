@@ -740,20 +740,21 @@ impl Infer {
 
         let all_tokenized_inputs = try_join_all(futures).await?;
 
-        for ((id, r_inputs), (tokenized_inputs, input_length)) in
-            request.inputs.iter().enumerate().zip(all_tokenized_inputs)
-        {
-            let inputs = r_inputs.to_string().clone();
-            let valid_request = ValidClassifyRequest {
-                inputs,
-                tokenized_inputs,
-                input_length: input_length as u32,
-                adapter: adapter.clone(),
-            };
+        // Create a list of entries to send to the batching task
+        let entries = request
+            .inputs
+            .iter()
+            .zip(all_tokenized_inputs)
+            .enumerate()
+            .map(|(id, (r_inputs, (tokenized_inputs, input_length)))| {
+                let inputs = r_inputs.clone();
+                let valid_request = ValidClassifyRequest {
+                    inputs,
+                    tokenized_inputs,
+                    input_length: input_length as u32,
+                    adapter: adapter.clone(),
+                };
 
-            // Process the request by sending it to the queue associated with `adapter`
-            self.adapter_scheduler.process(
-                adapter.clone(),
                 Entry {
                     request: Arc::new(valid_request),
                     response_tx: response_tx.clone(),
@@ -763,9 +764,12 @@ impl Infer {
                     batch_time: None,
                     block_allocation: None,
                     id: Some(id as u64),
-                },
-            );
-        }
+                }
+            })
+            .collect();
+
+        self.adapter_scheduler
+            .process_batch(adapter.clone(), entries);
 
         drop(response_tx); // Close the sending end
 
