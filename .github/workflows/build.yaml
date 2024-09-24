@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - 'main'
-      - 'fix-deps4'
     tags:
       - 'v*'
 
