@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - 'main'
-      - 'fix-deps4'
     tags:
       - 'v*'
 
@@ -67,7 +66,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=fix-deps4 
 
       - name: Create a hash from tags
         env:
