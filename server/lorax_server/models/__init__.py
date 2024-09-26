@@ -356,6 +356,20 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
+    
+    if model_type == "mllama":
+        from lorax_server.models.mllama import Mllama
+
+        return Mllama(
+            model_id=model_id,
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
+            revision=revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
 
     if model_type == "opt":
         return OPTSharded(
