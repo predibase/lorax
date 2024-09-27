@@ -16,6 +16,7 @@
 
 from typing import List, Optional, Tuple
 
+from lorax_server.adapters.weights import AdapterBatchData
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -175,7 +176,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
         # Unused for this model
         pixel_attention_mask=None,
         image_sizes: Optional[torch.LongTensor] = None,
-        adapter_data: Optional[torch.Tensor] = None,
+        adapter_data: Optional["AdapterBatchData"] = None,
     ):
         inputs_embeds = self.text_model.embed_tokens(input_ids)
         if pixel_values is not None and len(pixel_values) > 0:

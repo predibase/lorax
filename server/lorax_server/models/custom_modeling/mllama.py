@@ -16,6 +16,7 @@
 
 from typing import Optional, Tuple, List
 
+from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.layers.tensor_parallel import TensorParallelHead
 from lorax_server.utils.lora import LM_HEAD
 import torch
@@ -1434,6 +1435,7 @@ class MllamaForCausalLM(nn.Module):
         labels: Optional[torch.LongTensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
         num_logits_to_keep: int = 0,
+        adapter_data: Optional["AdapterBatchData"] = None,
     ):
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
@@ -1451,7 +1453,7 @@ class MllamaForCausalLM(nn.Module):
         hidden_states = outputs.last_hidden_state
         # if lm_head_indices is not None:
         #     hidden_states = hidden_states[lm_head_indices]
-        logits, speculative_logits = self.lm_head(hidden_states)
+        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
         return (
             CausalLMOutputWithPast(
                 logits=logits,
@@ -1542,9 +1544,7 @@ class MllamaForConditionalGeneration(nn.Module):
     def __init__(self, prefix, config, weights):
         super().__init__()
         config.vision_config.quantize = None
-        config.vision_config.speculator = config.speculator
         config.text_config.quantize = config.quantize
-        config.text_config.speculator = config.speculator
         config.text_config._attn_implementation = "sdpa"
         self.hidden_size = config.text_config.hidden_size
         self.vision_model = MllamaVisionModel(
@@ -1577,6 +1577,7 @@ class MllamaForConditionalGeneration(nn.Module):
         num_logits_to_keep: int = 0,
         image_hidden_states=None,
         image_attention_mask=None,
+        adapter_data: Optional["AdapterBatchData"] = None,
     ):
         if past_key_values is None:
             past_key_values = DynamicCache(
@@ -1643,6 +1644,7 @@ class MllamaForConditionalGeneration(nn.Module):
             labels=labels,
             cache_position=cache_position,
             num_logits_to_keep=num_logits_to_keep,
+            adapter_data=adapter_data,
         )
 
         return outputs

@@ -37,6 +37,9 @@ class Mllama(MultimodalCausalLM):
 
         if PREFIX_CACHING:
             raise NotImplementedError("Mllama does not support prefix caching yet")
+        
+        if compile:
+            raise NotImplementedError("Mllama does not support CUDA graph compilation yet")
 
         config = AutoConfig.from_pretrained(
             model_id,
@@ -86,7 +89,7 @@ class Mllama(MultimodalCausalLM):
             device=device,
             rank=rank,
             world_size=world_size,
-            compile=compile,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
+            processor=self.processor,
         )

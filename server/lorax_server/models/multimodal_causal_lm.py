@@ -1,5 +1,8 @@
 from io import BytesIO
 from PIL import Image
+from lorax_server.adapters.weights import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.utils.segments import find_segments
+from lorax_server.utils.tokenizer import TokenizerManager
 import torch
 import time
 
@@ -14,7 +17,8 @@ from typing import Optional, Tuple, List, Type, Dict
 from lorax_server.models import Model
 from lorax_server.models.types import (
     Batch,
-    Tokens,
+    NextTokens,
+    PrefillTokens,
     Generation,
     GeneratedText,
 )
@@ -55,6 +59,9 @@ class MultimodalCausalLMBatch(Batch):
     next_token_choosers: List[NextTokenChooser]
     stopping_criterias: List[StoppingCriteria]
 
+    # Adapter metadata for each request
+    adapter_meta: AdapterBatchMetadata
+
     # Metadata used for padding
     max_input_length: int
     padding_right_offset: int
@@ -78,17 +85,8 @@ class MultimodalCausalLMBatch(Batch):
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> "MultimodalCausalLMBatch":
-        raise NotImplementedError
-
-    @classmethod
-    def from_pb_processor(
-        cls,
-        pb: generate_pb2.Batch,
-        tokenizer: PreTrainedTokenizerBase,
-        processor: ProcessorMixin,  # Hack
+        tokenizers: TokenizerManager,
+        processor,
         config,
         dtype: torch.dtype,
         device: torch.device,
@@ -100,13 +98,16 @@ class MultimodalCausalLMBatch(Batch):
         read_offsets = []
         requests_idx_mapping = {}
 
+        adapter_indices_list = []
+        adapter_set = set()
+
         # Parse batch
         max_truncation = 0
         padding_right_offset = 0
         max_decode_tokens = 0
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
-            inputs.append(r.input_chunks.chunks)
+            inputs.append(r.tokenized_inputs.input_chunks)
             next_token_choosers.append(
                 NextTokenChooser.from_pb(r.parameters, device, tokenizer)
             )
@@ -119,6 +120,10 @@ class MultimodalCausalLMBatch(Batch):
             padding_right_offset = max(
                 padding_right_offset, stopping_criteria.max_new_tokens
             )
+            adapter_indices_list.append(r.adapter_index)
+            adapter_set.add(r.adapter_index)
+        
+        adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
 
         # TODO Check impact on idefics
 
@@ -246,6 +251,9 @@ class MultimodalCausalLMBatch(Batch):
 
         max_tokens = len(inputs) * (max_input_length + max_decode_tokens)
 
+        adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
+
         return cls(
             batch_id=pb.id,
             requests=pb.requests,
@@ -269,6 +277,12 @@ class MultimodalCausalLMBatch(Batch):
             aspect_ratio_ids=aspect_ratio_ids,
             aspect_ratio_mask=aspect_ratio_mask,
             cross_attention_mask=cross_attention_mask,
+            adapter_meta=AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
+            ),
         )
 
     @tracer.start_as_current_span("filter")
@@ -725,6 +739,7 @@ class MultimodalCausalLM(Model):
         aspect_ratio_ids=None,
         aspect_ratio_mask=None,
         cross_attention_mask=None,
+        adapter_data=None,
     ) -> Tuple[torch.Tensor, List[Tuple[torch.Tensor, torch.Tensor]]]:
         # Model Forward
         kwargs = {
@@ -734,6 +749,7 @@ class MultimodalCausalLM(Model):
             "image_hidden_states": image_hidden_states,
             "image_attention_mask": image_attention_mask,
             "past_key_values": past_key_values,
+            "adapter_data": adapter_data,
         }
         if self.has_position_ids:
             kwargs["position_ids"] = position_ids
@@ -776,6 +792,16 @@ class MultimodalCausalLM(Model):
                 image_attention_mask = batch.image_attention_mask[
                     :, : -batch.padding_right_offset
                 ]
+        
+        # Update adapter indices for speculative tokens (if present)
+        prefill = batch.past_key_values is not None
+        adapter_meta = batch.adapter_meta
+
+        # Assign pointers to adapter weights
+        # TODO(travis): don't update this if indices haven't changed
+        adapter_data = AdapterBatchData.from_meta(
+            adapter_meta, self.layer_to_adapter_weights, prefill, None
+        )
 
         logits, speculative_logits, past, image_hidden_states = self.forward(
             input_ids=batch.input_ids,
@@ -788,6 +814,7 @@ class MultimodalCausalLM(Model):
             aspect_ratio_ids=batch.aspect_ratio_ids,
             aspect_ratio_mask=batch.aspect_ratio_mask,
             cross_attention_mask=batch.cross_attention_mask,
+            adapter_data=adapter_data,
         )
         # Hardcoded remove image tokens
         if self.config.model_type == "idefics":
@@ -887,36 +914,33 @@ class MultimodalCausalLM(Model):
                         clean_up_tokenization_spaces=False,
                         skip_special_tokens=False,
                     )
-                    prefill_tokens = Tokens(
-                        prefill_token_ids,
-                        prefill_logprobs,
-                        prefill_texts,
-                        is_special=[],
-                    )
+                    prefill_tokens = PrefillTokens(prefill_token_ids, prefill_logprobs, prefill_texts)
+                    prefill_tokens_length = len(prefill_tokens.token_ids)
                 else:
                     prefill_tokens = None
+                    prefill_tokens_length = 0
 
-                top_tokens = None
-
+                # TODO(travis): support all_alternative_tokens for multimodal
                 generation = Generation(
                     request.id,
                     prefill_tokens,
-                    Tokens(
+                    prefill_tokens_length,
+                    NextTokens(
                         [next_token_id_squeezed],
                         [next_token_logprob],
                         [next_token_text],
                         [next_token_id_squeezed.item() in self.all_special_ids],
+                        None,
                     ),
                     generated_text,
-                    top_tokens,
                 )
 
                 generations.append(generation)
 
+            # advance FSM state
+            batch.next_token_choosers[i].next_state(next_token_id_squeezed.item())
+            
             # Update values
-            batch.next_token_choosers[i] = batch.next_token_choosers[i].advance_grammar(
-                next_token_id_squeezed.item()
-            )
             batch.input_ids[i, 0] = next_token_id
             batch.all_input_ids[i] = all_input_ids
             batch.input_lengths[i] = new_input_length
