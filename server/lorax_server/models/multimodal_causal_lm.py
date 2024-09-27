@@ -820,8 +820,6 @@ class MultimodalCausalLM(Model):
         if self.config.model_type == "idefics":
             logits[:, 32000:32001] = torch.finfo(logits.dtype).min
 
-        start_decode = time.time_ns()
-
         # Results
         generations: List[Generation] = []
         stopped = True
@@ -950,9 +948,7 @@ class MultimodalCausalLM(Model):
 
         # We finished all generations in the batch; there is no next batch
         if stopped:
-            forward_ns = start_decode - start
-            decode_ns = time.time_ns() - start_decode
-            return generations, None, (forward_ns, decode_ns)
+            return generations, None
 
         # Slice unused values from prefill
         batch.input_ids = batch.input_ids[:, :1]
@@ -976,6 +972,4 @@ class MultimodalCausalLM(Model):
         batch.image_hidden_states = image_hidden_states
         if self.model.config.model_type == "mllama":
             batch.pixel_values = None
-        forward_ns = start_decode - start
-        decode_ns = time.time_ns() - start_decode
-        return generations, batch, (forward_ns, decode_ns)
+        return generations, batch

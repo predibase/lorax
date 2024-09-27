@@ -874,7 +874,6 @@ class MllamaCrossAttentionDecoderLayer(torch.nn.Module):
                         indices.append(i)
                 from loguru import logger
 
-                logger.info(f"Indices {indices}")
                 if len(indices) == 0:
                     return hidden_states
                 is_mixed = True
