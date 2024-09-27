@@ -111,6 +111,8 @@ async fn compat_generate(
     }
 }
 
+const OPEN_AI_END_EVENT: &str = "[DONE]";
+
 /// OpenAI compatible completions endpoint
 #[utoipa::path(
 post,
@@ -176,6 +178,7 @@ async fn completions_v1(
             req_headers,
             Json(gen_req.into()),
             callback,
+            Some(Event::default().data(OPEN_AI_END_EVENT)),
         )
         .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
@@ -303,6 +306,7 @@ async fn chat_completions_v1(
             req_headers,
             Json(gen_req.into()),
             callback,
+            Some(Event::default().data(OPEN_AI_END_EVENT)),
         )
         .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
@@ -733,11 +737,11 @@ async fn generate_stream(
         req_headers,
         req,
         callback,
+        None,
     )
     .await;
     (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
 }
-
 async fn generate_stream_with_callback(
     infer: Extension<Infer>,
     info: Extension<Info>,
@@ -745,6 +749,7 @@ async fn generate_stream_with_callback(
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
     callback: impl Fn(StreamResponse) -> Event,
+    end_event: Option<Event>,
 ) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
@@ -919,6 +924,9 @@ async fn generate_stream_with_callback(
                                             };
 
                                             yield Ok(callback(stream_token));
+                                            if let Some(end_event) = end_event {
+                                                yield Ok(end_event);
+                                            }
                                             break;
                                         },
                                         InferStreamResponse::Embed {
