@@ -2,8 +2,6 @@
 
 # configure S3 parameters.
 aws configure set default.s3.preferred_transfer_client crt
-aws configure set default.s3.payload_signing_enabled false
-aws configure set default.s3.target_bandwidth 50Gb/s
 
 echo "HuggingFace Model ID: $MODEL_ID"
 echo "HuggingFace local cache directory: $HUGGINGFACE_HUB_CACHE"
