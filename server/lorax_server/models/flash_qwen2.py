@@ -194,5 +194,9 @@ class FlashQwen2(FlashCausalLM):
         adapter_data = AdapterBatchData.from_meta(
             adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
         )
-        embedding, x  = self.forward(batch, adapter_data=adapter_data)
+        embedding, _  = self.forward(batch, adapter_data=adapter_data)
         return embedding.cpu().tolist()
+    
+    def warmup(self, batch, max_new_tokens):
+        return super().warmup(batch, max_new_tokens, embedding_model=self._supports_embeddings)
+
