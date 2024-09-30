@@ -16,13 +16,13 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.adapters.weights import AdapterBatchData
 import torch
 import torch.utils.checkpoint
 from torch import nn
 from transformers.activations import ACT2FN
 from transformers.image_processing_utils import select_best_resolution
 
+from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.layers import (
     TensorParallelColumnLinear,
     TensorParallelRowLinear,

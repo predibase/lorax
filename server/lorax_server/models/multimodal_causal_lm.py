@@ -1,30 +1,27 @@
-from io import BytesIO
-from PIL import Image
-from lorax_server.adapters.weights import AdapterBatchData, AdapterBatchMetadata
-from lorax_server.utils.segments import find_segments
-from lorax_server.utils.tokenizer import TokenizerManager
-import torch
-import time
-
 from dataclasses import dataclass
+from io import BytesIO
+from typing import Dict, List, Optional, Tuple, Type
+
+import torch
 from opentelemetry import trace
+from PIL import Image
 from transformers import (
     PreTrainedTokenizerBase,
-    ProcessorMixin,
 )
-from typing import Optional, Tuple, List, Type, Dict
 
+from lorax_server.adapters.weights import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models import Model
 from lorax_server.models.types import (
     Batch,
+    GeneratedText,
+    Generation,
     NextTokens,
     PrefillTokens,
-    Generation,
-    GeneratedText,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import NextTokenChooser, StoppingCriteria, Sampling
-
+from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
+from lorax_server.utils.segments import find_segments
+from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
 
@@ -108,21 +105,15 @@ class MultimodalCausalLMBatch(Batch):
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             inputs.append(r.tokenized_inputs.input_chunks)
-            next_token_choosers.append(
-                NextTokenChooser.from_pb(r.parameters, device, tokenizer)
-            )
-            stopping_criteria = StoppingCriteria.from_pb(
-                r.stopping_parameters, tokenizer
-            )
+            next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device, tokenizer))
+            stopping_criteria = StoppingCriteria.from_pb(r.stopping_parameters, tokenizer)
             stopping_criterias.append(stopping_criteria)
             max_truncation = max(max_truncation, r.truncate)
             max_decode_tokens += stopping_criteria.max_new_tokens
-            padding_right_offset = max(
-                padding_right_offset, stopping_criteria.max_new_tokens
-            )
+            padding_right_offset = max(padding_right_offset, stopping_criteria.max_new_tokens)
             adapter_indices_list.append(r.adapter_index)
             adapter_set.add(r.adapter_index)
-        
+
         adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
 
         # TODO Check impact on idefics
@@ -191,12 +182,8 @@ class MultimodalCausalLMBatch(Batch):
             ).to(device)
         for _ in pb.requests:
             input_len = tokenized_inputs["input_ids"].shape[1]
-            prefix_offsets.append(
-                input_len - 5
-            )  # To decode without potential fallbacks errors
-            read_offsets.append(
-                input_len
-            )  # To decode without potential fallbacks errors
+            prefix_offsets.append(input_len - 5)  # To decode without potential fallbacks errors
+            read_offsets.append(input_len)  # To decode without potential fallbacks errors
 
         input_lengths = tokenized_inputs["attention_mask"].sum(1)
         max_input_length = input_lengths.max()
@@ -205,9 +192,7 @@ class MultimodalCausalLMBatch(Batch):
         pixel_values = tokenized_inputs.get("pixel_values", None)
         image_hidden_states = None
         # Allocate maximum attention_mask
-        attention_mask = input_ids.new_zeros(
-            (pb.size, max_input_length + padding_right_offset)
-        )
+        attention_mask = input_ids.new_zeros((pb.size, max_input_length + padding_right_offset))
         # Copy tokenizer attention_mask into fully allocated attention_mask
         attention_mask[:, :max_input_length] = tokenized_inputs["attention_mask"]
         # Do the same for image_attention_mask
@@ -224,9 +209,7 @@ class MultimodalCausalLMBatch(Batch):
                     pixel_values.size(1),
                 )
             )
-            image_attention_mask[:, :max_input_length, :] = tokenized_inputs[
-                "image_attention_mask"
-            ]
+            image_attention_mask[:, :max_input_length, :] = tokenized_inputs["image_attention_mask"]
             aspect_ratio_ids = None
             aspect_ratio_mask = None
             cross_attention_mask = None
@@ -237,15 +220,15 @@ class MultimodalCausalLMBatch(Batch):
             cross_attention_mask = tokenized_inputs["cross_attention_mask"]
             pixel_values = pixel_values.to(dtype=dtype)
             # XXX: <|image|> token is actually out of bounds and bugs out the logit processors.
-            tokenized_inputs["input_ids"] = tokenized_inputs["input_ids"].clamp(
-                max=processor.tokenizer.vocab_size - 1
-            )
+            tokenized_inputs["input_ids"] = tokenized_inputs["input_ids"].clamp(max=processor.tokenizer.vocab_size - 1)
         else:
             raise RuntimeError("Unhandled state for idefics/mllama")
 
         position_ids = tokenized_inputs["attention_mask"].long().cumsum(-1) - 1
         position_ids.masked_fill_(tokenized_inputs["attention_mask"] == 0, 1)
-        all_input_ids = tokenized_inputs["input_ids"].T.split(
+        all_input_ids = tokenized_inputs[
+            "input_ids"
+        ].T.split(
             1, dim=1
         )  # It's input_ids but splitted into a tuple of tensors where each tensor is (seq_len, 1) size. It is then transformed into a list
 
@@ -327,22 +310,16 @@ class MultimodalCausalLMBatch(Batch):
             next_token_choosers.append(self.next_token_choosers[idx])
             stopping_criteria = self.stopping_criterias[idx]
             stopping_criterias.append(stopping_criteria)
-            remaining_decode_tokens = (
-                stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
-            )
+            remaining_decode_tokens = stopping_criteria.max_new_tokens - stopping_criteria.current_tokens
             total_remaining_decode_tokens += remaining_decode_tokens
-            new_padding_right_offset = max(
-                new_padding_right_offset, remaining_decode_tokens
-            )
+            new_padding_right_offset = max(new_padding_right_offset, remaining_decode_tokens)
 
         # Apply indices to input_ids, attention mask, past key values and other items that need to be cached
         input_ids = self.input_ids[keep_indices]
         position_ids = self.position_ids[keep_indices]
         self.attention_mask = self.attention_mask[
             keep_indices,
-            -(self.padding_right_offset + max_input_length) : (
-                self.attention_mask.shape[1] - self.padding_right_offset
-            )
+            -(self.padding_right_offset + max_input_length) : (self.attention_mask.shape[1] - self.padding_right_offset)
             + new_padding_right_offset,
         ]
         # Do the same for pixel_values and image_attention_mask
@@ -376,9 +353,7 @@ class MultimodalCausalLMBatch(Batch):
             past_keys, past_values = layer
             if not isinstance(past_keys, torch.Tensor):
                 past_keys = [k for i, k in enumerate(past_keys) if i in keep_indices]
-                past_values = [
-                    k for i, k in enumerate(past_values) if i in keep_indices
-                ]
+                past_values = [k for i, k in enumerate(past_values) if i in keep_indices]
                 layer[0] = past_keys
                 layer[1] = past_values
                 continue
@@ -419,9 +394,7 @@ class MultimodalCausalLMBatch(Batch):
 
     @classmethod
     @tracer.start_as_current_span("concatenate")
-    def concatenate(
-        cls, batches: List["MultimodalCausalLMBatch"]
-    ) -> "MultimodalCausalLMBatch":
+    def concatenate(cls, batches: List["MultimodalCausalLMBatch"]) -> "MultimodalCausalLMBatch":
         # It adds new requests to the batch
         # Used for padding
         total_batch_size = 0
@@ -498,12 +471,8 @@ class MultimodalCausalLMBatch(Batch):
             if batch.pixel_values is not None:
                 curr_batch_max_num_images = batch.pixel_values.size(1)
                 if pixel_values is None:
-                    pixel_values = batch.pixel_values.new_zeros(
-                        (total_batch_size, max_num_images, 3, 224, 224)
-                    )
-                pixel_values[start_index:end_index, :curr_batch_max_num_images] = (
-                    batch.pixel_values
-                )
+                    pixel_values = batch.pixel_values.new_zeros((total_batch_size, max_num_images, 3, 224, 224))
+                pixel_values[start_index:end_index, :curr_batch_max_num_images] = batch.pixel_values
             else:
                 pixel_values = None
 
@@ -519,11 +488,7 @@ class MultimodalCausalLMBatch(Batch):
             # We need to slice the attention mask to remove padding from previous steps
             # and to remove unused allocated space
             left_offset = max_input_length - batch.max_input_length
-            batch_left_offset = (
-                batch.attention_mask.shape[1]
-                - batch.max_input_length
-                - batch.padding_right_offset
-            )
+            batch_left_offset = batch.attention_mask.shape[1] - batch.max_input_length - batch.padding_right_offset
             attention_mask[
                 start_index:end_index,
                 left_offset:-padding_right_offset,
@@ -536,9 +501,7 @@ class MultimodalCausalLMBatch(Batch):
                     start_index:end_index,
                     left_offset:-padding_right_offset,
                     :curr_batch_max_num_images,
-                ] = batch.image_attention_mask[
-                    :, batch_left_offset : -batch.padding_right_offset, :
-                ]
+                ] = batch.image_attention_mask[:, batch_left_offset : -batch.padding_right_offset, :]
 
             # Create empty tensor
             # position_ids is always of shape [batch_size, 1]
@@ -552,14 +515,7 @@ class MultimodalCausalLMBatch(Batch):
             # And ensure that we can update tensors in-place
             if isinstance(batch.past_key_values[0], tuple):
                 batch.past_key_values = [
-                    [
-                        (
-                            t.view(len(batch), -1, *t.shape[-2:])
-                            if isinstance(t, torch.Tensor)
-                            else t
-                        )
-                        for t in layer
-                    ]
+                    [(t.view(len(batch), -1, *t.shape[-2:]) if isinstance(t, torch.Tensor) else t) for t in layer]
                     for layer in batch.past_key_values
                 ]
             elif len(batch.past_key_values[0][0].shape) == 3:
@@ -568,9 +524,7 @@ class MultimodalCausalLMBatch(Batch):
                         layer[k] = t.view(len(batch), -1, *t.shape[-2:])
 
             # Add eventual padding tokens that were added while concatenating
-            max_tokens += batch.max_tokens + (
-                max_input_length - batch.max_input_length
-            ) * len(batch)
+            max_tokens += batch.max_tokens + (max_input_length - batch.max_input_length) * len(batch)
 
             start_index = end_index
 
@@ -598,17 +552,10 @@ class MultimodalCausalLMBatch(Batch):
         # Iterate over attention layers
         # Concatenate past key values layer by layer to allow incremental garbage collection
         for j in range(len(first_past_kvs)):
-            if any(
-                not isinstance(batch.past_key_values[j][0], torch.Tensor)
-                for batch in batches
-            ):
+            if any(not isinstance(batch.past_key_values[j][0], torch.Tensor) for batch in batches):
                 # XXX: Special handling for cross attention for mllama
-                padded_past_keys = [
-                    k for batch in batches for k in batch.past_key_values[j][0]
-                ]
-                padded_past_values = [
-                    k for batch in batches for k in batch.past_key_values[j][1]
-                ]
+                padded_past_keys = [k for batch in batches for k in batch.past_key_values[j][0]]
+                padded_past_values = [k for batch in batches for k in batch.past_key_values[j][1]]
                 past_key_values.append([padded_past_keys, padded_past_values])
             else:
                 _, _num_heads, seqlen, _head_dim = first_past_kvs[j][0].shape
@@ -624,9 +571,7 @@ class MultimodalCausalLMBatch(Batch):
                 else:
                     _padded_past_keys_shape = padded_past_keys_shape
 
-                padded_past_keys = first_past_kvs[j][0].new_zeros(
-                    _padded_past_keys_shape
-                )
+                padded_past_keys = first_past_kvs[j][0].new_zeros(_padded_past_keys_shape)
                 start_index = 0
                 for batch in batches:
                     past_keys = batch.past_key_values[j][0]
@@ -641,14 +586,14 @@ class MultimodalCausalLMBatch(Batch):
                         # XXX: This is a cross attention kv in mllama
                         past_seq_len = past_keys.shape[2]
                     if batch.keys_head_dim_last:
-                        padded_past_keys[
-                            start_index:end_index, :, -past_seq_len:, :
-                        ] = past_keys[:, :, -past_seq_len:, :]
+                        padded_past_keys[start_index:end_index, :, -past_seq_len:, :] = past_keys[
+                            :, :, -past_seq_len:, :
+                        ]
                     else:
                         # BLOOM case
-                        padded_past_keys[
-                            start_index:end_index, :, :, -past_seq_len:
-                        ] = past_keys[:, :, :, -past_seq_len:]
+                        padded_past_keys[start_index:end_index, :, :, -past_seq_len:] = past_keys[
+                            :, :, :, -past_seq_len:
+                        ]
                     del past_keys
 
                     start_index = end_index
@@ -665,9 +610,7 @@ class MultimodalCausalLMBatch(Batch):
                     )
                 else:
                     _padded_past_values_shape = padded_past_values_shape
-                padded_past_values = first_past_kvs[j][1].new_zeros(
-                    _padded_past_values_shape
-                )
+                padded_past_values = first_past_kvs[j][1].new_zeros(_padded_past_values_shape)
                 start_index = 0
                 for batch in batches:
                     past_values = batch.past_key_values[j][1]
@@ -681,9 +624,9 @@ class MultimodalCausalLMBatch(Batch):
                     if past_values.shape[2] > past_seq_len:
                         # XXX: This is a cross attention kv in mllama
                         past_seq_len = past_values.shape[2]
-                    padded_past_values[start_index:end_index, :, -past_seq_len:, :] = (
-                        past_values[:, :, -past_seq_len:, :]
-                    )
+                    padded_past_values[start_index:end_index, :, -past_seq_len:, :] = past_values[
+                        :, :, -past_seq_len:, :
+                    ]
                     del past_values
 
                     # Update values
@@ -773,7 +716,6 @@ class MultimodalCausalLM(Model):
     def generate_token(
         self, batch: MultimodalCausalLMBatch
     ) -> Tuple[List[Generation], Optional[MultimodalCausalLMBatch], Tuple[int, int]]:
-        start = time.time_ns()
         # slice the attention mask to the correct shape
         attention_mask = batch.attention_mask[:, : -batch.padding_right_offset]
         if batch.image_attention_mask is None:
@@ -785,23 +727,17 @@ class MultimodalCausalLM(Model):
                 # this is due to the nature IDEFICS: it's an encoder decoder, and so when decoding, only the currently generated
                 # token need to attend to the encoder hidden states (i.e. the vision encoder)
                 # Also see seq2seq_lm.Seq2SeqLM.generate_token which has roughly the same logic
-                image_attention_mask = batch.image_attention_mask[
-                    :, -(batch.padding_right_offset + 1)
-                ].unsqueeze(1)
+                image_attention_mask = batch.image_attention_mask[:, -(batch.padding_right_offset + 1)].unsqueeze(1)
             else:
-                image_attention_mask = batch.image_attention_mask[
-                    :, : -batch.padding_right_offset
-                ]
-        
+                image_attention_mask = batch.image_attention_mask[:, : -batch.padding_right_offset]
+
         # Update adapter indices for speculative tokens (if present)
         prefill = batch.past_key_values is not None
         adapter_meta = batch.adapter_meta
 
         # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(
-            adapter_meta, self.layer_to_adapter_weights, prefill, None
-        )
+        adapter_data = AdapterBatchData.from_meta(adapter_meta, self.layer_to_adapter_weights, prefill, None)
 
         logits, speculative_logits, past, image_hidden_states = self.forward(
             input_ids=batch.input_ids,
@@ -848,9 +784,7 @@ class MultimodalCausalLM(Model):
             all_input_ids,
         ) in enumerate(iterator):
             # Select next token
-            next_token_id, logprobs = next_token_chooser(
-                all_input_ids.view(1, -1), logits[-1:, :]
-            )
+            next_token_id, logprobs = next_token_chooser(all_input_ids.view(1, -1), logits[-1:, :])
 
             # Append next token to all tokens
             all_input_ids = torch.cat([all_input_ids, next_token_id])
@@ -879,11 +813,8 @@ class MultimodalCausalLM(Model):
                     # Decode generated tokens
                     output_text, _, _ = self.decode_token(
                         all_input_ids[:, 0],
-                        prefix_offset=len(all_input_ids)
-                        - stopping_criteria.current_tokens
-                        - 1,
-                        read_offset=len(all_input_ids)
-                        - stopping_criteria.current_tokens,
+                        prefix_offset=len(all_input_ids) - stopping_criteria.current_tokens - 1,
+                        read_offset=len(all_input_ids) - stopping_criteria.current_tokens,
                         skip_special_tokens=True,
                     )
                     # Get seed
@@ -892,20 +823,16 @@ class MultimodalCausalLM(Model):
                     else:
                         seed = None
 
-                    generated_text = GeneratedText(
-                        output_text, stopping_criteria.current_tokens, reason, seed
-                    )
+                    generated_text = GeneratedText(output_text, stopping_criteria.current_tokens, reason, seed)
                 else:
                     generated_text = None
 
                 # Prefill
                 if stopping_criteria.current_tokens == 1 and request.prefill_logprobs:
                     # Remove generated token to only have prefill and add nan for first prompt token
-                    prefill_logprobs = [float("nan")] + torch.log_softmax(
-                        logits, -1
-                    ).gather(1, all_input_ids[1:]).squeeze(1)[
-                        -new_input_length:-1
-                    ].tolist()
+                    prefill_logprobs = [float("nan")] + torch.log_softmax(logits, -1).gather(
+                        1, all_input_ids[1:]
+                    ).squeeze(1)[-new_input_length:-1].tolist()
                     prefill_token_ids = all_input_ids[-new_input_length:-1]
                     prefill_texts = self.tokenizer.batch_decode(
                         prefill_token_ids,
@@ -937,7 +864,7 @@ class MultimodalCausalLM(Model):
 
             # advance FSM state
             batch.next_token_choosers[i].next_state(next_token_id_squeezed.item())
-            
+
             # Update values
             batch.input_ids[i, 0] = next_token_id
             batch.all_input_ids[i] = all_input_ids
@@ -956,9 +883,9 @@ class MultimodalCausalLM(Model):
         # Update attention_mask as we added a new token to input_ids
         batch.attention_mask[:, -batch.padding_right_offset] = 1
         if batch.image_attention_mask is not None:
-            batch.image_attention_mask[:, -batch.padding_right_offset, :] = (
-                batch.image_attention_mask[:, -(batch.padding_right_offset + 1), :]
-            )
+            batch.image_attention_mask[:, -batch.padding_right_offset, :] = batch.image_attention_mask[
+                :, -(batch.padding_right_offset + 1), :
+            ]
         if batch.cross_attention_mask is not None:
             batch.cross_attention_mask = batch.cross_attention_mask[:, -1:]
         # Decrease right offset

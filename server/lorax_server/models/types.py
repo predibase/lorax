@@ -223,7 +223,9 @@ class FlashEmbeddingClassificationBatch(ABC):
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
             results.append(
                 generate_pb2.ClassifyPredictionList(
-                    request_id=batch.request_ids[i], predictions=pred, scores=con,
+                    request_id=batch.request_ids[i],
+                    predictions=pred,
+                    scores=con,
                 )
             )
 

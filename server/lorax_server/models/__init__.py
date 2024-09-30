@@ -356,7 +356,7 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "mllama":
         from lorax_server.models.mllama import Mllama
 

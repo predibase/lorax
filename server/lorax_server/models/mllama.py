@@ -1,17 +1,17 @@
-import torch
-import torch.distributed
 from typing import Optional
 
-
+import torch
+import torch.distributed
 from transformers import AutoConfig, AutoProcessor, AutoTokenizer
+
 from lorax_server.models.custom_modeling.mllama import (
     MllamaForConditionalGeneration,
 )
 from lorax_server.models.multimodal_causal_lm import MultimodalCausalLM
 from lorax_server.utils import (
+    Weights,
     initialize_torch_distributed,
     weight_files,
-    Weights,
 )
 from lorax_server.utils.state import PREFIX_CACHING
 
@@ -37,7 +37,7 @@ class Mllama(MultimodalCausalLM):
 
         if PREFIX_CACHING:
             raise NotImplementedError("Mllama does not support prefix caching yet")
-        
+
         if compile:
             raise NotImplementedError("Mllama does not support CUDA graph compilation yet")
 
@@ -74,9 +74,7 @@ class Mllama(MultimodalCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = MllamaForConditionalGeneration(
-            prefix="", config=config, weights=weights
-        )
+        model = MllamaForConditionalGeneration(prefix="", config=config, weights=weights)
         self.config = config
 
         torch.distributed.barrier(group=self.process_group)
