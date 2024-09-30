@@ -126,6 +126,13 @@ class FlashCausalLMBatch(Batch):
         )
 
     @classmethod
+    def to_pb_embed(self, batch, embeddings) -> generate_pb2.EmbedResponse:
+        embeddings_proto = []
+        for i, embedding in enumerate(embeddings):
+            embeddings_proto.append(generate_pb2.Embedding(request_id=batch.requests[i].id, values=embedding))
+        return generate_pb2.EmbedResponse(embeddings=embeddings_proto)
+
+    @classmethod
     def from_pb(
         cls,
         pb: generate_pb2.Batch,
@@ -399,6 +406,10 @@ class FlashCausalLMBatch(Batch):
             ),
             prefill_cache_indices=prefill_cache_indices if SLIDING_WINDOW is not None else None,
         )
+    
+    @classmethod
+    def from_pb_embed(self, pb: generate_pb2.EmbedRequest, tokenizer: PreTrainedTokenizerBase, tokenizers: TokenizerManager, processor, config, dtype, device) -> "FlashCausalLMBatch":
+        return self.from_pb(pb, tokenizer, tokenizers, None, None, dtype, device)
 
     @tracer.start_as_current_span("filter")
     def filter(self, request_ids: List[int]) -> "FlashCausalLMBatch":

@@ -17,6 +17,7 @@ from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     MLP_GATE_PROJ,
     MLP_UP_PROJ,
     FlashQwen2ForCausalLM,
+    FlashQwen2ForEmbeddings,
 )
 from lorax_server.utils import (
     Weights,
@@ -86,8 +87,24 @@ class FlashQwen2(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashQwen2ForCausalLM(config, weights)
         self._supports_embeddings = not weights.has_tensor("lm_head.weight")
+        if self._supports_embeddings:
+            embedding_dim = 256
+            filenames = weight_files(
+                model_id, 
+                revision=revision, 
+                extension=".safetensors", 
+                embedding_dim=embedding_dim
+            )
+            weights = Weights(
+                filenames,
+                device,
+                dtype,
+                process_group=self.process_group,
+            )
+            model = FlashQwen2ForEmbeddings(config, weights)
+        else:
+            model = FlashQwen2ForCausalLM(config, weights)
 
         self.config = config
 
@@ -163,12 +180,6 @@ class FlashQwen2(FlashCausalLM):
     def default_traced_adapter_layers(self) -> List[str]:
         return [ATTN_Q_PROJ, ATTN_V_PROJ]
 
-    # @property
-    # def batch_type(self) -> Union[Type[FlashCausalLMBatch], Type[FlashEmbeddingClassificationBatch]]:
-    #     if self._supports_embeddings:
-    #         return FlashEmbeddingClassificationBatch
-    #     return FlashCausalLMBatch
-
     def get_num_layers_for_type(self, layer_type: str) -> int:
         return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
 
@@ -181,6 +192,6 @@ class FlashQwen2(FlashCausalLM):
         adapter_data = AdapterBatchData.from_meta(
             adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
         )
-        embedding: torch.Tensor = self.forward(batch, adapter_data=adapter_data)
+        embedding, x  = self.forward(batch, adapter_data=adapter_data)
         breakpoint()
-        return embedding
+        return embedding.cpu().tolist()
