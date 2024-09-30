@@ -467,15 +467,18 @@ class FlashLlamaModel(torch.nn.Module):
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        
+
         if create_layer_fn is None:
             create_layer_fn = FlashLlamaLayer
-       
+
         self.layers = nn.ModuleList(
             [
-                create_layer_fn(layer_id, prefix=(f"model.layers.{layer_id}"
-                            if not prefix
-                            else f"{prefix}.model.layers.{layer_id}"), config=config, weights=weights)
+                create_layer_fn(
+                    layer_id,
+                    prefix=(f"model.layers.{layer_id}" if not prefix else f"{prefix}.model.layers.{layer_id}"),
+                    config=config,
+                    weights=weights,
+                )
                 for layer_id in range(config.num_hidden_layers)
             ]
         )

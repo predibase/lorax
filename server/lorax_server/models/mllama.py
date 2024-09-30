@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Dict, Iterable, List, Optional, Tuple, Type
+from typing import Dict, Iterable, List, Optional, Tuple
 
-from lorax_server.models.vlm_causal_lm import VlmCausalLM, VlmCausalLMBatch
-from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.state import FLASH_INFER, PREFIX_CACHING
 import torch
 from opentelemetry import trace
 from PIL import Image
@@ -12,18 +9,10 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from lorax_server.adapters.weights import AdapterBatchData, AdapterBatchMetadata
-from lorax_server.models import Model
-from lorax_server.models.types import (
-    Batch,
-    GeneratedText,
-    Generation,
-    NextTokens,
-    PrefillTokens,
-)
+from lorax_server.models.vlm_causal_lm import VlmCausalLM, VlmCausalLMBatch
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
-from lorax_server.utils.segments import find_segments
+from lorax_server.utils.attention.utils import block_tables_to_ragged
+from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
 
 tracer = trace.get_tracer(__name__)
@@ -84,17 +73,13 @@ class MllamaCausalLMBatch(VlmCausalLMBatch):
         if len(new_image_indices) > 0:
             assert max(new_image_indices) < self.cross_attention_states.shape[0]
             assert offset <= self.cross_attention_states.shape[0]
-            batch.cross_attention_states = self.cross_attention_states[
-                new_image_indices
-            ]
+            batch.cross_attention_states = self.cross_attention_states[new_image_indices]
         else:
             batch.cross_attention_states = None
         return batch
 
     @classmethod
-    def batch_tokenized_inputs(
-        cls, requests: Iterable[generate_pb2.Request], tokenizer, processor, config
-    ):
+    def batch_tokenized_inputs(cls, requests: Iterable[generate_pb2.Request], tokenizer, processor, config):
         image_inputs = []
         texts = []
         image_indices = []
@@ -127,9 +112,7 @@ class MllamaCausalLMBatch(VlmCausalLMBatch):
         if image_inputs:
             image_input = image_inputs[0]
             new_image_inputs = {
-                "pixel_values": torch.cat(
-                    [img["pixel_values"] for img in image_inputs], dim=0
-                ),
+                "pixel_values": torch.cat([img["pixel_values"] for img in image_inputs], dim=0),
             }
             if "aspect_ratio_ids" in image_input:
                 new_image_inputs["aspect_ratio_ids"] = torch.cat(
@@ -160,27 +143,19 @@ class MllamaCausalLMBatch(VlmCausalLMBatch):
         dtype: torch.dtype,
         device: torch.device,
     ) -> "VlmCausalLMBatch":
-        batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(
-            pb.requests, tokenizer, processor, config
-        )
+        batch_tokenized_inputs, image_inputs = cls.batch_tokenized_inputs(pb.requests, tokenizer, processor, config)
         batch = super(VlmCausalLMBatch, cls).from_pb(
             pb, tokenizer, tokenizers, processor, config, dtype, device, batch_tokenized_inputs=batch_tokenized_inputs
         )
 
         # XXX: <|image|> token is actually out of bounds and bugs out the logit processors.
-        batch.all_input_ids_tensor = batch.all_input_ids_tensor.clamp(
-            max=config.text_config.vocab_size - 1
-        )
+        batch.all_input_ids_tensor = batch.all_input_ids_tensor.clamp(max=config.text_config.vocab_size - 1)
         batch.input_ids = batch.input_ids.clamp(max=config.text_config.vocab_size - 1)
 
         if image_inputs is not None:
-            batch.pixel_values = image_inputs["pixel_values"].to(
-                device=device, dtype=dtype
-            )
+            batch.pixel_values = image_inputs["pixel_values"].to(device=device, dtype=dtype)
             batch.aspect_ratio_ids = image_inputs["aspect_ratio_ids"].to(device=device)
-            batch.aspect_ratio_mask = image_inputs["aspect_ratio_mask"].to(
-                device=device
-            )
+            batch.aspect_ratio_mask = image_inputs["aspect_ratio_mask"].to(device=device)
             batch.image_indices = image_inputs["image_indices"]
         else:
             batch.pixel_values = None
@@ -213,29 +188,16 @@ class MllamaCausalLM(VlmCausalLM):
 
             B, speculative_length = speculative_ids.shape
             new_length = speculative_length + 1
-            new_input_ids = torch.cat(
-                [input_ids.unsqueeze(-1), speculative_ids], dim=1
-            ).reshape(-1)
+            new_input_ids = torch.cat([input_ids.unsqueeze(-1), speculative_ids], dim=1).reshape(-1)
             arange = torch.arange(new_length, device=position_ids.device).unsqueeze(0)
             arange_int = arange.to(dtype=torch.int32)
-            new_position_ids = (
-                position_ids.unsqueeze(-1).expand(B, new_length) + arange
-            ).view(-1)
+            new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            input_lengths = (
-                input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int
-            ).view(-1)
-            prefix_lens_tensor = (
-                batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)
-            ).reshape(-1)
+            input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
+            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             # Add Copy the block tables for all members
-            block_tables = (
-                block_tables.unsqueeze(1)
-                .expand(B, new_length, -1)
-                .reshape(B * new_length, -1)
-                .contiguous()
-            )
+            block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
             max_s = max_s + speculative_length
 
             input_ids = new_input_ids
@@ -258,8 +220,6 @@ class MllamaCausalLM(VlmCausalLM):
             # This makes sure the max_s for the decode pass is correct.
             max_s = min(self.max_past(), max_s)
 
-        bs = input_ids.shape[0]
-
         # TODO: cuda graph
         input_lengths = input_lengths + prefix_lens_tensor
         if PREFIX_CACHING:
@@ -276,7 +236,8 @@ class MllamaCausalLM(VlmCausalLM):
             prefix_lens=batch.prefix_lens,
             prefix_lens_tensor=prefix_lens_tensor,
         ):
-            max_k = (input_lengths + prefix_lens_tensor).max().item()
+            # TODO(travis): is this needed?
+            # max_k = (input_lengths + prefix_lens_tensor).max().item()
             if batch.pixel_values is not None:
                 cross_attention_states = self.model.vision_forward(
                     pixel_values=batch.pixel_values,
