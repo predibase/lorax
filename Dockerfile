@@ -247,8 +247,8 @@ FROM base
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo curl unzip parallel time
 
-COPY sync.sh sync.sh
-RUN chmod +x sync.sh
+COPY sync_from_s3.sh sync_from_s3.sh
+RUN chmod +x sync_from_s3.sh
 
 
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
