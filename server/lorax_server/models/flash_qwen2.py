@@ -55,6 +55,7 @@ class FlashQwen2(FlashCausalLM):
         compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
+        embedding_dim: Optional[int] = None,
     ):
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
@@ -78,7 +79,12 @@ class FlashQwen2(FlashCausalLM):
 
         torch.distributed.barrier(group=self.process_group)
 
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
+        filenames = weight_files(
+            model_id, 
+            revision=revision, 
+            extension=".safetensors", 
+            embedding_dim=embedding_dim
+        )
         weights = Weights(
             filenames,
             device,
@@ -87,24 +93,20 @@ class FlashQwen2(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        self._supports_embeddings = not weights.has_tensor("lm_head.weight")
+        if not weights.has_tensor('lm_head.weight'):
+            if embedding_dim is None:
+                raise ValueError(
+                    "Model does not have lm head so it is presumed to be for embeddings."
+                    "No embedding_dim was provided so we cannot load the model."
+                    "Please pass in an embedding_dim to the model."
+                )
+
+        self._supports_embeddings = embedding_dim is not None
         if self._supports_embeddings:
-            embedding_dim = 256
-            filenames = weight_files(
-                model_id, 
-                revision=revision, 
-                extension=".safetensors", 
-                embedding_dim=embedding_dim
-            )
-            weights = Weights(
-                filenames,
-                device,
-                dtype,
-                process_group=self.process_group,
-            )
             model = FlashQwen2ForEmbeddings(config, weights)
         else:
             model = FlashQwen2ForCausalLM(config, weights)
+
 
         self.config = config
 
@@ -193,5 +195,4 @@ class FlashQwen2(FlashCausalLM):
             adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
         )
         embedding, x  = self.forward(batch, adapter_data=adapter_data)
-        breakpoint()
         return embedding.cpu().tolist()

@@ -49,6 +49,7 @@ def serve(
     speculative_tokens: int = 0,
     preloaded_adapter_ids: Optional[List[str]] = typer.Option(None),
     preloaded_adapter_source: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     preloaded_adapter_ids = preloaded_adapter_ids or []
     preloaded_adapter_source = preloaded_adapter_source or adapter_source
@@ -101,6 +102,7 @@ def serve(
         speculative_tokens,
         preloaded_adapter_ids,
         preloaded_adapter_source,
+        embedding_dim,
     )
 
 

@@ -249,6 +249,7 @@ def serve(
     speculative_tokens: int,
     preloaded_adapter_ids: List[str],
     preloaded_adapter_source: str,
+    embedding_dim: Optional[int] = None,
 ):
     async def serve_inner(
         model_id: str,
@@ -263,6 +264,7 @@ def serve(
         speculative_tokens: int,
         preloaded_adapter_ids: List[str],
         preloaded_adapter_source: str,
+        embedding_dim: Optional[int] = None,
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
@@ -284,6 +286,7 @@ def serve(
                 trust_remote_code,
                 source,
                 adapter_source,
+                embedding_dim,
             )
         except Exception:
             logger.exception("Error when initializing model")
@@ -421,5 +424,6 @@ def serve(
             speculative_tokens,
             preloaded_adapter_ids,
             preloaded_adapter_source,
+            embedding_dim,
         )
     )
