@@ -441,6 +441,10 @@ struct Args {
     /// The backend to use for the model. Can be `fa2` or `flashinfer`.
     #[clap(default_value = "fa2", long, env, value_enum)]
     backend: Backend,
+
+    /// The embedding dimension to use for the model.
+    #[clap(long, env)]
+    embedding_dim: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -481,6 +485,7 @@ fn shard_manager(
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
     _shutdown_sender: mpsc::Sender<()>,
+    embedding_dim: Option<usize>,
 ) {
     // Enter shard-manager tracing span
     let _span = tracing::span!(tracing::Level::INFO, "shard-manager", rank = rank).entered();
@@ -567,6 +572,12 @@ fn shard_manager(
     if let Some(otlp_endpoint) = otlp_endpoint {
         shard_args.push("--otlp-endpoint".to_string());
         shard_args.push(otlp_endpoint);
+    }
+
+    // Embedding dimension
+    if let Some(embedding_dim) = embedding_dim {
+        shard_args.push("--embedding-dim".to_string());
+        shard_args.push(embedding_dim.to_string())
     }
 
     // Copy current process env
@@ -897,6 +908,12 @@ fn download_convert_model(
         download_args.push(adapter_id.to_string());
     }
 
+    // Embedding dimension
+    if let Some(embedding_dim) = args.embedding_dim {
+        download_args.push("--embedding-dim".to_string());
+        download_args.push(embedding_dim.to_string())
+    }
+
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
@@ -1040,6 +1057,7 @@ fn spawn_shards(
         let adapter_memory_fraction = args.adapter_memory_fraction;
         let prefix_caching = args.prefix_caching;
         let backend = args.backend;
+        let embedding_dim = args.embedding_dim;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1072,6 +1090,7 @@ fn spawn_shards(
                 status_sender,
                 shutdown,
                 shutdown_sender,
+                embedding_dim,
             )
         });
     }

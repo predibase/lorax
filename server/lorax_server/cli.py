@@ -118,6 +118,7 @@ def download_weights(
     adapter_id: str = "",
     adapter_source: str = "hub",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     # Remove default handler
     logger.remove()
@@ -130,7 +131,7 @@ def download_weights(
         backtrace=True,
         diagnose=False,
     )
-    _download_weights(model_id, revision, extension, auto_convert, source, api_token)
+    _download_weights(model_id, revision, extension, auto_convert, source, api_token, embedding_dim)
     if adapter_id:
         _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
 

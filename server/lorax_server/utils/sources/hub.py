@@ -183,11 +183,13 @@ class HubModelSource(BaseModelSource):
         revision: Optional[str] = None,
         extension: str = ".safetensors",
         api_token: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
     ):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
         self._api_token = api_token
+        self.embedding_dim = embedding_dim
 
     @property
     def api_token(self) -> Optional[str]:
@@ -195,11 +197,11 @@ class HubModelSource(BaseModelSource):
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
-        return weight_hub_files(self.model_id, self.revision, extension, self.api_token)
+        return weight_hub_files(self.model_id, self.revision, extension, self.api_token, self.embedding_dim)
 
     def weight_files(self, extension=None):
         extension = extension or self.extension
-        return weight_files(self.model_id, self.revision, extension, self.api_token)
+        return weight_files(self.model_id, self.revision, extension, self.api_token, self.embedding_dim)
 
     def download_weights(self, filenames):
         return download_weights(filenames, self.model_id, self.revision, self.api_token)
