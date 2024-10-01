@@ -44,6 +44,7 @@ impl AdapterScheduler {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -60,6 +61,7 @@ impl AdapterScheduler {
             speculate,
             max_batch_total_tokens,
             prefix_caching,
+            is_causal_lm,
         ));
 
         Self { sender }
@@ -124,6 +126,7 @@ async fn adapter_scheduler_task(
     speculate: u32,
     max_batch_total_tokens: u32,
     prefix_caching: bool,
+    is_causal_lm: bool,
 ) {
     let mut state = AdapterSchedulerState::new(
         client,
@@ -135,6 +138,7 @@ async fn adapter_scheduler_task(
         speculate,
         max_batch_total_tokens,
         prefix_caching,
+        is_causal_lm,
     );
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -209,6 +213,7 @@ impl AdapterSchedulerState {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
@@ -216,7 +221,8 @@ impl AdapterSchedulerState {
         )));
         let loader = AdapterLoader::new(client.clone());
 
-        let block_allocator = (!requires_padding).then(|| {
+        // Only causal LMs require the block allocator, due to paged attention
+        let block_allocator = (!requires_padding && is_causal_lm).then(|| {
             BlockAllocator::new(
                 max_batch_total_tokens,
                 block_size,

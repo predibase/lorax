@@ -145,6 +145,7 @@ pub enum Config {
     LlavaNext(LlavaNext),
     ClipVisionModel(ClipVisionModel),
     Mistral,
+    Mllama,
     Idefics,
     Idefics2(Idefics2),
     Ssm,

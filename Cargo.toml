@@ -12,6 +12,7 @@ edition = "2021"
 authors = ["Predibase", "Olivier Dehaene"]
 homepage = "https://github.com/predibase/lorax"
 
+
 [profile.release]
 debug = 1
 incremental = true

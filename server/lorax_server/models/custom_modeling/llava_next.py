@@ -22,6 +22,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 from transformers.image_processing_utils import select_best_resolution
 
+from lorax_server.adapters.weights import AdapterBatchData
 from lorax_server.layers import (
     TensorParallelColumnLinear,
     TensorParallelRowLinear,
@@ -175,7 +176,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
         # Unused for this model
         pixel_attention_mask=None,
         image_sizes: Optional[torch.LongTensor] = None,
-        adapter_data: Optional[torch.Tensor] = None,
+        adapter_data: Optional["AdapterBatchData"] = None,
     ):
         inputs_embeds = self.text_model.embed_tokens(input_ids)
         if pixel_values is not None and len(pixel_values) > 0:

@@ -321,6 +321,23 @@ def get_model(
             **flash_causal_lm_kwargs,
         )
 
+    if model_type == "mllama":
+        from lorax_server.models.custom_modeling.mllama import MllamaForConditionalGeneration
+        from lorax_server.models.mllama import MllamaCausalLM, MllamaCausalLMBatch
+
+        return MllamaCausalLM(
+            model_id=model_id,
+            model_class=MllamaForConditionalGeneration,
+            batch_class=MllamaCausalLMBatch,
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
+            revision=revision,
+            quantize=quantize,
+            compile=compile,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+
     if model_type == "opt":
         return OPTSharded(
             model_id,
