@@ -119,6 +119,14 @@ def get_model(
         if config_dict["architectures"][0] == "DistilBertForTokenClassification":
             return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
 
+    flash_causal_lm_kwargs = dict(
+        quantize=quantize,
+        compile=compile,
+        dtype=dtype,
+        trust_remote_code=trust_remote_code,
+        merge_adapter_weights=merge_adapter_weights,
+    )
+
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded
 
@@ -159,13 +167,6 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
     
-    flash_causal_lm_kwargs = dict(
-        quantize=quantize,
-        compile=compile,
-        dtype=dtype,
-        trust_remote_code=trust_remote_code,
-        merge_adapter_weights=merge_adapter_weights,
-    )
 
     if model_type == "llama":
         from lorax_server.models.flash_llama import FlashLlama
