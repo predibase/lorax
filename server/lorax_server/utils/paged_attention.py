@@ -18,13 +18,10 @@ else:
             f"Could not import vllm paged attention. Make sure your installation is correct. Error: {e}"
         ) from e
 
-# TODO(travis): fix for CUDA 8.9 (Lovelace) and 9.0 (Hopper)
-# if torch.cuda.is_available():
-#     fp8_supported = (
-#         torch.cuda.get_device_capability()[0] >= 9
-#     )  # or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
-# else:
-fp8_supported = False
+
+def is_fp8_supported():
+    return (torch.cuda.get_device_capability()[0] >= 9) \
+        or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
 
 
 def reshape_and_cache(
@@ -33,6 +30,9 @@ def reshape_and_cache(
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
     slots: torch.Tensor,
+    kv_cache_dtype: str = 'auto',
+    k_scale: torch.Tensor = 1.0,
+    v_scale: torch.Tensor = 1.0,
 ):
     if FLASH_INFER:
         shape = key_cache.shape
@@ -42,7 +42,7 @@ def reshape_and_cache(
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
         torch.ops._C_cache_ops.reshape_and_cache(
-            key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0, 1.0
+            key, value, key_cache, value_cache, slots, kv_cache_dtype, k_scale, v_scale
         )
 
 
@@ -57,6 +57,9 @@ def attention(
     input_lengths: torch.Tensor,
     max_s: int,
     softcap: Optional[float] = None,
+    kv_cache_dtype: str = 'auto',
+    k_scale: torch.Tensor = 1.0,
+    v_scale: torch.Tensor = 1.0,
 ):
     if FLASH_INFER:
         from lorax_server.utils.flashinfer_attention import decode_state
@@ -128,9 +131,9 @@ def attention(
             block_size,
             max_s,
             None,
-            "fp8" if fp8_supported else "auto",
-            1.0,
-            1.0,
+            kv_cache_dtype,
+            k_scale,
+            v_scale,
         )
     else:
         # Run PagedAttention V2.
@@ -162,9 +165,9 @@ def attention(
             block_size,
             max_s,
             None,
-            "fp8" if fp8_supported else "auto",
-            1.0,
-            1.0,
+            kv_cache_dtype,
+            k_scale,
+            v_scale,
         )
 
     return out
