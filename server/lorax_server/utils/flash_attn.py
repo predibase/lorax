@@ -82,7 +82,7 @@ if SYSTEM in {"cuda", "rocm"}:
             architecture_suffix = f"-{SYSTEM}"
             raise ImportError(
                 "Flash Attention V2 is not installed.\n"
-                "Use the official Docker image (ghcr.io/huggingface/text-generation-inference:latest) "
+                "Use the official Docker image (ghcr.io/predibase/lorax:latest) "
                 f"or install flash attention v2 with `cd server && make install install-flash-attention-v2{architecture_suffix}`"
             )
         if SYSTEM == "cuda" and not (is_sm8x or is_sm90):
@@ -328,4 +328,8 @@ elif HAS_FLASH_ATTN:
         return out
 
 else:
-    raise NotImplementedError("flash attention is not installed")
+    raise RuntimeError(
+        f"Flash Attention is not available for this system: {SYSTEM}\n"
+        f"If you are running on GPU, please check your environment to ensure CUDA is installed correctly.\n"
+        f"You may also want to check envvars such as LD_PRELOAD for libraries that conflict with your device drivers.\n"
+    )
