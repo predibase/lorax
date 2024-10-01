@@ -434,6 +434,7 @@ class FlashLlamaLayer(nn.Module):
         input_lengths,
         max_s,
         adapter_data,
+        cross_attention_states,
     ):
         normed_hidden_states, res = self.input_layernorm(hidden_states, residual)
 
@@ -460,15 +461,19 @@ class FlashLlamaLayer(nn.Module):
 
 
 class FlashLlamaModel(torch.nn.Module):
-    def __init__(self, prefix: str, config, weights):
+    def __init__(self, prefix: str, config, weights, create_layer_fn):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
+
+        if create_layer_fn is None:
+            create_layer_fn = FlashLlamaLayer
+
         self.layers = nn.ModuleList(
             [
-                FlashLlamaLayer(
+                create_layer_fn(
                     layer_id,
                     prefix=(f"model.layers.{layer_id}" if not prefix else f"{prefix}.model.layers.{layer_id}"),
                     config=config,
@@ -499,6 +504,7 @@ class FlashLlamaModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
+        cross_attention_states: Optional[torch.Tensor],
     ) -> torch.Tensor:
         hidden_states = inputs_embeds
 
@@ -520,6 +526,7 @@ class FlashLlamaModel(torch.nn.Module):
                 input_lengths,
                 max_s,
                 adapter_data,
+                cross_attention_states,
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -528,7 +535,7 @@ class FlashLlamaModel(torch.nn.Module):
 
 
 class FlashLlamaForCausalLM(torch.nn.Module):
-    def __init__(self, prefix: str, config, weights):
+    def __init__(self, prefix: str, config, weights, create_layer_fn=None):
         super().__init__()
         self.config = config
 
@@ -536,7 +543,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             prefix=("model.embed_tokens" if not prefix else f"{prefix}.model.embed_tokens"),
             weights=weights,
         )
-        self.model = FlashLlamaModel(prefix, config, weights)
+        self.model = FlashLlamaModel(prefix, config, weights, create_layer_fn)
         if config.tie_word_embeddings:
             suffix = "model.embed_tokens"
         else:
@@ -566,6 +573,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
+        cross_attention_states: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         inputs_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
@@ -579,6 +587,7 @@ class FlashLlamaForCausalLM(torch.nn.Module):
             max_s,
             adapter_data,
             prefill_cache_indices,
+            cross_attention_states,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
