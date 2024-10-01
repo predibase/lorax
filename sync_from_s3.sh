@@ -3,6 +3,11 @@
 # configure S3 parameters.
 aws configure set default.s3.preferred_transfer_client crt
 
+if [[ "$AWS_ACCESS_KEY_ID" == "minio" ]]; then
+    echo "Weights cache not available in Minio."
+    exit 0
+fi
+
 echo "HuggingFace Model ID: $MODEL_ID"
 echo "HuggingFace local cache directory: $HUGGINGFACE_HUB_CACHE"
 
