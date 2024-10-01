@@ -126,6 +126,13 @@ class FlashCausalLMBatch(Batch):
         )
 
     @classmethod
+    def to_pb_embed(self, batch, embeddings) -> generate_pb2.EmbedResponse:
+        embeddings_proto = []
+        for i, embedding in enumerate(embeddings):
+            embeddings_proto.append(generate_pb2.Embedding(request_id=batch.requests[i].id, values=embedding))
+        return generate_pb2.EmbedResponse(embeddings=embeddings_proto)
+
+    @classmethod
     def from_pb(
         cls,
         pb: generate_pb2.Batch,
@@ -399,6 +406,10 @@ class FlashCausalLMBatch(Batch):
             ),
             prefill_cache_indices=prefill_cache_indices if SLIDING_WINDOW is not None else None,
         )
+    
+    @classmethod
+    def from_pb_embed(self, pb: generate_pb2.EmbedRequest, tokenizer: PreTrainedTokenizerBase, tokenizers: TokenizerManager, processor, config, dtype, device) -> "FlashCausalLMBatch":
+        return self.from_pb(pb, tokenizer, tokenizers, None, None, dtype, device)
 
     @tracer.start_as_current_span("filter")
     def filter(self, request_ids: List[int]) -> "FlashCausalLMBatch":
@@ -873,7 +884,7 @@ class FlashCausalLM(Model):
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
-    def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
+    def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
         max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
@@ -887,17 +898,18 @@ class FlashCausalLM(Model):
                 self.device,
             )
 
-            with warmup_mode():
-                logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
-                with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
-                    for _ in range(max_new_tokens):
-                        cur_seqlen = batch.max_seqlen
-                        _, batch = self.generate_token(batch, is_warmup=True)
-                        new_seqlen = batch.max_seqlen
-                        pbar.update(new_seqlen - cur_seqlen)
-                        if new_seqlen >= max_total_tokens - get_speculative_tokens():
-                            break
-                logger.info("Finished generating warmup tokens")
+            if not embedding_model:
+                with warmup_mode():
+                    logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
+                    with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
+                        for _ in range(max_new_tokens):
+                            cur_seqlen = batch.max_seqlen
+                            _, batch = self.generate_token(batch, is_warmup=True)
+                            new_seqlen = batch.max_seqlen
+                            pbar.update(new_seqlen - cur_seqlen)
+                            if new_seqlen >= max_total_tokens - get_speculative_tokens():
+                                break
+                    logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
                 raise RuntimeError(

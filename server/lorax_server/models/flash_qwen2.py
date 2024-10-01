@@ -6,6 +6,7 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
 
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     ATTN_K_PROJ,
@@ -16,6 +17,7 @@ from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     MLP_GATE_PROJ,
     MLP_UP_PROJ,
     FlashQwen2ForCausalLM,
+    FlashQwen2ForEmbeddings,
 )
 from lorax_server.utils import (
     Weights,
@@ -51,6 +53,7 @@ class FlashQwen2(FlashCausalLM):
         compile: bool = False,
         dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
+        embedding_dim: Optional[int] = None,
     ):
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
@@ -74,7 +77,7 @@ class FlashQwen2(FlashCausalLM):
 
         torch.distributed.barrier(group=self.process_group)
 
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
+        filenames = weight_files(model_id, revision=revision, extension=".safetensors", embedding_dim=embedding_dim)
         weights = Weights(
             filenames,
             device,
@@ -83,7 +86,19 @@ class FlashQwen2(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        model = FlashQwen2ForCausalLM(config, weights)
+        self._supports_embeddings = embedding_dim is not None
+
+        if not weights.has_tensor("lm_head.weight") and not self._supports_embeddings:
+            raise ValueError(
+                "Model does not have lm head so it is presumed to be for embeddings."
+                "No embedding_dim was provided so we cannot load the model."
+                "Please pass in an embedding_dim to the model."
+            )
+
+        if self._supports_embeddings:
+            model = FlashQwen2ForEmbeddings(config, weights)
+        else:
+            model = FlashQwen2ForCausalLM(config, weights)
 
         self.config = config
 
@@ -110,6 +125,14 @@ class FlashQwen2(FlashCausalLM):
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+
+    @property
+    def supports_embeddings(self) -> bool:
+        return self._supports_embeddings
+
+    @property
+    def supports_text_generation(self) -> bool:
+        return not self._supports_embeddings
 
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
@@ -156,3 +179,15 @@ class FlashQwen2(FlashCausalLM):
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
+
+    def embed(self, batch) -> torch.Tensor:
+        adapter_meta = batch.adapter_meta
+        prefill = False
+        adapter_data = AdapterBatchData.from_meta(
+            adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+        )
+        embedding, _ = self.forward(batch, adapter_data=adapter_data)
+        return embedding.cpu().tolist()
+
+    def warmup(self, batch, max_new_tokens):
+        return super().warmup(batch, max_new_tokens, embedding_model=self._supports_embeddings)

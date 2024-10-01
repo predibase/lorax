@@ -52,6 +52,7 @@ def get_model(
     trust_remote_code: bool,
     source: str,
     adapter_source: str,
+    embedding_dim: Optional[int] = None,
 ) -> Model:
     config_dict = None
     if source == "s3":
@@ -255,6 +256,7 @@ def get_model(
             compile=compile,
             dtype=dtype,
             trust_remote_code=trust_remote_code,
+            embedding_dim=embedding_dim,
         )
 
     if model_type in ["phi-msft", "phi"]:

@@ -28,19 +28,41 @@ def weight_hub_files(
     revision: Optional[str] = None,
     extension: str = ".safetensors",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ) -> List[str]:
     """Get the weights filenames on the hub"""
     api = get_hub_api(token=api_token)
     info = api.model_info(model_id, revision=revision)
-    filenames = [
-        s.rfilename
-        for s in info.siblings
-        if s.rfilename.endswith(extension)
-        and len(s.rfilename.split("/")) == 1
-        and "arguments" not in s.rfilename
-        and "args" not in s.rfilename
-        and "training" not in s.rfilename
-    ]
+    if embedding_dim is not None:
+        filenames = [
+            s.rfilename
+            for s in info.siblings
+            if s.rfilename.endswith(extension)
+            and len(s.rfilename.split("/")) <= 2
+            and "arguments" not in s.rfilename
+            and "args" not in s.rfilename
+            and "training" not in s.rfilename
+        ]
+        # Only include the layer for the correct embedding dim
+        embedding_tensor_file = f"2_Dense_{embedding_dim}/model.safetensors"
+        if embedding_tensor_file not in filenames:
+            raise ValueError(f"No embedding tensor file found for embedding dim {embedding_dim}")
+        filenames = [
+            filename
+            for filename in filenames
+            if len(filename.split("/")) < 2
+            or filename == embedding_tensor_file
+        ]
+    else:
+        filenames = [
+            s.rfilename
+            for s in info.siblings
+            if s.rfilename.endswith(extension)
+            and len(s.rfilename.split("/")) == 1
+            and "arguments" not in s.rfilename
+            and "args" not in s.rfilename
+            and "training" not in s.rfilename
+        ]
 
     if not filenames:
         raise EntryNotFoundError(
@@ -56,6 +78,7 @@ def weight_files(
     revision: Optional[str] = None,
     extension: str = ".safetensors",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ) -> List[Path]:
     """Get the local files"""
     # Local model
@@ -66,7 +89,7 @@ def weight_files(
         return local_files
 
     try:
-        filenames = weight_hub_files(model_id, revision, extension, api_token)
+        filenames = weight_hub_files(model_id, revision, extension, api_token, embedding_dim)
     except EntryNotFoundError as e:
         if extension != ".safetensors":
             raise e
@@ -160,11 +183,13 @@ class HubModelSource(BaseModelSource):
         revision: Optional[str] = None,
         extension: str = ".safetensors",
         api_token: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
     ):
         self.model_id = model_id
         self.revision = revision
         self.extension = extension
         self._api_token = api_token
+        self.embedding_dim = embedding_dim
 
     @property
     def api_token(self) -> Optional[str]:
@@ -172,11 +197,11 @@ class HubModelSource(BaseModelSource):
 
     def remote_weight_files(self, extension: str = None):
         extension = extension or self.extension
-        return weight_hub_files(self.model_id, self.revision, extension, self.api_token)
+        return weight_hub_files(self.model_id, self.revision, extension, self.api_token, self.embedding_dim)
 
     def weight_files(self, extension=None):
         extension = extension or self.extension
-        return weight_files(self.model_id, self.revision, extension, self.api_token)
+        return weight_files(self.model_id, self.revision, extension, self.api_token, self.embedding_dim)
 
     def download_weights(self, filenames):
         return download_weights(filenames, self.model_id, self.revision, self.api_token)
