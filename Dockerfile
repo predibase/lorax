@@ -172,9 +172,6 @@ ENV HUGGINGFACE_HUB_CACHE=/data \
     HF_HUB_ENABLE_HF_TRANSFER=1 \
     PORT=80
 
-# vLLM needs this in order to work without error
-ENV LD_PRELOAD=/usr/local/cuda/compat/libcuda.so
-
 WORKDIR /usr/src
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
