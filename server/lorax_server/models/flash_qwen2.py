@@ -93,20 +93,19 @@ class FlashQwen2(FlashCausalLM):
         )
         weights._set_config(model_id, config)
 
-        if not weights.has_tensor('lm_head.weight'):
-            if embedding_dim is None:
-                raise ValueError(
-                    "Model does not have lm head so it is presumed to be for embeddings."
-                    "No embedding_dim was provided so we cannot load the model."
-                    "Please pass in an embedding_dim to the model."
-                )
-
         self._supports_embeddings = embedding_dim is not None
+
+        if not weights.has_tensor('lm_head.weight') and not self._supports_embeddings:
+            raise ValueError(
+                "Model does not have lm head so it is presumed to be for embeddings."
+                "No embedding_dim was provided so we cannot load the model."
+                "Please pass in an embedding_dim to the model."
+            )
+
         if self._supports_embeddings:
             model = FlashQwen2ForEmbeddings(config, weights)
         else:
             model = FlashQwen2ForCausalLM(config, weights)
-
 
         self.config = config
 
