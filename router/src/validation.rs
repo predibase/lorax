@@ -495,6 +495,7 @@ fn image_tokens(
     use Config::*;
     use HubPreprocessorConfig::*;
     match config {
+        Mllama => "<|image|>".to_string(),
         Idefics => "<image>".to_string(),
         Idefics2(config) => {
             const FAKE: &str = "<fake_token_around_image>";
@@ -545,7 +546,7 @@ fn prepare_input(
     use Config::*;
     static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"!\[\]\([^\)]*\)").unwrap());
     let (tokenizer_query, input_chunks) = match config {
-        Some(config @ (Idefics | Idefics2(_) | Paligemma(_) | LlavaNext(_))) => {
+        Some(config @ (Mllama | Idefics | Idefics2(_) | Paligemma(_) | LlavaNext(_))) => {
             let mut input_chunks = Vec::new();
             let mut tokenizer_query = String::with_capacity(inputs.len());
             let mut start = 0;

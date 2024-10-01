@@ -210,6 +210,11 @@ struct Args {
     #[clap(long, env)]
     preloaded_adapter_source: Option<String>,
 
+    /// The API token to use when fetching adapters from pbase.
+    /// If specified, will set the environment variable PREDIBASE_API_TOKEN.
+    #[clap(long, env)]
+    predibase_api_token: Option<String>,
+
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
     dtype: Option<Dtype>,
@@ -465,6 +470,7 @@ fn shard_manager(
     speculative_tokens: Option<usize>,
     preloaded_adapter_ids: Vec<String>,
     preloaded_adapter_source: Option<String>,
+    predibase_api_token: Option<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -497,6 +503,9 @@ fn shard_manager(
     if uds.exists() {
         fs::remove_file(uds).unwrap();
     }
+
+    // Copy current process env
+    let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
     // Process args
     let mut shard_args = vec![
@@ -555,6 +564,13 @@ fn shard_manager(
     if let Some(preloaded_adapter_source) = preloaded_adapter_source {
         shard_args.push("--preloaded-adapter-source".to_string());
         shard_args.push(preloaded_adapter_source);
+    }
+
+    if let Some(predibase_api_token) = predibase_api_token {
+        envs.push((
+            "PREDIBASE_API_TOKEN".into(),
+            predibase_api_token.to_string().into(),
+        ));
     }
 
     if let Some(dtype) = dtype {
@@ -1047,6 +1063,7 @@ fn spawn_shards(
         let speculative_tokens = args.speculative_tokens;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
         let preloaded_adapter_source = args.preloaded_adapter_source.clone();
+        let predibase_api_token = args.predibase_api_token.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -1070,6 +1087,7 @@ fn spawn_shards(
                 speculative_tokens,
                 preloaded_adapter_ids,
                 preloaded_adapter_source,
+                predibase_api_token,
                 dtype,
                 trust_remote_code,
                 uds_path,

@@ -16,9 +16,13 @@ repository = "https://github.com/predibase/lorax"
 [tool.poetry.dependencies]
 python = "^3.8"
 pydantic = "> 2, < 3"
-aiohttp = "^3.9"
+aiohttp = "3.10.2"
 huggingface-hub = ">= 0.12, < 1.0"
 certifi = "2024.7.4"
+urllib3 = "1.26.19"
+requests = "2.32.0"
+idna = "3.7"
+tqdm = "4.66.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.3.0"

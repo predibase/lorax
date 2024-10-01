@@ -348,7 +348,7 @@ async fn main() -> Result<(), RouterError> {
                 if class == "LlamaTokenizer" || class == "LlamaTokenizerFast"{
                     if let Ok(post_processor) = create_post_processor(tokenizer, &tokenizer_config) {
                         tracing::info!("Overriding LlamaTokenizer with TemplateProcessing to follow python override defined in https://github.com/huggingface/transformers/blob/4aa17d00690b7f82c95bb2949ea57e22c35b4336/src/transformers/models/llama/tokenization_llama_fast.py#L203-L205");
-                        tokenizer.with_post_processor(post_processor);
+                        tokenizer.with_post_processor(Some(post_processor));
                     }
                 }
             }
