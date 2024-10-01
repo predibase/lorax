@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union, Type
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.distributed
@@ -6,7 +6,7 @@ from opentelemetry import trace
 from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
 
-from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.adapters import AdapterBatchData
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     ATTN_K_PROJ,
@@ -25,8 +25,6 @@ from lorax_server.utils import (
     weight_files,
 )
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.models.types import FlashEmbeddingClassificationBatch
-from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
 
 tracer = trace.get_tracer(__name__)
 
@@ -79,12 +77,7 @@ class FlashQwen2(FlashCausalLM):
 
         torch.distributed.barrier(group=self.process_group)
 
-        filenames = weight_files(
-            model_id, 
-            revision=revision, 
-            extension=".safetensors", 
-            embedding_dim=embedding_dim
-        )
+        filenames = weight_files(model_id, revision=revision, extension=".safetensors", embedding_dim=embedding_dim)
         weights = Weights(
             filenames,
             device,
@@ -95,7 +88,7 @@ class FlashQwen2(FlashCausalLM):
 
         self._supports_embeddings = embedding_dim is not None
 
-        if not weights.has_tensor('lm_head.weight') and not self._supports_embeddings:
+        if not weights.has_tensor("lm_head.weight") and not self._supports_embeddings:
             raise ValueError(
                 "Model does not have lm head so it is presumed to be for embeddings."
                 "No embedding_dim was provided so we cannot load the model."
@@ -186,16 +179,15 @@ class FlashQwen2(FlashCausalLM):
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
-    
+
     def embed(self, batch) -> torch.Tensor:
         adapter_meta = batch.adapter_meta
         prefill = False
         adapter_data = AdapterBatchData.from_meta(
             adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
         )
-        embedding, _  = self.forward(batch, adapter_data=adapter_data)
+        embedding, _ = self.forward(batch, adapter_data=adapter_data)
         return embedding.cpu().tolist()
-    
+
     def warmup(self, batch, max_new_tokens):
         return super().warmup(batch, max_new_tokens, embedding_model=self._supports_embeddings)
-
