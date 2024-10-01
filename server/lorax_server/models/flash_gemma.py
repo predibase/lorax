@@ -10,11 +10,6 @@ from lorax_server.models.custom_modeling.flash_gemma_modeling import (
     GemmaConfig,
     GemmaForCausalLM,
 )
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
-)
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)

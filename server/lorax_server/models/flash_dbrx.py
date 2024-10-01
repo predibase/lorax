@@ -4,7 +4,6 @@ import torch
 import torch.distributed
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from transformers.models.gpt2 import GPT2TokenizerFast
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_dbrx_modeling import (
@@ -12,11 +11,6 @@ from lorax_server.models.custom_modeling.flash_dbrx_modeling import (
     ATTN_WQKV,
     DbrxConfig,
     FlashDbrxForCausalLM,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 from lorax_server.utils.lora import LM_HEAD
 

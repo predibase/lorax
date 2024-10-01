@@ -3,15 +3,9 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer, PretrainedConfig
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_gemma2_modeling import FlashGemma2ForCausalLM
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
-)
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)

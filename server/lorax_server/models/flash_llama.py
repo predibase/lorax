@@ -2,21 +2,13 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.distributed
-from loguru import logger
 from opentelemetry import trace
-from transformers import AutoTokenizer, GenerationConfig
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
     FlashLlamaForCausalLM,
     LlamaConfig,
 )
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
-)
-from lorax_server.utils.adapter import create_merged_weight_files
 from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,

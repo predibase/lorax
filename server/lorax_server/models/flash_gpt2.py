@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
@@ -14,11 +13,6 @@ from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
     MLP_C_PROJ,
     FlashGPT2ForCausalLM,
     GPT2Config,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 
 tracer = trace.get_tracer(__name__)

@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
 
 from lorax_server.models import FlashCausalLM
@@ -16,11 +15,6 @@ from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     MLP_GATE_PROJ,
     MLP_UP_PROJ,
     FlashQwen2ForCausalLM,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 from lorax_server.utils.lora import LM_HEAD
 

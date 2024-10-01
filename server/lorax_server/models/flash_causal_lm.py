@@ -4,8 +4,6 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.sources.hub import weight_files
-from lorax_server.utils.weights import Weights
 import numpy as np
 import torch
 import torch.distributed
@@ -32,8 +30,10 @@ from lorax_server.utils.dist import MEMORY_FRACTION, initialize_torch_distribute
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
+from lorax_server.utils.sources.hub import weight_files
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, PREFIX_CACHING, get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
+from lorax_server.utils.weights import Weights
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
 

@@ -3,11 +3,11 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
-from lorax_server.adapters.utils import download_adapter_weights
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
 
+from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
 from lorax_server.pb import generate_pb2

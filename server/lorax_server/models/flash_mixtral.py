@@ -14,11 +14,6 @@ from lorax_server.models.custom_modeling.flash_mixtral_modeling import (
     FlashMixtralForCausalLM,
     MixtralConfig,
 )
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
-)
 from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)

@@ -6,7 +6,7 @@ import torch.distributed
 from loguru import logger
 from opentelemetry import trace
 from PIL import Image
-from transformers import AutoConfig, AutoProcessor, AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoProcessor, PreTrainedTokenizerBase
 from transformers.image_processing_utils import select_best_resolution
 
 from lorax_server.adapters.weights import AdapterBatchData
@@ -16,11 +16,8 @@ from lorax_server.models.flash_causal_lm import (
     block_tables_to_ragged,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils.dist import initialize_torch_distributed
-from lorax_server.utils.sources.hub import weight_files
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.weights import Weights
 
 tracer = trace.get_tracer(__name__)
 

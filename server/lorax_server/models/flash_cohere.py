@@ -9,11 +9,6 @@ from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_cohere_modeling import (
     FlashCohereForCausalLM,
 )
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
-)
 from lorax_server.utils.lora import DOWN_PROJ, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 
 tracer = trace.get_tracer(__name__)

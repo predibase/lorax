@@ -3,17 +3,11 @@ from typing import Optional
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_rw_modeling import (
     FlashRWForCausalLM,
     RWConfig,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 
 tracer = trace.get_tracer(__name__)
