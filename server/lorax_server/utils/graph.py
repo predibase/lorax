@@ -17,7 +17,6 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
 
@@ -367,7 +366,7 @@ class GraphWrapper:
             # TODO(travis): generalize this to support other adapter types
             if LORA not in weight_data:
                 continue
-            
+
             lora_data = weight_data[LORA]
             if layer_name not in adapter_data.data:
                 # zero out all the segments
@@ -377,7 +376,7 @@ class GraphWrapper:
 
             if LORA not in adapter_data.data[layer_name]:
                 continue
-            
+
             source_data = adapter_data.data[layer_name][LORA]
             dest_data = lora_data
             for rank, source_rank_data in source_data.rank_data.items():
