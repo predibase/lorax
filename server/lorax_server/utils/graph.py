@@ -17,7 +17,6 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.lora import LM_HEAD
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
 
@@ -365,11 +364,17 @@ class GraphWrapper:
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             # TODO(travis): generalize this to support other adapter types
+            if LORA not in weight_data:
+                continue
+
             lora_data = weight_data[LORA]
             if layer_name not in adapter_data.data:
                 # zero out all the segments
                 for rank_data in lora_data.rank_data.values():
                     rank_data.indices.fill_(SEGMENT_PAD_VALUE)
+                continue
+
+            if LORA not in adapter_data.data[layer_name]:
                 continue
 
             source_data = adapter_data.data[layer_name][LORA]
@@ -436,9 +441,6 @@ class GraphCache:
         batch_size = batch.input_ids.shape[0]
         max_s = batch.max_seqlen
 
-        # Only allow LoRA adapters for now
-        adapter_keys = set(adapter_data.adapter_keys())
-
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
             torch.cuda.is_available()
@@ -447,8 +449,6 @@ class GraphCache:
             and max_rank <= MAX_RANK
             and nranks <= 1
             and max_rank in _allowed_ranks
-            and all(k == LORA for k in adapter_keys)
-            and not any(k == LM_HEAD for k in adapter_data.layer_names())
         )
 
     def get_estimated_cache_memory(self) -> int:
