@@ -354,6 +354,7 @@ class HeterogeneousNextTokenChooser:
             S = 1
         scores = scores.view(B, S, -1)
 
+        print("!!! B", B, "S", S, scores.shape, scores.device)
         next_ids = torch.zeros((B, S), device=scores.device, dtype=torch.long)
         with self.schema_processor.restore_state() if self.schema_processor is not None else nullcontext():
             for j in range(S):

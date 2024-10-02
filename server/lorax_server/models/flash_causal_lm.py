@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
+from lorax_server.utils.import_utils import get_cuda_free_memory
 import numpy as np
 import torch
 import torch.distributed
@@ -26,7 +27,7 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.dist import MEMORY_FRACTION
+from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
@@ -885,6 +886,7 @@ class FlashCausalLM(Model):
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
+        # The warmup batch is the biggest batch we could ever receive
         max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
@@ -954,21 +956,16 @@ class FlashCausalLM(Model):
         cache_block_size = BLOCK_SIZE * self.num_kv_heads * self.head_size
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
-        total_free_memory, _ = torch.cuda.mem_get_info(self.device)
-        total_free_memory -= graph_cache_memory
-
-        total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
-
-        free_memory = max(
-            0,
-            total_free_memory - (1 - MEMORY_FRACTION + ADAPTER_MEMORY_FRACTION) * total_gpu_memory,
-        )
+        free_memory = get_cuda_free_memory(self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION)
+        free_memory -= graph_cache_memory
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
-
+        
+        batch_num_blocks = batch.num_blocks if batch is not None else 0
         num_blocks = (
-            int(free_memory // total_cache_size)
+            # Leave 5% for some wiggle room
+            int((free_memory * MEMORY_WIGGLE_ROOM) // total_cache_size)
             # Add batch.num_blocks as we allocated it above, so it is included in the peak memory.
-            + batch.num_blocks
+            + batch_num_blocks
         )
 
         del batch
@@ -987,6 +984,7 @@ class FlashCausalLM(Model):
         if self.model_graph_wrapper is not None:
             # Warmup the graph cache. Needs to be done after setting cache manager as
             # tracing will use the static kv cache tensors
+            self.model_graph_wrapper.kv_cache = self.kv_cache
             self.model_graph_wrapper.warmup()
             torch.cuda.synchronize(self.device)
 
@@ -1175,6 +1173,12 @@ class FlashCausalLM(Model):
                 )
         else:
             next_token_logits = out
+
+        print("!!! OUTPUT", out, speculative_logits)
+
+        B = next_token_logits.shape[0]
+        S = 1
+        print("!!! TEST", torch.zeros((B, S), device=next_token_logits.device, dtype=torch.long))
 
         speculative_tokens = get_speculative_tokens()
         (

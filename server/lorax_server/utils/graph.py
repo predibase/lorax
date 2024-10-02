@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 # TODO(travis): make this configurable by model / user
-MAX_BATCH_SIZE = 256
+MAX_BATCH_SIZE = 16
 MAX_RANK = BGMV_MAX_RANK
 
 SLOT_PAD_VALUE = -1
@@ -35,11 +35,11 @@ SEGMENT_PAD_VALUE = -1
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
 BATCH_SIZE_INCREMENT = 32
-CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
+CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] #+ [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
+CACHED_MAX_RANKS = [0, 8]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 assert all([r <= BGMV_MAX_RANK for r in _allowed_ranks]), f"Invalid ranks: {_allowed_ranks}"
@@ -104,6 +104,8 @@ def get_max_graph_state(
     position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
+    prefix_lens = [0] * MAX_BATCH_SIZE
+    prefix_lens_tensor = torch.zeros(MAX_BATCH_SIZE, dtype=torch.int32, device=device)
 
     adapter_weight_data = {}
     for layer_name in adapter_layers:
@@ -134,6 +136,8 @@ def get_max_graph_state(
         block_tables=block_tables,
         slots=slots,
         input_lengths=input_lengths,
+        prefix_lens=prefix_lens,
+        prefix_lens_tensor=prefix_lens_tensor,
         adapter_data=AdapterBatchData(
             meta=AdapterBatchMetadata(
                 adapter_indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
@@ -226,8 +230,8 @@ class GraphWrapper:
 
         block_tables = max_input_state.block_tables[:batch_size]
         input_lengths = max_input_state.input_lengths[:batch_size]
-        prefix_lengths = [0] * batch_size
-        prefix_lengths_tensor = torch.zeros(batch_size, dtype=torch.int32, device=device)
+        prefix_lengths = max_input_state.prefix_lens[:batch_size]
+        prefix_lengths_tensor = max_input_state.input_lengths[:batch_size]
         state = None
 
         if FLASH_INFER:
@@ -297,6 +301,7 @@ class GraphWrapper:
                     input_lengths=input_state.input_lengths,
                     max_s=max_total_tokens,
                     adapter_data=input_state.adapter_data,
+                    prefill_cache_indices=None,
                     lm_head_indices=None,
                 )
 
@@ -323,6 +328,9 @@ class GraphWrapper:
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
         pad_and_fill(self.input_state.input_lengths, input_lengths + prefix_lens_tensor, 0)
+        print("!!! PREFIX LENS", len(prefix_lens), prefix_lens_tensor.shape)
+        self.input_state.prefix_lens[: len(prefix_lens)] = prefix_lens
+        pad_and_fill(self.input_state.prefix_lens_tensor, prefix_lens_tensor, 0)
 
         self.input_state.block_tables.zero_()
         self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
@@ -511,6 +519,8 @@ class GraphCache:
         block_tables: torch.Tensor,
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
+        prefix_lens: List[int],
+        prefix_lens_tensor: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -552,6 +562,8 @@ class GraphCache:
             block_tables=block_tables,
             slots=slots,
             input_lengths=input_lengths,
+            prefix_lens=prefix_lens,
+            prefix_lens_tensor=prefix_lens_tensor,
             max_s=max_s,
             adapter_data=adapter_data,
             lm_head_indices=lm_head_indices,
