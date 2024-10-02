@@ -973,7 +973,10 @@ fn download_convert_model(
     loop {
         if let Some(status) = download_process.try_wait().unwrap() {
             if status.success() {
-                tracing::info!("Successfully downloaded weights in {}s.", download_start.elapsed().as_secs());
+                tracing::info!(
+                    "Successfully downloaded weights in {}s.",
+                    download_start.elapsed().as_secs()
+                );
                 break;
             }
 
