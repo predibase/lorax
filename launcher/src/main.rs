@@ -931,6 +931,7 @@ fn download_convert_model(
     };
 
     // Start process
+    let download_start = Instant::now();
     tracing::info!("Starting download process.");
     let mut download_process = match Command::new("lorax-server")
         .args(download_args)
@@ -972,7 +973,7 @@ fn download_convert_model(
     loop {
         if let Some(status) = download_process.try_wait().unwrap() {
             if status.success() {
-                tracing::info!("Successfully downloaded weights.");
+                tracing::info!("Successfully downloaded weights in {}s.", download_start.elapsed().as_secs());
                 break;
             }
 
