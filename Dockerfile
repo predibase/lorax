@@ -54,7 +54,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates \
     ccache \
     curl \
-    git && \
+    git \
+    less && \
     rm -rf /var/lib/apt/lists/*
 
 # Install conda
