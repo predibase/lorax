@@ -3,6 +3,7 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
+import os
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -25,9 +26,8 @@ if TYPE_CHECKING:
     from lorax_server.models.model import Model
 
 
-# TODO(travis): make this configurable by model / user
-MAX_BATCH_SIZE = 1
-MAX_RANK = BGMV_MAX_RANK
+MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 96))
+MAX_RANK = int(os.environ.get("LORAX_COMPILE_MAX_RANK", BGMV_MAX_RANK))
 
 SLOT_PAD_VALUE = -1
 SEGMENT_PAD_VALUE = -1
@@ -35,11 +35,15 @@ SEGMENT_PAD_VALUE = -1
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
 BATCH_SIZE_INCREMENT = 32
-CACHED_BATCH_SIZES = [1] #[1, 2, 4, 8, 16] #+ [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
+
+# set CACHED_BATCH_SIZES to 1, 2, 3, 4, 8, 16 and then increments of BATCH_SIZE_INCREMENT up to MAX_BATCH_SIZE
+CACHED_BATCH_SIZES = [1, 2, 3, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in range(MAX_BATCH_SIZE // BATCH_SIZE_INCREMENT)]
+CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= MAX_BATCH_SIZE]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0]
+CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
+CACHED_MAX_RANKS = [r for r in CACHED_MAX_RANKS if r <= MAX_RANK]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 assert all([r <= BGMV_MAX_RANK for r in _allowed_ranks]), f"Invalid ranks: {_allowed_ranks}"
@@ -118,7 +122,7 @@ def get_max_graph_state(
                     rank=MAX_RANK,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                    indices=torch.full((MAX_BATCH_SIZE,), SEGMENT_PAD_VALUE, dtype=torch.int64, device=device),
                     segment_starts=None,
                     segment_ends=None,
                     tmp_shrink=None,
@@ -279,6 +283,8 @@ class GraphWrapper:
         )
 
         torch.cuda.synchronize(device)
+
+        print("!!! ADAPTER DATA", input_state.adapter_data)
 
         with forward_context(
             block_tables=input_state.block_tables,

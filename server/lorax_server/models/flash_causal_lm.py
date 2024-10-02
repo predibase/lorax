@@ -946,8 +946,8 @@ class FlashCausalLM(Model):
                 self.num_kv_heads,
                 self.sliding_window_blocks,
             )
-            # graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
-            # logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
+            graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
+            logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
             torch.cuda.synchronize(self.device)
 
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
