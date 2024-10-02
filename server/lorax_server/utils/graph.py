@@ -1,9 +1,9 @@
 # CUDA Graph implementation modified from vLLM:
 # https://github.com/vllm-project/vllm/blob/main/vllm/worker/model_runner.py
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
-import os
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -37,7 +37,9 @@ SEGMENT_PAD_VALUE = -1
 BATCH_SIZE_INCREMENT = 32
 
 # set CACHED_BATCH_SIZES to 1, 2, 3, 4, 8, 16 and then increments of BATCH_SIZE_INCREMENT up to MAX_BATCH_SIZE
-CACHED_BATCH_SIZES = [1, 2, 3, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in range(MAX_BATCH_SIZE // BATCH_SIZE_INCREMENT)]
+CACHED_BATCH_SIZES = [1, 2, 3, 4, 8, 16] + [
+    BATCH_SIZE_INCREMENT * (i + 1) for i in range(MAX_BATCH_SIZE // BATCH_SIZE_INCREMENT)
+]
 CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= MAX_BATCH_SIZE]
 
 # Include 0 to ensure we can use cuda graphs without adapters

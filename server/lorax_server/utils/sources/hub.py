@@ -48,10 +48,7 @@ def weight_hub_files(
         if embedding_tensor_file not in filenames:
             raise ValueError(f"No embedding tensor file found for embedding dim {embedding_dim}")
         filenames = [
-            filename
-            for filename in filenames
-            if len(filename.split("/")) < 2
-            or filename == embedding_tensor_file
+            filename for filename in filenames if len(filename.split("/")) < 2 or filename == embedding_tensor_file
         ]
     else:
         filenames = [

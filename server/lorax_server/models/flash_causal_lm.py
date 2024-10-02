@@ -4,7 +4,6 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.import_utils import get_cuda_free_memory
 import numpy as np
 import torch
 import torch.distributed
@@ -29,6 +28,7 @@ from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM
 from lorax_server.utils.graph import GraphCache
+from lorax_server.utils.import_utils import get_cuda_free_memory
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, PREFIX_CACHING, get_speculative_tokens, warmup_mode
@@ -407,9 +407,18 @@ class FlashCausalLMBatch(Batch):
             ),
             prefill_cache_indices=prefill_cache_indices if SLIDING_WINDOW is not None else None,
         )
-    
+
     @classmethod
-    def from_pb_embed(self, pb: generate_pb2.EmbedRequest, tokenizer: PreTrainedTokenizerBase, tokenizers: TokenizerManager, processor, config, dtype, device) -> "FlashCausalLMBatch":
+    def from_pb_embed(
+        self,
+        pb: generate_pb2.EmbedRequest,
+        tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
+        processor,
+        config,
+        dtype,
+        device,
+    ) -> "FlashCausalLMBatch":
         return self.from_pb(pb, tokenizer, tokenizers, None, None, dtype, device)
 
     @tracer.start_as_current_span("filter")
@@ -959,7 +968,7 @@ class FlashCausalLM(Model):
         free_memory = get_cuda_free_memory(self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION)
         free_memory -= graph_cache_memory
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
-        
+
         batch_num_blocks = batch.num_blocks if batch is not None else 0
         num_blocks = (
             # Leave 5% for some wiggle room
@@ -1173,7 +1182,7 @@ class FlashCausalLM(Model):
                 )
         else:
             next_token_logits = out
-        
+
         speculative_tokens = get_speculative_tokens()
         (
             next_input_ids,
