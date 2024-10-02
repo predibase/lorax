@@ -1174,8 +1174,6 @@ class FlashCausalLM(Model):
         else:
             next_token_logits = out
         
-        # print("!!! NEXT TOKEN LOGITS", next_token_logits, next_token_logits.shape, next_token_logits.norm())
-        # print("!!! SPECULATIVE LOGITS", speculative_logits, speculative_logits.shape, speculative_logits.norm())
         speculative_tokens = get_speculative_tokens()
         (
             next_input_ids,
