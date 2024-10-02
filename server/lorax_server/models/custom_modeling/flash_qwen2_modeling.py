@@ -555,4 +555,3 @@ class FlashQwen2ForEmbeddings(torch.nn.Module):
         mean_hidden_states = hidden_states.mean(1)
         embeddings = nn.functional.linear(mean_hidden_states, self.output_weight, self.output_bias)
         return embeddings, None
-

@@ -1,6 +1,7 @@
 # CUDA Graph implementation modified from vLLM:
 # https://github.com/vllm-project/vllm/blob/main/vllm/worker/model_runner.py
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from statistics import median
@@ -25,9 +26,8 @@ if TYPE_CHECKING:
     from lorax_server.models.model import Model
 
 
-# TODO(travis): make this configurable by model / user
-MAX_BATCH_SIZE = 256
-MAX_RANK = BGMV_MAX_RANK
+MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 96))
+MAX_RANK = int(os.environ.get("LORAX_COMPILE_MAX_RANK", BGMV_MAX_RANK))
 
 SLOT_PAD_VALUE = -1
 SEGMENT_PAD_VALUE = -1
@@ -35,11 +35,17 @@ SEGMENT_PAD_VALUE = -1
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
 BATCH_SIZE_INCREMENT = 32
-CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] + [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
+
+# set CACHED_BATCH_SIZES to 1, 2, 3, 4, 8, 16 and then increments of BATCH_SIZE_INCREMENT up to MAX_BATCH_SIZE
+CACHED_BATCH_SIZES = [1, 2, 3, 4, 8, 16] + [
+    BATCH_SIZE_INCREMENT * (i + 1) for i in range(MAX_BATCH_SIZE // BATCH_SIZE_INCREMENT)
+]
+CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= MAX_BATCH_SIZE]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
 CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
+CACHED_MAX_RANKS = [r for r in CACHED_MAX_RANKS if r <= MAX_RANK]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 assert all([r <= BGMV_MAX_RANK for r in _allowed_ranks]), f"Invalid ranks: {_allowed_ranks}"
@@ -104,6 +110,8 @@ def get_max_graph_state(
     position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
+    prefix_lens = [0] * MAX_BATCH_SIZE
+    prefix_lens_tensor = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
     adapter_weight_data = {}
     for layer_name in adapter_layers:
@@ -116,7 +124,7 @@ def get_max_graph_state(
                     rank=MAX_RANK,
                     lora_a_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                     lora_b_ptr=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
-                    indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                    indices=torch.full((MAX_BATCH_SIZE,), SEGMENT_PAD_VALUE, dtype=torch.int64, device=device),
                     segment_starts=None,
                     segment_ends=None,
                     tmp_shrink=None,
@@ -134,6 +142,8 @@ def get_max_graph_state(
         block_tables=block_tables,
         slots=slots,
         input_lengths=input_lengths,
+        prefix_lens=prefix_lens,
+        prefix_lens_tensor=prefix_lens_tensor,
         adapter_data=AdapterBatchData(
             meta=AdapterBatchMetadata(
                 adapter_indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
@@ -226,8 +236,8 @@ class GraphWrapper:
 
         block_tables = max_input_state.block_tables[:batch_size]
         input_lengths = max_input_state.input_lengths[:batch_size]
-        prefix_lengths = [0] * batch_size
-        prefix_lengths_tensor = torch.zeros(batch_size, dtype=torch.int32, device=device)
+        prefix_lengths = max_input_state.prefix_lens[:batch_size]
+        prefix_lengths_tensor = max_input_state.prefix_lens_tensor[:batch_size]
         state = None
 
         if FLASH_INFER:
@@ -285,6 +295,22 @@ class GraphWrapper:
             prefix_lens_tensor=prefix_lengths_tensor,
             state=input_state.state,
         ):
+            # warmup
+            output_states = model.forward(
+                input_ids=input_state.input_ids,
+                position_ids=input_state.position_ids,
+                cu_seqlen_prefill=None,
+                kv_cache=kv_cache,
+                block_tables=input_state.block_tables,
+                slots=input_state.slots,
+                input_lengths=input_state.input_lengths,
+                max_s=max_total_tokens,
+                adapter_data=input_state.adapter_data,
+                prefill_cache_indices=None,
+                lm_head_indices=None,
+            )
+            torch.cuda.synchronize()
+
             graph = torch.cuda.CUDAGraph()
             with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
                 output_states = model.forward(
@@ -297,6 +323,7 @@ class GraphWrapper:
                     input_lengths=input_state.input_lengths,
                     max_s=max_total_tokens,
                     adapter_data=input_state.adapter_data,
+                    prefill_cache_indices=None,
                     lm_head_indices=None,
                 )
 
@@ -323,9 +350,8 @@ class GraphWrapper:
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
         pad_and_fill(self.input_state.input_lengths, input_lengths + prefix_lens_tensor, 0)
-
-        self.input_state.block_tables.zero_()
-        self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
+        self.input_state.prefix_lens[: len(prefix_lens)] = prefix_lens
+        pad_and_fill(self.input_state.prefix_lens_tensor, prefix_lens_tensor, 0)
 
         if FLASH_INFER:
             block_tables = block_tables_to_ragged(
@@ -359,8 +385,8 @@ class GraphWrapper:
             cu_seqlen_prefill=None,
             input_lengths=input_lengths,
             input_lengths_tensor=self.input_state.input_lengths,
-            prefix_lens=prefix_lens,
-            prefix_lens_tensor=prefix_lens_tensor,
+            prefix_lens=self.input_state.prefix_lens,
+            prefix_lens_tensor=self.input_state.prefix_lens_tensor,
             state=self.input_state.state,
         ):
             self.graph.replay()
@@ -511,6 +537,8 @@ class GraphCache:
         block_tables: torch.Tensor,
         slots: torch.Tensor,
         input_lengths: torch.Tensor,
+        prefix_lens: List[int],
+        prefix_lens_tensor: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -552,6 +580,8 @@ class GraphCache:
             block_tables=block_tables,
             slots=slots,
             input_lengths=input_lengths,
+            prefix_lens=prefix_lens,
+            prefix_lens_tensor=prefix_lens_tensor,
             max_s=max_s,
             adapter_data=adapter_data,
             lm_head_indices=lm_head_indices,
