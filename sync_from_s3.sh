@@ -15,7 +15,10 @@ MODEL_DIRECTORY="models--${MODEL_ID//\//--}"
 S3_PATH="s3://${HF_CACHE_BUCKET}/${MODEL_DIRECTORY}/"
 LOCAL_MODEL_DIR="${HUGGINGFACE_HUB_CACHE}/${MODEL_DIRECTORY}"
 
-if [[ $(aws s3 ls "${S3_PATH}" | wc -l) -eq 0 ]]; then
+MODEL_CONTENTS=$(aws s3api list-objects-v2 --bucket "${HF_CACHE_BUCKET}" --prefix "${MODEL_DIRECTORY}" --query 'Contents[]')
+EXIT_STATUS=$?
+
+if [[ $EXIT_STATUS -ne 0 || "$MODEL_CONTENTS" == "null" ]]; then
     echo "$MODEL_ID not found in S3 cache."
     exit 0
 fi
