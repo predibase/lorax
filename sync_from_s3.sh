@@ -15,10 +15,16 @@ MODEL_DIRECTORY="models--${MODEL_ID//\//--}"
 S3_PATH="s3://${HF_CACHE_BUCKET}/${MODEL_DIRECTORY}/"
 LOCAL_MODEL_DIR="${HUGGINGFACE_HUB_CACHE}/${MODEL_DIRECTORY}"
 
-MODEL_CONTENTS=$(aws s3api list-objects-v2 --bucket "${HF_CACHE_BUCKET}" --prefix "${MODEL_DIRECTORY}" --query 'Contents[]')
+MODEL_CONTENTS=$(aws s3api list-objects-v2 --bucket "${HF_CACHE_BUCKET}" --prefix "${MODEL_DIRECTORY}" --query 'Contents[]' 2>&1)
 EXIT_STATUS=$?
 
-if [[ $EXIT_STATUS -ne 0 || "$MODEL_CONTENTS" == "null" ]]; then
+if [[ $EXIT_STATUS -ne 0 ]]; then
+    echo "Failed to list objects in S3 bucket."
+    echo "error: $MODEL_CONTENTS"
+    exit 0
+fi
+
+if [[ "$MODEL_CONTENTS" == "null" ]]; then
     echo "$MODEL_ID not found in S3 cache."
     exit 0
 fi
