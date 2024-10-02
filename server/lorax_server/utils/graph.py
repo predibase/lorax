@@ -284,8 +284,6 @@ class GraphWrapper:
 
         torch.cuda.synchronize(device)
 
-        print("!!! ADAPTER DATA", input_state.adapter_data)
-
         with forward_context(
             block_tables=input_state.block_tables,
             cu_seqlen_prefill=None,
@@ -311,8 +309,6 @@ class GraphWrapper:
             )
             torch.cuda.synchronize()
 
-            print("!!! OUTPUT STATES INIT", output_states, max_total_tokens)
-
             graph = torch.cuda.CUDAGraph()
             with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
                 output_states = model.forward(
@@ -330,16 +326,6 @@ class GraphWrapper:
                 )
 
         torch.cuda.synchronize(device)
-
-        print("!!! OUTPUT STATES BEFORE", output_states)
-        graph.replay()
-        torch.cuda.synchronize(device)
-
-        print("!!! OUTPUT STATES AFTER", output_states)
-        graph.replay()
-        torch.cuda.synchronize(device)
-
-        print("!!! OUTPUT STATES AFTER 2", output_states)
 
         return GraphWrapper(graph, graph.pool(), input_state, output_states, model, forward_context)
 
@@ -365,8 +351,6 @@ class GraphWrapper:
         self.input_state.prefix_lens[: len(prefix_lens)] = prefix_lens
         pad_and_fill(self.input_state.prefix_lens_tensor, prefix_lens_tensor, 0)
 
-        print("!!! INPUT LENGTHS FILLED", self.input_state.input_lengths)
-
         if FLASH_INFER:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
@@ -376,8 +360,6 @@ class GraphWrapper:
             self.input_state.block_tables[: block_tables.shape[0]] = block_tables
         else:
             self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
-
-        print("!!! INPUT LENGTHS FILLED 2", self.input_state.input_lengths)
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             # TODO(travis): generalize this to support other adapter types
@@ -396,9 +378,6 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
-        print("!!! INPUT LENGTHS FILLED 3", self.input_state.input_lengths)
-        print("!!! OUTPUT STATES BEFORE", self.output_states)
-
         with self.forward_context(
             block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,
@@ -408,14 +387,7 @@ class GraphWrapper:
             prefix_lens_tensor=self.input_state.prefix_lens_tensor,
             state=self.input_state.state,
         ):
-            print("!!! input_ids", self.input_state.input_ids, self.input_state.input_ids.sum())
-            print("!!! position_ids", self.input_state.position_ids, self.input_state.position_ids.sum())
-            print("!!! block_tables", self.input_state.block_tables, self.input_state.block_tables.sum())
-            print("!!! slots", self.input_state.slots, self.input_state.slots.sum())
-            print("!!! input_lengths", self.input_state.input_lengths, self.input_state.input_lengths.sum())
-            
             self.graph.replay()
-        print("!!! OUTPUT STATES AFTER", self.output_states)
 
         return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 

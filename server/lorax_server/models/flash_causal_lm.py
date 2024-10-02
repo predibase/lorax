@@ -1099,13 +1099,6 @@ class FlashCausalLM(Model):
                 prefix_lens=batch.prefix_lens,
                 prefix_lens_tensor=prefix_lens_tensor,
             ):
-                print("!!! input_ids", input_ids, input_ids.sum())
-                print("!!! position_ids", position_ids, position_ids.sum())
-                print("!!! block_tables", block_tables, block_tables.sum())
-                print("!!! slots", slots, slots.sum())
-                print("!!! input_lengths", input_lengths, input_lengths.sum())
-                print("!!! max_s", max_s)
-
                 out = model.forward(
                     input_ids=input_ids,
                     position_ids=position_ids,
@@ -1181,7 +1174,8 @@ class FlashCausalLM(Model):
         else:
             next_token_logits = out
         
-        print("!!! NEXT TOKEN LOGITS", next_token_logits, next_token_logits.shape, next_token_logits.norm())
+        # print("!!! NEXT TOKEN LOGITS", next_token_logits, next_token_logits.shape, next_token_logits.norm())
+        # print("!!! SPECULATIVE LOGITS", speculative_logits, speculative_logits.shape, speculative_logits.norm())
         speculative_tokens = get_speculative_tokens()
         (
             next_input_ids,
@@ -1195,7 +1189,6 @@ class FlashCausalLM(Model):
             batch.speculative_ids,
             speculative_logits,
         )
-        print("!!! NEXT TOKEN IDs", next_input_ids)
 
         if return_alternatives:
             alternative_token_logprobs, alternative_token_ids = torch.sort(
