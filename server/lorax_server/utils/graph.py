@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 # TODO(travis): make this configurable by model / user
-MAX_BATCH_SIZE = 16
+MAX_BATCH_SIZE = 1
 MAX_RANK = BGMV_MAX_RANK
 
 SLOT_PAD_VALUE = -1
@@ -35,11 +35,11 @@ SEGMENT_PAD_VALUE = -1
 # Cached batch sizes used in vLLM. This and the helper function `get_cached_batch_size` below
 # must be kept in sync.
 BATCH_SIZE_INCREMENT = 32
-CACHED_BATCH_SIZES = [1, 2, 4, 8, 16] #+ [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
+CACHED_BATCH_SIZES = [1] #[1, 2, 4, 8, 16] #+ [BATCH_SIZE_INCREMENT * (i + 1) for i in range(8)]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0, 8]
+CACHED_MAX_RANKS = [0]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
 assert all([r <= BGMV_MAX_RANK for r in _allowed_ranks]), f"Invalid ranks: {_allowed_ranks}"
@@ -105,7 +105,7 @@ def get_max_graph_state(
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
     prefix_lens = [0] * MAX_BATCH_SIZE
-    prefix_lens_tensor = torch.zeros(MAX_BATCH_SIZE, dtype=torch.int32, device=device)
+    prefix_lens_tensor = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
     adapter_weight_data = {}
     for layer_name in adapter_layers:
@@ -231,7 +231,7 @@ class GraphWrapper:
         block_tables = max_input_state.block_tables[:batch_size]
         input_lengths = max_input_state.input_lengths[:batch_size]
         prefix_lengths = max_input_state.prefix_lens[:batch_size]
-        prefix_lengths_tensor = max_input_state.input_lengths[:batch_size]
+        prefix_lengths_tensor = max_input_state.prefix_lens_tensor[:batch_size]
         state = None
 
         if FLASH_INFER:
@@ -289,6 +289,24 @@ class GraphWrapper:
             prefix_lens_tensor=prefix_lengths_tensor,
             state=input_state.state,
         ):
+            # warmup
+            output_states = model.forward(
+                input_ids=input_state.input_ids,
+                position_ids=input_state.position_ids,
+                cu_seqlen_prefill=None,
+                kv_cache=kv_cache,
+                block_tables=input_state.block_tables,
+                slots=input_state.slots,
+                input_lengths=input_state.input_lengths,
+                max_s=max_total_tokens,
+                adapter_data=input_state.adapter_data,
+                prefill_cache_indices=None,
+                lm_head_indices=None,
+            )
+            torch.cuda.synchronize()
+
+            print("!!! OUTPUT STATES INIT", output_states, max_total_tokens)
+
             graph = torch.cuda.CUDAGraph()
             with torch.cuda.graph(graph, pool=memory_pool):  # noqa: SIM117
                 output_states = model.forward(
@@ -306,6 +324,16 @@ class GraphWrapper:
                 )
 
         torch.cuda.synchronize(device)
+
+        print("!!! OUTPUT STATES BEFORE", output_states)
+        graph.replay()
+        torch.cuda.synchronize(device)
+
+        print("!!! OUTPUT STATES AFTER", output_states)
+        graph.replay()
+        torch.cuda.synchronize(device)
+
+        print("!!! OUTPUT STATES AFTER 2", output_states)
 
         return GraphWrapper(graph, graph.pool(), input_state, output_states, model, forward_context)
 
@@ -328,12 +356,10 @@ class GraphWrapper:
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
         pad_and_fill(self.input_state.input_lengths, input_lengths + prefix_lens_tensor, 0)
-        print("!!! PREFIX LENS", len(prefix_lens), prefix_lens_tensor.shape)
         self.input_state.prefix_lens[: len(prefix_lens)] = prefix_lens
         pad_and_fill(self.input_state.prefix_lens_tensor, prefix_lens_tensor, 0)
 
-        self.input_state.block_tables.zero_()
-        self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
+        print("!!! INPUT LENGTHS FILLED", self.input_state.input_lengths)
 
         if FLASH_INFER:
             block_tables = block_tables_to_ragged(
@@ -344,6 +370,8 @@ class GraphWrapper:
             self.input_state.block_tables[: block_tables.shape[0]] = block_tables
         else:
             self.input_state.block_tables[: block_tables.shape[0], : block_tables.shape[1]] = block_tables
+
+        print("!!! INPUT LENGTHS FILLED 2", self.input_state.input_lengths)
 
         for layer_name, weight_data in self.input_state.adapter_data.data.items():
             # TODO(travis): generalize this to support other adapter types
@@ -362,16 +390,26 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
+        print("!!! INPUT LENGTHS FILLED 3", self.input_state.input_lengths)
+        print("!!! OUTPUT STATES BEFORE", self.output_states)
+
         with self.forward_context(
             block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,
             input_lengths=input_lengths,
             input_lengths_tensor=self.input_state.input_lengths,
-            prefix_lens=prefix_lens,
-            prefix_lens_tensor=prefix_lens_tensor,
+            prefix_lens=self.input_state.prefix_lens,
+            prefix_lens_tensor=self.input_state.prefix_lens_tensor,
             state=self.input_state.state,
         ):
+            print("!!! input_ids", self.input_state.input_ids, self.input_state.input_ids.sum())
+            print("!!! position_ids", self.input_state.position_ids, self.input_state.position_ids.sum())
+            print("!!! block_tables", self.input_state.block_tables, self.input_state.block_tables.sum())
+            print("!!! slots", self.input_state.slots, self.input_state.slots.sum())
+            print("!!! input_lengths", self.input_state.input_lengths, self.input_state.input_lengths.sum())
+            
             self.graph.replay()
+        print("!!! OUTPUT STATES AFTER", self.output_states)
 
         return tuple(state[: input_ids.shape[0]] if state is not None else None for state in self.output_states)
 

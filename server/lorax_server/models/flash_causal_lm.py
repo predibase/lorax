@@ -946,8 +946,8 @@ class FlashCausalLM(Model):
                 self.num_kv_heads,
                 self.sliding_window_blocks,
             )
-            graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
-            logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
+            # graph_cache_memory = self.model_graph_wrapper.get_estimated_cache_memory()
+            # logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
             torch.cuda.synchronize(self.device)
 
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
@@ -1099,6 +1099,13 @@ class FlashCausalLM(Model):
                 prefix_lens=batch.prefix_lens,
                 prefix_lens_tensor=prefix_lens_tensor,
             ):
+                print("!!! input_ids", input_ids, input_ids.sum())
+                print("!!! position_ids", position_ids, position_ids.sum())
+                print("!!! block_tables", block_tables, block_tables.sum())
+                print("!!! slots", slots, slots.sum())
+                print("!!! input_lengths", input_lengths, input_lengths.sum())
+                print("!!! max_s", max_s)
+
                 out = model.forward(
                     input_ids=input_ids,
                     position_ids=position_ids,
@@ -1173,13 +1180,8 @@ class FlashCausalLM(Model):
                 )
         else:
             next_token_logits = out
-
-        print("!!! OUTPUT", out, speculative_logits)
-
-        B = next_token_logits.shape[0]
-        S = 1
-        print("!!! TEST", torch.zeros((B, S), device=next_token_logits.device, dtype=torch.long))
-
+        
+        print("!!! NEXT TOKEN LOGITS", next_token_logits, next_token_logits.shape, next_token_logits.norm())
         speculative_tokens = get_speculative_tokens()
         (
             next_input_ids,
@@ -1193,6 +1195,7 @@ class FlashCausalLM(Model):
             batch.speculative_ids,
             speculative_logits,
         )
+        print("!!! NEXT TOKEN IDs", next_input_ids)
 
         if return_alternatives:
             alternative_token_logprobs, alternative_token_ids = torch.sort(
