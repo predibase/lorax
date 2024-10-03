@@ -6,6 +6,8 @@
 
 from typing import List, Optional, Tuple
 
+from lorax_server.models.custom_modeling.utils import prepend
+
 # Flash attention imports
 import dropout_layer_norm
 import torch
@@ -328,9 +330,9 @@ class QwenMLP(nn.Module):
 
 
 class FlashQwenLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.h.{layer_id}"
+        prefix = prepend(prefix, f"transformer.h.{layer_id}")
         self.attn = FlashQwenAttention(
             prefix=f"{prefix}.attn",
             config=config,
@@ -385,16 +387,17 @@ class FlashQwenLayer(nn.Module):
 
 
 class FlashQwenModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.wte = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
+        self.wte = TensorParallelEmbedding(prefix=prepend(prefix, "transformer.wte"), weights=weights)
         self.h = nn.ModuleList(
             [
                 FlashQwenLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -402,7 +405,7 @@ class FlashQwenModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = QwenRMSNorm(prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_f = QwenRMSNorm(prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon)
 
         self.gradient_checkpointing = False
 
@@ -450,15 +453,15 @@ class FlashQwenModel(torch.nn.Module):
 
 
 class FlashQwenForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.transformer = FlashQwenModel(config, weights)
+        self.transformer = FlashQwenModel(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,

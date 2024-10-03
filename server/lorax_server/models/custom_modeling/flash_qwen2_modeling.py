@@ -319,7 +319,7 @@ class Qwen2MLP(nn.Module):
 class FlashQwen2Layer(nn.Module):
     def __init__(self, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
         self.self_attn = FlashQwen2Attention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -388,6 +388,7 @@ class FlashQwen2Model(torch.nn.Module):
         self.layers = nn.ModuleList(
             [
                 FlashQwen2Layer(
+                    prefix,
                     layer_id,
                     config,
                     weights,

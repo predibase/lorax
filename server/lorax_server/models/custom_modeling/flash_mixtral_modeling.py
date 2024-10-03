@@ -21,6 +21,8 @@
 
 from typing import List, Optional, Tuple
 
+from lorax_server.models.custom_modeling.utils import prepend
+
 # Flash attention imports
 import dropout_layer_norm
 import numpy as np
@@ -795,9 +797,9 @@ class DenseMoE(nn.Module):
 
 
 class MixtralLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
 
         self.self_attn = MixtralAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id
@@ -855,14 +857,15 @@ class MixtralLayer(nn.Module):
 
 
 class MixtralModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
 
         self.layers = nn.ModuleList(
             [
                 MixtralLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -870,7 +873,7 @@ class MixtralModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MixtralRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = MixtralRMSNorm(prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.rms_norm_eps)
 
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
@@ -918,15 +921,15 @@ class MixtralModel(torch.nn.Module):
 
 
 class FlashMixtralForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.model = MixtralModel(config, weights)
+        self.model = MixtralModel(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,
