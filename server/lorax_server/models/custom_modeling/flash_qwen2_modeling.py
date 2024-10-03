@@ -6,6 +6,8 @@
 
 from typing import List, Optional, Tuple
 
+from lorax_server.models.custom_modeling.utils import prepend
+
 # Flash attention imports
 import dropout_layer_norm
 import torch
@@ -376,13 +378,13 @@ class FlashQwen2Layer(nn.Module):
 
 
 class FlashQwen2Model(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashQwen2Layer(
@@ -393,7 +395,7 @@ class FlashQwen2Model(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = Qwen2RMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = Qwen2RMSNorm(prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -442,15 +444,15 @@ class FlashQwen2Model(torch.nn.Module):
 
 
 class FlashQwen2ForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.model = FlashQwen2Model(config, weights)
+        self.model = FlashQwen2Model(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,
@@ -503,14 +505,14 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
 
 
 class FlashQwen2ForEmbeddings(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.model = FlashQwen2Model(config, weights)
+        self.model = FlashQwen2Model(prefix, config, weights)
         self.max_past = config.sliding_window
-        self.output_weight = weights.get_tensor("linear.weight")
-        self.output_bias = weights.get_tensor("linear.bias")
+        self.output_weight = weights.get_tensor(prepend(prefix, "linear.weight"))
+        self.output_bias = weights.get_tensor(prepend(prefix, "linear.bias"))
         # To satisfy the parent class interface
         # TODO: fix
         self.lm_head = None
