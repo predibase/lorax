@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 96))
-MAX_RANK = int(os.environ.get("LORAX_COMPILE_MAX_RANK", BGMV_MAX_RANK))
+MAX_RANK = int(os.environ.get("LORAX_COMPILE_MAX_RANK", 64))
 
 SLOT_PAD_VALUE = -1
 SEGMENT_PAD_VALUE = -1
@@ -43,7 +43,7 @@ CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= MAX_BATCH_SIZE]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0, 8, 16, 32, 64]
+CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 96, 128]
 CACHED_MAX_RANKS = [r for r in CACHED_MAX_RANKS if r <= MAX_RANK]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
