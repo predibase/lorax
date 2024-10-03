@@ -28,6 +28,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2Config
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -291,18 +292,18 @@ class FlashGPT2PreTrainedModel(PreTrainedModel):
 
 
 class FlashGPT2Model(FlashGPT2PreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
 
         self.embed_dim = config.hidden_size
 
-        self.wte = TensorParallelEmbedding(prefix="wte", weights=weights)
-        self.wpe = TensorParallelEmbedding(prefix="wpe", weights=weights)
+        self.wte = TensorParallelEmbedding(prefix=prepend(prefix, "wte"), weights=weights)
+        self.wpe = TensorParallelEmbedding(prefix=prepend(prefix, "wpe"), weights=weights)
 
         self.h = nn.ModuleList([GPT2Block(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)])
         self.ln_f = FastLayerNorm.load(
-            prefix="ln_f",
+            prefix=prepend(prefix, "ln_f"),
             weights=weights,
             eps=config.layer_norm_epsilon,
         )
@@ -346,10 +347,10 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
 
 
 class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
-        self.transformer = FlashGPT2Model(config, weights)
+        self.transformer = FlashGPT2Model(prefix, config, weights)
         self.wte_t = self.transformer.wte.weight.T.contiguous()
 
     def forward(

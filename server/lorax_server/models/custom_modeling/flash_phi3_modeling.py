@@ -29,6 +29,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -352,9 +353,9 @@ class Phi3MLP(nn.Module):
 
 
 class FlashPhi3Layer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
         self.self_attn = FlashPhi3Attention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -409,16 +410,17 @@ class FlashPhi3Layer(nn.Module):
 
 
 class FlashPhi3Model(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashPhi3Layer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -426,7 +428,7 @@ class FlashPhi3Model(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = Phi3RMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = Phi3RMSNorm(prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -474,15 +476,15 @@ class FlashPhi3Model(torch.nn.Module):
 
 
 class FlashPhi3ForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.model = FlashPhi3Model(config, weights)
+        self.model = FlashPhi3Model(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,

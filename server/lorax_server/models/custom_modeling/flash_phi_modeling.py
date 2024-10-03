@@ -17,6 +17,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -235,9 +236,9 @@ class PhiMLP(nn.Module):
 
 
 class FlashPhiLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
 
         self.input_layernorm = FastLayerNorm.load(
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.layer_norm_eps
@@ -290,16 +291,17 @@ class FlashPhiLayer(nn.Module):
 
 
 class FlashPhiModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashPhiLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -308,7 +310,7 @@ class FlashPhiModel(torch.nn.Module):
             ]
         )
         self.final_layernorm = FastLayerNorm.load(
-            prefix="model.final_layernorm", weights=weights, eps=config.layer_norm_eps
+            prefix=prepend(prefix, "model.final_layernorm"), weights=weights, eps=config.layer_norm_eps
         )
 
         self.gradient_checkpointing = False
@@ -356,15 +358,15 @@ class FlashPhiModel(torch.nn.Module):
 
 
 class FlashPhiForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.model = FlashPhiModel(config, weights)
+        self.model = FlashPhiModel(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,

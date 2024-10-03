@@ -6,6 +6,7 @@ from torch import nn
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
 
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -336,6 +337,7 @@ class FlashMLP(nn.Module):
 class FlashRWLayer(nn.Module):
     def __init__(
         self,
+        prefix: str,
         layer_id,
         config,
         weights,
@@ -345,7 +347,7 @@ class FlashRWLayer(nn.Module):
         parallel_attn = config.parallel_attn
         self.parallel_attn = parallel_attn
 
-        prefix = f"transformer.h.{layer_id}"
+        prefix = prepend(prefix, f"transformer.h.{layer_id}")
 
         self.input_layernorm = FastLayerNorm.load(
             prefix=f"{prefix}.input_layernorm",
@@ -433,9 +435,9 @@ class FlashRWLayer(nn.Module):
 
 
 class FlashRWLargeLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.h.{layer_id}"
+        prefix = prepend(prefix, f"transformer.h.{layer_id}")
         self.ln_attn = FastLayerNorm.load(
             prefix=f"{prefix}.ln_attn",
             weights=weights,
@@ -503,25 +505,27 @@ class FlashRWPreTrainedModel(PreTrainedModel):
 
 
 class FlashRWModel(FlashRWPreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
 
-        self.word_embeddings = TensorParallelEmbedding(prefix="transformer.word_embeddings", weights=weights)
+        self.word_embeddings = TensorParallelEmbedding(
+            prefix=prepend(prefix, "transformer.word_embeddings"), weights=weights
+        )
 
         if config.new_decoder_architecture:
             self.h = nn.ModuleList(
-                [FlashRWLargeLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
+                [FlashRWLargeLayer(prefix, layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
             )
             self.cache_size = self.h[0].self_attention.num_groups
         else:
             self.h = nn.ModuleList(
-                [FlashRWLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
+                [FlashRWLayer(prefix, layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
             )
             self.cache_size = self.h[0].self_attention.num_heads_kv
 
         self.ln_f = FastLayerNorm.load(
-            prefix="transformer.ln_f",
+            prefix=prepend(prefix, "transformer.ln_f"),
             weights=weights,
             eps=config.layer_norm_epsilon,
         )
@@ -567,13 +571,13 @@ class FlashRWModel(FlashRWPreTrainedModel):
 
 
 class FlashRWForCausalLM(FlashRWPreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
 
-        self.transformer = FlashRWModel(config, weights)
+        self.transformer = FlashRWModel(prefix, config, weights)
 
-        self.lm_head = TensorParallelHead.load(config, prefix="lm_head", weights=weights)
+        self.lm_head = TensorParallelHead.load(config, prefix=prepend(prefix, "lm_head"), weights=weights)
 
     def forward(
         self,

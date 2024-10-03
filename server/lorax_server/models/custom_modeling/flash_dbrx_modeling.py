@@ -24,6 +24,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters.weights import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -870,9 +871,9 @@ class DenseMoE(nn.Module):
 
 
 class DbrxLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.blocks.{layer_id}"
+        prefix = prepend(prefix, f"transformer.blocks.{layer_id}")
 
         self.attn = DbrxNormAttentionNorm(
             prefix=f"{prefix}.norm_attn_norm", config=config, weights=weights, layer_id=layer_id
@@ -916,14 +917,15 @@ class DbrxLayer(nn.Module):
 
 
 class DbrxModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
-        self.embed_tokens = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "transformer.wte"), weights=weights)
 
         self.layers = nn.ModuleList(
             [
                 DbrxLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -931,7 +933,7 @@ class DbrxModel(torch.nn.Module):
                 for layer_id in range(config.n_layers)
             ]
         )
-        self.norm = FastLayerNorm.load_no_bias(prefix="transformer.norm_f", weights=weights, eps=1e-5)
+        self.norm = FastLayerNorm.load_no_bias(prefix=prepend(prefix, "transformer.norm_f"), weights=weights, eps=1e-5)
 
         self.head_size = self.layers[0].attn.self_attn.head_size
         self.num_heads = self.layers[0].attn.self_attn.num_heads
@@ -977,15 +979,15 @@ class DbrxModel(torch.nn.Module):
 
 
 class FlashDbrxForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
-        self.model = DbrxModel(config, weights)
+        self.model = DbrxModel(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,

@@ -27,6 +27,7 @@ from transformers.activations import ACT2FN
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt_neox import GPTNeoXConfig
 
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -190,12 +191,12 @@ class FlashMLP(nn.Module):
 
 
 class FlashNeoXLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
 
         layer_norm_eps = config.layer_norm_eps
 
-        prefix = f"gpt_neox.layers.{layer_id}"
+        prefix = prepend(prefix, f"gpt_neox.layers.{layer_id}")
 
         self.use_parallel_residual = config.use_parallel_residual
         self.input_layernorm = FastLayerNorm.load(
@@ -278,17 +279,17 @@ class FlashGPTNeoXPreTrainedModel(PreTrainedModel):
 
 
 class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
 
-        self.embed_in = TensorParallelEmbedding(prefix="gpt_neox.embed_in", weights=weights)
+        self.embed_in = TensorParallelEmbedding(prefix=prepend(prefix, "gpt_neox.embed_in"), weights=weights)
 
         self.layers = nn.ModuleList(
-            [FlashNeoXLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
+            [FlashNeoXLayer(prefix, layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
         )
         self.final_layer_norm = FastLayerNorm.load(
-            prefix="gpt_neox.final_layer_norm",
+            prefix=prepend(prefix, "gpt_neox.final_layer_norm"),
             weights=weights,
             eps=config.layer_norm_eps,
         )
@@ -336,12 +337,12 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
 
 
 class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
-        self.gpt_neox = FlashGPTNeoXModel(config, weights)
+        self.gpt_neox = FlashGPTNeoXModel(prefix, config, weights)
 
-        self.embed_out = TensorParallelHead.load(config, prefix="embed_out", weights=weights)
+        self.embed_out = TensorParallelHead.load(config, prefix=prepend(prefix, "embed_out"), weights=weights)
 
     def forward(
         self,

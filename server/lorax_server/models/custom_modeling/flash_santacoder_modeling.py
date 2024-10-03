@@ -5,6 +5,7 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -288,9 +289,9 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.h.{layer_id}"
+        prefix = prepend(prefix, f"transformer.h.{layer_id}")
         self.ln_1 = FastLayerNorm.load(prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon)
         self.ln_2 = FastLayerNorm.load(prefix=f"{prefix}.ln_2", weights=weights, eps=config.layer_norm_epsilon)
         self.attn = FlashMQAttention(
@@ -334,18 +335,18 @@ class Block(nn.Module):
 
 
 class FlashSantacoderModel(nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
         self.process_group = weights.process_group
         self.wte = TensorParallelEmbedding(
-            prefix="transformer.wte",
+            prefix=prepend(prefix, "transformer.wte"),
             weights=weights,
             reduce=False,
         )
         self.wpe = TensorParallelEmbedding(
-            prefix="transformer.wpe",
+            prefix=prepend(prefix, "transformer.wpe"),
             weights=weights,
             reduce=False,
         )
@@ -353,6 +354,7 @@ class FlashSantacoderModel(nn.Module):
         self.h = nn.ModuleList(
             [
                 Block(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -360,7 +362,9 @@ class FlashSantacoderModel(nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = FastLayerNorm.load(prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_f = FastLayerNorm.load(
+            prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon
+        )
 
         self.head_size = self.h[0].attn.head_size
         self.num_heads = self.h[0].attn.num_heads
@@ -400,11 +404,11 @@ class FlashSantacoderModel(nn.Module):
 
 
 class FlashSantacoderForCausalLM(nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
-        self.transformer = FlashSantacoderModel(config, weights)
-        self.lm_head = TensorParallelHead.load(config, prefix="transformer.wte", weights=weights)
+        self.transformer = FlashSantacoderModel(prefix, config, weights)
+        self.lm_head = TensorParallelHead.load(config, prefix=prepend(prefix, "transformer.wte"), weights=weights)
 
     def forward(
         self,
