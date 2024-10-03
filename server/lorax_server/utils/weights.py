@@ -11,6 +11,8 @@ from huggingface_hub.utils import EntryNotFoundError, LocalEntryNotFoundError
 from loguru import logger
 from safetensors import safe_open
 
+from lorax_server.utils.sources import PBASE, S3, map_pbase_model_id_to_s3
+
 
 class AbstractWeights(ABC):
     @abstractmethod
@@ -466,6 +468,12 @@ def download_weights(
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
     from lorax_server.utils import sources
+
+    if source == PBASE:
+        # TODO(travis): move this into `model_source` to handle behind the abstraction
+        api_token = api_token or os.environ.get("PREDIBASE_API_TOKEN")
+        model_id = map_pbase_model_id_to_s3(model_id, api_token)
+        source = S3
 
     model_source = sources.get_model_source(source, model_id, revision, extension, api_token, embedding_dim)
 

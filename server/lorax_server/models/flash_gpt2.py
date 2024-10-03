@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
@@ -14,11 +13,6 @@ from lorax_server.models.custom_modeling.flash_gpt2_modeling import (
     MLP_C_PROJ,
     FlashGPT2ForCausalLM,
     GPT2Config,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 
 tracer = trace.get_tracer(__name__)
@@ -34,59 +28,18 @@ class FlashGPT2(FlashCausalLM):
         adapter_id: str,
         adapter_source: str,
         revision: Optional[str] = None,
-        quantize: Optional[str] = None,
-        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
-        trust_remote_code: bool = False,
+        **kwargs,
     ):
-        self.process_group, rank, world_size = initialize_torch_distributed()
-        if torch.cuda.is_available():
-            device = torch.device(f"cuda:{rank}")
-            dtype = torch.float16 if dtype is None else dtype
-        else:
-            raise NotImplementedError("FlashLlama is only available on GPU")
-
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            revision=revision,
-            padding_side="left",
-            truncation_side="left",
-            trust_remote_code=trust_remote_code,
-        )
-
-        config = GPT2Config.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
-        config.quantize = quantize
-
-        torch.distributed.barrier(group=self.process_group)
-
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-        )
-        weights._set_config(model_id, config)
-
-        model = FlashGPT2ForCausalLM(config, weights)
-
-        torch.distributed.barrier(group=self.process_group)
-        super(FlashGPT2, self).__init__(
+        super().__init__(
             model_id=model_id,
-            model=model,
-            tokenizer=tokenizer,
-            num_layers=len(model.transformer.h),
-            num_kv_heads=model.transformer.num_key_value_heads,
-            head_size=model.transformer.head_size,
-            num_heads=model.transformer.num_heads,
+            model_cls=FlashGPT2ForCausalLM,
             dtype=dtype,
-            device=device,
-            rank=rank,
-            world_size=world_size,
-            compile=compile,
+            revision=revision,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            trust_remote_code=trust_remote_code,
+            config_cls=GPT2Config,
+            **kwargs,
         )
 
     @property

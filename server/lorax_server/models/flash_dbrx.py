@@ -4,7 +4,6 @@ import torch
 import torch.distributed
 from opentelemetry import trace
 from transformers import AutoTokenizer
-from transformers.models.gpt2 import GPT2TokenizerFast
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_dbrx_modeling import (
@@ -12,11 +11,6 @@ from lorax_server.models.custom_modeling.flash_dbrx_modeling import (
     ATTN_WQKV,
     DbrxConfig,
     FlashDbrxForCausalLM,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 from lorax_server.utils.lora import LM_HEAD
 
@@ -33,85 +27,19 @@ class FlashDbrx(FlashCausalLM):
         adapter_id: str,
         adapter_source: str,
         revision: Optional[str] = None,
-        quantize: Optional[str] = None,
-        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
-        trust_remote_code: bool = False,
+        **kwargs,
     ):
-        self.process_group, rank, world_size = initialize_torch_distributed()
-        if torch.cuda.is_available():
-            device = torch.device(f"cuda:{rank}")
-            dtype = torch.bfloat16 if dtype is None else dtype
-        else:
-            raise NotImplementedError("FlashDBRX is only available on GPU")
-
-        try:
-            tokenizer = GPT2TokenizerFast.from_pretrained(
-                model_id,
-                revision=revision,
-                padding_side="left",
-                truncation_side="left",
-                trust_remote_code=trust_remote_code,
-                use_fast=True,
-                from_slow=False,
-            )
-        except Exception:
-            try:
-                tokenizer = AutoTokenizer.from_pretrained(
-                    model_id,
-                    revision=revision,
-                    padding_side="left",
-                    truncation_side="left",
-                    trust_remote_code=trust_remote_code,
-                    use_fast=True,
-                    from_slow=False,
-                )
-            except Exception:
-                # FIXME: change back to model id once the tokenizer.json is merged
-                tokenizer = GPT2TokenizerFast.from_pretrained(
-                    "Xenova/dbrx-instruct-tokenizer",
-                    revision=revision,
-                    padding_side="left",
-                    truncation_side="left",
-                    trust_remote_code=trust_remote_code,
-                    use_fast=True,
-                    from_slow=False,
-                )
-
-        config = DbrxConfig.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
-        config.quantize = quantize
-        config.max_position_embeddings = config.max_seq_len
-
-        torch.distributed.barrier(group=self.process_group)
-
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors")
-        weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-        )
-        weights._set_config(model_id, config)
-
-        model = FlashDbrxForCausalLM(config, weights)
-
-        torch.distributed.barrier(group=self.process_group)
-        super(FlashDbrx, self).__init__(
+        super().__init__(
             model_id=model_id,
-            model=model,
-            tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
-            num_heads=model.model.num_heads,
+            model_cls=FlashDbrxForCausalLM,
             dtype=dtype,
-            device=device,
-            rank=rank,
-            world_size=world_size,
-            compile=compile,
+            revision=revision,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            trust_remote_code=trust_remote_code,
+            tokenizer_cls=AutoTokenizer,
+            config_cls=DbrxConfig,
+            **kwargs,
         )
 
     @property

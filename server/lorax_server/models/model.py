@@ -75,7 +75,7 @@ class Model(ABC):
 
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
-        if adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
+        if dynamic_adapter_loading_enabled and adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
             download_adapter_weights(adapter_id, adapter_source, api_token=None)
             self.load_adapter(
                 AdapterParameters(adapter_ids=[adapter_id]),

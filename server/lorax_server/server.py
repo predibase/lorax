@@ -248,6 +248,7 @@ def serve(
     adapter_source: str,
     speculative_tokens: int,
     preloaded_adapter_ids: List[str],
+    merge_adapter_weights: bool,
     preloaded_adapter_source: str,
     embedding_dim: Optional[int] = None,
 ):
@@ -263,6 +264,7 @@ def serve(
         trust_remote_code: bool,
         speculative_tokens: int,
         preloaded_adapter_ids: List[str],
+        merge_adapter_weights: bool,
         preloaded_adapter_source: str,
         embedding_dim: Optional[int] = None,
     ):
@@ -286,6 +288,7 @@ def serve(
                 trust_remote_code,
                 source,
                 adapter_source,
+                merge_adapter_weights,
                 embedding_dim,
             )
         except Exception:
@@ -423,6 +426,7 @@ def serve(
             trust_remote_code,
             speculative_tokens,
             preloaded_adapter_ids,
+            merge_adapter_weights,
             preloaded_adapter_source,
             embedding_dim,
         )

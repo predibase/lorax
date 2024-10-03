@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.distributed
 from opentelemetry import trace
-from transformers import AutoTokenizer
 from transformers.models.qwen2 import Qwen2Config
 
 from lorax_server.adapters import AdapterBatchData
@@ -18,11 +17,6 @@ from lorax_server.models.custom_modeling.flash_qwen2_modeling import (
     MLP_UP_PROJ,
     FlashQwen2ForCausalLM,
     FlashQwen2ForEmbeddings,
-)
-from lorax_server.utils import (
-    Weights,
-    initialize_torch_distributed,
-    weight_files,
 )
 from lorax_server.utils.lora import LM_HEAD
 
@@ -49,77 +43,21 @@ class FlashQwen2(FlashCausalLM):
         adapter_id: str,
         adapter_source: str,
         revision: Optional[str] = None,
-        quantize: Optional[str] = None,
-        compile: bool = False,
         dtype: Optional[torch.dtype] = None,
-        trust_remote_code: bool = False,
         embedding_dim: Optional[int] = None,
+        **kwargs,
     ):
-        self.process_group, rank, world_size = initialize_torch_distributed()
-        if torch.cuda.is_available():
-            device = torch.device(f"cuda:{rank}")
-            dtype = torch.float16 if dtype is None else dtype
-        else:
-            raise NotImplementedError("FlashQwen is only available on GPU")
-
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            revision=revision,
-            padding_side="left",
-            truncation_side="left",
-            trust_remote_code=trust_remote_code,
-        )
-
-        config = Qwen2Config.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
-        config.quantize = quantize
-        if not config.use_sliding_window:
-            config.sliding_window = None
-
-        torch.distributed.barrier(group=self.process_group)
-
-        filenames = weight_files(model_id, revision=revision, extension=".safetensors", embedding_dim=embedding_dim)
-        weights = Weights(
-            filenames,
-            device,
-            dtype,
-            process_group=self.process_group,
-        )
-        weights._set_config(model_id, config)
-
-        self._supports_embeddings = embedding_dim is not None
-
-        if not weights.has_tensor("lm_head.weight") and not self._supports_embeddings:
-            raise ValueError(
-                "Model does not have lm head so it is presumed to be for embeddings."
-                "No embedding_dim was provided so we cannot load the model."
-                "Please pass in an embedding_dim to the model."
-            )
-
-        if self._supports_embeddings:
-            model = FlashQwen2ForEmbeddings(config, weights)
-        else:
-            model = FlashQwen2ForCausalLM(config, weights)
-
-        self.config = config
-
-        torch.distributed.barrier(group=self.process_group)
-        super(FlashQwen2, self).__init__(
+        model_cls = FlashQwen2ForEmbeddings if embedding_dim is not None else FlashQwen2ForCausalLM
+        super().__init__(
             model_id=model_id,
-            model=model,
-            tokenizer=tokenizer,
-            num_layers=len(model.model.layers),
-            num_kv_heads=model.model.num_key_value_heads,
-            head_size=model.model.head_size,
-            num_heads=model.model.num_heads,
+            model_cls=model_cls,
             dtype=dtype,
-            device=device,
-            rank=rank,
-            world_size=world_size,
-            sliding_window=config.sliding_window,
-            compile=compile,
+            revision=revision,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            trust_remote_code=trust_remote_code,
+            config_cls=Qwen2Config,
+            embedding_dim=embedding_dim,
+            **kwargs,
         )
 
     @property

@@ -48,6 +48,7 @@ def serve(
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
     preloaded_adapter_ids: Optional[List[str]] = typer.Option(None),
+    merge_adapter_weights: bool = False,
     preloaded_adapter_source: Optional[str] = None,
     embedding_dim: Optional[int] = None,
 ):
@@ -101,6 +102,7 @@ def serve(
         adapter_source,
         speculative_tokens,
         preloaded_adapter_ids,
+        merge_adapter_weights,
         preloaded_adapter_source,
         embedding_dim,
     )
