@@ -53,6 +53,7 @@ def get_model(
     source: str,
     adapter_source: str,
     merge_adapter_weights: bool,
+    embedding_dim: Optional[int] = None,
 ) -> Model:
     config_dict = None
     if source == "s3":
@@ -240,6 +241,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
+            embedding_dim=embedding_dim,
             **flash_causal_lm_kwargs,
         )
 

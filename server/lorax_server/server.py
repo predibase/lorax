@@ -127,7 +127,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if not self.model.supports_embeddings:
             raise ValueError("Model does not support embeddings")
 
-        batch = self.model.batch_type.from_pb(
+        batch = self.model.batch_type.from_pb_embed(
             request.batch,
             self.model.tokenizer,
             self.model.tokenizers,
@@ -250,6 +250,7 @@ def serve(
     preloaded_adapter_ids: List[str],
     merge_adapter_weights: bool,
     preloaded_adapter_source: str,
+    embedding_dim: Optional[int] = None,
 ):
     async def serve_inner(
         model_id: str,
@@ -265,6 +266,7 @@ def serve(
         preloaded_adapter_ids: List[str],
         merge_adapter_weights: bool,
         preloaded_adapter_source: str,
+        embedding_dim: Optional[int] = None,
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
@@ -287,6 +289,7 @@ def serve(
                 source,
                 adapter_source,
                 merge_adapter_weights,
+                embedding_dim,
             )
         except Exception:
             logger.exception("Error when initializing model")
@@ -425,5 +428,6 @@ def serve(
             preloaded_adapter_ids,
             merge_adapter_weights,
             preloaded_adapter_source,
+            embedding_dim,
         )
     )

@@ -463,6 +463,7 @@ def download_weights(
     auto_convert: bool = True,
     source: str = "hub",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
@@ -474,7 +475,7 @@ def download_weights(
         model_id = map_pbase_model_id_to_s3(model_id, api_token)
         source = S3
 
-    model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
+    model_source = sources.get_model_source(source, model_id, revision, extension, api_token, embedding_dim)
 
     # Test if files were already download
     try:

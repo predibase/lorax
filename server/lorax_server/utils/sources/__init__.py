@@ -76,9 +76,10 @@ def get_model_source(
     revision: Optional[str] = None,
     extension: str = ".safetensors",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     if source == HUB:
-        return HubModelSource(model_id, revision, extension, api_token)
+        return HubModelSource(model_id, revision, extension, api_token, embedding_dim)
     elif source == S3:
         return S3ModelSource(model_id, revision, extension)
     elif source == LOCAL:
