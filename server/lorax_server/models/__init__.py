@@ -335,10 +335,7 @@ def get_model(
             adapter_id=adapter_id,
             adapter_source=adapter_source,
             revision=revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "opt":
