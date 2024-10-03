@@ -6,8 +6,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
-
 # Flash attention imports
 import dropout_layer_norm
 import torch
@@ -16,6 +14,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -317,7 +316,7 @@ class Qwen2MLP(nn.Module):
 
 
 class FlashQwen2Layer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
         prefix = prepend(prefix, f"model.layers.{layer_id}")
         self.self_attn = FlashQwen2Attention(

@@ -6,8 +6,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
-
 # Flash attention imports
 import dropout_layer_norm
 import torch
@@ -17,6 +15,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -405,7 +404,9 @@ class FlashQwenModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = QwenRMSNorm(prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_f = QwenRMSNorm(
+            prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon
+        )
 
         self.gradient_checkpointing = False
 

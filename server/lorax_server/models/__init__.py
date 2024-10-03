@@ -155,7 +155,7 @@ def get_model(
             compile=compile,
             trust_remote_code=trust_remote_code,
         )
-    
+
     if model_type == "gpt_neox":
         from lorax_server.models.flash_neox import FlashNeoXSharded
 
@@ -167,7 +167,6 @@ def get_model(
             dtype=dtype,
             trust_remote_code=trust_remote_code,
         )
-    
 
     if model_type == "llama":
         from lorax_server.models.flash_llama import FlashLlama

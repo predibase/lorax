@@ -21,8 +21,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
-
 # Flash attention imports
 import dropout_layer_norm
 import numpy as np
@@ -33,6 +31,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (

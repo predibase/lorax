@@ -1,11 +1,11 @@
 from typing import List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
 import torch
 import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -362,7 +362,9 @@ class FlashSantacoderModel(nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = FastLayerNorm.load(prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_f = FastLayerNorm.load(
+            prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon
+        )
 
         self.head_size = self.h[0].attn.head_size
         self.num_heads = self.h[0].attn.num_heads

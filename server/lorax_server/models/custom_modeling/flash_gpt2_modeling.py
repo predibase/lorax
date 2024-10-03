@@ -20,7 +20,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
 import torch
 import torch.distributed
 from torch import nn
@@ -29,6 +28,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2Config
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,

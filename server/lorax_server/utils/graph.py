@@ -550,7 +550,9 @@ class GraphCache:
         key = (batch_size, max_rank)
         graph = self.cache.get(key)
         if graph is None or not graph.input_state.traced_adapter_layer_names.issuperset(adapter_data.layer_names()):
-            current_traced_adapter_layer_names = graph.input_state.traced_adapter_layer_names if graph is not None else set()
+            current_traced_adapter_layer_names = (
+                graph.input_state.traced_adapter_layer_names if graph is not None else set()
+            )
             logger.info(
                 "Retrace graph with new adapter layers: {} -> {}",
                 current_traced_adapter_layer_names,

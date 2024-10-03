@@ -871,11 +871,7 @@ class FlashCausalLM(Model):
                 num_kv_heads = getattr(config, "n_head", None)
         if num_kv_heads is None:
             raise ValueError("Cannot get the number of key/value heads")
-        self.num_kv_heads = (
-            num_kv_heads // self.process_group.size()
-            if num_kv_heads > 1
-            else num_kv_heads
-        )
+        self.num_kv_heads = num_kv_heads // self.process_group.size() if num_kv_heads > 1 else num_kv_heads
         assert self.num_kv_heads > 0
 
         if head_size is None:

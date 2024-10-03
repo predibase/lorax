@@ -20,8 +20,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
-
 import dropout_layer_norm
 import rotary_emb
 import torch
@@ -30,6 +28,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters.weights import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -436,7 +435,9 @@ class FlashCohereModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = FastLayerNorm.load_no_bias(prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.layer_norm_eps)
+        self.norm = FastLayerNorm.load_no_bias(
+            prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.layer_norm_eps
+        )
 
         self.gradient_checkpointing = False
 

@@ -15,7 +15,6 @@
 
 from typing import Any, List, Optional, Tuple
 
-from lorax_server.models.custom_modeling.utils import prepend
 import numpy as np
 import torch
 import torch.distributed
@@ -25,6 +24,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters.weights import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
