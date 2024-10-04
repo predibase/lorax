@@ -1,4 +1,4 @@
-FROM ghcr.io/predibase/lorax:6a3d65b
+FROM ghcr.io/predibase/lorax:6c413b9
 
 # Conda env
 ENV PATH=/opt/conda/bin:$PATH \
