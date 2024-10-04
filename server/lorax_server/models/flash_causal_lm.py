@@ -1196,7 +1196,7 @@ class FlashCausalLM(Model):
         if not use_graph:
             # eager mode
             input_lengths = input_lengths + prefix_lens_tensor
-            if PREFIX_CACHING:
+            if FLASH_INFER:
                 block_tables = block_tables_to_ragged(
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,
