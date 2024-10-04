@@ -1163,7 +1163,7 @@ class FlashCausalLM(Model):
                 use_graph = True
                 model = self.model_graph_wrapper
             else:
-                logger.info("CUDA graphs enabled but batch is incompatible, falling back to eage mode.")
+                logger.info("CUDA graphs enabled but batch is incompatible, falling back to eager mode.")
 
         input_ids = batch.input_ids
         position_ids = batch.position_ids
