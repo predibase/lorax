@@ -149,7 +149,7 @@ def _load_gqa(config, prefix: str, weights):
     return TensorParallelColumnLinear(
         get_linear(
             weight,
-            bias=None,
+            bias=bias,
             quantize=config.quantize,
             weight_scale=weight_scale,
             input_scale=input_scale,
