@@ -3,4 +3,4 @@
 	url = https://github.com/NVIDIA/cutlass.git
 [submodule "server/punica_kernels/third_party/flashinfer"]
 	path = server/punica_kernels/third_party/flashinfer
-	url = https://github.com/flashinfer-ai/flashinfer.git
+	url = https://github.com/tgaddair/flashinfer.git
