@@ -30,4 +30,5 @@ fi
 
 # TODO: If we want to speed up download times we could consider switching to s5cmd
 echo "Syncing $MODEL_ID from S3 cache to local cache."
-time aws s3 sync "${S3_PATH}" "${LOCAL_MODEL_DIR}"
+echo "aws s3 sync --no-progress \"${S3_PATH}\" \"${LOCAL_MODEL_DIR}\""
+time aws s3 sync --no-progress "${S3_PATH}" "${LOCAL_MODEL_DIR}"
