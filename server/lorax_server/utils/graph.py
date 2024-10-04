@@ -43,7 +43,7 @@ CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= MAX_BATCH_SIZE]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
-CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 96, 128]
+CACHED_MAX_RANKS = [0, 8, 16, 32, 64, 128]
 CACHED_MAX_RANKS = [r for r in CACHED_MAX_RANKS if r <= MAX_RANK]
 _allowed_ranks = set(CACHED_MAX_RANKS)
 
@@ -108,7 +108,7 @@ def get_max_graph_state(
     input_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device)
     position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
-    input_lengths = torch.ones((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
+    input_lengths = torch.full((MAX_BATCH_SIZE,), max_total_tokens, dtype=torch.int32, device=device)
     prefix_lens = [0] * MAX_BATCH_SIZE
     prefix_lens_tensor = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 

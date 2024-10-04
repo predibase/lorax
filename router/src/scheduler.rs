@@ -198,6 +198,9 @@ struct AdapterSchedulerState {
     /// Speculation amount
     speculate: u32,
 
+    /// Prefix caching
+    prefix_caching: bool,
+
     /// Paged Attention Block Allocation
     block_allocator: Option<BlockAllocator>,
 }
@@ -239,6 +242,7 @@ impl AdapterSchedulerState {
             block_size,
             window_size,
             speculate,
+            prefix_caching,
             block_allocator,
         }
     }
@@ -364,17 +368,21 @@ impl AdapterSchedulerState {
                     };
                     decode_tokens += max_new_tokens;
 
-                    if prefill_tokens > prefill_token_budget
-                        || (prefill_tokens + decode_tokens + self.speculate) > token_budget
-                    {
-                        // Entry is over budget
-                        // Add it back to the front
-                        tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
-                        self.queues_state
-                            .lock()
-                            .await
-                            .push_front(&adapter, id, entry);
-                        break;
+                    // If we're prefix caching, this check could be under-estimating the number of available blocks
+                    // due to shared prefixes, so we'll let the block allocator determine whether we have enough space.
+                    if !self.prefix_caching {
+                        if prefill_tokens > prefill_token_budget
+                            || (prefill_tokens + decode_tokens + self.speculate) > token_budget
+                        {
+                            // Entry is over budget
+                            // Add it back to the front
+                            tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
+                            self.queues_state
+                                .lock()
+                                .await
+                                .push_front(&adapter, id, entry);
+                            break;
+                        }
                     }
 
                     let tokens = entry.request.input_length()

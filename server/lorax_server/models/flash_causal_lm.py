@@ -1158,10 +1158,12 @@ class FlashCausalLM(Model):
         if (
             self.model_graph_wrapper is not None
             and not prefill
-            and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
-            use_graph = True
-            model = self.model_graph_wrapper
+            if self.model_graph_wrapper.can_use_graph(batch, adapter_data):
+                use_graph = True
+                model = self.model_graph_wrapper
+            else:
+                logger.info("CUDA graphs enabled but batch is incompatible, falling back to eager mode.")
 
         input_ids = batch.input_ids
         position_ids = batch.position_ids
@@ -1194,7 +1196,7 @@ class FlashCausalLM(Model):
         if not use_graph:
             # eager mode
             input_lengths = input_lengths + prefix_lens_tensor
-            if PREFIX_CACHING:
+            if FLASH_INFER:
                 block_tables = block_tables_to_ragged(
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,

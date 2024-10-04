@@ -128,7 +128,11 @@ def _load_gqa(config, prefix: str, weights):
         dim=0,
     )
 
-    if config.quantize not in ["gptq", "awq"]:
+    input_scale, weight_scale = None, None
+    if isinstance(weight, tuple):
+        weight, input_scale, weight_scale = weight
+
+    if config.quantize not in ["gptq", "awq", "fp8"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.hidden_size // config.num_attention_heads
@@ -142,7 +146,15 @@ def _load_gqa(config, prefix: str, weights):
     w = [weights.get_sharded(f"{p}.bias", dim=0) for p in [f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"]]
     bias = torch.cat(w, dim=0).to(dtype=weights.dtype).to(device=weights.device)
 
-    return TensorParallelColumnLinear(get_linear(weight, bias=bias, quantize=config.quantize))
+    return TensorParallelColumnLinear(
+        get_linear(
+            weight,
+            bias=bias,
+            quantize=config.quantize,
+            weight_scale=weight_scale,
+            input_scale=input_scale,
+        )
+    )
 
 
 class FlashQwen2Attention(torch.nn.Module):
