@@ -1158,10 +1158,12 @@ class FlashCausalLM(Model):
         if (
             self.model_graph_wrapper is not None
             and not prefill
-            and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
-            use_graph = True
-            model = self.model_graph_wrapper
+            if self.model_graph_wrapper.can_use_graph(batch, adapter_data):
+                use_graph = True
+                model = self.model_graph_wrapper
+            else:
+                logger.info("CUDA graphs enabled but batch is incompatible, falling back to eage mode.")
 
         input_ids = batch.input_ids
         position_ids = batch.position_ids
