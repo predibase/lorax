@@ -41,6 +41,7 @@ def test_batched_medusa_weights(default_causal_lm: CausalLM):
             1: medusa_weights,
         },
         meta,
+        layer_name=LM_HEAD,
         prefill=False,
         prefill_head_indices=None,
     )

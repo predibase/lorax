@@ -18,26 +18,36 @@ path = "src/main.rs"
 async-stream = "0.3.3"
 axum = { version = "0.6.4", features = ["json"] }
 axum-tracing-opentelemetry = "0.10.0"
-lorax-client = { path = "client" }
 clap = { version = "4.1.4", features = ["derive", "env"] }
 flume = "0.10.14"
 futures = "0.3.26"
 hf-hub = { version = "0.3.0", features = ["tokio"] }
+h2 = "0.3.26"
+lorax-client = { path = "client" }
 metrics = "0.21.0"
 metrics-exporter-prometheus = { version = "0.12.1", features = [] }
 nohash-hasher = "0.2.0"
 opentelemetry = { version = "0.19.0", features = ["rt-tokio"] }
+openssl = "0.10.66"
 opentelemetry-otlp = "0.12.0"
 rand = "0.8.5"
-reqwest = { version = "0.11.14", features = [] }
+reqwest = { version = "0.11.14", features = ["blocking"] }
 reqwest-middleware = "0.2.4"
 reqwest-retry = "0.4.0"
 regex = "1.5.4"
+rustix = "0.37.25"
 serde = "1.0.152"
 serde_json = { version = "1.0.93", features = ["preserve_order"] }
+slotmap = "1.0.7"
 thiserror = "1.0.38"
-tokenizers = { version = "0.19.1", features = ["http"] }
-tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "parking_lot", "signal", "sync"] }
+tokenizers = { version = "0.20.0", features = ["http"] }
+tokio = { version = "1.32.0", features = [
+  "rt",
+  "rt-multi-thread",
+  "parking_lot",
+  "signal",
+  "sync",
+] }
 tower-http = { version = "0.4.0", features = ["cors"] }
 tracing = "0.1.37"
 tracing-opentelemetry = "0.19.0"
@@ -50,9 +60,13 @@ itertools = "0.12.1"
 async-trait = "0.1.80"
 minijinja = { version = "2.0.2" }
 minijinja-contrib = { version = "2.0.2", features = ["pycompat"] }
+image = "0.25.1"
+rustls = "0.22.4"
+webpki = "0.22.2"
+base64 = "0.22.0"
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
 [features]
 default = ["ngrok"]

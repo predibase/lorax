@@ -4,7 +4,10 @@ use clap::Parser;
 use hf_hub::api::tokio::{Api, ApiBuilder, ApiRepo};
 use hf_hub::{Cache, Repo, RepoType};
 use lorax_client::{ClientError, ShardedClient};
-use lorax_router::{server, HubModelInfo, HubTokenizerConfig};
+use lorax_router::{
+    config::Config, server, HubModelInfo, HubPreprocessorConfig, HubProcessorConfig,
+    HubTokenizerConfig,
+};
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace;
 use opentelemetry::sdk::trace::Sampler;
@@ -15,7 +18,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use thiserror::Error;
 use tokenizers::processors::template::TemplateProcessing;
 use tokenizers::tokenizer::Tokenizer;
@@ -67,8 +69,6 @@ struct Args {
     #[clap(long, env)]
     json_output: bool,
     #[clap(long, env)]
-    embedding_model: bool,
-    #[clap(long, env)]
     otlp_endpoint: Option<String>,
     #[clap(long, env)]
     cors_allow_origin: Option<Vec<String>>,
@@ -90,6 +90,8 @@ struct Args {
     adapter_source: String,
     #[clap(long, env)]
     eager_prefill: bool,
+    #[clap(long, env)]
+    prefix_caching: bool,
 }
 
 #[tokio::main]
@@ -117,7 +119,6 @@ async fn main() -> Result<(), RouterError> {
         revision,
         validation_workers,
         json_output,
-        embedding_model,
         otlp_endpoint,
         cors_allow_origin,
         cors_allow_method,
@@ -129,6 +130,7 @@ async fn main() -> Result<(), RouterError> {
         ngrok_edge,
         adapter_source,
         eager_prefill,
+        prefix_caching,
     } = args;
 
     init_logging(otlp_endpoint, json_output);
@@ -258,10 +260,10 @@ async fn main() -> Result<(), RouterError> {
     // Load tokenizer and model info
     let (
         tokenizer_filename,
-        _config_filename,
+        config_filename,
         tokenizer_config_filename,
-        _preprocessor_config_filename,
-        _processor_config_filename,
+        preprocessor_config_filename,
+        processor_config_filename,
         model_info,
     ) = match api {
         Type::None => (
@@ -346,7 +348,7 @@ async fn main() -> Result<(), RouterError> {
                 if class == "LlamaTokenizer" || class == "LlamaTokenizerFast"{
                     if let Ok(post_processor) = create_post_processor(tokenizer, &tokenizer_config) {
                         tracing::info!("Overriding LlamaTokenizer with TemplateProcessing to follow python override defined in https://github.com/huggingface/transformers/blob/4aa17d00690b7f82c95bb2949ea57e22c35b4336/src/transformers/models/llama/tokenization_llama_fast.py#L203-L205");
-                        tokenizer.with_post_processor(post_processor);
+                        tokenizer.with_post_processor(Some(post_processor));
                     }
                 }
             }
@@ -358,6 +360,26 @@ async fn main() -> Result<(), RouterError> {
         tracing::warn!("Could not find a fast tokenizer implementation for {tokenizer_name}");
         tracing::warn!("Rust input length validation and truncation is disabled");
     }
+
+    let config: Option<Config> = config_filename.and_then(|filename| {
+        std::fs::read_to_string(filename)
+            .ok()
+            .as_ref()
+            .and_then(|c| {
+                let config: Result<Config, _> = serde_json::from_str(c);
+                if let Err(err) = &config {
+                    tracing::warn!("Could not parse config {err:?}");
+                }
+                config.ok()
+            })
+    });
+
+    let processor_config = processor_config_filename
+        .and_then(HubProcessorConfig::from_file)
+        .unwrap_or_default();
+
+    let preprocessor_config: Option<HubPreprocessorConfig> =
+        preprocessor_config_filename.and_then(HubPreprocessorConfig::from_file);
 
     // if pipeline-tag == lorax we default to return_full_text = true
     let compat_return_full_text = match &model_info.pipeline_tag {
@@ -448,7 +470,9 @@ async fn main() -> Result<(), RouterError> {
         max_active_adapters,
         adapter_cycle_time_s,
         sharded_client,
+        config,
         tokenizer,
+        (preprocessor_config, processor_config),
         validation_workers,
         addr,
         cors_allow_origin,
@@ -461,8 +485,8 @@ async fn main() -> Result<(), RouterError> {
         ngrok_authtoken,
         ngrok_edge,
         adapter_source,
-        embedding_model,
         eager_prefill,
+        prefix_caching,
     )
     .await?;
     Ok(())

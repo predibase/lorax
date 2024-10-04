@@ -1,19 +1,17 @@
 use crate::{
     adapter::Adapter,
-    batch::{self, BatchEntries, Entry},
+    batch::{BatchEntries, Entry},
     block_allocator::BlockAllocator,
     queue::{AdapterEvent, AdapterQueuesState},
     AdapterLoader,
 };
-use lorax_client::{Batch, Request, ShardedClient};
-use nohash_hasher::{BuildNoHashHasher, IntMap};
+use lorax_client::{Batch, ShardedClient};
 use std::{
     cmp::{max, min},
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::Arc,
 };
 use tokio::sync::{oneshot, Mutex};
-use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
 enum AdapterSchedulerCommand {
@@ -45,6 +43,8 @@ impl AdapterScheduler {
         adapter_cycle_time_s: u64,
         speculate: u32,
         max_batch_total_tokens: u32,
+        prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -60,6 +60,8 @@ impl AdapterScheduler {
             adapter_cycle_time_s,
             speculate,
             max_batch_total_tokens,
+            prefix_caching,
+            is_causal_lm,
         ));
 
         Self { sender }
@@ -123,6 +125,8 @@ async fn adapter_scheduler_task(
     adapter_cycle_time_s: u64,
     speculate: u32,
     max_batch_total_tokens: u32,
+    prefix_caching: bool,
+    is_causal_lm: bool,
 ) {
     let mut state = AdapterSchedulerState::new(
         client,
@@ -133,6 +137,8 @@ async fn adapter_scheduler_task(
         adapter_cycle_time_s,
         speculate,
         max_batch_total_tokens,
+        prefix_caching,
+        is_causal_lm,
     );
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -178,9 +184,11 @@ struct AdapterSchedulerState {
     /// Id of the next batch
     next_batch_id: u64,
 
+    #[allow(dead_code)] // currently unused
     /// Whether the model is using padding
     requires_padding: bool,
 
+    #[allow(dead_code)] // currently unused
     /// Paged Attention block size
     block_size: u32,
 
@@ -204,6 +212,8 @@ impl AdapterSchedulerState {
         adapter_cycle_time_s: u64,
         speculate: u32,
         max_batch_total_tokens: u32,
+        prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
@@ -211,8 +221,15 @@ impl AdapterSchedulerState {
         )));
         let loader = AdapterLoader::new(client.clone());
 
-        let block_allocator = (!requires_padding)
-            .then(|| BlockAllocator::new(max_batch_total_tokens, block_size, window_size));
+        // Only causal LMs require the block allocator, due to paged attention
+        let block_allocator = (!requires_padding && is_causal_lm).then(|| {
+            BlockAllocator::new(
+                max_batch_total_tokens,
+                block_size,
+                prefix_caching,
+                window_size,
+            )
+        });
 
         Self {
             queues_state,
@@ -373,7 +390,10 @@ impl AdapterSchedulerState {
                         self.speculate
                     );
 
-                    match block_allocator.allocate(tokens).await {
+                    match block_allocator
+                        .allocate(tokens, entry.request.input_ids())
+                        .await
+                    {
                         None => {
                             // Entry is over budget
                             // Add it back to the front
@@ -418,11 +438,12 @@ impl AdapterSchedulerState {
             // Update entry
             entry.temp_span = Some(entry_batch_span);
 
-            let (blocks, slots) = match &block_allocation {
-                None => (Vec::new(), Vec::new()),
+            let (blocks, slots, prefix_len) = match &block_allocation {
+                None => (Vec::new(), Vec::new(), 0),
                 Some(block_allocation) => (
                     block_allocation.blocks.clone(),
                     block_allocation.slots.clone(),
+                    block_allocation.prefix_len,
                 ),
             };
 
@@ -431,7 +452,7 @@ impl AdapterSchedulerState {
             batch_entries
                 .as_mut()
                 .unwrap()
-                .add(id, entry, adapter, blocks, slots);
+                .add(id, entry, adapter, blocks, slots, prefix_len);
         }
 
         if batch_entries.is_none() {

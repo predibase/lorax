@@ -27,6 +27,7 @@ from transformers.activations import ACT2FN
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt_neox import GPTNeoXConfig
 
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -133,17 +134,15 @@ class FlashNeoxAttention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(qkv[:, 0])
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 qkv[:, 0],
                 qkv[:, 1],
                 qkv[:, 2],
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -151,12 +150,12 @@ class FlashNeoxAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 qkv[:, 0],
                 kv_cache[0],
                 kv_cache[1],
                 self.num_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,
@@ -192,12 +191,12 @@ class FlashMLP(nn.Module):
 
 
 class FlashNeoXLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
 
         layer_norm_eps = config.layer_norm_eps
 
-        prefix = f"gpt_neox.layers.{layer_id}"
+        prefix = prepend(prefix, f"gpt_neox.layers.{layer_id}")
 
         self.use_parallel_residual = config.use_parallel_residual
         self.input_layernorm = FastLayerNorm.load(
@@ -280,17 +279,17 @@ class FlashGPTNeoXPreTrainedModel(PreTrainedModel):
 
 
 class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
 
-        self.embed_in = TensorParallelEmbedding(prefix="gpt_neox.embed_in", weights=weights)
+        self.embed_in = TensorParallelEmbedding(prefix=prepend(prefix, "gpt_neox.embed_in"), weights=weights)
 
         self.layers = nn.ModuleList(
-            [FlashNeoXLayer(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
+            [FlashNeoXLayer(prefix, layer_id, config, weights) for layer_id in range(config.num_hidden_layers)]
         )
         self.final_layer_norm = FastLayerNorm.load(
-            prefix="gpt_neox.final_layer_norm",
+            prefix=prepend(prefix, "gpt_neox.final_layer_norm"),
             weights=weights,
             eps=config.layer_norm_eps,
         )
@@ -338,11 +337,12 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
 
 
 class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
-        self.gpt_neox = FlashGPTNeoXModel(config, weights)
+        self.config = config
+        self.gpt_neox = FlashGPTNeoXModel(prefix, config, weights)
 
-        self.embed_out = TensorParallelHead.load(config, prefix="embed_out", weights=weights)
+        self.embed_out = TensorParallelHead.load(config, prefix=prepend(prefix, "embed_out"), weights=weights)
 
     def forward(
         self,

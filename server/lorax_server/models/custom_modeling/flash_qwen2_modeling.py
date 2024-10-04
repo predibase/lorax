@@ -14,6 +14,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -232,17 +233,15 @@ class FlashQwen2Attention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -251,11 +250,11 @@ class FlashQwen2Attention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
+                self.num_key_value_heads,
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
@@ -317,9 +316,9 @@ class Qwen2MLP(nn.Module):
 
 
 class FlashQwen2Layer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
         self.self_attn = FlashQwen2Attention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -378,16 +377,17 @@ class FlashQwen2Layer(nn.Module):
 
 
 class FlashQwen2Model(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashQwen2Layer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -395,7 +395,7 @@ class FlashQwen2Model(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = Qwen2RMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = Qwen2RMSNorm(prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.rms_norm_eps)
 
         self.gradient_checkpointing = False
 
@@ -421,7 +421,6 @@ class FlashQwen2Model(torch.nn.Module):
         # Get rotary cos and sin for this forward
         # Avoid to index in each layer
         cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
-
         residual = None
         for i, layer in enumerate(self.layers):
             hidden_states, residual = layer(
@@ -445,14 +444,15 @@ class FlashQwen2Model(torch.nn.Module):
 
 
 class FlashQwen2ForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
+        self.config = config
 
-        self.model = FlashQwen2Model(config, weights)
+        self.model = FlashQwen2Model(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,
@@ -497,7 +497,63 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             prefill_cache_indices,
             adapter_data,
         )
+
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
         logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
         return logits, speculative_logits
+
+
+class FlashQwen2ForEmbeddings(torch.nn.Module):
+    def __init__(self, prefix: str, config, weights):
+        super().__init__()
+        self.config = config
+
+        self.model = FlashQwen2Model(prefix, config, weights)
+        self.max_past = config.sliding_window
+        self.output_weight = weights.get_tensor(prepend(prefix, "linear.weight"))
+        self.output_bias = weights.get_tensor(prepend(prefix, "linear.bias"))
+        # To satisfy the parent class interface
+        # TODO: fix
+        self.lm_head = None
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        cu_seqlen_prefill: Optional[torch.Tensor],
+        kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
+        block_tables: torch.Tensor,
+        slots: torch.Tensor,
+        input_lengths: torch.Tensor,
+        max_s: int,
+        adapter_data: AdapterBatchData,
+        prefill_cache_indices: Optional[torch.Tensor] = None,
+        lm_head_indices: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        if prefill_cache_indices is not None:
+            # Slots also need to be sliced as it has the same size as the whole kv tensor
+            slots = slots[prefill_cache_indices]
+        elif self.max_past is not None:
+            # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
+            # kernel requires the true values
+            max_s = min(self.max_past, max_s)
+            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+
+        hidden_states = self.model(
+            input_ids,
+            position_ids,
+            cu_seqlen_prefill,
+            kv_cache,
+            block_tables,
+            slots,
+            input_lengths,
+            max_s,
+            prefill_cache_indices,
+            adapter_data,
+        )
+        batch_size = hidden_states.shape[0] // max_s
+        hidden_states = hidden_states.reshape(batch_size, max_s, -1)
+        mean_hidden_states = hidden_states.mean(1)
+        embeddings = nn.functional.linear(mean_hidden_states, self.output_weight, self.output_bias)
+        return embeddings, None

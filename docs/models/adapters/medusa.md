@@ -1,12 +1,12 @@
 # Medusa
 
-[Medusa](https://arxiv.org/abs/2401.10774) is a [speculative decoding](../../guides/speculative_decoding.md) method 
-that trains new projection layers (similar to LoRA layers) for the purpose of predicting future tokens and speedng up 
+[Medusa](https://arxiv.org/abs/2401.10774) is a [speculative decoding](../../guides/speculative_decoding.md) method
+that trains new projection layers (similar to LoRA layers) for the purpose of predicting future tokens and speedng up
 the text generation process.
 
 ## How it works
 
-``` mermaid
+```mermaid
 graph BT
   X{{H}} --> S((Stack));
   X --> M1[Medusa 1];
@@ -104,7 +104,6 @@ step is a constant defined during initialization.
 
 When LoRAX has been initialized with a default Medusa, you may continue to use it with dynamic LoRA loading as usual:
 
-
 === "Python"
 
     ```python
@@ -159,12 +158,13 @@ Install dependencies:
 
 ```bash
 pip install -e ".[train]"
-pip install -U accelerate
+pip install -U accelerate huggingface-hub
 ```
 
 Download the dataset:
 
 ```bash
+sudo apt-get install git-lfs
 git lfs install
 git clone https://huggingface.co/datasets/Aeala/ShareGPT_Vicuna_unfiltered
 ```
@@ -182,8 +182,8 @@ Create the self-distillation dataset:
 
 ```bash
 python create_data.py \
-    ShareGPT_Vicuna_unfiltered/ShareGPT_V4.3_unfiltered_cleaned_split.json \
-    /data/sharegpt-mistral-7b-instruct-02.json
+    --input-filename ShareGPT_Vicuna_unfiltered/ShareGPT_V4.3_unfiltered_cleaned_split.json \
+    --output-filename sharegpt-mistral-7b-instruct-02.json
 ```
 
 Train:

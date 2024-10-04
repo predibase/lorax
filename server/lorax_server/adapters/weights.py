@@ -50,6 +50,7 @@ class BatchAdapterWeights(ABC):
         cls,
         adapter_weights: Dict[int, AdapterWeights],
         meta: "AdapterBatchMetadata",
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: torch.Tensor,
     ) -> Optional["BatchAdapterWeights"]:
@@ -80,6 +81,7 @@ class LayerAdapterWeights:
     def get_data(
         self,
         meta: AdapterBatchMetadata,
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> Dict[str, BatchAdapterWeights]:
@@ -91,7 +93,7 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batched_weights = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
+            batched_weights = batch_type.load(adapter_weights, meta, layer_name, prefill, prefill_head_indices)
             if batched_weights is not None:
                 batch_data[batch_type.key()] = batched_weights
         return batch_data
@@ -117,7 +119,7 @@ class AdapterBatchData:
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            layer_weights = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+            layer_weights = v.get_data(meta, k, prefill, prefill_head_indices if k == LM_HEAD else None)
             if layer_weights:
                 data[k] = layer_weights
         return AdapterBatchData(meta=meta, data=data, prefill=prefill)

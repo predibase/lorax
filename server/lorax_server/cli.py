@@ -48,8 +48,12 @@ def serve(
     adapter_source: str = "hub",
     speculative_tokens: int = 0,
     preloaded_adapter_ids: Optional[List[str]] = typer.Option(None),
+    merge_adapter_weights: bool = False,
+    preloaded_adapter_source: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     preloaded_adapter_ids = preloaded_adapter_ids or []
+    preloaded_adapter_source = preloaded_adapter_source or adapter_source
 
     if sharded:
         assert os.getenv("RANK", None) is not None, "RANK must be set when sharded is True"
@@ -98,6 +102,9 @@ def serve(
         adapter_source,
         speculative_tokens,
         preloaded_adapter_ids,
+        merge_adapter_weights,
+        preloaded_adapter_source,
+        embedding_dim,
     )
 
 
@@ -113,6 +120,7 @@ def download_weights(
     adapter_id: str = "",
     adapter_source: str = "hub",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     # Remove default handler
     logger.remove()
@@ -125,7 +133,7 @@ def download_weights(
         backtrace=True,
         diagnose=False,
     )
-    _download_weights(model_id, revision, extension, auto_convert, source, api_token)
+    _download_weights(model_id, revision, extension, auto_convert, source, api_token, embedding_dim)
     if adapter_id:
         _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
 

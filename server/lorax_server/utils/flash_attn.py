@@ -1,10 +1,12 @@
 import os
+from typing import Union
 
 import torch
 from loguru import logger
 
 from lorax_server.utils.flash_attn_triton import triton_attention
 from lorax_server.utils.import_utils import SYSTEM
+from lorax_server.utils.state import FLASH_INFER
 
 if os.getenv("USE_FLASH_ATTENTION", "").lower() == "false":
     raise ImportError("`USE_FLASH_ATTENTION` is false.")
@@ -80,7 +82,7 @@ if SYSTEM in {"cuda", "rocm"}:
             architecture_suffix = f"-{SYSTEM}"
             raise ImportError(
                 "Flash Attention V2 is not installed.\n"
-                "Use the official Docker image (ghcr.io/huggingface/text-generation-inference:latest) "
+                "Use the official Docker image (ghcr.io/predibase/lorax:latest) "
                 f"or install flash attention v2 with `cd server && make install install-flash-attention-v2{architecture_suffix}`"
             )
         if SYSTEM == "cuda" and not (is_sm8x or is_sm90):
@@ -111,22 +113,63 @@ if SYSTEM in {"cuda", "rocm"}:
         logger.warning(f"Unable to use Flash Attention V2: {e}")
         HAS_FLASH_ATTN = True
 
-
-if HAS_FLASH_ATTN_V2_CUDA:
+if FLASH_INFER:
 
     def attention(
-        q,
-        k,
-        v,
-        out,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: Union[torch.Tensor, None],
+        value_cache: Union[torch.Tensor, None],
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
         causal=True,
+        softcap=0.0,
+    ):
+        assert window_size_left == -1, "Windowing is not supported with flash infer when using kv cache"
+        from lorax_server.utils.flashinfer_attention import prefill_state, prefill_with_paged_kv_state
+
+        if key_cache is None or value_cache is None:
+            return prefill_state.get().forward(
+                q,
+                k,
+                v,
+                causal=causal,
+                pos_encoding_mode="NONE",
+                window_left=window_size_left,
+                logits_soft_cap=softcap,
+                sm_scale=softmax_scale,
+            )
+
+        return prefill_with_paged_kv_state.get().forward(
+            q.contiguous(),
+            causal=causal,
+            paged_kv_cache=(key_cache, value_cache),
+            logits_soft_cap=softcap,
+            sm_scale=softmax_scale,
+        )
+
+elif HAS_FLASH_ATTN_V2_CUDA:
+
+    def attention(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
+        cu_seqlens,
+        max_s,
+        softmax_scale,
+        window_size_left=-1,
+        causal=True,
+        softcap=0.0,
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
+
+        out = torch.empty_like(q)
         return flash_attn_2_cuda.varlen_fwd(
             q,
             k,
@@ -147,20 +190,22 @@ if HAS_FLASH_ATTN_V2_CUDA:
             0,
             False,
             None,
-        )
+        )[0]
 
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
 
     def attention(
-        q,
-        k,
-        v,
-        out,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
         causal=True,
+        softcap=0.0,
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
@@ -170,6 +215,7 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
             )
 
         # RoCm flash API does not take the window_size_left and window_size_right arguments.
+        out = torch.empty_like(q)
         return flash_attn_2_cuda.varlen_fwd(
             q,
             k,
@@ -185,21 +231,24 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
             causal,
             False,
             None,
-        )
+        )[0]
 
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
 
     def attention(
-        q,
-        k,
-        v,
-        out,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
         causal=True,
+        softcap=0.0,
     ):
+        out = torch.empty_like(q)
         output, _ = triton_attention(
             q,
             k,
@@ -217,14 +266,17 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
 elif HAS_FLASH_ATTN:
 
     def attention(
-        q,
-        k,
-        v,
-        out,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
         cu_seqlens,
         max_s,
         softmax_scale,
         window_size_left=-1,
+        causal=True,
+        softcap=0.0,
     ):
         if window_size_left != -1:
             raise NotImplementedError("window_size_left is only available with flash attn v2")
@@ -255,7 +307,8 @@ elif HAS_FLASH_ATTN:
                     .reshape(original_shape[0], -1, original_shape[2])
                 )
 
-        return flash_attn_cuda.fwd(
+        out = torch.empty_like(q)
+        flash_attn_cuda.fwd(
             q,
             k,
             v,
@@ -272,6 +325,11 @@ elif HAS_FLASH_ATTN:
             0,
             None,
         )
+        return out
 
 else:
-    raise NotImplementedError("flash attention is not installed")
+    raise RuntimeError(
+        f"Flash Attention is not available for this system: {SYSTEM}\n"
+        f"If you are running on GPU, please check your environment to ensure CUDA is installed correctly.\n"
+        f"You may also want to check envvars such as LD_PRELOAD for libraries that conflict with your device drivers.\n"
+    )

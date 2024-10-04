@@ -43,7 +43,7 @@ def default_pb_batch(default_pb_request):
 @pytest.fixture
 def default_seq2seq_lm_batch(default_pb_batch, mt0_small_tokenizer):
     return Seq2SeqLMBatch.from_pb(
-        default_pb_batch, mt0_small_tokenizer, TokenizerManager(), torch.float32, torch.device("cpu")
+        default_pb_batch, mt0_small_tokenizer, TokenizerManager(), None, None, torch.float32, torch.device("cpu")
     )
 
 
@@ -57,7 +57,7 @@ def default_multi_requests_seq2seq_lm_batch(default_pb_request, mt0_small_tokeni
 
     batch_pb = generate_pb2.Batch(id=0, requests=[req_0, req_1], size=2)
     return Seq2SeqLMBatch.from_pb(
-        batch_pb, mt0_small_tokenizer, TokenizerManager(), torch.float32, torch.device("cpu")
+        batch_pb, mt0_small_tokenizer, TokenizerManager(), None, None, torch.float32, torch.device("cpu")
     )
 
 

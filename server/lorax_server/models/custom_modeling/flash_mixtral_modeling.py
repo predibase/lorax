@@ -31,6 +31,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
@@ -401,17 +402,15 @@ class MixtralAttention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -419,11 +418,11 @@ class MixtralAttention(torch.nn.Module):
             )
         # Decode
         else:
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
+                self.num_key_value_heads,
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
@@ -797,9 +796,9 @@ class DenseMoE(nn.Module):
 
 
 class MixtralLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
 
         self.self_attn = MixtralAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id
@@ -857,14 +856,15 @@ class MixtralLayer(nn.Module):
 
 
 class MixtralModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
 
         self.layers = nn.ModuleList(
             [
                 MixtralLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -872,7 +872,7 @@ class MixtralModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = MixtralRMSNorm(prefix="model.norm", weights=weights, eps=config.rms_norm_eps)
+        self.norm = MixtralRMSNorm(prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.rms_norm_eps)
 
         self.head_size = self.layers[0].self_attn.head_size
         self.num_heads = self.layers[0].self_attn.num_heads
@@ -920,14 +920,15 @@ class MixtralModel(torch.nn.Module):
 
 
 class FlashMixtralForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
+        self.config = config
 
-        self.model = MixtralModel(config, weights)
+        self.model = MixtralModel(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,

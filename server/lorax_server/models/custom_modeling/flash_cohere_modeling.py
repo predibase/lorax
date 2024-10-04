@@ -28,6 +28,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 
 from lorax_server.adapters.weights import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     FastLayerNorm,
@@ -279,29 +280,27 @@ class FlashCohereAttention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(key, value, kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 key,
                 value,
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
             )
         # Decode
         else:
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
                 self.num_key_value_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
                 input_lengths,
@@ -363,9 +362,9 @@ class CohereMLP(nn.Module):
 
 
 class FlashCohereLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"model.layers.{layer_id}"
+        prefix = prepend(prefix, f"model.layers.{layer_id}")
         self.self_attn = FlashCohereAttention(
             prefix=f"{prefix}.self_attn", config=config, weights=weights, layer_id=layer_id
         )
@@ -418,16 +417,17 @@ class FlashCohereLayer(nn.Module):
 
 
 class FlashCohereModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.embed_tokens = TensorParallelEmbedding(prefix="model.embed_tokens", weights=weights)
+        self.embed_tokens = TensorParallelEmbedding(prefix=prepend(prefix, "model.embed_tokens"), weights=weights)
         self.layers = nn.ModuleList(
             [
                 FlashCohereLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -435,7 +435,9 @@ class FlashCohereModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.norm = FastLayerNorm.load_no_bias(prefix="model.norm", weights=weights, eps=config.layer_norm_eps)
+        self.norm = FastLayerNorm.load_no_bias(
+            prefix=prepend(prefix, "model.norm"), weights=weights, eps=config.layer_norm_eps
+        )
 
         self.gradient_checkpointing = False
 
@@ -483,20 +485,21 @@ class FlashCohereModel(torch.nn.Module):
 
 
 class FlashCohereForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
+        self.config = config
 
-        self.model = FlashCohereModel(config, weights)
+        self.model = FlashCohereModel(prefix, config, weights)
         try:
             lm_head = TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             )
         except RuntimeError:
             lm_head = TensorParallelHead.load(
                 config,
-                prefix="model.embed_tokens",
+                prefix=prepend(prefix, "model.embed_tokens"),
                 weights=weights,
             )
         self.lm_head = MultiAdapterHead.load(

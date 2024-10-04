@@ -1,34 +1,34 @@
 /// HTTP Server logic
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
+use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
-use crate::{json, HubTokenizerConfig};
+use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
-    AdapterParameters, AlternativeToken, BestOfSequence, ChatCompletionRequest,
-    ChatCompletionResponse, ChatCompletionResponseChoice, ChatCompletionStreamResponse,
-    ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest, ClassifyResponse,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
+    ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
     CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
     CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
-    EmbedRequest, EmbedResponse, ErrorResponse, FinishReason, GenerateParameters, GenerateRequest,
-    GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken, ResponseFormat,
-    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
-    TokenizeResponse, UsageInfo, Validation,
+    EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken,
+    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
+    TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
-use axum::http::{request, HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
-use clap::error;
 use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -38,12 +38,11 @@ use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
 use tracing::{info_span, instrument, Instrument};
-use utoipa::openapi::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -82,16 +81,6 @@ async fn compat_generate(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
 
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
-    }
-
     // default return_full_text given the pipeline_tag
     if req.parameters.return_full_text.is_none() {
         req.parameters.return_full_text = Some(default_return_full_text.0)
@@ -121,6 +110,8 @@ async fn compat_generate(
         Ok((headers, Json(vec![generation.0])).into_response())
     }
 }
+
+const OPEN_AI_END_EVENT: &str = "[DONE]";
 
 /// OpenAI compatible completions endpoint
 #[utoipa::path(
@@ -161,16 +152,6 @@ async fn completions_v1(
     }
     let mut gen_req = CompatGenerateRequest::from(req);
 
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
-    }
-
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
         gen_req.parameters.return_full_text = Some(default_return_full_text.0)
@@ -197,6 +178,7 @@ async fn completions_v1(
             req_headers,
             Json(gen_req.into()),
             callback,
+            Some(Event::default().data(OPEN_AI_END_EVENT)),
         )
         .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
@@ -250,16 +232,6 @@ async fn chat_completions_v1(
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
-    }
-
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
     }
 
     // apply chat template to flatten the request into a single input
@@ -334,6 +306,7 @@ async fn chat_completions_v1(
             req_headers,
             Json(gen_req.into()),
             callback,
+            Some(Event::default().data(OPEN_AI_END_EVENT)),
         )
         .await;
         Ok((headers, Sse::new(stream).keep_alive(KeepAlive::default())).into_response())
@@ -373,19 +346,98 @@ responses(
 example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 )
 )]
-#[instrument(skip(health))]
 /// Health check method
-async fn health(mut health: Extension<Health>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    match health.check().await {
-        true => Ok(()),
-        false => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "unhealthy".to_string(),
-                error_type: "healthcheck".to_string(),
-            }),
-        )),
+async fn health(
+    infer: Extension<Infer>,
+    health: Extension<Health>,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if health.shard_info().supports_classification {
+        let classify_request = ClassifyRequest {
+            inputs: "San Francisco".to_string(),
+        };
+        match infer.classify(classify_request).await {
+            Ok(_) => {}
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
+            }
+        }
     }
+    if health.shard_info().supports_embeddings {
+        let embed_request = EmbedRequest {
+            inputs: "San Francisco".to_string(),
+        };
+        match infer.embed(embed_request).await {
+            Ok(_) => {}
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
+            }
+        }
+    }
+    if health.shard_info().supports_generation {
+        let generate_request = GenerateRequest {
+            inputs: "Who?".to_string(),
+            parameters: GenerateParameters {
+                adapter_id: None,
+                adapter_source: None,
+                adapter_parameters: None,
+                api_token: None,
+                best_of: None,
+                temperature: None,
+                top_k: None,
+                top_p: None,
+                typical_p: None,
+                do_sample: false,
+                seed: None,
+                repetition_penalty: None,
+                watermark: false,
+                return_full_text: None,
+                stop: vec![],
+                truncate: None,
+                details: false,
+                decoder_input_details: false,
+                return_k_alternatives: None,
+                apply_chat_template: false,
+                response_format: None,
+                max_new_tokens: Some(1),
+                ignore_eos_token: false,
+            },
+        };
+        match infer.generate(generate_request).await {
+            Ok(response) => {
+                if response.generated_text.text.len() == 0 {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "Empty generation".to_string(),
+                            error_type: "failed healthcheck".to_string(),
+                        }),
+                    ));
+                }
+            }
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Generate tokens
@@ -430,16 +482,6 @@ async fn generate(
     metrics::increment_counter!("lorax_request_count");
 
     tracing::debug!("Input: {}", req.0.inputs);
-
-    if info.embedding_model {
-        metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-        tracing::error!("Embedding model doesn't support generation");
-        let err = ErrorResponse {
-            error: "Embedding model doesn't support generation".to_string(),
-            error_type: "bad_request".to_string(),
-        };
-        return Err((StatusCode::BAD_REQUEST, Json(err)));
-    }
 
     let compute_characters = req.0.inputs.chars().count();
     let mut add_prompt = None;
@@ -528,13 +570,15 @@ async fn generate(
     let inference_time = Instant::now() - response.start;
     let time_per_token = inference_time / response.generated_text.generated_tokens;
 
-    // Tracing metadata
+    // Rust Tracing metadata
     span.record("total_time", format!("{total_time:?}"));
     span.record("validation_time", format!("{validation_time:?}"));
     span.record("queue_time", format!("{queue_time:?}"));
     span.record("inference_time", format!("{inference_time:?}"));
     span.record("time_per_token", format!("{time_per_token:?}"));
     span.record("seed", format!("{:?}", response.generated_text.seed));
+    span.record("prompt_tokens", format!("{prompt_tokens:?}"));
+    span.record("generated_tokens", format!("{generated_tokens:?}"));
 
     // Headers
     let mut headers = HeaderMap::new();
@@ -680,7 +724,7 @@ async fn generate_stream(
     info: Extension<Info>,
     request_logger_sender: Extension<Arc<mpsc::Sender<(i64, String, String)>>>,
     req_headers: HeaderMap,
-    mut req: Json<GenerateRequest>,
+    req: Json<GenerateRequest>,
 ) -> (
     HeaderMap,
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
@@ -693,11 +737,11 @@ async fn generate_stream(
         req_headers,
         req,
         callback,
+        None,
     )
     .await;
     (headers, Sse::new(stream).keep_alive(KeepAlive::default()))
 }
-
 async fn generate_stream_with_callback(
     infer: Extension<Infer>,
     info: Extension<Info>,
@@ -705,6 +749,7 @@ async fn generate_stream_with_callback(
     req_headers: HeaderMap,
     mut req: Json<GenerateRequest>,
     callback: impl Fn(StreamResponse) -> Event,
+    end_event: Option<Event>,
 ) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
     let start_time = Instant::now();
@@ -758,13 +803,6 @@ async fn generate_stream_with_callback(
     headers.insert("x-model-id", info.model_id.parse().unwrap());
 
     let stream = async_stream::stream! {
-        if info.embedding_model {
-            let err = InferError::from(ValidationError::EmbeddingModel);
-            metrics::increment_counter!("lorax_request_failure", "err" => "bad_request");
-            tracing::error!("{err}");
-            yield Ok(Event::from(err));
-        } else {
-
             // Inference
             let mut end_reached = false;
             let mut error = false;
@@ -849,6 +887,8 @@ async fn generate_stream_with_callback(
                                             span.record("inference_time", format!("{inference_time:?}"));
                                             span.record("time_per_token", format!("{time_per_token:?}"));
                                             span.record("seed", format!("{:?}", generated_text.seed));
+                                            span.record("prompt_tokens",  format!("{prefill_tokens_length:?}"));
+                                            span.record("generated_tokens",  format!("{:?}", generated_text.generated_tokens));
 
                                             // Metrics
                                             metrics::increment_counter!("lorax_request_success");
@@ -884,6 +924,9 @@ async fn generate_stream_with_callback(
                                             };
 
                                             yield Ok(callback(stream_token));
+                                            if let Some(end_event) = end_event {
+                                                yield Ok(end_event);
+                                            }
                                             break;
                                         },
                                         InferStreamResponse::Embed {
@@ -930,7 +973,6 @@ async fn generate_stream_with_callback(
                     yield Ok(Event::from(err));
                 }
             }
-        }
     };
 
     (headers, stream)
@@ -995,7 +1037,9 @@ pub async fn run(
     max_active_adapters: usize,
     adapter_cycle_time_s: u64,
     client: ShardedClient,
+    config: Option<Config>,
     tokenizer: Option<Tokenizer>,
+    (preprocessor_config, _processor_config): (Option<HubPreprocessorConfig>, HubProcessorConfig),
     validation_workers: usize,
     addr: SocketAddr,
     cors_allow_origin: Option<AllowOrigin>, // exact match
@@ -1008,8 +1052,8 @@ pub async fn run(
     ngrok_authtoken: Option<String>,
     ngrok_edge: Option<String>,
     adapter_source: String,
-    embedding_model: bool,
     eager_prefill: bool,
+    prefix_caching: bool,
 ) -> Result<(), axum::BoxError> {
     // OpenAPI documentation
     #[derive(OpenApi)]
@@ -1085,19 +1129,34 @@ pub async fn run(
     let validation = Validation::new(
         validation_workers,
         tokenizer,
+        config,
+        preprocessor_config,
         max_best_of,
         max_stop_sequences,
         max_input_length,
         max_total_tokens,
     );
     let generation_health = Arc::new(AtomicBool::new(false));
-    let health_ext = Health::new(client.clone(), generation_health.clone());
+    let health_ext = Health::new(
+        client.clone(),
+        generation_health.clone(),
+        shard_info.clone(),
+    );
+
+    // For non-causal LMs, the max batch total tokens is equal to the max batch prefill tokens
+    let is_causal_lm = shard_info.supports_generation;
+    let effective_max_batch_total_tokens = if is_causal_lm {
+        max_batch_total_tokens
+    } else {
+        max_batch_prefill_tokens
+    };
+
     let infer = Infer::new(
         client.clone(),
         validation,
         waiting_served_ratio,
         max_batch_prefill_tokens,
-        max_batch_total_tokens,
+        effective_max_batch_total_tokens,
         max_waiting_tokens,
         max_concurrent_requests,
         max_active_adapters,
@@ -1111,6 +1170,8 @@ pub async fn run(
         shard_info.block_size,
         shard_info.speculate,
         shard_info.preloaded_adapters,
+        prefix_caching,
+        is_causal_lm,
     );
 
     // Duration buckets
@@ -1206,7 +1267,6 @@ pub async fn run(
         sha: option_env!("VERGEN_GIT_SHA"),
         docker_label: option_env!("DOCKER_LABEL"),
         request_logger_url: std::env::var("REQUEST_LOGGER_URL").ok(),
-        embedding_model,
         eager_prefill,
     };
 
@@ -1234,6 +1294,7 @@ pub async fn run(
         .route("/generate", post(generate))
         .route("/embed", post(embed))
         .route("/classify", post(classify))
+        .route("/classify_batch", post(classify_batch))
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
@@ -1410,18 +1471,12 @@ impl From<InferError> for Event {
 #[instrument(skip_all)]
 async fn embed(
     infer: Extension<Infer>,
-    mut client: Extension<ShardedClient>,
     Json(req): Json<EmbedRequest>,
 ) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let span = tracing::Span::current();
-    let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
-
     tracing::debug!("Input: {}", req.inputs);
-
     // Inference
     let response = infer.embed(req).await?;
-
     Ok(Json(response))
 }
 
@@ -1431,23 +1486,151 @@ async fn embed(
     path = "/classify",
     request_body = TokenizeRequest,
     responses(
-    (status = 200, description = "Embeddings ids", body = ClassifyResponse),
-    (status = 500, description = "Incomplete embedding", body = ErrorResponse),
+    (status = 200, description = "Classifications", body = ClassifyResponse),
+    (status = 500, description = "Incomplete classification", body = ErrorResponse),
     )
 )]
 #[instrument(skip_all)]
 async fn classify(
     infer: Extension<Infer>,
-    mut client: Extension<ShardedClient>,
     Json(req): Json<ClassifyRequest>,
-) -> Result<Json<ClassifyResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<Entity>>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
-
     tracing::debug!("Input: {}", req.inputs);
     let response = infer.classify(req).await?;
-    Ok(Json(response))
+
+    // Timings
+    let total_time = start_time.elapsed();
+    let validation_time = response.queued - start_time;
+    let queue_time = response.start - response.queued;
+    let inference_time = Instant::now() - response.start;
+
+    // Rust Tracing metadata
+    span.record("total_time", format!("{total_time:?}"));
+    span.record("validation_time", format!("{validation_time:?}"));
+    span.record("queue_time", format!("{queue_time:?}"));
+    span.record("inference_time", format!("{inference_time:?}"));
+
+    // Headers
+    let mut headers = HeaderMap::new();
+    headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+    headers.insert(
+        "x-compute-time",
+        total_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-validation-time",
+        validation_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-queue-time",
+        queue_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-inference-time",
+        inference_time.as_millis().to_string().parse().unwrap(),
+    );
+
+    // Metrics
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_validation_duration",
+        validation_time.as_secs_f64()
+    );
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_inference_duration",
+        inference_time.as_secs_f64()
+    );
+
+    Ok((headers, Json(response.predictions)))
+}
+
+#[utoipa::path(
+    post,
+    tag = "ClassifyBatch",
+    path = "/classify_batch",
+    request_body = TokenizeRequest,
+    responses(
+    (status = 200, description = "Classifications", body = BatchClassifyResponse),
+    (status = 500, description = "Incomplete classification", body = ErrorResponse),
+    )
+)]
+#[instrument(skip_all)]
+async fn classify_batch(
+    infer: Extension<Infer>,
+    Json(req): Json<BatchClassifyRequest>,
+) -> Result<(HeaderMap, Json<Vec<Vec<Entity>>>), (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    let start_time = Instant::now();
+    metrics::increment_counter!("lorax_request_count");
+    tracing::debug!("Inputs: {:?}", req.inputs);
+    let num_inputs = req.inputs.len();
+    let responses = infer.classify_batch(req).await?;
+
+    // Timings
+    let now = Instant::now();
+    let total_time = start_time.elapsed();
+    let mut validation_times = Vec::with_capacity(responses.len());
+    let mut queue_times = Vec::with_capacity(responses.len());
+    let mut inference_times = Vec::with_capacity(responses.len());
+
+    for r in &responses {
+        validation_times.push(r.queued - r.start);
+        queue_times.push(r.start - r.queued);
+        inference_times.push(now - r.start);
+    }
+
+    let validation_time = validation_times.iter().sum::<Duration>() / responses.len() as u32;
+    let queue_time = queue_times.iter().sum::<Duration>() / responses.len() as u32;
+    let inference_time = inference_times.iter().sum::<Duration>() / responses.len() as u32;
+
+    // Rust Tracing metadata
+    span.record("total_time", format!("{total_time:?}"));
+    span.record("num_inputs", num_inputs);
+    span.record("validation_time", format!("{validation_time:?}"));
+    span.record("queue_time", format!("{queue_time:?}"));
+    span.record("inference_time", format!("{inference_time:?}"));
+
+    // Headers
+    let mut headers = HeaderMap::new();
+    headers.insert("x-compute-type", "gpu+optimized".parse().unwrap());
+    headers.insert(
+        "x-compute-time",
+        total_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-validation-time",
+        validation_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-queue-time",
+        queue_time.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-inference-time",
+        inference_time.as_millis().to_string().parse().unwrap(),
+    );
+
+    // Metrics
+    metrics::increment_counter!("lorax_request_success");
+    metrics::histogram!("lorax_request_duration", total_time.as_secs_f64());
+    metrics::histogram!("lorax_request_input_count", num_inputs as f64);
+    metrics::histogram!(
+        "lorax_request_validation_duration",
+        validation_time.as_secs_f64()
+    );
+    metrics::histogram!("lorax_request_queue_duration", queue_time.as_secs_f64());
+    metrics::histogram!(
+        "lorax_request_inference_duration",
+        inference_time.as_secs_f64()
+    );
+
+    let batch_entity_vec = responses.into_iter().map(|r| r.predictions).collect();
+    Ok((headers, Json(batch_entity_vec)))
 }
 
 /// Tokenize inputs

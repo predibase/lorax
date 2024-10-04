@@ -1,15 +1,20 @@
 use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
+use crate::config::Config;
 /// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
-use crate::{GenerateParameters, GenerateRequest};
+use crate::{GenerateParameters, GenerateRequest, HubPreprocessorConfig, Idefics2Preprocessor};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
+use std::io::Cursor;
+use std::iter;
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
-use tokenizers::TruncationDirection;
 use tokio::sync::oneshot;
 use tracing::{instrument, Span};
+use {once_cell::sync::Lazy, regex::Regex};
 
 /// Validation
 #[derive(Debug, Clone)]
@@ -27,6 +32,8 @@ impl Validation {
     pub(crate) fn new(
         workers: usize,
         tokenizer: Option<Tokenizer>,
+        config: Option<Config>,
+        preprocessor_config: Option<HubPreprocessorConfig>,
         max_best_of: usize,
         max_stop_sequences: usize,
         max_input_length: usize,
@@ -40,11 +47,18 @@ impl Validation {
             // Create workers
             for _ in 0..workers {
                 let tokenizer_clone = tokenizer.clone();
+                let config_clone = config.clone();
+                let preprocessor_config_clone = preprocessor_config.clone();
                 let receiver_clone = validation_receiver.clone();
 
                 // Spawn worker
                 tokio::task::spawn_blocking(move || {
-                    tokenizer_worker(tokenizer_clone, receiver_clone)
+                    tokenizer_worker(
+                        tokenizer_clone,
+                        config_clone,
+                        preprocessor_config_clone,
+                        receiver_clone,
+                    )
                 });
             }
             Some(validation_sender)
@@ -66,7 +80,7 @@ impl Validation {
         &self,
         inputs: String,
         truncate: Option<usize>,
-    ) -> Result<Option<(tokenizers::Encoding, String)>, ValidationError> {
+    ) -> Result<Option<(tokenizers::Encoding, Vec<Chunk>)>, ValidationError> {
         // If we have a fast tokenizer
         if let Some(sender) = &self.sender {
             // Create response channel
@@ -79,8 +93,8 @@ impl Validation {
 
             // Await on response channel
             // Unwrap is safe here
-            let encoding = response_receiver.await.unwrap()?;
-            Ok(Some(encoding))
+            let resp = response_receiver.await.unwrap()?;
+            Ok(Some(resp))
         } else {
             Ok(None)
         }
@@ -92,9 +106,9 @@ impl Validation {
         inputs: String,
         truncate: Option<usize>,
         max_new_tokens: Option<u32>,
-    ) -> Result<(String, Option<TokenizedInputs>, usize), ValidationError> {
+    ) -> Result<(Option<TokenizedInputs>, usize), ValidationError> {
         // If we have a fast tokenizer
-        if let Some((encoding, inputs)) = self.tokenize(inputs.clone(), truncate).await? {
+        if let Some((encoding, chunks)) = self.tokenize(inputs.clone(), truncate).await? {
             // Create response channel
             let input_length = encoding.len();
 
@@ -122,10 +136,25 @@ impl Validation {
 
             let tokenized_inputs = Some(TokenizedInputs {
                 ids: encoding.get_ids().to_vec(),
+                input_chunks: chunks
+                    .clone()
+                    .into_iter()
+                    .map(|c| lorax_client::InputChunk {
+                        chunk: Some(match c {
+                            Chunk::Text(text) => lorax_client::input_chunk::Chunk::Text(text),
+                            Chunk::Image(image) => {
+                                lorax_client::input_chunk::Chunk::Image(lorax_client::Image {
+                                    data: image.data,
+                                    mimetype: image.mimetype,
+                                })
+                            }
+                        }),
+                    })
+                    .collect(),
             });
 
             metrics::histogram!("lorax_request_input_length", input_length as f64);
-            Ok((inputs, tokenized_inputs, input_length))
+            Ok((tokenized_inputs, input_length))
         }
         // Return inputs without validation
         else {
@@ -143,7 +172,7 @@ impl Validation {
                 }
             }
 
-            Ok((inputs, None, input_length))
+            Ok((None, input_length))
         }
     }
 
@@ -172,7 +201,7 @@ impl Validation {
             adapter_parameters,
             decoder_input_details,
             return_k_alternatives,
-            apply_chat_template,
+            apply_chat_template: _,
             response_format,
             ..
         } = request.parameters;
@@ -295,7 +324,8 @@ impl Validation {
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
         // Validate inputs
-        let (inputs, tokenized_inputs, input_length) = self
+        let inputs = request.inputs.clone();
+        let (tokenized_inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
 
@@ -360,46 +390,238 @@ impl Validation {
 }
 
 /// Start tokenization workers
-fn tokenizer_worker(tokenizer: Tokenizer, receiver: flume::Receiver<TokenizerRequest>) {
+fn tokenizer_worker(
+    tokenizer: Tokenizer,
+    config: Option<Config>,
+    preprocessor_config: Option<HubPreprocessorConfig>,
+    receiver: flume::Receiver<TokenizerRequest>,
+) {
     // Loop over requests
     while let Ok(((inputs, truncate), response_tx, parent_span)) = receiver.recv() {
         parent_span.in_scope(|| {
             response_tx
-                .send(prepare_input(inputs, truncate, &tokenizer))
+                .send(prepare_input(
+                    inputs,
+                    truncate,
+                    &tokenizer,
+                    config.as_ref(),
+                    preprocessor_config.as_ref(),
+                ))
                 .unwrap_or(())
         })
     }
 }
 
-/// Get input length and optionally truncate it
+fn format_from_mimetype(mimetype: &str) -> Option<ImageFormat> {
+    match mimetype {
+        "image/png" => Some(ImageFormat::Png),
+        "image/jpeg" => Some(ImageFormat::Jpeg),
+        "image/jpg" => Some(ImageFormat::Jpeg),
+        "image/gif" => Some(ImageFormat::Gif),
+        "image/webp" => Some(ImageFormat::WebP),
+        "image/tiff" => Some(ImageFormat::Tiff),
+        // "image/pnm"=>Some(ImageFormat::Pnm),
+        // "image/tga"=>Some(ImageFormat::Tga),
+        // "image/dds"=>Some(ImageFormat::Dds),
+        // "image/bmp"=>Some(ImageFormat::Bmp),
+        // "image/ico"=>Some(ImageFormat::Ico),
+        // "image/x-exr"=>Some(ImageFormat::OpenExr),
+        _ => None,
+    }
+}
+
+fn format_to_mimetype(format: ImageFormat) -> String {
+    match format {
+        ImageFormat::Png => "image/png",
+        ImageFormat::Jpeg => "image/jpeg",
+        ImageFormat::Gif => "image/gif",
+        ImageFormat::WebP => "image/webp",
+        ImageFormat::Tiff => "image/tiff",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+fn fetch_image(input: &str) -> Result<(Vec<u8>, String, usize, usize), ValidationError> {
+    if input.starts_with("![](http://") || input.starts_with("![](https://") {
+        let url = &input["![](".len()..input.len() - 1];
+        let data = reqwest::blocking::get(url)?.bytes()?;
+
+        let format = image::guess_format(&data)?;
+        // TODO Remove this clone
+        let img = ImageReader::with_format(Cursor::new(data.clone()), format).decode()?;
+        let height: usize = img.height().try_into()?;
+        let width: usize = img.width().try_into()?;
+        let mimetype = format_to_mimetype(format);
+        Ok((data.to_vec(), mimetype, height, width))
+    } else if input.starts_with("![](data:") {
+        // Remove ![](....)
+        let content = &input["![](data:".len()..input.len() - 1];
+        let tokens: Vec<_> = content.split(';').collect();
+        if tokens.len() != 2 {
+            return Err(ValidationError::InvalidImageContent(content.to_string()));
+        }
+        let mimetype = tokens[0];
+        let content = tokens[1];
+
+        if !content.starts_with("base64,") {
+            return Err(ValidationError::InvalidImageContent(content.to_string()));
+        }
+
+        let data = STANDARD.decode(content["base64,".len()..].as_bytes())?;
+        let img = if let Some(format) = format_from_mimetype(mimetype) {
+            ImageReader::with_format(Cursor::new(&data), format).decode()?
+        } else {
+            ImageReader::new(Cursor::new(&data))
+                .with_guessed_format()
+                .map_err(|_io_error| ValidationError::InvalidImageContent(content.to_string()))?
+                .decode()?
+        };
+
+        let height: usize = img.height().try_into()?;
+        let width: usize = img.width().try_into()?;
+        Ok((data, mimetype.to_string(), height, width))
+    } else {
+        Err(ValidationError::InvalidImageContent(input.to_string()))
+    }
+}
+
+fn image_tokens(
+    config: &Config,
+    preprocessor_config: Option<&HubPreprocessorConfig>,
+    height: usize,
+    width: usize,
+) -> String {
+    use Config::*;
+    use HubPreprocessorConfig::*;
+    match config {
+        Mllama => "<|image|>".to_string(),
+        Idefics => "<image>".to_string(),
+        Idefics2(config) => {
+            const FAKE: &str = "<fake_token_around_image>";
+            const IMAGE: &str = "<image>";
+
+            let slots = config.get_number_of_features(height, width);
+
+            let mut image_string = String::with_capacity(2 * FAKE.len() + slots * IMAGE.len());
+            image_string.push_str(FAKE);
+            image_string.extend(iter::repeat(IMAGE).take(slots));
+            image_string.push_str(FAKE);
+
+            if matches!(
+                preprocessor_config,
+                Some(Idefics2Processor(Idefics2Preprocessor {
+                    do_image_splitting: true,
+                    ..
+                }))
+            ) {
+                image_string = image_string.repeat(5);
+            };
+
+            image_string
+        }
+        Paligemma(config) => "<image>".repeat(config.get_number_of_features(height, width)),
+        LlavaNext(config) => "<image>".repeat(config.get_number_of_features(height, width)),
+        _ => unimplemented!("Images tokens are not supported for this model configuration"),
+    }
+}
+
+fn image_tokens_fixup(config: &Config, text: String) -> String {
+    match config {
+        Config::Idefics2(_) => {
+            const FAKE: &str = "<fake_token_around_image>";
+            text.replace(&format!("{FAKE}{FAKE}"), FAKE)
+        }
+        _ => text,
+    }
+}
+
 fn prepare_input(
-    mut inputs: String,
-    truncate: Option<usize>,
+    inputs: String,
+    _truncate: Option<usize>,
     tokenizer: &Tokenizer,
-) -> Result<(tokenizers::Encoding, String), ValidationError> {
+    config: Option<&Config>,
+    preprocessor_config: Option<&HubPreprocessorConfig>,
+) -> Result<(tokenizers::Encoding, Vec<Chunk>), ValidationError> {
+    use Config::*;
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"!\[\]\([^\)]*\)").unwrap());
+    let (tokenizer_query, input_chunks) = match config {
+        Some(config @ (Mllama | Idefics | Idefics2(_) | Paligemma(_) | LlavaNext(_))) => {
+            let mut input_chunks = Vec::new();
+            let mut tokenizer_query = String::with_capacity(inputs.len());
+            let mut start = 0;
+            for chunk in RE.find_iter(&inputs) {
+                let chunk_start = chunk.start();
+                let chunk_end = chunk.end();
+                if chunk_start != start {
+                    input_chunks.push(Chunk::Text(inputs[start..chunk_start].to_string()));
+                    tokenizer_query.push_str(&inputs[start..chunk_start]);
+                }
+                let (data, mimetype, height, width) = fetch_image(&inputs[chunk_start..chunk_end])?;
+
+                input_chunks.push(Chunk::Image(Image { data, mimetype }));
+                tokenizer_query.push_str(&image_tokens(config, preprocessor_config, height, width));
+                start = chunk_end;
+            }
+            if start != inputs.len() {
+                input_chunks.push(Chunk::Text(inputs[start..].to_string()));
+                tokenizer_query.push_str(&inputs[start..]);
+            }
+
+            tokenizer_query = image_tokens_fixup(config, tokenizer_query);
+
+            (tokenizer_query, input_chunks)
+        }
+        _ => (inputs.clone(), vec![Chunk::Text(inputs)]),
+    };
+
     // Get the number of tokens in the input
-    let mut encoding = tokenizer
-        .encode(inputs.clone(), true)
+    let encoding = tokenizer
+        .encode(tokenizer_query, true)
         .map_err(|err| ValidationError::Tokenizer(err.to_string()))?;
 
-    // Optionally truncate
-    if let Some(truncate) = truncate {
-        if truncate < encoding.len() {
-            encoding.truncate(truncate, 0, TruncationDirection::Left);
-            inputs = tokenizer
-                .decode(encoding.get_ids(), false)
-                .map_err(|err| ValidationError::Tokenizer(err.to_string()))?;
-        }
-    }
-
-    Ok((encoding, inputs))
+    Ok((encoding, input_chunks))
 }
 
 type TokenizerRequest = (
     (String, Option<usize>),
-    oneshot::Sender<Result<(tokenizers::Encoding, String), ValidationError>>,
+    oneshot::Sender<Result<(tokenizers::Encoding, Vec<Chunk>), ValidationError>>,
     Span,
 );
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Image {
+    pub data: Vec<u8>,
+    pub mimetype: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Chunk {
+    Text(String),
+    Image(Image),
+}
+
+/// Convert input chunks to a stringly-typed input for backwards
+/// compat for backends that haven't implemented chunked inputs.
+pub trait ChunksToString {
+    /// Convert chunks to string.
+    #[allow(dead_code)]
+    fn chunks_to_string(&self) -> String;
+}
+
+impl ChunksToString for Vec<Chunk> {
+    fn chunks_to_string(&self) -> String {
+        let mut output = String::new();
+        self.iter().for_each(|c| match &c {
+            Chunk::Text(text) => output.push_str(text),
+            Chunk::Image(Image { data, mimetype }) => {
+                let encoded = STANDARD.encode(data);
+                output.push_str(&format!("![](data:{};base64,{})", mimetype, encoded))
+            }
+        });
+        output
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum ValidationError {
@@ -453,6 +675,18 @@ pub enum ValidationError {
     EmbeddingModel,
     #[error("Classify models don't support text generation")]
     ClassifyModelError,
+    #[error("base64 encoding is invalid: {0}")]
+    InvalidBase64(#[from] base64::DecodeError),
+    #[error("invalid image: {0}")]
+    InvalidImage(#[from] image::ImageError),
+    #[error("invalid integer: {0}")]
+    InvalidInt(#[from] core::num::TryFromIntError),
+    #[error("invalid image content: {0}")]
+    InvalidImageContent(String),
+    #[error("Could not fetch image: {0}")]
+    FailedFetchImage(#[from] reqwest::Error),
+    #[error("{0} modality is not supported")]
+    UnsupportedModality(&'static str),
 }
 
 #[cfg(test)]
@@ -469,9 +703,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
@@ -496,9 +733,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
@@ -523,9 +763,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,
@@ -566,9 +809,12 @@ mod tests {
         let max_input_length = 4;
         let max_total_tokens = 5;
         let workers = 1;
+        let config = None;
         let validation = Validation::new(
             workers,
             tokenizer,
+            config,
+            None,
             max_best_of,
             max_stop_sequence,
             max_input_length,

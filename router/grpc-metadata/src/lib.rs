@@ -6,6 +6,7 @@ use opentelemetry::propagation::{Extractor, Injector};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Extract context metadata from a gRPC request's metadata
+#[allow(dead_code)]
 struct MetadataExtractor<'a>(pub &'a tonic::metadata::MetadataMap);
 
 impl<'a> Extractor for MetadataExtractor<'a> {

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from typing import Any, Dict, Optional, List, AsyncIterator, Iterator, Union
 
 from lorax.types import (
+    BatchRequest,
     StreamResponse,
     Response,
     Request,
@@ -17,7 +18,9 @@ from lorax.types import (
     ClassifyResponse
 )
 from lorax.errors import parse_error
+import os 
 
+LORAX_DEBUG_MODE = os.getenv("LORAD_DEBUG_MODE", None) is not None
 
 class Client:
     """Client to make calls to a LoRAX instance
@@ -67,6 +70,7 @@ class Client:
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
         self.classify_endpoint = f"{base_url}/classify"
+        self.classify_batch_endpoint = f"{base_url}/classify_batch"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
@@ -172,7 +176,7 @@ class Client:
             adapter_id (`Optional[str]`):
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
-                Source of the adapter (hub, local, s3)
+                Source of the adapter ("hub", "local", "s3", "pbase")
             merged_adapters (`Optional[MergedAdapters]`):
                 Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
@@ -272,7 +276,7 @@ class Client:
             payload = {"message": e.msg}
 
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, payload)
+            raise parse_error(resp.status_code, payload, resp.headers if LORAX_DEBUG_MODE else None)
 
         return Response(**payload[0])
 
@@ -308,7 +312,7 @@ class Client:
             adapter_id (`Optional[str]`):
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
-                Source of the adapter (hub, local, s3)
+                Source of the adapter ("hub", "local", "s3", "pbase")
             merged_adapters (`Optional[MergedAdapters]`):
                 Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
@@ -392,7 +396,7 @@ class Client:
         )
 
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json())
+            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
 
         # Parse ServerSentEvents
         for byte_payload in resp.iter_lines():
@@ -411,7 +415,7 @@ class Client:
                     response = StreamResponse(**json_payload)
                 except ValidationError:
                     # If we failed to parse the payload, then it is an error payload
-                    raise parse_error(resp.status_code, json_payload)
+                    raise parse_error(resp.status_code, json_payload, resp.headers if LORAX_DEBUG_MODE else None)
                 yield response
 
     
@@ -438,7 +442,7 @@ class Client:
 
         payload = resp.json()
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json())
+            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
         
         return EmbedResponse(**payload)
 
@@ -466,10 +470,36 @@ class Client:
 
         payload = resp.json()
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json())
+            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
         
-        print(payload)
-        return ClassifyResponse(**payload)
+        return ClassifyResponse(entities=payload)
+    
+    def classify_batch(self, inputs: List[str]) -> List[ClassifyResponse]:
+        """
+        Given a list of inputs, run token classification on the text using the model
+
+        Args:
+            inputs (`List[str]`):
+                List of input texts
+        
+        Returns: 
+            List[Entities]: Entities found in the input text
+        """
+        request = BatchRequest(inputs=inputs)
+
+        resp = requests.post(
+            self.classify_batch_endpoint,
+            json=request.dict(by_alias=True),
+            headers=self.headers,
+            cookies=self.cookies,
+            timeout=self.timeout,
+        )
+
+        payload = resp.json()
+        if resp.status_code != 200:
+            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
+        
+        return [ClassifyResponse(entities=e) for e in payload]
 
 
 class AsyncClient:
@@ -645,7 +675,7 @@ class AsyncClient:
                 payload = await resp.json()
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, payload)
+                    raise parse_error(resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None)
                 return Response(**payload[0])
 
     async def generate_stream(
@@ -768,7 +798,7 @@ class AsyncClient:
             async with session.post(self.base_url, json=request.dict(by_alias=True)) as resp:
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, await resp.json())
+                    raise parse_error(resp.status, await resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
 
                 # Parse ServerSentEvents
                 async for byte_payload in resp.content:
@@ -787,7 +817,7 @@ class AsyncClient:
                             response = StreamResponse(**json_payload)
                         except ValidationError:
                             # If we failed to parse the payload, then it is an error payload
-                            raise parse_error(resp.status, json_payload)
+                            raise parse_error(resp.status, json_payload, resp.headers if LORAX_DEBUG_MODE else None)
                         yield response
     
 
@@ -810,7 +840,7 @@ class AsyncClient:
                 payload = await resp.json()
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, payload)
+                    raise parse_error(resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None)
                 return EmbedResponse(**payload)
 
 
@@ -833,5 +863,5 @@ class AsyncClient:
                 payload = await resp.json()
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, payload)
+                    raise parse_error(resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None)
                 return ClassifyResponse(**payload)

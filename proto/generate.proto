@@ -18,9 +18,7 @@ service LoraxService {
     /// Embed
     rpc Embed (EmbedRequest) returns (EmbedResponse);
     /// Classify 
-    // rpc Classify (ClassifyRequest) returns (ClassifyResponse);
-    /// Classify 
-    rpc Classify (ClassifyRequest) returns (ClassifyResponse2);
+    rpc Classify (ClassifyRequest) returns (ClassifyResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
     /// Health check
@@ -56,6 +54,9 @@ message InfoResponse {
     uint32 block_size = 5;
     uint32 speculate = 6;
     repeated PreloadedAdapter preloaded_adapters = 7;
+    bool supports_generation = 8;
+    bool supports_embeddings = 9;
+    bool supports_classification = 10;
 }
 
 /// Empty request
@@ -109,9 +110,29 @@ message StoppingCriteriaParameters {
     bool ignore_eos_token = 3;
 }
 
+message Image {
+    /// Binary image data.
+    bytes data = 1;
+  
+    /// Image MIME type.
+    string mimetype = 2;
+  }
+  
+message InputChunk {
+    oneof chunk {
+      /// Plain text data
+      string text = 1;
+      /// Image data
+      Image image = 2;
+    }
+}
+
 message TokenizedInputs {
     /// Token IDs
     repeated uint32 ids = 1;
+
+    /// Chunks
+    repeated InputChunk input_chunks = 2;
 }
 
 message Request {
@@ -135,6 +156,8 @@ message Request {
     repeated uint32 blocks = 9;
     /// Paged attention slots
     repeated uint32 slots = 10;
+    /// Prefix length that can be retrieved from the KV cache
+    uint32 prefix_len = 11;
 }
 
 message Batch {
@@ -304,7 +327,6 @@ message ClassifyPredictionList {
     /// Classifications
     repeated string predictions = 2;
     repeated float scores = 3;
-    repeated uint32 input_ids = 4;
 }
 
 message ClassifyRequest {
@@ -314,15 +336,6 @@ message ClassifyRequest {
 
 message ClassifyResponse {
     /// Classifications
-    repeated EntityList entity_lists = 1;
-    // repeated ClassifyPredictionList classify_prediction_lists = 1;
-    /// Error message on failure
-    string errorMsg = 2;
-}
-
-message ClassifyResponse2 {
-    /// Classifications
-    // repeated EntityList entity_lists = 1;
     repeated ClassifyPredictionList classify_prediction_lists = 1;
     /// Error message on failure
     string errorMsg = 2;

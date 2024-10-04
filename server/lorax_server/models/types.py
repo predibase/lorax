@@ -23,6 +23,8 @@ class Batch(ABC):
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
+        processor,
+        config,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "Batch":
@@ -147,6 +149,8 @@ class FlashEmbeddingClassificationBatch(ABC):
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
+        processor,
+        config,
         dtype: torch.dtype,
         device: torch.device,
     ) -> "FlashEmbeddingClassificationBatch":
@@ -157,7 +161,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             batch_inputs.append(inputs)
             max_truncation = max(max_truncation, r.truncate)
 
-        if all(r.HasField("tokenized_inputs") for r in pb.requests):
+        if all(r.HasField("tokenized_inputs") and len(r.tokenized_inputs.ids) > 0 for r in pb.requests):
             batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
         else:
             batch_tokenized_inputs = tokenizer(batch_inputs, padding=True, truncation=True, max_length=max_truncation)[
@@ -214,16 +218,18 @@ class FlashEmbeddingClassificationBatch(ABC):
         )
 
     @classmethod
-    def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse2:
+    def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse:
         results = []
         for i, (pred, con) in enumerate(zip(predicted_token_classes, confidence_scores)):
             results.append(
                 generate_pb2.ClassifyPredictionList(
-                    request_id=batch.request_ids[i], predictions=pred, scores=con, input_ids=batch.input_ids.tolist()
+                    request_id=batch.request_ids[i],
+                    predictions=pred,
+                    scores=con,
                 )
             )
 
-        pb_resp = generate_pb2.ClassifyResponse2(classify_prediction_lists=results)
+        pb_resp = generate_pb2.ClassifyResponse(classify_prediction_lists=results)
         return pb_resp
 
     @classmethod

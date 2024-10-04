@@ -2,10 +2,12 @@
 mod adapter;
 mod batch;
 mod block_allocator;
+pub mod config;
 mod health;
 mod infer;
 mod loader;
 mod queue;
+mod radix;
 mod scheduler;
 pub mod server;
 
@@ -73,8 +75,6 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
     #[schema(nullable = true, example = "http://localhost:8899")]
     pub request_logger_url: Option<String>,
-    #[schema(example = false)]
-    pub embedding_model: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
@@ -256,6 +256,7 @@ pub(crate) struct GenerateParameters {
     pub return_k_alternatives: Option<i32>,
     #[serde(default)]
     #[schema(default = "false")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     pub apply_chat_template: bool,
     #[serde(default)]
     #[schema(
@@ -483,6 +484,7 @@ enum ResponseFormatType {
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
+    #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
     schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
 }
@@ -571,9 +573,13 @@ struct ChatCompletionRequest {
     #[serde(default)]
     stop: Vec<String>,
     stream: Option<bool>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
     // Additional parameters
@@ -590,6 +596,7 @@ struct ChatCompletionRequest {
 struct CompletionRequest {
     model: String,
     prompt: String,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     suffix: Option<String>,
     max_tokens: Option<i32>,
     temperature: Option<f32>,
@@ -600,10 +607,14 @@ struct CompletionRequest {
     echo: Option<bool>,
     #[serde(default)]
     stop: Vec<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
     best_of: Option<i32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
     // Additional parameters
@@ -712,6 +723,7 @@ pub(crate) enum CompletionFinishReason {
     #[schema(rename = "content_filter")]
     ContentFilter,
     #[schema(rename = "tool_calls")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     ToolCalls,
 }
 
@@ -730,16 +742,15 @@ struct ClassifyRequest {
     inputs: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ClassifyResponse {
-    entities: Vec<Entity>,
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct BatchClassifyRequest {
+    inputs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Entity {
-    entity: String,
+    entity_group: String,
     score: f32,
-    index: usize,
     word: String,
     start: usize,
     end: usize,
@@ -748,9 +759,8 @@ struct Entity {
 impl From<EntityMessage> for Entity {
     fn from(entity: EntityMessage) -> Self {
         Entity {
-            entity: entity.entity,
+            entity_group: entity.entity,
             score: entity.score,
-            index: entity.index as usize,
             word: entity.word,
             start: entity.start as usize,
             end: entity.end as usize,
@@ -1003,6 +1013,40 @@ impl TokenizerConfigToken {
             TokenizerConfigToken::String(s) => s,
             TokenizerConfigToken::Object { content } => content,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "processor_class")]
+pub enum HubPreprocessorConfig {
+    Idefics2Processor(Idefics2Preprocessor),
+}
+
+impl HubPreprocessorConfig {
+    pub fn from_file<P: AsRef<std::path::Path>>(filename: P) -> Option<Self> {
+        let content = std::fs::read_to_string(filename).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Idefics2Preprocessor {
+    #[serde(default)]
+    do_image_splitting: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HubProcessorConfig {
+    pub chat_template: Option<ChatTemplateVersions>,
+    pub image_seq_len: usize,
+    pub processor_class: Option<String>,
+}
+
+impl HubProcessorConfig {
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> Option<Self> {
+        std::fs::read_to_string(filename)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
     }
 }
 

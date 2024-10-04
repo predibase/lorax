@@ -15,6 +15,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -246,17 +247,15 @@ class FlashQwenAttention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -264,11 +263,11 @@ class FlashQwenAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
+                self.num_key_value_heads,
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
@@ -330,9 +329,9 @@ class QwenMLP(nn.Module):
 
 
 class FlashQwenLayer(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.h.{layer_id}"
+        prefix = prepend(prefix, f"transformer.h.{layer_id}")
         self.attn = FlashQwenAttention(
             prefix=f"{prefix}.attn",
             config=config,
@@ -387,16 +386,17 @@ class FlashQwenLayer(nn.Module):
 
 
 class FlashQwenModel(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
         self.tp_world_size = process_group.size()
-        self.wte = TensorParallelEmbedding(prefix="transformer.wte", weights=weights)
+        self.wte = TensorParallelEmbedding(prefix=prepend(prefix, "transformer.wte"), weights=weights)
         self.h = nn.ModuleList(
             [
                 FlashQwenLayer(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -404,7 +404,9 @@ class FlashQwenModel(torch.nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = QwenRMSNorm(prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_f = QwenRMSNorm(
+            prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon
+        )
 
         self.gradient_checkpointing = False
 
@@ -452,14 +454,15 @@ class FlashQwenModel(torch.nn.Module):
 
 
 class FlashQwenForCausalLM(torch.nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
+        self.config = config
 
-        self.transformer = FlashQwenModel(config, weights)
+        self.transformer = FlashQwenModel(prefix, config, weights)
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix="lm_head",
+                prefix=prepend(prefix, "lm_head"),
                 weights=weights,
             ),
             0,

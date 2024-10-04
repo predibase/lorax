@@ -258,17 +258,15 @@ class FlashGemma2Attention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -277,11 +275,11 @@ class FlashGemma2Attention(torch.nn.Module):
             )
         # Decode
         else:
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
+                self.num_key_value_heads,
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
@@ -481,6 +479,7 @@ class FlashGemma2Model(torch.nn.Module):
 class FlashGemma2ForCausalLM(torch.nn.Module):
     def __init__(self, prefix, config, weights, causal: bool):
         super().__init__()
+        self.config = config
 
         embed_norm = config.hidden_size**0.5
         if not prefix:
