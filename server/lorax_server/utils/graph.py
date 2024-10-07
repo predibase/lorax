@@ -459,8 +459,13 @@ class GraphCache:
         # Use the largest batch size to overestimate memory overhead
         batch_size = CACHED_BATCH_SIZES[-1]
 
+        # Need at least two samples to discard the first run
+        ranks = CACHED_MAX_RANKS
+        if len(ranks) == 1:
+            ranks = ranks * 2
+
         samples = []
-        for i, max_rank in enumerate(reversed(CACHED_MAX_RANKS)):
+        for i, max_rank in enumerate(reversed(ranks)):
             torch.cuda.synchronize(self.device)
             free_memory_before, _ = torch.cuda.mem_get_info(self.device)
 
