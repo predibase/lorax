@@ -49,14 +49,16 @@ ARG TARGETPLATFORM
 
 ENV PATH /opt/conda/bin:$PATH
 
+FROM peakcom/s5cmd:v2.2.2 as s5cmd
+COPY --from=s5cmd /s5cmd /usr/local/bin/s5cmd
+
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     ccache \
     curl \
     git \
-    less \
-    s5cmd && \
+    less && \
     rm -rf /var/lib/apt/lists/*
 
 # Install conda
