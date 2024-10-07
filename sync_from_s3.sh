@@ -11,6 +11,7 @@ fi
 echo "HuggingFace Model ID: $MODEL_ID"
 echo "HuggingFace local cache directory: $HUGGINGFACE_HUB_CACHE"
 
+CONCURRENCY=20
 MODEL_DIRECTORY="models--${MODEL_ID//\//--}"
 S3_PATH="s3://${HF_CACHE_BUCKET}/${MODEL_DIRECTORY}/"
 LOCAL_MODEL_DIR="${HUGGINGFACE_HUB_CACHE}/${MODEL_DIRECTORY}"
@@ -28,7 +29,6 @@ if [[ "$MODEL_CONTENTS" == "null" ]]; then
     exit 0
 fi
 
-# TODO: If we want to speed up download times we could consider switching to s5cmd
 echo "Syncing $MODEL_ID from S3 cache to local cache."
-echo "aws s3 sync --no-progress \"${S3_PATH}\" \"${LOCAL_MODEL_DIR}\""
-time aws s3 sync --no-progress "${S3_PATH}" "${LOCAL_MODEL_DIR}"
+echo "s5cmd sync --concurrency ${CONCURRENCY} \"${S3_PATH}*\" \"${LOCAL_MODEL_DIR}\""
+time s5cmd sync --concurrency ${CONCURRENCY} "${S3_PATH}*" "${LOCAL_MODEL_DIR}"

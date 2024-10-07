@@ -55,7 +55,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ccache \
     curl \
     git \
-    less && \
+    less \
+    s5cmd && \
     rm -rf /var/lib/apt/lists/*
 
 # Install conda
