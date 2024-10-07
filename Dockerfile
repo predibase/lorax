@@ -78,7 +78,7 @@ RUN case ${TARGETPLATFORM} in \
     *)              /opt/conda/bin/conda update -y conda &&  \
     /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}" -y "python=${PYTHON_VERSION}" "pytorch=$PYTORCH_VERSION" "pytorch-cuda=$(echo $CUDA_VERSION | cut -d'.' -f 1-2)"  ;; \
     esac && \
-    /opt/conda/bin/conda clean -ya \
+    /opt/conda/bin/conda clean -ya
 
 COPY --from=s5cmd /s5cmd /usr/local/bin/s5cmd
 
