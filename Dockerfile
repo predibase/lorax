@@ -33,8 +33,6 @@ COPY router router
 COPY launcher launcher
 RUN cargo build --release
 
-FROM peakcom/s5cmd:v2.2.2 as s5cmd
-
 # Python builder
 # Adapted from: https://github.com/pytorch/pytorch/blob/master/Dockerfile
 FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 as pytorch-install
@@ -80,8 +78,11 @@ RUN case ${TARGETPLATFORM} in \
     esac && \
     /opt/conda/bin/conda clean -ya
 
-COPY --from=s5cmd /s5cmd /usr/local/bin/s5cmd
+# Install s5cmd
 
+RUN /opt/conda/bin/conda config --add channels conda-forge && \
+    /opt/conda/bin/conda config --set channel_priority strict && \
+    /opt/conda/bin/conda install -y s5cmd
 
 # CUDA kernels builder image
 FROM pytorch-install as kernel-builder
