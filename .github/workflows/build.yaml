@@ -63,7 +63,7 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=raw,value=return-n,enable=${{ github.ref == 'refs/heads/return-n' }}
+            type=raw,value=returnn,enable=${{ github.ref == 'refs/heads/return-n' }}
 
       - name: Create a hash from tags
         env:
