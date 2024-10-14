@@ -457,6 +457,9 @@ struct Args {
     /// The embedding dimension to use for the model.
     #[clap(long, env)]
     embedding_dim: Option<usize>,
+
+    #[clap(long, env)]
+    disable_sgmv: bool,
 }
 
 #[derive(Debug)]
@@ -500,6 +503,7 @@ fn shard_manager(
     shutdown: Arc<AtomicBool>,
     _shutdown_sender: mpsc::Sender<()>,
     embedding_dim: Option<usize>,
+    disable_sgmv: bool,
 ) {
     // Enter shard-manager tracing span
     let _span = tracing::span!(tracing::Level::INFO, "shard-manager", rank = rank).entered();
@@ -608,6 +612,7 @@ fn shard_manager(
         shard_args.push(embedding_dim.to_string())
     }
 
+
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
@@ -638,6 +643,10 @@ fn shard_manager(
     // Backend
     if backend == Backend::FlashInfer {
         envs.push(("FLASH_INFER".into(), "1".into()));
+    }
+
+    if disable_sgmv {
+        envs.push(("DISABLE_SGMV".into(), "1".into()))
     }
 
     // Safetensors load fast
