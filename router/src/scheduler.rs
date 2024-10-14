@@ -198,9 +198,6 @@ struct AdapterSchedulerState {
     /// Speculation amount
     speculate: u32,
 
-    /// Prefix caching
-    prefix_caching: bool,
-
     /// Paged Attention Block Allocation
     block_allocator: Option<BlockAllocator>,
 }
@@ -242,7 +239,6 @@ impl AdapterSchedulerState {
             block_size,
             window_size,
             speculate,
-            prefix_caching,
             block_allocator,
         }
     }
