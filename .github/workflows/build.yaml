@@ -23,6 +23,13 @@ jobs:
       security-events: write
 
     steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+      
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
@@ -107,13 +114,6 @@ jobs:
         run: |
           echo "Importing $image_path-$tag_hash to Containerd"
           sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GHCR_PAT }}
 
       - name: Push image with containerd
         env:

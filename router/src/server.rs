@@ -256,10 +256,17 @@ async fn chat_completions_v1(
         }
     };
 
+    let mut adapter_id = Some(req.model.clone());
+    if req.model == info.model_id.as_str() {
+        // Allow user to specify the base model, but treat it as an empty adapter_id
+        tracing::debug!("Replacing base model {0} with empty adapter_id", req.model);
+        adapter_id = None;
+    }
+
     let mut gen_req = CompatGenerateRequest {
         inputs: inputs.to_string(),
         parameters: GenerateParameters {
-            adapter_id: req.model.parse().ok(),
+            adapter_id: adapter_id,
             adapter_source: req.adapter_source,
             adapter_parameters: None,
             api_token: req.api_token,

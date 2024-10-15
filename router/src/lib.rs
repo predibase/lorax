@@ -386,7 +386,7 @@ pub struct SimpleToken {
     stop: usize,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Clone)]
 #[serde(rename_all(serialize = "snake_case"))]
 pub(crate) enum FinishReason {
     #[schema(rename = "length")]
@@ -886,21 +886,46 @@ impl From<GenerateResponse> for ChatCompletionResponse {
             .unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
 
+        // assign choices as the generated text, and include the best of sequences if available
+        let mut choices = vec![ChatCompletionResponseChoice {
+            index: 0,
+            message: ChatMessage {
+                role: Some("assistant".to_string()),
+                content: Some(resp.generated_text),
+            },
+            finish_reason: resp
+                .details
+                .as_ref()
+                .map(|x| CompletionFinishReason::from(x.finish_reason.clone())),
+        }];
+
+        choices.extend(
+            resp.details
+                .as_ref()
+                .and_then(|x| x.best_of_sequences.as_ref())
+                .into_iter()
+                .flat_map(|seqs| {
+                    seqs.iter()
+                        .enumerate()
+                        .map(|(index, seq)| ChatCompletionResponseChoice {
+                            index: index as i32 + 1,
+                            message: ChatMessage {
+                                role: Some("assistant".to_string()),
+                                content: Some(seq.generated_text.clone()),
+                            },
+                            finish_reason: Some(CompletionFinishReason::from(
+                                seq.finish_reason.clone(),
+                            )),
+                        })
+                }),
+        );
+
         ChatCompletionResponse {
             id: "null".to_string(),
             object: "text_completion".to_string(),
             created: 0,
             model: "null".to_string(),
-            choices: vec![ChatCompletionResponseChoice {
-                index: 0,
-                message: ChatMessage {
-                    role: Some("assistant".to_string()),
-                    content: Some(resp.generated_text),
-                },
-                finish_reason: resp
-                    .details
-                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
-            }],
+            choices: choices,
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
                 total_tokens: total_tokens,
