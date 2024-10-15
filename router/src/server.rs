@@ -263,22 +263,48 @@ async fn chat_completions_v1(
         adapter_id = None;
     }
 
+    // Common fixed schema for json_object and fallback for json_schema
+    let default_schema = serde_json::json!({
+        "additionalProperties": {
+            "type": ["object", "string", "integer", "number", "boolean", "null"]
+        },
+        "title": "ArbitraryJsonModel",
+        "type": "object"
+    });
+
     // Modify input values to ResponseFormat to be OpenAI API compatible
     let response_format: Option<ResponseFormat> = match req.response_format {
         None => None,
         Some(openai_format) => {
-            match openai_format.response_format_type {
+            let response_format_type = openai_format.response_format_type.clone();
+            match response_format_type {
                 // Ignore when type is text
                 ResponseFormatType::Text => None,
 
-                // Extract schema value from json_schema field if type is json_object or json_schema
-                ResponseFormatType::JsonObject | ResponseFormatType::JsonSchema => openai_format
+                // For json_object, use the fixed schema
+                ResponseFormatType::JsonObject => Some(ResponseFormat {
+                    r#type: response_format_type.clone(),
+                    schema: default_schema.clone(),
+                }),
+
+                // For json_schema, use schema_value if available, otherwise fallback to the fixed schema
+                ResponseFormatType::JsonSchema => openai_format
                     .json_schema
                     .and_then(|schema| schema.schema)
-                    .map(|schema_value| ResponseFormat {
-                        r#type: openai_format.response_format_type,
-                        schema: schema_value,
-                    }),
+                    .map_or_else(
+                        || {
+                            Some(ResponseFormat {
+                                r#type: response_format_type.clone(),
+                                schema: default_schema.clone(),
+                            })
+                        },
+                        |schema_value: serde_json::Value| {
+                            Some(ResponseFormat {
+                                r#type: response_format_type.clone(),
+                                schema: schema_value.clone(),
+                            })
+                        },
+                    ),
             }
         }
     };
