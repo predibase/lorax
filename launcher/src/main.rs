@@ -1097,6 +1097,7 @@ fn spawn_shards(
         let merge_adapter_weights = args.merge_adapter_weights;
         let backend = args.backend;
         let embedding_dim = args.embedding_dim;
+        let disable_sgmv = args.disable_sgmv;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1132,6 +1133,7 @@ fn spawn_shards(
                 shutdown,
                 shutdown_sender,
                 embedding_dim,
+                disable_sgmv,
             )
         });
     }
