@@ -612,7 +612,6 @@ fn shard_manager(
         shard_args.push(embedding_dim.to_string())
     }
 
-
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
