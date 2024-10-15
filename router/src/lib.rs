@@ -490,7 +490,20 @@ enum ResponseFormatType {
 struct ResponseFormat {
     #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
-    schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
+
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
+}
+
+// Default schema to be used when no value is provided
+fn default_json_schema() -> Option<serde_json::Value> {
+    Some(serde_json::json!({
+        "additionalProperties": {
+            "type": ["object", "string", "integer", "number", "boolean", "null"]
+        },
+        "title": "ArbitraryJsonModel",
+        "type": "object"
+    }))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]

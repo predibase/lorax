@@ -4,9 +4,8 @@ use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
-use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    default_json_schema, AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
     ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
     ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
     CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
@@ -16,6 +15,7 @@ use crate::{
     OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
     StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
+use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -263,15 +263,6 @@ async fn chat_completions_v1(
         adapter_id = None;
     }
 
-    // Common fixed schema for json_object and fallback for json_schema
-    let default_schema = serde_json::json!({
-        "additionalProperties": {
-            "type": ["object", "string", "integer", "number", "boolean", "null"]
-        },
-        "title": "ArbitraryJsonModel",
-        "type": "object"
-    });
-
     // Modify input values to ResponseFormat to be OpenAI API compatible
     let response_format: Option<ResponseFormat> = match req.response_format {
         None => None,
@@ -284,7 +275,7 @@ async fn chat_completions_v1(
                 // For json_object, use the fixed schema
                 ResponseFormatType::JsonObject => Some(ResponseFormat {
                     r#type: response_format_type.clone(),
-                    schema: default_schema.clone(),
+                    schema: default_json_schema(),
                 }),
 
                 // For json_schema, use schema_value if available, otherwise fallback to the fixed schema
@@ -295,13 +286,13 @@ async fn chat_completions_v1(
                         || {
                             Some(ResponseFormat {
                                 r#type: response_format_type.clone(),
-                                schema: default_schema.clone(),
+                                schema: default_json_schema(),
                             })
                         },
                         |schema_value: serde_json::Value| {
                             Some(ResponseFormat {
                                 r#type: response_format_type.clone(),
-                                schema: schema_value.clone(),
+                                schema: Some(schema_value),
                             })
                         },
                     ),
