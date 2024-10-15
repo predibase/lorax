@@ -8,6 +8,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
+use serde_json::Value;
 use std::io::Cursor;
 use std::iter;
 use thiserror::Error;
@@ -331,8 +332,11 @@ impl Validation {
 
         let mut schema: Option<String> = None;
         if response_format.is_some() {
-            let response_format_val = response_format.unwrap();
-            schema = Some(response_format_val.schema.to_string())
+            if let Some(response_format_val) = response_format {
+                if let Some(schema_value) = response_format_val.schema {
+                    schema = Some(schema_value.to_string());
+                }
+            }
         }
 
         let parameters = NextTokenChooserParameters {
