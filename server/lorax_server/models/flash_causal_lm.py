@@ -838,7 +838,7 @@ class FlashCausalLM(Model):
         weights._set_config(model_id, config)
 
         self._supports_embeddings = embedding_dim is not None
-        if not weights.has_tensor("lm_head.weight") and not self._supports_embeddings:
+        if not (weights.has_tensor("lm_head.weight") or weights.has_tensor("language_model.lm_head.weight")) and not self._supports_embeddings:
             raise ValueError(
                 "Model does not have lm head so it is presumed to be for embeddings."
                 "No embedding_dim was provided so we cannot load the model."
