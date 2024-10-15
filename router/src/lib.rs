@@ -477,10 +477,12 @@ struct UsageInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
 enum ResponseFormatType {
+    #[serde(alias = "text")]
     Text,
+    #[serde(alias = "json_object")]
     JsonObject,
+    #[serde(alias = "json_schema")]
     JsonSchema,
 }
 
