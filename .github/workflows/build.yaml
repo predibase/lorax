@@ -1,7 +1,6 @@
 name: Build and push docker image to ghcr
 
 on:
-  pull_request:
   workflow_dispatch:
   push:
     branches:

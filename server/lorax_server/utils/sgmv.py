@@ -10,7 +10,6 @@ try:
     import punica_kernels as _kernels
 
     HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
-    print("HAS_SGMV: ", HAS_SGMV)
 except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
     _kernels = None
