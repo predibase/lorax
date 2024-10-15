@@ -43,7 +43,7 @@ use tower_http::cors::{
 };
 use tracing::{info_span, instrument, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use axum::{extract::Request, middleware::Next, response::Response};
+use axum::{http::Request, middleware::Next, response::Response};
 use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId};
 use opentelemetry::Context;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
@@ -1793,7 +1793,7 @@ fn parse_traceparent(header_value: &str) -> Option<TraceParent> {
     })
 }
 
-pub async fn trace_context_middleware(mut request: Request, next: Next<B>) -> Response {
+pub async fn trace_context_middleware<B>(mut request: Request<B>, next: Next<B>) -> Response {
     let context = request
         .headers()
         .get("traceparent")
