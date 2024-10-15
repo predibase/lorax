@@ -12,9 +12,9 @@ use crate::{
     CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
     CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
     EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken,
-    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
-    TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs,
+    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
+    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -263,6 +263,26 @@ async fn chat_completions_v1(
         adapter_id = None;
     }
 
+    // Modify input values to ResponseFormat to be OpenAI API compatible
+    let response_format: Option<ResponseFormat> = match req.response_format {
+        None => None,
+        Some(openai_format) => {
+            match openai_format.response_format_type {
+                // Ignore when type is text
+                ResponseFormatType::Text => None,
+
+                // Extract schema value from json_schema field if type is json_object or json_schema
+                ResponseFormatType::JsonObject | ResponseFormatType::JsonSchema => openai_format
+                    .json_schema
+                    .and_then(|schema| schema.schema)
+                    .map(|schema_value| ResponseFormat {
+                        r#type: openai_format.response_format_type,
+                        schema: schema_value,
+                    }),
+            }
+        }
+    };
+
     let mut gen_req = CompatGenerateRequest {
         inputs: inputs.to_string(),
         parameters: GenerateParameters {
@@ -288,7 +308,7 @@ async fn chat_completions_v1(
             return_k_alternatives: None,
             apply_chat_template: false,
             seed: req.seed,
-            response_format: req.response_format,
+            response_format: response_format,
         },
         stream: req.stream.unwrap_or(false),
     };
@@ -1115,6 +1135,8 @@ pub async fn run(
     UsageInfo,
     ResponseFormat,
     ResponseFormatType,
+    OpenAiResponseFormat,
+    JsonSchema,
     CompatGenerateRequest,
     GenerateRequest,
     GenerateParameters,
