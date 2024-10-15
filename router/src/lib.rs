@@ -563,17 +563,6 @@ impl From<Message> for TextMessage {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
-struct ExtraBody {
-    // TODO(travis): add other LoRAX params here
-    response_format: Option<ResponseFormat>,
-    repetition_penalty: Option<f32>,
-    top_k: Option<i32>,
-    ignore_eos_token: Option<bool>,
-    adapter_source: Option<String>,
-    api_token: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<Message>,
@@ -593,7 +582,14 @@ struct ChatCompletionRequest {
     #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
-    extra_body: Option<ExtraBody>,
+    // Additional parameters
+    // TODO(travis): add other LoRAX params here
+    response_format: Option<ResponseFormat>,
+    repetition_penalty: Option<f32>,
+    top_k: Option<i32>,
+    ignore_eos_token: Option<bool>,
+    adapter_source: Option<String>,
+    api_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]

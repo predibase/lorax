@@ -267,24 +267,18 @@ async fn chat_completions_v1(
         inputs: inputs.to_string(),
         parameters: GenerateParameters {
             adapter_id: adapter_id,
-            adapter_source: req
-                .extra_body
-                .as_ref()
-                .and_then(|x| x.adapter_source.clone()),
+            adapter_source: req.adapter_source,
             adapter_parameters: None,
-            api_token: req.extra_body.as_ref().and_then(|x| x.api_token.clone()),
+            api_token: req.api_token,
             best_of: req.n.map(|x| x as usize),
             temperature: req.temperature,
-            repetition_penalty: req.extra_body.as_ref().and_then(|x| x.repetition_penalty),
-            top_k: req.extra_body.as_ref().and_then(|x| x.top_k),
+            repetition_penalty: req.repetition_penalty,
+            top_k: req.top_k,
             top_p: req.top_p,
             typical_p: None,
             do_sample: !req.n.is_none(),
             max_new_tokens: req.max_tokens.map(|x| x as u32),
-            ignore_eos_token: req
-                .extra_body
-                .as_ref()
-                .map_or(false, |x| x.ignore_eos_token.unwrap_or(false)),
+            ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
             return_full_text: None,
             stop: req.stop,
             truncate: None,
@@ -294,10 +288,7 @@ async fn chat_completions_v1(
             return_k_alternatives: None,
             apply_chat_template: false,
             seed: req.seed,
-            response_format: req
-                .extra_body
-                .as_ref()
-                .and_then(|x| x.response_format.clone()),
+            response_format: req.response_format,
         },
         stream: req.stream.unwrap_or(false),
     };
