@@ -18,7 +18,7 @@ use lorax_client::{MajoritySignMethod, MergeStrategy};
 use batch::Entry;
 use infer::Infer;
 use loader::AdapterLoader;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 use validation::Validation;
