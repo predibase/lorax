@@ -1380,8 +1380,8 @@ pub async fn run(
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
         .layer(OtelAxumLayer::default())
-        .layer(OtelInResponseLayer::default())
         .layer(axum::middleware::from_fn(trace_context_middleware))
+        .layer(OtelInResponseLayer::default())
         .layer(cors_layer)
         .layer(Extension(cloned_tokenizer));
 
