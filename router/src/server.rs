@@ -14,7 +14,7 @@ use crate::{
     EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
     GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken,
     ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
-    TokenizeRequest, TokenizeResponse, UsageInfo, Validation, logging,
+    TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
