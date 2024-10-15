@@ -18,7 +18,7 @@ use lorax_client::{MajoritySignMethod, MergeStrategy};
 use batch::Entry;
 use infer::Infer;
 use loader::AdapterLoader;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 use validation::Validation;
@@ -477,9 +477,11 @@ struct UsageInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 enum ResponseFormatType {
-    #[serde(alias = "json_object")]
+    Text,
     JsonObject,
+    JsonSchema,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -487,6 +489,25 @@ struct ResponseFormat {
     #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
     schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+struct JsonSchema {
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    description: Option<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    name: String,
+    schema: Option<serde_json::Value>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    strict: Option<bool>,
+}
+
+// TODO check if json_schema field is required if type is json_schema
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct OpenAiResponseFormat {
+    #[serde(rename(deserialize = "type"))]
+    response_format_type: ResponseFormatType,
+    json_schema: Option<JsonSchema>,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
@@ -582,9 +603,9 @@ struct ChatCompletionRequest {
     #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
+    response_format: Option<OpenAiResponseFormat>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
-    response_format: Option<ResponseFormat>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
