@@ -258,6 +258,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
             input_lengths=input_lengths,
             max_s=max_s,
             prefill_cache_indices=None,
+            cross_attention_states=None,
             adapter_data=adapter_data,
         )
         if lm_head_indices is not None:
