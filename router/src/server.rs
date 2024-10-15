@@ -43,7 +43,7 @@ use tower_http::cors::{
 };
 use tracing::{info_span, instrument, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use axum::{http::Request, middleware::Next, response::Response};
+use axum::{http::Request, middleware::Next};
 use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId};
 use opentelemetry::Context;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
@@ -1381,6 +1381,7 @@ pub async fn run(
         .layer(Extension(prom_handle.clone()))
         .layer(OtelAxumLayer::default())
         .layer(axum::middleware::from_fn(trace_context_middleware))
+        .layer(OtelInResponseLayer::default())
         .layer(cors_layer)
         .layer(Extension(cloned_tokenizer));
 
