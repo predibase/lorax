@@ -10,7 +10,6 @@ use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
 /// Payload validation logic
-use serde_json::json;
 use std::io::Cursor;
 use std::iter;
 use thiserror::Error;

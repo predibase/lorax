@@ -72,12 +72,7 @@ impl ChatTemplateRenderer {
         env.set_unknown_method_callback(pycompat::unknown_method_callback);
         let template_str = template.into_boxed_str();
         env.add_function("raise_exception", raise_exception);
-
-        // TODO(travis): revisit when we add tool usage
-        // check if contains the tools variable within the template
-        // let use_default_tool_template =
-        //     !template_str.as_ref().replace(' ', "").contains("{{tools}}");
-        let use_default_tool_template = false;
+        tracing::debug!("Loading template: {}", template_str);
 
         // leaking env and template_str as read-only, static resources for performance.
         let template = Box::leak(env)
@@ -86,6 +81,10 @@ impl ChatTemplateRenderer {
 
         // get the list of variables that are used in the template
         let variables = template.undeclared_variables(true);
+
+        // check if the `tools` variable is used in the template
+        let use_default_tool_template = !variables.contains("tools");
+        tracing::debug!("Use default tool template: {}", use_default_tool_template);
 
         Self {
             template,
