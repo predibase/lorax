@@ -887,41 +887,6 @@ impl From<CompletionRequest> for CompatGenerateRequest {
     }
 }
 
-impl From<ChatCompletionRequest> for CompatGenerateRequest {
-    fn from(req: ChatCompletionRequest) -> Self {
-        CompatGenerateRequest {
-            inputs: serde_json::to_string(&req.messages).unwrap(),
-            parameters: GenerateParameters {
-                adapter_id: req.model.parse().ok(),
-                adapter_source: req.adapter_source,
-                adapter_parameters: None,
-                api_token: req.api_token,
-                best_of: req.n.map(|x| x as usize),
-                temperature: req.temperature,
-                repetition_penalty: req.repetition_penalty,
-                top_k: req.top_k,
-                top_p: req.top_p,
-                typical_p: None,
-                do_sample: !req.n.is_none(),
-                max_new_tokens: req.max_tokens.map(|x| x as u32),
-                ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
-                return_full_text: None,
-                stop: req.stop,
-                truncate: None,
-                watermark: false,
-                details: true,
-                decoder_input_details: false,
-                return_k_alternatives: None,
-                apply_chat_template: true,
-                seed: req.seed,
-                response_format: req.response_format,
-                tools: req.tools,
-            },
-            stream: req.stream.unwrap_or(false),
-        }
-    }
-}
-
 impl From<GenerateResponse> for CompletionResponse {
     fn from(resp: GenerateResponse) -> Self {
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
