@@ -2,6 +2,7 @@
 mod adapter;
 mod batch;
 mod block_allocator;
+pub mod config;
 mod health;
 mod infer;
 mod loader;
@@ -74,8 +75,6 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
     #[schema(nullable = true, example = "http://localhost:8899")]
     pub request_logger_url: Option<String>,
-    #[schema(example = false)]
-    pub embedding_model: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
@@ -257,6 +256,7 @@ pub(crate) struct GenerateParameters {
     pub return_k_alternatives: Option<i32>,
     #[serde(default)]
     #[schema(default = "false")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     pub apply_chat_template: bool,
     #[serde(default)]
     #[schema(
@@ -388,7 +388,7 @@ pub struct SimpleToken {
     stop: usize,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Clone)]
 #[serde(rename_all(serialize = "snake_case"))]
 pub(crate) enum FinishReason {
     #[schema(rename = "length")]
@@ -480,14 +480,55 @@ struct UsageInfo {
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 enum ResponseFormatType {
+    #[serde(alias = "text")]
+    Text,
     #[serde(alias = "json_object")]
     JsonObject,
+    #[serde(alias = "json_schema")]
+    JsonSchema,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
+    #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
-    schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
+
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
+}
+
+// Default schema to be used when no value is provided
+fn default_json_schema() -> Option<serde_json::Value> {
+    Some(serde_json::json!({
+        "additionalProperties": {
+            "type": ["object", "string", "integer", "number", "boolean", "null"]
+        },
+        "title": "ArbitraryJsonModel",
+        "type": "object"
+    }))
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+struct JsonSchema {
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    description: Option<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    name: String,
+    schema: Option<serde_json::Value>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    strict: Option<bool>,
+}
+
+// TODO check if json_schema field is required if type is json_schema
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct OpenAiResponseFormat {
+    #[serde(rename(deserialize = "type"))]
+    response_format_type: ResponseFormatType,
+    json_schema: Option<JsonSchema>,
+
+    // For backwards compatibility
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
@@ -615,15 +656,19 @@ struct ChatCompletionRequest {
     #[serde(default)]
     stop: Vec<String>,
     stream: Option<bool>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
+    response_format: Option<OpenAiResponseFormat>,
+    tools: Option<Vec<Tool>>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
-    response_format: Option<ResponseFormat>,
-    tools: Option<Vec<Tool>>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
@@ -635,6 +680,7 @@ struct ChatCompletionRequest {
 struct CompletionRequest {
     model: String,
     prompt: String,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     suffix: Option<String>,
     max_tokens: Option<i32>,
     temperature: Option<f32>,
@@ -645,10 +691,14 @@ struct CompletionRequest {
     echo: Option<bool>,
     #[serde(default)]
     stop: Vec<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
     best_of: Option<i32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
     // Additional parameters
@@ -757,6 +807,7 @@ pub(crate) enum CompletionFinishReason {
     #[schema(rename = "content_filter")]
     ContentFilter,
     #[schema(rename = "tool_calls")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     ToolCalls,
 }
 
@@ -775,26 +826,15 @@ struct ClassifyRequest {
     inputs: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ClassifyResponse {
-    entities: Vec<Entity>,
-}
-
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchClassifyRequest {
     inputs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct BatchClassifyResponse {
-    entities: Vec<Vec<Entity>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct Entity {
-    entity: String,
+    entity_group: String,
     score: f32,
-    index: usize,
     word: String,
     start: usize,
     end: usize,
@@ -803,9 +843,8 @@ struct Entity {
 impl From<EntityMessage> for Entity {
     fn from(entity: EntityMessage) -> Self {
         Entity {
-            entity: entity.entity,
+            entity_group: entity.entity,
             score: entity.score,
-            index: entity.index as usize,
             word: entity.word,
             start: entity.start as usize,
             end: entity.end as usize,
@@ -967,21 +1006,46 @@ impl From<GenerateResponse> for ChatCompletionResponse {
             .unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
 
+        // assign choices as the generated text, and include the best of sequences if available
+        let mut choices = vec![ChatCompletionResponseChoice {
+            index: 0,
+            message: ChatMessage {
+                role: Some("assistant".to_string()),
+                content: Some(resp.generated_text),
+            },
+            finish_reason: resp
+                .details
+                .as_ref()
+                .map(|x| CompletionFinishReason::from(x.finish_reason.clone())),
+        }];
+
+        choices.extend(
+            resp.details
+                .as_ref()
+                .and_then(|x| x.best_of_sequences.as_ref())
+                .into_iter()
+                .flat_map(|seqs| {
+                    seqs.iter()
+                        .enumerate()
+                        .map(|(index, seq)| ChatCompletionResponseChoice {
+                            index: index as i32 + 1,
+                            message: ChatMessage {
+                                role: Some("assistant".to_string()),
+                                content: Some(seq.generated_text.clone()),
+                            },
+                            finish_reason: Some(CompletionFinishReason::from(
+                                seq.finish_reason.clone(),
+                            )),
+                        })
+                }),
+        );
+
         ChatCompletionResponse {
             id: "null".to_string(),
             object: "text_completion".to_string(),
             created: 0,
             model: "null".to_string(),
-            choices: vec![ChatCompletionResponseChoice {
-                index: 0,
-                message: ChatMessage {
-                    role: Some("assistant".to_string()),
-                    content: Some(resp.generated_text),
-                },
-                finish_reason: resp
-                    .details
-                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
-            }],
+            choices: choices,
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
                 total_tokens: total_tokens,
@@ -1094,6 +1158,40 @@ impl TokenizerConfigToken {
             TokenizerConfigToken::String(s) => s,
             TokenizerConfigToken::Object { content } => content,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "processor_class")]
+pub enum HubPreprocessorConfig {
+    Idefics2Processor(Idefics2Preprocessor),
+}
+
+impl HubPreprocessorConfig {
+    pub fn from_file<P: AsRef<std::path::Path>>(filename: P) -> Option<Self> {
+        let content = std::fs::read_to_string(filename).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Idefics2Preprocessor {
+    #[serde(default)]
+    do_image_splitting: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HubProcessorConfig {
+    pub chat_template: Option<ChatTemplateVersions>,
+    pub image_seq_len: usize,
+    pub processor_class: Option<String>,
+}
+
+impl HubProcessorConfig {
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> Option<Self> {
+        std::fs::read_to_string(filename)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
     }
 }
 

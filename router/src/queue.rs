@@ -7,13 +7,9 @@ use std::{
 };
 
 use tokio::{sync::Notify, time::Instant};
-use tracing::{info_span, Span};
+use tracing::info_span;
 
-use crate::{
-    adapter::Adapter,
-    batch::Entry,
-    infer::{InferError, InferStreamResponse},
-};
+use crate::{adapter::Adapter, batch::Entry};
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum AdapterStatus {
@@ -309,7 +305,7 @@ impl AdapterQueuesState {
         let mut oldest_within_limit_adapter = None;
         let mut oldest_within_limit_ts = Instant::now();
         for adapter in self.active_adapters.iter() {
-            let queue = self.queue_map.get(adapter).unwrap().clone();
+            let queue = self.queue_map.get(adapter).unwrap();
             if queue.is_empty() || queue.status() != &AdapterStatus::Ready {
                 continue;
             }
@@ -351,7 +347,7 @@ impl AdapterQueuesState {
         let now = Instant::now();
         let mut adapters_to_remove = HashSet::new();
         for adapter in self.active_adapters.iter() {
-            let queue = self.queue_map.get(adapter).unwrap().clone();
+            let queue = self.queue_map.get(adapter).unwrap();
             if adapters_in_use.contains(&queue.adapter()) {
                 // Cannot modify active adapters that are in use
                 continue;
@@ -385,7 +381,7 @@ impl AdapterQueuesState {
         // have been active over the limit.
         if !self.active_adapters.is_empty() {
             let adapter = self.active_adapters.front().unwrap().clone();
-            let queue = self.queue_map.get(&adapter).unwrap().clone();
+            let queue = self.queue_map.get(&adapter).unwrap();
             if !adapters_in_use.contains(&queue.adapter())
                 && now.duration_since(queue.activation_ts().unwrap()) > self.max_active_time
                 && self.pending_adapters.len() >= 1
@@ -400,7 +396,7 @@ impl AdapterQueuesState {
 
         // Add back cost for all offload adapters
         for adapter in offload_adapters.iter() {
-            let queue = self.queue_map.get(adapter).unwrap().clone();
+            let queue = self.queue_map.get(adapter).unwrap();
             let cost = queue.cost().unwrap();
             self.memory_budget_remaining += cost;
             tracing::info!(

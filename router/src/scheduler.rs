@@ -1,19 +1,17 @@
 use crate::{
     adapter::Adapter,
-    batch::{self, BatchEntries, Entry},
+    batch::{BatchEntries, Entry},
     block_allocator::BlockAllocator,
     queue::{AdapterEvent, AdapterQueuesState},
     AdapterLoader,
 };
-use lorax_client::{Batch, Request, ShardedClient};
-use nohash_hasher::{BuildNoHashHasher, IntMap};
+use lorax_client::{Batch, ShardedClient};
 use std::{
     cmp::{max, min},
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::Arc,
 };
 use tokio::sync::{oneshot, Mutex};
-use tokio::time::Instant;
 use tracing::{info_span, instrument, Instrument, Span};
 
 enum AdapterSchedulerCommand {
@@ -46,6 +44,7 @@ impl AdapterScheduler {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
 
@@ -62,6 +61,7 @@ impl AdapterScheduler {
             speculate,
             max_batch_total_tokens,
             prefix_caching,
+            is_causal_lm,
         ));
 
         Self { sender }
@@ -126,6 +126,7 @@ async fn adapter_scheduler_task(
     speculate: u32,
     max_batch_total_tokens: u32,
     prefix_caching: bool,
+    is_causal_lm: bool,
 ) {
     let mut state = AdapterSchedulerState::new(
         client,
@@ -137,6 +138,7 @@ async fn adapter_scheduler_task(
         speculate,
         max_batch_total_tokens,
         prefix_caching,
+        is_causal_lm,
     );
 
     while let Ok(cmd) = receiver.recv_async().await {
@@ -182,9 +184,11 @@ struct AdapterSchedulerState {
     /// Id of the next batch
     next_batch_id: u64,
 
+    #[allow(dead_code)] // currently unused
     /// Whether the model is using padding
     requires_padding: bool,
 
+    #[allow(dead_code)] // currently unused
     /// Paged Attention block size
     block_size: u32,
 
@@ -209,6 +213,7 @@ impl AdapterSchedulerState {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
@@ -216,7 +221,8 @@ impl AdapterSchedulerState {
         )));
         let loader = AdapterLoader::new(client.clone());
 
-        let block_allocator = (!requires_padding).then(|| {
+        // Only causal LMs require the block allocator, due to paged attention
+        let block_allocator = (!requires_padding && is_causal_lm).then(|| {
             BlockAllocator::new(
                 max_batch_total_tokens,
                 block_size,
@@ -358,6 +364,8 @@ impl AdapterSchedulerState {
                     };
                     decode_tokens += max_new_tokens;
 
+                    // If we're prefix caching, this check could be under-estimating the number of available blocks
+                    // due to shared prefixes, so we'll let the block allocator determine whether we have enough space.
                     if prefill_tokens > prefill_token_budget
                         || (prefill_tokens + decode_tokens + self.speculate) > token_budget
                     {

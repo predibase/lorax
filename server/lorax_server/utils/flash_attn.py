@@ -1,4 +1,5 @@
 import os
+from typing import Union
 
 import torch
 from loguru import logger
@@ -81,7 +82,7 @@ if SYSTEM in {"cuda", "rocm"}:
             architecture_suffix = f"-{SYSTEM}"
             raise ImportError(
                 "Flash Attention V2 is not installed.\n"
-                "Use the official Docker image (ghcr.io/huggingface/text-generation-inference:latest) "
+                "Use the official Docker image (ghcr.io/predibase/lorax:latest) "
                 f"or install flash attention v2 with `cd server && make install install-flash-attention-v2{architecture_suffix}`"
             )
         if SYSTEM == "cuda" and not (is_sm8x or is_sm90):
@@ -118,8 +119,8 @@ if FLASH_INFER:
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        key_cache: torch.Tensor,
-        value_cache: torch.Tensor,
+        key_cache: Union[torch.Tensor, None],
+        value_cache: Union[torch.Tensor, None],
         cu_seqlens,
         max_s,
         softmax_scale,
@@ -127,10 +128,20 @@ if FLASH_INFER:
         causal=True,
         softcap=0.0,
     ):
-        assert window_size_left == -1, "Windowing is not supported with flash infer"
-        from lorax_server.utils.flashinfer_attention import (
-            prefill_with_paged_kv_state,
-        )
+        assert window_size_left == -1, "Windowing is not supported with flash infer when using kv cache"
+        from lorax_server.utils.flashinfer_attention import prefill_state, prefill_with_paged_kv_state
+
+        if key_cache is None or value_cache is None:
+            return prefill_state.get().forward(
+                q,
+                k,
+                v,
+                causal=causal,
+                pos_encoding_mode="NONE",
+                window_left=window_size_left,
+                logits_soft_cap=softcap,
+                sm_scale=softmax_scale,
+            )
 
         return prefill_with_paged_kv_state.get().forward(
             q.contiguous(),
@@ -317,4 +328,8 @@ elif HAS_FLASH_ATTN:
         return out
 
 else:
-    raise NotImplementedError("flash attention is not installed")
+    raise RuntimeError(
+        f"Flash Attention is not available for this system: {SYSTEM}\n"
+        f"If you are running on GPU, please check your environment to ensure CUDA is installed correctly.\n"
+        f"You may also want to check envvars such as LD_PRELOAD for libraries that conflict with your device drivers.\n"
+    )

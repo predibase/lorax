@@ -10,6 +10,9 @@ homepage.workspace = true
 clap = { version = "4.1.4", features = ["derive", "env"] }
 ctrlc = { version = "3.2.5", features = ["termination"] }
 nix = "0.26.2"
+openssl = "0.10.66"
+h2 = "0.3.26"
+rustix = "0.37.25"
 serde = { version = "1.0.152", features = ["derive"]  }
 serde_json = { version = "1.0.93", features = ["preserve_order"] }
 tracing = "0.1.37"
@@ -20,4 +23,4 @@ float_eq = "1.0.1"
 reqwest = { version = "0.11.14", features = ["blocking", "json"] }
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
+vergen = { version = "8.2.5", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }

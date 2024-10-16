@@ -149,7 +149,7 @@ apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install
     && rm -rf /var/lib/apt/lists/*
 
 conda update --force conda
-/opt/conda/bin/conda install -c "nvidia/label/cuda-12.1.0"  cuda==12.1 cudnn && \
+/opt/conda/bin/conda install -c "nvidia"  cuda==12.4 cudnn && \
     /opt/conda/bin/conda clean -ya
 ```
 

@@ -58,8 +58,7 @@ class DistilBertAttention:
         qkv = torch.addmm(self.qkv_bias, hidden_states, self.qkv_weight)
         q, k, v = qkv.view(-1, self.num_heads * 3, self.head_size).split(self.num_heads, dim=1)
 
-        attn_output = torch.empty_like(q)
-        attention(q, k, v, attn_output, cu_seqlens, max_s, self.softmax_scale)
+        attn_output = attention(q, k, v, None, None, cu_seqlens, max_s, self.softmax_scale, causal=False)
 
         hidden_states = torch.addmm(
             self.dense_bias,
@@ -163,8 +162,7 @@ class BertAttention:
         qkv = torch.addmm(self.qkv_bias, hidden_states, self.qkv_weight)
         q, k, v = qkv.view(-1, self.num_heads * 3, self.head_size).split(self.num_heads, dim=1)
 
-        attn_output = torch.empty_like(q)
-        attention(q, k, v, attn_output, cu_seqlens, max_s, self.softmax_scale)
+        attn_output = attention(q, k, v, None, None, cu_seqlens, max_s, self.softmax_scale, causal=False)
 
         hidden_states = torch.addmm(
             self.dense_bias,

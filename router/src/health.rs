@@ -1,10 +1,12 @@
 use lorax_client::{
-    Batch, NextTokenChooserParameters, Request, ShardedClient, StoppingCriteriaParameters,
+    Batch, NextTokenChooserParameters, Request, ShardInfo, ShardedClient,
+    StoppingCriteriaParameters,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 // Note: Request ids and batch ids cannot collide.
+#[allow(dead_code)]
 const LIVENESS_ID: u64 = u64::MAX;
 const BATCH_ID: u64 = u64::MAX;
 
@@ -12,16 +14,29 @@ const BATCH_ID: u64 = u64::MAX;
 pub(crate) struct Health {
     client: ShardedClient,
     generation_health: Arc<AtomicBool>,
+    shard_info: ShardInfo,
 }
 
 impl Health {
-    pub(crate) fn new(client: ShardedClient, generation_health: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new(
+        client: ShardedClient,
+        generation_health: Arc<AtomicBool>,
+        shard_info: ShardInfo,
+    ) -> Self {
         Self {
+            #[allow(dead_code)]
             client,
+            #[allow(dead_code)]
             generation_health,
+            shard_info,
         }
     }
 
+    pub(crate) fn shard_info(&self) -> &ShardInfo {
+        &self.shard_info
+    }
+
+    #[allow(dead_code)]
     pub(crate) async fn check(&mut self) -> bool {
         if self.generation_health.load(Ordering::SeqCst) {
             // Generation is healthy, we only check that the shards are answering gRPC calls

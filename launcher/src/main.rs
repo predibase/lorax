@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use nix::libc::ip_mreq_source;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::Deserialize;
@@ -93,6 +94,28 @@ impl std::fmt::Display for Dtype {
     }
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+enum Backend {
+    #[clap(name = "fa2")]
+    FA2,
+    #[clap(name = "flashinfer")]
+    FlashInfer,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // To keep in sync with `server`.
+        match self {
+            Backend::FA2 => {
+                write!(f, "fa2")
+            }
+            Backend::FlashInfer => {
+                write!(f, "flashinfer")
+            }
+        }
+    }
+}
+
 /// App Configuration
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -153,12 +176,6 @@ struct Args {
     #[clap(long, env)]
     sharded: Option<bool>,
 
-    /// Whether this model is mean for embeddings or text generation.
-    /// By default models are for text generation.
-    /// Setting it to `true` will enable the embedding endpoints and disable the generation ones.
-    #[clap(long, env)]
-    embedding_model: Option<bool>,
-
     /// The number of shards to use if you don't want to use all GPUs on a given machine.
     /// You can use `CUDA_VISIBLE_DEVICES=0,1 lorax-launcher... --num_shard 2`
     /// and `CUDA_VISIBLE_DEVICES=2,3 lorax-launcher... --num_shard 2` to
@@ -184,6 +201,20 @@ struct Args {
     /// The list of adapter ids to preload during initialization (to avoid cold start times).
     #[clap(long, env)]
     preloaded_adapter_ids: Vec<String>,
+
+    /// The source to use for the preloaded adapters.
+    /// If unset, will default to using the `adapter_source` value.
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(long, env)]
+    preloaded_adapter_source: Option<String>,
+
+    /// The API token to use when fetching adapters from pbase.
+    /// If specified, will set the environment variable PREDIBASE_API_TOKEN.
+    #[clap(long, env)]
+    predibase_api_token: Option<String>,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -298,10 +329,16 @@ struct Args {
     #[clap(long, env)]
     eager_prefill: Option<bool>,
 
-    /// Whether to use the prefix caching mechanism.
-    /// TODO(travis): better comment here
+    /// Whether to use the prefix caching mechanism. This will skip computing attention on previously cached prefixes
+    /// in the prompt. Useful in cases where many queries need to be run over a shared context, or for long multi-turn
+    /// chats conversations.
     #[clap(long, env)]
     prefix_caching: Option<bool>,
+
+    /// Whether to merge the weights of the adapter with the base model weights. This will disable dynamic adapter
+    /// loading.
+    #[clap(long, env, value_enum)]
+    merge_adapter_weights: bool,
 
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
     #[clap(default_value = "1024", long, env)]
@@ -412,6 +449,17 @@ struct Args {
     /// include a `chat_template`. If not provided, the default config will be used from the model hub.
     #[clap(long, env)]
     tokenizer_config_path: Option<String>,
+
+    /// The backend to use for the model. Can be `fa2` or `flashinfer`.
+    #[clap(default_value = "fa2", long, env, value_enum)]
+    backend: Backend,
+
+    /// The embedding dimension to use for the model.
+    #[clap(long, env)]
+    embedding_dim: Option<usize>,
+
+    #[clap(long, env)]
+    disable_sgmv: bool,
 }
 
 #[derive(Debug)]
@@ -431,6 +479,8 @@ fn shard_manager(
     compile: bool,
     speculative_tokens: Option<usize>,
     preloaded_adapter_ids: Vec<String>,
+    preloaded_adapter_source: Option<String>,
+    predibase_api_token: Option<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -446,10 +496,14 @@ fn shard_manager(
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
     prefix_caching: Option<bool>,
+    merge_adapter_weights: bool,
+    backend: Backend,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
     _shutdown_sender: mpsc::Sender<()>,
+    embedding_dim: Option<usize>,
+    disable_sgmv: bool,
 ) {
     // Enter shard-manager tracing span
     let _span = tracing::span!(tracing::Level::INFO, "shard-manager", rank = rank).entered();
@@ -461,6 +515,9 @@ fn shard_manager(
     if uds.exists() {
         fs::remove_file(uds).unwrap();
     }
+
+    // Copy current process env
+    let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
     // Process args
     let mut shard_args = vec![
@@ -515,6 +572,23 @@ fn shard_manager(
         shard_args.push(adapter_id);
     }
 
+    // Merge adapter weights
+    if merge_adapter_weights {
+        shard_args.push("--merge-adapter-weights".to_string());
+    }
+    // Preloaded adapter source
+    if let Some(preloaded_adapter_source) = preloaded_adapter_source {
+        shard_args.push("--preloaded-adapter-source".to_string());
+        shard_args.push(preloaded_adapter_source);
+    }
+
+    if let Some(predibase_api_token) = predibase_api_token {
+        envs.push((
+            "PREDIBASE_API_TOKEN".into(),
+            predibase_api_token.to_string().into(),
+        ));
+    }
+
     if let Some(dtype) = dtype {
         shard_args.push("--dtype".to_string());
         shard_args.push(dtype.to_string())
@@ -530,6 +604,12 @@ fn shard_manager(
     if let Some(otlp_endpoint) = otlp_endpoint {
         shard_args.push("--otlp-endpoint".to_string());
         shard_args.push(otlp_endpoint);
+    }
+
+    // Embedding dimension
+    if let Some(embedding_dim) = embedding_dim {
+        shard_args.push("--embedding-dim".to_string());
+        shard_args.push(embedding_dim.to_string())
     }
 
     // Copy current process env
@@ -557,6 +637,15 @@ fn shard_manager(
     // Prefix caching
     if let Some(prefix_caching) = prefix_caching {
         envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+    }
+
+    // Backend
+    if backend == Backend::FlashInfer {
+        envs.push(("FLASH_INFER".into(), "1".into()));
+    }
+
+    if disable_sgmv {
+        envs.push(("DISABLE_SGMV".into(), "1".into()))
     }
 
     // Safetensors load fast
@@ -855,6 +944,12 @@ fn download_convert_model(
         download_args.push(adapter_id.to_string());
     }
 
+    // Embedding dimension
+    if let Some(embedding_dim) = args.embedding_dim {
+        download_args.push("--embedding-dim".to_string());
+        download_args.push(embedding_dim.to_string())
+    }
+
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
@@ -987,6 +1082,8 @@ fn spawn_shards(
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
+        let preloaded_adapter_source = args.preloaded_adapter_source.clone();
+        let predibase_api_token = args.predibase_api_token.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -996,6 +1093,10 @@ fn spawn_shards(
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
         let prefix_caching = args.prefix_caching;
+        let merge_adapter_weights = args.merge_adapter_weights;
+        let backend = args.backend;
+        let embedding_dim = args.embedding_dim;
+        let disable_sgmv = args.disable_sgmv;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1007,6 +1108,8 @@ fn spawn_shards(
                 compile,
                 speculative_tokens,
                 preloaded_adapter_ids,
+                preloaded_adapter_source,
+                predibase_api_token,
                 dtype,
                 trust_remote_code,
                 uds_path,
@@ -1022,10 +1125,14 @@ fn spawn_shards(
                 cuda_memory_fraction,
                 adapter_memory_fraction,
                 prefix_caching,
+                merge_adapter_weights,
+                backend,
                 otlp_endpoint,
                 status_sender,
                 shutdown,
                 shutdown_sender,
+                embedding_dim,
+                disable_sgmv,
             )
         });
     }
@@ -1167,10 +1274,6 @@ fn spawn_webserver(
     for origin in args.cors_allow_credentials.into_iter() {
         router_args.push("--cors-allow-credentials".to_string());
         router_args.push(origin.to_string());
-    }
-
-    if args.embedding_model.unwrap_or(false) {
-        router_args.push("--embedding-model".to_string());
     }
 
     if args.eager_prefill.unwrap_or(false) {

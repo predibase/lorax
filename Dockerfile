@@ -1,5 +1,5 @@
 # Rust builder
-FROM lukemathwalker/cargo-chef:latest-rust-1.75 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.79 AS chef
 WORKDIR /usr/src
 
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -172,9 +172,6 @@ ENV HUGGINGFACE_HUB_CACHE=/data \
     HF_HUB_ENABLE_HF_TRANSFER=1 \
     PORT=80
 
-# vLLM needs this in order to work without error
-ENV LD_PRELOAD=/usr/local/cuda/compat/libcuda.so
-
 WORKDIR /usr/src
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -219,7 +216,7 @@ COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-31
 RUN pip install einops --no-cache-dir
 
 # Install flashinfer
-RUN pip install flashinfer==0.1.5+cu124torch2.4 -i https://flashinfer.ai/whl/cu124/torch2.4
+RUN pip install --no-cache-dir flashinfer==0.1.5+cu124torch2.4 -i https://flashinfer.ai/whl/cu124/torch2.4
 
 # Install server
 COPY proto proto
@@ -228,7 +225,7 @@ COPY server/Makefile server/Makefile
 
 RUN cd server && \
     make gen-server && \
-    pip install -r requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt && \
     pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
 
 # Install router
@@ -244,6 +241,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 # Final image
 FROM base
+LABEL source="https://github.com/predibase/lorax"
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo curl unzip parallel time
 

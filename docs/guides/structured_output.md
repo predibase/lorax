@@ -35,7 +35,7 @@ valid next tokens using this FSM and sets the likelihood of invalid tokens to `-
 This example follows the [JSON-structured generation example](https://outlines-dev.github.io/outlines/quickstart/#json-structured-generation) in the Outlines quickstart.
 
 We assume that you have already deployed LoRAX using a suitable base model and installed the [LoRAX Python Client](../reference/python_client.md).
-Alternatively, see [below](structured_output.md#openai-compatible-api) for an example of structured generation using an 
+Alternatively, see [below](structured_output.md#example-openai-compatible-api) for an example of structured generation using an 
 OpenAI client.
 
 ```python
@@ -60,14 +60,36 @@ class Character(BaseModel):
 
 client = Client("http://127.0.0.1:8080")
 
-prompt = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. "
-response = client.generate(prompt, response_format={
+# Example 1: Using a schema
+prompt_with_schema = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength."
+response_with_schema = client.generate(prompt_with_schema, response_format={
     "type": "json_object",
     "schema": Character.model_json_schema(),
 })
 
-my_character = json.loads(response.generated_text)
-print(my_character)
+my_character_with_schema = json.loads(response_with_schema.generated_text)\
+print(my_character_with_schema)
+# {
+#    "name": "Thorin",
+#    "age": 45,
+#    "armor": "plate",
+#    "strength": 90
+# }
+
+# Example 2: Without a schema (arbitrary JSON)
+prompt_without_schema = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength."
+response_without_schema = client.generate(prompt_without_schema, response_format={
+    "type": "json_object",  # No schema provided
+})
+
+my_character_without_schema = json.loads(response_without_schema.generated_text)
+print(my_character_without_schema)
+# {
+#    "characterName": "Aragon",
+#    "age": 38,
+#    "armorType": "chainmail",
+#    "power": 78
+# }
 ```
 
 You can also specify the JSON schema directly rather than using Pydantic:
@@ -99,7 +121,88 @@ Structured generation of JSON following a schema is supported via the `response_
 
 !!! note
 
-    Currently a schema is **required**. This differs from the existing OpenAI JSON mode, in which no schema is supported.
+    Currently, `response_format` in OpenAI interface differs slightly from the LoRAX request interface.
+    When calling the OpenAI-compatible API, you should format the request exactly as specified in the official documentation.
+    For more details, refer to the OpenAI documentation here: https://platform.openai.com/docs/api-reference/chat/create#chat-create-response_format.
+
+#### Type 1: `text` (default)
+
+- This is the standard mode where the model generates plain text output.
+- In this example, the model simply returns plain text output.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="EMPTY",
+    base_url="http://127.0.0.1:8080/v1",
+)
+
+resp = client.chat.completions.create(
+    model="",  # optional: specify an adapter ID here
+    messages=[
+        {
+            "role": "user",
+            "content": "Describe a medieval fantasy character.",
+        },
+    ],
+    max_tokens=100,
+    response_format={
+        "type": "text",  # Default response type, plain text output
+    },
+)
+
+print(resp.choices[0].message.content)
+
+'''
+Sir Alaric is a noble knight of the realm. At the age of 35, he dons a suit of shining plate armor, protecting his strong, muscular frame. His strength is unparalleled in the kingdom, allowing him to wield his massive greatsword with ease.
+'''
+```
+
+#### Type 2: `json_object`
+
+- This mode outputs arbitrary JSON objects, making it ideal for generating data in a flexible JSON format without enforcing any schema. It's similar to OpenAI’s JSON mode.
+- In this example, the model returns an arbitrary JSON object without enforcing a predefined schema.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="EMPTY",
+    base_url="http://127.0.0.1:8080/v1",
+)
+
+resp = client.chat.completions.create(
+    model="",  # optional: specify an adapter ID here
+    messages=[
+        {
+            "role": "user",
+            "content": "Generate a new character for my game: name, age, armor type, and strength.",
+        },
+    ],
+    max_tokens=100,
+    response_format={
+        "type": "json_object",  # Generate arbitrary JSON without a schema
+    },
+)
+
+my_character = json.loads(resp.choices[0].message.content)
+print(my_character)
+
+'''
+{
+    "name": "Eldrin",
+    "age": 27,
+    "armor": "Dragonscale Armor",
+    "strength": "Fire Resistance"
+}
+'''
+```
+
+#### Type 3: `json_schema`
+
+- The model returns a structured JSON object that adheres to the predefined schema. This ensures that the JSON follows the format of the `Character` model provided earlier.
+- In this example, the model generates structured JSON output that adheres to a predefined schema.
 
 ```python
 import json
@@ -131,18 +234,30 @@ resp = client.chat.completions.create(
     messages=[
         {
             "role": "user",
-            "content": "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. ",
+            "content": "Generate a new character for my game: name, age (between 1 and 99), armor, and strength.",
         },
     ],
     max_tokens=100,
     response_format={
-        "type": "json_object",
-        "schema": Character.model_json_schema(),
+        "type": "json_schema",  # Generate structured JSON output based on a schema
+        "json_schema": {
+            "name": "Character",  # Name of the schema
+            "schema": Character.model_json_schema(),  # The JSON schema generated by Pydantic
+        },
     },
 )
 
 my_character = json.loads(resp.choices[0].message.content)
 print(my_character)
+
+'''
+{
+    "name": "Thorin",
+    "age": 45,
+    "armor": "plate",
+    "strength": 90
+}
+'''
 ```
 
 

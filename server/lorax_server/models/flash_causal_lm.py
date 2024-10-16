@@ -10,7 +10,7 @@ import torch.distributed
 from loguru import logger
 from opentelemetry import trace
 from tqdm import tqdm
-from transformers import PreTrainedTokenizerBase
+from transformers import AutoConfig, AutoTokenizer, GenerationConfig, PretrainedConfig, PreTrainedTokenizerBase
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.models.model import Model
@@ -24,14 +24,17 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
-from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID
+from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.dist import MEMORY_FRACTION
+from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
 from lorax_server.utils.graph import GraphCache
+from lorax_server.utils.import_utils import get_cuda_free_memory
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
+from lorax_server.utils.sources.hub import weight_files
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, PREFIX_CACHING, get_speculative_tokens, warmup_mode
 from lorax_server.utils.tokenizer import TokenizerManager
+from lorax_server.utils.weights import Weights
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
 
@@ -126,28 +129,41 @@ class FlashCausalLMBatch(Batch):
         )
 
     @classmethod
+    def to_pb_embed(self, batch, embeddings) -> generate_pb2.EmbedResponse:
+        embeddings_proto = []
+        for i, embedding in enumerate(embeddings):
+            embeddings_proto.append(generate_pb2.Embedding(request_id=batch.requests[i].id, values=embedding))
+        return generate_pb2.EmbedResponse(embeddings=embeddings_proto)
+
+    @classmethod
     def from_pb(
         cls,
         pb: generate_pb2.Batch,
         tokenizer: PreTrainedTokenizerBase,
         tokenizers: TokenizerManager,
+        processor,
+        config,
         dtype: torch.dtype,
         device: torch.device,
+        batch_tokenized_inputs=None,
     ) -> "FlashCausalLMBatch":
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
 
-        batch_inputs = []
-        max_truncation = 0
-        for r in pb.requests:
-            inputs = tokenizers.get_inputs(r, tokenizer)
-            batch_inputs.append(inputs)
-            max_truncation = max(max_truncation, r.truncate)
+        if batch_tokenized_inputs is None:
+            batch_inputs = []
+            max_truncation = 0
+            for r in pb.requests:
+                inputs = tokenizers.get_inputs(r, tokenizer)
+                batch_inputs.append(inputs)
+                max_truncation = max(max_truncation, r.truncate)
 
-        if all(r.HasField("tokenized_inputs") for r in pb.requests):
-            batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
-        else:
-            batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)["input_ids"]
+            if all(r.HasField("tokenized_inputs") and len(r.tokenized_inputs.ids) > 0 for r in pb.requests):
+                batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
+            else:
+                batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)[
+                    "input_ids"
+                ]
 
         position_ids = []
         cu_seqlen_prefill = [0]
@@ -393,6 +409,19 @@ class FlashCausalLMBatch(Batch):
             ),
             prefill_cache_indices=prefill_cache_indices if SLIDING_WINDOW is not None else None,
         )
+
+    @classmethod
+    def from_pb_embed(
+        self,
+        pb: generate_pb2.EmbedRequest,
+        tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
+        processor,
+        config,
+        dtype,
+        device,
+    ) -> "FlashCausalLMBatch":
+        return self.from_pb(pb, tokenizer, tokenizers, None, None, dtype, device)
 
     @tracer.start_as_current_span("filter")
     def filter(self, request_ids: List[int]) -> "FlashCausalLMBatch":
@@ -731,29 +760,129 @@ class FlashCausalLM(Model):
     def __init__(
         self,
         model_id: str,
-        model: torch.nn.Module,
-        tokenizer: PreTrainedTokenizerBase,
-        num_layers: int,
-        num_kv_heads: int,
-        head_size: int,
-        num_heads: int,
+        model_cls: Type[torch.nn.Module],
         dtype: torch.dtype,
-        device: torch.device,
-        rank: int = 0,
-        world_size: int = 1,
-        sliding_window: Optional[int] = None,
-        compile: bool = False,
+        revision: Optional[str] = None,
         adapter_id: str = BASE_MODEL_ADAPTER_ID,
         adapter_source: str = HUB,
+        tokenizer_cls: Type[PreTrainedTokenizerBase] = AutoTokenizer,
+        config_cls: Type[PretrainedConfig] = AutoConfig,
+        # Used for Santacoder override of config
+        num_kv_heads: Optional[int] = None,
+        # Deepseek V2 uses different QK and V dims.
+        head_size: Optional[int] = None,
+        quantize: Optional[str] = None,
+        compile: bool = False,
+        merge_adapter_weights: bool = False,
+        embedding_dim: Optional[int] = None,
         trust_remote_code: bool = False,
+        processor=None,
     ):
         global SLIDING_WINDOW
         global SLIDING_WINDOW_BLOCKS
 
-        self.num_layers = num_layers
-        self.num_kv_heads = num_kv_heads
-        self.head_size = head_size
-        self.num_heads = num_heads
+        self.process_group, rank, world_size = initialize_torch_distributed()
+        if torch.cuda.is_available():
+            device = torch.device(f"cuda:{rank}")
+            dtype = torch.float16 if dtype is None else dtype
+        else:
+            raise NotImplementedError("FlashLlama is only available on GPU")
+
+        tokenizer = tokenizer_cls.from_pretrained(
+            model_id,
+            revision=revision,
+            padding_side="left",
+            truncation_side="left",
+            trust_remote_code=trust_remote_code,
+        )
+
+        try:
+            # Override the tokenizer's eos_token_id with the one from the generation_config
+            # if it is a list or set. We need to do this by adding a new property as the tokenizer
+            # does not officially support multiple eos_token_ids.
+            generation_config = GenerationConfig.from_pretrained(
+                model_id, revision=revision, trust_remote_code=trust_remote_code
+            )
+
+            if isinstance(generation_config.eos_token_id, (list, set)):
+                tokenizer.eos_token_ids = set(generation_config.eos_token_id)
+        except Exception:
+            pass
+
+        config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
+        config.quantize = quantize
+
+        torch.distributed.barrier(group=self.process_group)
+
+        filenames = weight_files(model_id, revision=revision, extension=".safetensors", embedding_dim=embedding_dim)
+        merged_weight_filenames = None
+        if merge_adapter_weights:
+            if len(adapter_id) > 0:
+                logger.info(f"Merging adapter weights from adapter_id {adapter_id} into model weights.")
+                # Need to pass the adapter source here
+                merged_weight_filenames = create_merged_weight_files(
+                    adapter_id, model_id, model_weight_filenames=filenames, adapter_source=adapter_source
+                )
+                self.dynamic_adapter_loading_enabled = False
+                self.adapter_id = adapter_id
+            else:
+                raise ValueError("Cannot merge adapter weights without an adapter_id")
+
+        weights = Weights(
+            filenames,
+            device,
+            dtype,
+            process_group=self.process_group,
+            merged_weight_filenames=merged_weight_filenames,
+        )
+        weights._set_config(model_id, config)
+
+        self._supports_embeddings = embedding_dim is not None
+        if not (weights.has_tensor("lm_head.weight") or weights.has_tensor("language_model.lm_head.weight")) and not self._supports_embeddings:
+            raise ValueError(
+                "Model does not have lm head so it is presumed to be for embeddings."
+                "No embedding_dim was provided so we cannot load the model."
+                "Please pass in an embedding_dim to the model."
+            )
+
+        prefix = ""
+        model = model_cls(prefix, config, weights)
+
+        torch.distributed.barrier(group=self.process_group)
+
+        # VLM models define the config we care about in their text_config
+        text_config = getattr(config, "text_config", None)
+        if text_config is not None:
+            config = text_config
+
+        sliding_window = None
+        if getattr(config, "sliding_window", None) is not None:
+            sliding_window = config.sliding_window
+        else:
+            config.sliding_window = None
+
+        self.num_layers = config.num_hidden_layers
+        self.num_heads = config.num_attention_heads // self.process_group.size()
+        # Validation is done in the model itself
+        if num_kv_heads is None:
+            num_kv_heads = getattr(config, "num_key_value_heads", None)
+            # GPT-2 workaround
+            if num_kv_heads is None:
+                num_kv_heads = getattr(config, "n_head", None)
+        if num_kv_heads is None:
+            raise ValueError("Cannot get the number of key/value heads")
+        self.num_kv_heads = num_kv_heads // self.process_group.size() if num_kv_heads > 1 else num_kv_heads
+        assert self.num_kv_heads > 0
+
+        if head_size is None:
+            # Some models use GQA and different sizes for o_proj
+            # and q_proj, that allows for that.
+            if hasattr(config, "head_dim"):
+                self.head_size = config.head_dim
+            else:
+                self.head_size = config.hidden_size // config.num_attention_heads
+        else:
+            self.head_size = head_size
 
         super(FlashCausalLM, self).__init__(
             model_id=model_id,
@@ -767,8 +896,9 @@ class FlashCausalLM(Model):
             sliding_window=sliding_window,
             adapter_id=adapter_id,
             adapter_source=adapter_source,
-            dynamic_adapter_loading_enabled=True,
+            dynamic_adapter_loading_enabled=not merge_adapter_weights,
             trust_remote_code=trust_remote_code,
+            processor=processor,
         )
 
         if sliding_window is not None:
@@ -865,7 +995,8 @@ class FlashCausalLM(Model):
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
-    def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int):
+    def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
+        # The warmup batch is the biggest batch we could ever receive
         max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
@@ -879,17 +1010,18 @@ class FlashCausalLM(Model):
                 self.device,
             )
 
-            with warmup_mode():
-                logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
-                with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
-                    for _ in range(max_new_tokens):
-                        cur_seqlen = batch.max_seqlen
-                        _, batch = self.generate_token(batch, is_warmup=True)
-                        new_seqlen = batch.max_seqlen
-                        pbar.update(new_seqlen - cur_seqlen)
-                        if new_seqlen >= max_total_tokens - get_speculative_tokens():
-                            break
-                logger.info("Finished generating warmup tokens")
+            if not embedding_model:
+                with warmup_mode():
+                    logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
+                    with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
+                        for _ in range(max_new_tokens):
+                            cur_seqlen = batch.max_seqlen
+                            _, batch = self.generate_token(batch, is_warmup=True)
+                            new_seqlen = batch.max_seqlen
+                            pbar.update(new_seqlen - cur_seqlen)
+                            if new_seqlen >= max_total_tokens - get_speculative_tokens():
+                                break
+                    logger.info("Finished generating warmup tokens")
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) or isinstance(e, torch.cuda.OutOfMemoryError):
                 raise RuntimeError(
@@ -934,21 +1066,16 @@ class FlashCausalLM(Model):
         cache_block_size = BLOCK_SIZE * self.num_kv_heads * self.head_size
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
-        total_free_memory, _ = torch.cuda.mem_get_info(self.device)
-        total_free_memory -= graph_cache_memory
-
-        total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
-
-        free_memory = max(
-            0,
-            total_free_memory - (1 - MEMORY_FRACTION + ADAPTER_MEMORY_FRACTION) * total_gpu_memory,
-        )
+        free_memory = get_cuda_free_memory(self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION)
+        free_memory -= graph_cache_memory
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
+        batch_num_blocks = batch.num_blocks if batch is not None else 0
         num_blocks = (
-            int(free_memory // total_cache_size)
+            # Leave 5% for some wiggle room
+            int((free_memory * MEMORY_WIGGLE_ROOM) // total_cache_size)
             # Add batch.num_blocks as we allocated it above, so it is included in the peak memory.
-            + batch.num_blocks
+            + batch_num_blocks
         )
 
         del batch
@@ -967,6 +1094,7 @@ class FlashCausalLM(Model):
         if self.model_graph_wrapper is not None:
             # Warmup the graph cache. Needs to be done after setting cache manager as
             # tracing will use the static kv cache tensors
+            self.model_graph_wrapper.kv_cache = self.kv_cache
             self.model_graph_wrapper.warmup()
             torch.cuda.synchronize(self.device)
 
@@ -1030,10 +1158,12 @@ class FlashCausalLM(Model):
         if (
             self.model_graph_wrapper is not None
             and not prefill
-            and self.model_graph_wrapper.can_use_graph(batch, adapter_data)
         ):
-            use_graph = True
-            model = self.model_graph_wrapper
+            if self.model_graph_wrapper.can_use_graph(batch, adapter_data):
+                use_graph = True
+                model = self.model_graph_wrapper
+            else:
+                logger.info("CUDA graphs enabled but batch is incompatible, falling back to eager mode.")
 
         input_ids = batch.input_ids
         position_ids = batch.position_ids
@@ -1066,7 +1196,7 @@ class FlashCausalLM(Model):
         if not use_graph:
             # eager mode
             input_lengths = input_lengths + prefix_lens_tensor
-            if PREFIX_CACHING:
+            if FLASH_INFER:
                 block_tables = block_tables_to_ragged(
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,
