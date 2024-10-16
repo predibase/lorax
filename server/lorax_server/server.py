@@ -318,6 +318,9 @@ def serve(
             if _adapter_source == generate_pb2.AdapterSource.PBASE:
                 # Derive the predibase token from an env variable if we are using predibase adapters.
                 adapter_preload_api_token = os.getenv("PREDIBASE_API_TOKEN")
+            elif _adapter_source == generate_pb2.AdapterSource.HUB:
+                # Use global token during init
+                adapter_preload_api_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 
             preloaded_adapters = [
                 generate_pb2.PreloadedAdapter(
