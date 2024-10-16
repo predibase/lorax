@@ -273,7 +273,6 @@ pub(crate) struct GenerateParameters {
         example = json!(r#"{"type": "json_object", "schema": {type": "string", "title": "response"}}"#)
     )]
     pub response_format: Option<ResponseFormat>,
-    pub tools: Option<Vec<Tool>>,
 }
 
 fn default_parameters() -> GenerateParameters {
@@ -301,7 +300,6 @@ fn default_parameters() -> GenerateParameters {
         apply_chat_template: false,
         seed: None,
         response_format: None,
-        tools: None,
     }
 }
 
@@ -605,13 +603,6 @@ impl From<Message> for TextMessage {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
-#[serde(tag = "type")]
-enum Tool {
-    #[serde(alias = "function")]
-    Function { function: FunctionSpec },
-}
-
-#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct FunctionSpec {
     name: String,
     description: String,
@@ -666,7 +657,18 @@ struct ChatCompletionRequest {
     user: Option<String>,
     seed: Option<u64>,
     response_format: Option<OpenAiResponseFormat>,
-    tools: Option<Vec<Tool>>,
+
+    /// A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of
+    /// functions the model may generate JSON inputs for.
+    #[serde(default)]
+    #[schema(nullable = true, example = "null")]
+    pub tools: Option<Vec<Tool>>,
+
+    /// A specific tool to use. If not provided, the model will default to use any of the tools provided in the tools parameter.
+    /// A specific tool to use. If not provided, the model will default to use any of the tools provided in the tools parameter.
+    #[serde(default)]
+    #[schema(nullable = true, example = "null")]
+    pub tool_choice: ToolChoice,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     repetition_penalty: Option<f32>,
@@ -674,6 +676,118 @@ struct ChatCompletionRequest {
     ignore_eos_token: Option<bool>,
     adapter_source: Option<String>,
     api_token: Option<String>,
+
+    /// A prompt to be appended before the tools
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        example = "Given the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables."
+    )]
+    pub tool_prompt: Option<String>,
+}
+
+pub fn default_tool_prompt() -> String {
+    "\nGiven the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables.\n".to_string()
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[schema(example = "auto")]
+/// Controls which (if any) tool is called by the model.
+pub enum ToolType {
+    /// Means the model can pick between generating a message or calling one or more tools.
+    #[schema(rename = "auto")]
+    OneOf,
+    /// Means the model will not call any tool and instead generates a message.
+    #[schema(rename = "none")]
+    NoTool,
+    /// Forces the model to call a specific tool.
+    #[schema(rename = "function")]
+    Function(FunctionName),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FunctionName {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
+#[serde(from = "ToolTypeDeserializer")]
+pub struct ToolChoice(pub Option<ToolType>);
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ToolTypeDeserializer {
+    Null,
+    String(String),
+    ToolType(ToolType),
+}
+
+impl From<ToolTypeDeserializer> for ToolChoice {
+    fn from(value: ToolTypeDeserializer) -> Self {
+        match value {
+            ToolTypeDeserializer::Null => ToolChoice(None),
+            ToolTypeDeserializer::String(s) => match s.as_str() {
+                "none" => ToolChoice(Some(ToolType::NoTool)),
+                "auto" => ToolChoice(Some(ToolType::OneOf)),
+                _ => ToolChoice(Some(ToolType::Function(FunctionName { name: s }))),
+            },
+            ToolTypeDeserializer::ToolType(tool_type) => ToolChoice(Some(tool_type)),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq)]
+pub struct JsonSchemaTool {
+    #[serde(flatten)]
+    functions_map: FunctionsMap,
+    properties: Properties,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct FunctionsMap {
+    #[serde(rename = "$functions")]
+    functions: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct FunctionRef {
+    #[serde(rename = "$ref")]
+    ref_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Properties {
+    #[serde(serialize_with = "serialize_function")]
+    function: Vec<FunctionRef>,
+}
+
+fn serialize_function<S>(functions: &Vec<FunctionRef>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeStruct;
+    let mut state = serializer.serialize_struct("Function", 1)?;
+    state.serialize_field("anyOf", functions)?;
+    state.end()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema, Default, PartialEq)]
+pub(crate) struct FunctionDefinition {
+    #[serde(default)]
+    pub description: Option<String>,
+    pub name: String,
+    #[serde(alias = "parameters")]
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(crate) struct Tool {
+    // The type of the tool. Currently, only 'function' is supported.
+    #[schema(example = "function")]
+    pub r#type: String,
+    // Grab the tool as generic JSON for debugging purposes.
+    pub function: FunctionDefinition,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -760,6 +874,22 @@ struct ChatMessage {
     role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<DeltaToolCall>,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
+pub(crate) struct DeltaToolCall {
+    pub index: u32,
+    pub id: String,
+    pub r#type: String,
+    pub function: Function,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
+pub(crate) struct Function {
+    pub name: Option<String>,
+    pub arguments: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -880,7 +1010,6 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 apply_chat_template: false,
                 seed: req.seed,
                 response_format: None,
-                tools: None,
             },
             stream: req.stream.unwrap_or(false),
         }
