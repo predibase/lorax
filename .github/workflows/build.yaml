@@ -13,7 +13,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.run_id }}
       cancel-in-progress: true
-    runs-on: self-hosted-k8s
+    runs-on: a100-lorax-builder
     permissions:
       contents: write
       packages: write
