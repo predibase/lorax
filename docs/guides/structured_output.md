@@ -60,14 +60,36 @@ class Character(BaseModel):
 
 client = Client("http://127.0.0.1:8080")
 
-prompt = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength. "
-response = client.generate(prompt, response_format={
+# Example 1: Using a schema
+prompt_with_schema = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength."
+response_with_schema = client.generate(prompt_with_schema, response_format={
     "type": "json_object",
     "schema": Character.model_json_schema(),
 })
 
-my_character = json.loads(response.generated_text)
-print(my_character)
+my_character_with_schema = json.loads(response_with_schema.generated_text)\
+print(my_character_with_schema)
+# {
+#    "name": "Thorin",
+#    "age": 45,
+#    "armor": "plate",
+#    "strength": 90
+# }
+
+# Example 2: Without a schema (arbitrary JSON)
+prompt_without_schema = "Generate a new character for my awesome game: name, age (between 1 and 99), armor and strength."
+response_without_schema = client.generate(prompt_without_schema, response_format={
+    "type": "json_object",  # No schema provided
+})
+
+my_character_without_schema = json.loads(response_without_schema.generated_text)
+print(my_character_without_schema)
+# {
+#    "characterName": "Aragon",
+#    "age": 38,
+#    "armorType": "chainmail",
+#    "power": 78
+# }
 ```
 
 You can also specify the JSON schema directly rather than using Pydantic:
