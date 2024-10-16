@@ -272,11 +272,22 @@ async fn chat_completions_v1(
                 // Ignore when type is text
                 ResponseFormatType::Text => None,
 
-                // For json_object, use the fixed schema
-                ResponseFormatType::JsonObject => Some(ResponseFormat {
-                    r#type: response_format_type.clone(),
-                    schema: default_json_schema(),
-                }),
+                // For json_object, use the fixed schema.
+                // For backwards compatibility, also support non-standard `schema` field
+                ResponseFormatType::JsonObject => openai_format.schema.map_or_else(
+                    || {
+                        Some(ResponseFormat {
+                            r#type: response_format_type.clone(),
+                            schema: default_json_schema(),
+                        })
+                    },
+                    |schema_value: serde_json::Value| {
+                        Some(ResponseFormat {
+                            r#type: response_format_type.clone(),
+                            schema: Some(schema_value),
+                        })
+                    },
+                ),
 
                 // For json_schema, use schema_value if available, otherwise fallback to the fixed schema
                 ResponseFormatType::JsonSchema => openai_format
