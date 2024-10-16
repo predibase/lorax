@@ -64,7 +64,7 @@ class ResponseFormat(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     type: ResponseFormatType
-    schema_spec: Union[Dict[str, Any], OrderedDict] = Field(alias="schema")
+    schema_spec: Optional[Union[Dict[str, Any], OrderedDict]] = Field(None, alias="schema")
 
 
 class Parameters(BaseModel):

@@ -478,15 +478,51 @@ struct UsageInfo {
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 enum ResponseFormatType {
+    #[serde(alias = "text")]
+    Text,
     #[serde(alias = "json_object")]
     JsonObject,
+    #[serde(alias = "json_schema")]
+    JsonSchema,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
     #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
-    schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
+
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
+}
+
+// Default schema to be used when no value is provided
+fn default_json_schema() -> Option<serde_json::Value> {
+    Some(serde_json::json!({
+        "additionalProperties": {
+            "type": ["object", "string", "integer", "number", "boolean", "null"]
+        },
+        "title": "ArbitraryJsonModel",
+        "type": "object"
+    }))
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+struct JsonSchema {
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    description: Option<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    name: String,
+    schema: Option<serde_json::Value>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    strict: Option<bool>,
+}
+
+// TODO check if json_schema field is required if type is json_schema
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct OpenAiResponseFormat {
+    #[serde(rename(deserialize = "type"))]
+    response_format_type: ResponseFormatType,
+    json_schema: Option<JsonSchema>,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
@@ -582,9 +618,9 @@ struct ChatCompletionRequest {
     #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
+    response_format: Option<OpenAiResponseFormat>,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
-    response_format: Option<ResponseFormat>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,

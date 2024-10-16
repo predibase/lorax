@@ -4,18 +4,18 @@ use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::validation::ValidationError;
-use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    default_json_schema, AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
     ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
     ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
     CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
     CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
     EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, LogProbs, PrefillToken,
-    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
-    TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
+    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs,
+    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
+    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
 };
+use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -263,6 +263,43 @@ async fn chat_completions_v1(
         adapter_id = None;
     }
 
+    // Modify input values to ResponseFormat to be OpenAI API compatible
+    let response_format: Option<ResponseFormat> = match req.response_format {
+        None => None,
+        Some(openai_format) => {
+            let response_format_type = openai_format.response_format_type.clone();
+            match response_format_type {
+                // Ignore when type is text
+                ResponseFormatType::Text => None,
+
+                // For json_object, use the fixed schema
+                ResponseFormatType::JsonObject => Some(ResponseFormat {
+                    r#type: response_format_type.clone(),
+                    schema: default_json_schema(),
+                }),
+
+                // For json_schema, use schema_value if available, otherwise fallback to the fixed schema
+                ResponseFormatType::JsonSchema => openai_format
+                    .json_schema
+                    .and_then(|schema| schema.schema)
+                    .map_or_else(
+                        || {
+                            Some(ResponseFormat {
+                                r#type: response_format_type.clone(),
+                                schema: default_json_schema(),
+                            })
+                        },
+                        |schema_value: serde_json::Value| {
+                            Some(ResponseFormat {
+                                r#type: response_format_type.clone(),
+                                schema: Some(schema_value),
+                            })
+                        },
+                    ),
+            }
+        }
+    };
+
     let mut gen_req = CompatGenerateRequest {
         inputs: inputs.to_string(),
         parameters: GenerateParameters {
@@ -288,7 +325,7 @@ async fn chat_completions_v1(
             return_k_alternatives: None,
             apply_chat_template: false,
             seed: req.seed,
-            response_format: req.response_format,
+            response_format: response_format,
         },
         stream: req.stream.unwrap_or(false),
     };
@@ -1115,6 +1152,8 @@ pub async fn run(
     UsageInfo,
     ResponseFormat,
     ResponseFormatType,
+    OpenAiResponseFormat,
+    JsonSchema,
     CompatGenerateRequest,
     GenerateRequest,
     GenerateParameters,
