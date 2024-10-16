@@ -10,6 +10,7 @@ mod queue;
 mod radix;
 mod scheduler;
 pub mod server;
+mod tool_grammar;
 
 mod validation;
 use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as EntityMessage};
@@ -684,6 +685,11 @@ struct ChatCompletionRequest {
         example = "Given the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables."
     )]
     pub tool_prompt: Option<String>,
+
+    /// A guideline to be used in the chat_template
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "null")]
+    pub guideline: Option<String>,
 }
 
 pub fn default_tool_prompt() -> String {

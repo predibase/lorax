@@ -3,17 +3,19 @@ use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
+use crate::tool_grammar::ToolGrammar;
 use crate::validation::ValidationError;
 use crate::{
-    default_json_schema, AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
-    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
-    ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
-    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
-    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
-    EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs,
-    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
-    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
+    default_json_schema, default_tool_prompt, AdapterParameters, AlternativeToken,
+    BatchClassifyRequest, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
+    ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
+    ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
+    CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
+    CompletionStreamResponse, Details, EmbedRequest, EmbedResponse, Entity, ErrorResponse,
+    FinishReason, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info,
+    JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken, ResponseFormat,
+    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
+    TokenizeResponse, Tool, ToolChoice, UsageInfo, Validation,
 };
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use axum::extract::Extension;
@@ -240,22 +242,6 @@ async fn chat_completions_v1(
         req.model = "".to_string();
     }
 
-    // apply chat template to flatten the request into a single input
-    let inputs = match infer.apply_chat_template(req.messages) {
-        Ok(inputs) => inputs,
-        Err(err) => {
-            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
-            tracing::error!("{err}");
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ErrorResponse {
-                    error: err.to_string(),
-                    error_type: err.error_type().to_string(),
-                }),
-            ));
-        }
-    };
-
     let mut adapter_id = Some(req.model.clone());
     if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
@@ -311,6 +297,21 @@ async fn chat_completions_v1(
         }
     };
 
+    let tool_prompt = req
+        .tool_prompt
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(default_tool_prompt);
+
+    let (inputs, response_format, using_tools) = prepare_chat_input(
+        &infer,
+        response_format,
+        req.tools,
+        req.tool_choice,
+        &tool_prompt,
+        req.guideline,
+        req.messages,
+    )?;
+
     let mut gen_req = CompatGenerateRequest {
         inputs: inputs.to_string(),
         parameters: GenerateParameters {
@@ -337,7 +338,6 @@ async fn chat_completions_v1(
             apply_chat_template: false,
             seed: req.seed,
             response_format: response_format,
-            tools: req.tools,
         },
         stream: req.stream.unwrap_or(false),
     };
@@ -384,6 +384,52 @@ async fn chat_completions_v1(
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
     }
+}
+
+type PreparedInput = (String, Option<ResponseFormat>, bool);
+
+pub(crate) fn prepare_chat_input(
+    infer: &Infer,
+    response_format: Option<ResponseFormat>,
+    tools: Option<Vec<Tool>>,
+    tool_choice: ToolChoice,
+    tool_prompt: &str,
+    guideline: Option<String>,
+    messages: Vec<Message>,
+) -> Result<PreparedInput, InferError> {
+    if response_format.is_some() && tools.is_some() {
+        return Err(InferError::ToolError(
+            "Response format and tools are mutually exclusive".into(),
+        ));
+    }
+
+    // when response_format is set, tools are not included when applying the chat template to generate inputs
+    if let Some(format) = response_format {
+        let inputs = infer.apply_chat_template(guideline, messages, None)?;
+        return Ok((inputs, Some(format), false));
+    }
+
+    // when no response_format is set and tools are included, apply the chat template with the tools
+    // to generate inputs
+    if let Some(tools) = tools {
+        let (updated_tools, tool_schema) = ToolGrammar::apply(tools, tool_choice)?;
+
+        let grammar = tool_schema.as_ref().map(|t| ResponseFormat {
+            r#type: ResponseFormatType::JsonSchema,
+            schema: Some(serde_json::json!(t)),
+        });
+
+        let inputs: String = infer.apply_chat_template(
+            guideline,
+            messages,
+            Some((updated_tools, tool_prompt.into())),
+        )?;
+        return Ok((inputs, grammar, tool_schema.is_some()));
+    }
+
+    // if no response_format or tools are set simply apply the chat template to generate inputs
+    let inputs = infer.apply_chat_template(guideline, messages, None)?;
+    Ok((inputs, None, false))
 }
 
 /// LoRAX endpoint info
@@ -472,7 +518,6 @@ async fn health(
                 return_k_alternatives: None,
                 apply_chat_template: false,
                 response_format: None,
-                tools: None,
                 max_new_tokens: Some(1),
                 ignore_eos_token: false,
             },

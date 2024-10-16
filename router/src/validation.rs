@@ -1,7 +1,7 @@
 use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
 use crate::config::Config;
-use crate::validation::ValidationError::{AmbiguousSchema, BestOfSampling, BestOfSeed, EmptyInput};
+use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{
     GenerateParameters, GenerateRequest, HubPreprocessorConfig, Idefics2Preprocessor, Tool,
 };
@@ -206,7 +206,6 @@ impl Validation {
             return_k_alternatives,
             apply_chat_template: _,
             response_format,
-            tools,
             ..
         } = request.parameters;
 
@@ -315,8 +314,6 @@ impl Validation {
             return Err(EmptyInput);
         }
 
-        let mut inputs = request.inputs.clone();
-
         // Check if truncate is strictly positive and less than max_input_length
         let truncate = truncate
             .map(|value| {
@@ -330,36 +327,10 @@ impl Validation {
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
         let mut schema: Option<String> = None;
-        if response_format.is_some() && tools.is_some() {
-            return Err(AmbiguousSchema);
-        } else if response_format.is_some() {
-            if let Some(response_format_val) = response_format {
-                if let Some(schema_value) = response_format_val.schema {
-                    schema = Some(schema_value.to_string());
-                }
+        if let Some(response_format_val) = response_format {
+            if let Some(schema_value) = response_format_val.schema {
+                schema = Some(schema_value.to_string());
             }
-        } else if tools.is_some() {
-            let tools_vec = tools.unwrap();
-            let functions_vec: Vec<serde_json::Value> = tools_vec
-                .iter()
-                .filter(|t| matches!(t, Tool::Function { .. }))
-                .map(|t| {
-                    let Tool::Function { function } = t;
-                    function.to_schema()
-                })
-                .collect();
-
-            schema = Some(
-                json!({
-                    "type": "array",
-                    "items": {
-                        "oneOf": functions_vec,
-                    },
-                })
-                .to_string(),
-            );
-
-            inputs.push_str(format!("\n---\nYou will be presented with a JSON schema representing a set of tools.\nJSON Schema:\n{}", schema.as_ref().unwrap()).as_str());
         }
 
         // Validate inputs
@@ -720,8 +691,6 @@ pub enum ValidationError {
     FailedFetchImage(#[from] reqwest::Error),
     #[error("{0} modality is not supported")]
     UnsupportedModality(&'static str),
-    #[error("Cannot set both response_format and tools at the same time")]
-    AmbiguousSchema,
 }
 
 #[cfg(test)]
