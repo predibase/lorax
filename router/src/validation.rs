@@ -8,7 +8,6 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
-use serde_json::Value;
 use std::io::Cursor;
 use std::iter;
 use thiserror::Error;
