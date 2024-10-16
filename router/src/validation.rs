@@ -2,9 +2,7 @@ use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
 use crate::config::Config;
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
-use crate::{
-    GenerateParameters, GenerateRequest, HubPreprocessorConfig, Idefics2Preprocessor, Tool,
-};
+use crate::{GenerateParameters, GenerateRequest, HubPreprocessorConfig, Idefics2Preprocessor};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};

@@ -408,7 +408,7 @@ async fn chat_completions_v1(
         }
 
         let mut choice_content = vec![];
-        for (i, gen) in generations.iter().enumerate() {
+        for (_, gen) in generations.iter().enumerate() {
             let (tool_calls, output) = if using_tools {
                 let gen_text_value: Value = serde_json::from_str(&gen).map_err(|e| {
                     InferError::ToolError(format!(

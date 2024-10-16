@@ -611,40 +611,6 @@ impl From<Message> for TextMessage {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
-struct FunctionSpec {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
-}
-
-impl FunctionSpec {
-    fn to_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                },
-                "type": {
-                    "const": "function",
-                },
-                "function": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "const": self.name,
-                        },
-                        "arguments": self.parameters,
-                    },
-                    "required": ["name", "arguments"],
-                },
-            },
-            "required": ["id", "type", "function"],
-        })
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<Message>,
