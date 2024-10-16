@@ -139,7 +139,7 @@ client = OpenAI(
 )
 
 resp = client.chat.completions.create(
-    model="",
+    model="",  # optional: specify an adapter ID here
     messages=[
         {
             "role": "user",
@@ -173,7 +173,7 @@ client = OpenAI(
 )
 
 resp = client.chat.completions.create(
-    model="",
+    model="",  # optional: specify an adapter ID here
     messages=[
         {
             "role": "user",
@@ -230,7 +230,7 @@ client = OpenAI(
 )
 
 resp = client.chat.completions.create(
-    model="",
+    model="",  # optional: specify an adapter ID here
     messages=[
         {
             "role": "user",
