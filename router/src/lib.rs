@@ -1215,6 +1215,7 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                         Some("assistant".to_string())
                     },
                     content: if is_stop { None } else { Some(resp.token.text) },
+                    tool_calls: None, // TODO(travis): support tool_calls in stram response
                 },
                 finish_reason: finish_reason,
             }],
