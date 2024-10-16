@@ -523,6 +523,10 @@ struct OpenAiResponseFormat {
     #[serde(rename(deserialize = "type"))]
     response_format_type: ResponseFormatType,
     json_schema: Option<JsonSchema>,
+
+    // For backwards compatibility
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
