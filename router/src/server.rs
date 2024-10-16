@@ -12,10 +12,10 @@ use crate::{
     ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
     CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
     CompletionStreamResponse, Details, EmbedRequest, EmbedResponse, Entity, ErrorResponse,
-    FinishReason, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info,
-    JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken, ResponseFormat,
-    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
-    TokenizeResponse, Tool, ToolChoice, UsageInfo, Validation,
+    FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken,
+    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
+    TokenizeRequest, TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
 };
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use axum::extract::Extension;
@@ -32,6 +32,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use serde_json::Value;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -236,6 +237,7 @@ async fn chat_completions_v1(
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
+    let model_id = info.model_id.clone();
     if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
@@ -248,6 +250,8 @@ async fn chat_completions_v1(
         tracing::debug!("Replacing base model {0} with empty adapter_id", req.model);
         adapter_id = None;
     }
+
+    let system_fingerprint = format!("{}-{}", info.version, info.docker_label.unwrap_or("native"));
 
     // Modify input values to ResponseFormat to be OpenAI API compatible
     let response_format: Option<ResponseFormat> = match req.response_format {
@@ -381,8 +385,97 @@ async fn chat_completions_v1(
             Json(gen_req.into()),
         )
         .await?;
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_secs();
+
+        let generation = &generation.0;
+        let mut generations = vec![generation.generated_text.clone()];
+        if let Some(best_of_sequences) = generation
+            .details
+            .as_ref()
+            .unwrap()
+            .best_of_sequences
+            .as_ref()
+        {
+            generations.extend(
+                best_of_sequences
+                    .into_iter()
+                    .map(|seq| seq.generated_text.clone()),
+            );
+        }
+
+        let mut choice_content = vec![];
+        for (i, gen) in generations.iter().enumerate() {
+            let (tool_calls, output) = if using_tools {
+                let gen_text_value: Value = serde_json::from_str(&gen).map_err(|e| {
+                    InferError::ToolError(format!(
+                        "Failed to parse generated text: {} {:?}",
+                        e, gen
+                    ))
+                })?;
+                let function = gen_text_value.get("function").ok_or(InferError::ToolError(
+                    "No function found in generated text".to_string(),
+                ))?;
+
+                let name = function
+                    .get("_name")
+                    .and_then(Value::as_str)
+                    .ok_or(InferError::ToolError(
+                        "No _name found in generated text".to_string(),
+                    ))?
+                    .to_string();
+
+                let mut arguments = function.clone();
+                if let Value::Object(ref mut props) = arguments {
+                    props.remove("_name");
+                }
+                match name.as_str() {
+                    "no_tool" => {
+                        // parse the content message
+                        let content_message = arguments
+                            .get("content")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                InferError::ToolError(
+                                    "No `content` found in generated text".to_string(),
+                                )
+                            })?
+                            .to_string();
+                        (None, Some(content_message))
+                    }
+                    _ => {
+                        let tool_calls = vec![ToolCall {
+                            id: "0".to_string(),
+                            r#type: "function".to_string(),
+                            function: FunctionDefinition {
+                                description: None,
+                                name,
+                                arguments,
+                            },
+                        }];
+                        (Some(tool_calls), None)
+                    }
+                }
+            } else {
+                (None, Some(gen.clone()))
+            };
+            choice_content.push((tool_calls, output));
+        }
+
+        // build the complete response object with the full text
+        let response = ChatCompletionResponse::new(
+            generation,
+            model_id,
+            system_fingerprint,
+            choice_content,
+            current_time,
+        );
+
         // wrap generation inside a Vec to match api-inference
-        Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
+        Ok((headers, Json(response)).into_response())
     }
 }
 
@@ -1571,6 +1664,8 @@ impl From<InferError> for (StatusCode, Json<ErrorResponse>) {
             InferError::TemplateError(_) => StatusCode::UNPROCESSABLE_ENTITY,
             InferError::EmbeddingFailure => StatusCode::INTERNAL_SERVER_ERROR,
             InferError::ClassificationFailure => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::ToolError(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            InferError::MissingTemplateVariable(_) => StatusCode::UNPROCESSABLE_ENTITY,
         };
 
         (

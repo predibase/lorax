@@ -535,6 +535,13 @@ pub struct Url {
     url: String,
 }
 
+#[derive(Clone, Deserialize, Serialize, ToSchema, Default, Debug, PartialEq)]
+pub(crate) struct ToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: FunctionDefinition,
+}
+
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -881,7 +888,7 @@ struct ChatMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<DeltaToolCall>,
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 #[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
@@ -913,6 +920,7 @@ struct ChatCompletionResponse {
     model: String,
     choices: Vec<ChatCompletionResponseChoice>,
     usage: UsageInfo,
+    system_fingerprint: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1096,8 +1104,55 @@ impl From<StreamResponse> for CompletionStreamResponse {
     }
 }
 
-impl From<GenerateResponse> for ChatCompletionResponse {
-    fn from(resp: GenerateResponse) -> Self {
+impl ChatCompletionResponse {
+    pub(crate) fn new(
+        resp: &GenerateResponse,
+        model: String,
+        system_fingerprint: String,
+        choice_content: Vec<(Option<Vec<ToolCall>>, Option<String>)>,
+        created: u64,
+        // return_logprobs: bool,  // TODO: Implement logprobs
+    ) -> Self {
+        let mut choices = vec![];
+        for (index, (tool_calls, output)) in choice_content.into_iter().enumerate() {
+            let message = match (output, tool_calls) {
+                (Some(content), None) => ChatMessage {
+                    role: Some("assistant".to_string()),
+                    content: Some(content),
+                    tool_calls: None,
+                },
+                (None, Some(tool_calls)) => ChatMessage {
+                    role: Some("assistant".to_string()),
+                    content: None,
+                    tool_calls: Some(tool_calls),
+                },
+                (Some(output), Some(_)) => {
+                    tracing::warn!("Received both chat and tool call");
+                    ChatMessage {
+                        role: Some("assistant".to_string()),
+                        content: Some(output),
+                        tool_calls: None,
+                    }
+                }
+                (None, None) => {
+                    tracing::warn!("Didn't receive an answer");
+                    ChatMessage {
+                        role: Some("assistant".to_string()),
+                        content: None,
+                        tool_calls: None,
+                    }
+                }
+            };
+
+            choices.push(ChatCompletionResponseChoice {
+                index: index as i32,
+                message,
+                finish_reason: Some(CompletionFinishReason::from(
+                    resp.details.as_ref().unwrap().finish_reason.clone(),
+                )),
+            });
+        }
+
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
         let completion_tokens = resp
             .details
@@ -1106,45 +1161,12 @@ impl From<GenerateResponse> for ChatCompletionResponse {
             .unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
 
-        // assign choices as the generated text, and include the best of sequences if available
-        let mut choices = vec![ChatCompletionResponseChoice {
-            index: 0,
-            message: ChatMessage {
-                role: Some("assistant".to_string()),
-                content: Some(resp.generated_text),
-            },
-            finish_reason: resp
-                .details
-                .as_ref()
-                .map(|x| CompletionFinishReason::from(x.finish_reason.clone())),
-        }];
-
-        choices.extend(
-            resp.details
-                .as_ref()
-                .and_then(|x| x.best_of_sequences.as_ref())
-                .into_iter()
-                .flat_map(|seqs| {
-                    seqs.iter()
-                        .enumerate()
-                        .map(|(index, seq)| ChatCompletionResponseChoice {
-                            index: index as i32 + 1,
-                            message: ChatMessage {
-                                role: Some("assistant".to_string()),
-                                content: Some(seq.generated_text.clone()),
-                            },
-                            finish_reason: Some(CompletionFinishReason::from(
-                                seq.finish_reason.clone(),
-                            )),
-                        })
-                }),
-        );
-
         ChatCompletionResponse {
             id: "null".to_string(),
             object: "text_completion".to_string(),
-            created: 0,
-            model: "null".to_string(),
+            created: created as i64,
+            system_fingerprint: system_fingerprint,
+            model: model,
             choices: choices,
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,

@@ -99,7 +99,7 @@ impl ChatTemplateRenderer {
     fn apply(
         &self,
         guideline: Option<&str>,
-        messages: Vec<Message>,
+        mut messages: Vec<Message>,
         tools_and_prompt: Option<(Vec<Tool>, String)>,
     ) -> Result<String, InferError> {
         // check if guideline is expected but not provided
