@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 async-stream = "0.3.3"
 axum = { version = "0.6.4", features = ["json"] }
-axum-tracing-opentelemetry = "0.10.0"
+axum-tracing-opentelemetry = "0.14.1"
 clap = { version = "4.1.4", features = ["derive", "env"] }
 flume = "0.10.14"
 futures = "0.3.26"
@@ -64,6 +64,7 @@ image = "0.25.1"
 rustls = "0.22.4"
 webpki = "0.22.2"
 base64 = "0.22.0"
+init-tracing-opentelemetry = { version = "0.18.1", features = ["tracing_subscriber_ext"] }
 
 [build-dependencies]
 vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }

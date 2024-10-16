@@ -22,7 +22,6 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
-use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
@@ -43,6 +42,11 @@ use tower_http::cors::{
     AllowCredentials, AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders,
 };
 use tracing::{info_span, instrument, Instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use axum::{http::Request, middleware::Next};
+use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId};
+use opentelemetry::Context;
+use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -75,6 +79,7 @@ async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     request_logger_sender: Extension<
         Arc<mpsc::Sender<(i64, String, String, String, String, String)>>,
     >,
@@ -93,6 +98,7 @@ async fn compat_generate(
         Ok(generate_stream(
             infer,
             info,
+            axum::Extension(context),
             request_logger_sender,
             req_headers,
             Json(req.into()),
@@ -103,6 +109,7 @@ async fn compat_generate(
         let (headers, generation) = generate(
             infer,
             info,
+            axum::Extension(context),
             request_logger_sender,
             req_headers,
             Json(req.into()),
@@ -142,6 +149,7 @@ async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     request_logger_sender: Extension<
         Arc<mpsc::Sender<(i64, String, String, String, String, String)>>,
     >,
@@ -178,6 +186,7 @@ async fn completions_v1(
         let (headers, stream) = generate_stream_with_callback(
             infer,
             info,
+            axum::Extension(context),
             request_logger_sender,
             req_headers,
             Json(gen_req.into()),
@@ -190,6 +199,7 @@ async fn completions_v1(
         let (headers, generation) = generate(
             infer,
             info,
+            axum::Extension(context),
             request_logger_sender,
             req_headers,
             Json(gen_req.into()),
@@ -227,6 +237,7 @@ async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     request_logger_sender: Extension<
         Arc<mpsc::Sender<(i64, String, String, String, String, String)>>,
     >,
@@ -352,6 +363,7 @@ async fn chat_completions_v1(
         let (headers, stream) = generate_stream_with_callback(
             infer,
             info,
+            axum::Extension(context),
             request_logger_sender,
             req_headers,
             Json(gen_req.into()),
@@ -364,6 +376,7 @@ async fn chat_completions_v1(
         let (headers, generation) = generate(
             infer,
             info,
+            axum::Extension(context),
             request_logger_sender,
             req_headers,
             Json(gen_req.into()),
@@ -523,6 +536,7 @@ seed,
 async fn generate(
     infer: Extension<Infer>,
     info: Extension<Info>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     request_logger_sender: Extension<
         Arc<mpsc::Sender<(i64, String, String, String, String, String)>>,
     >,
@@ -530,6 +544,9 @@ async fn generate(
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
+    if let Some(context) = context {
+        span.set_parent(context);
+    }
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
@@ -779,6 +796,7 @@ seed,
 async fn generate_stream(
     infer: Extension<Infer>,
     info: Extension<Info>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     request_logger_sender: Extension<
         Arc<mpsc::Sender<(i64, String, String, String, String, String)>>,
     >,
@@ -792,6 +810,7 @@ async fn generate_stream(
     let (headers, stream) = generate_stream_with_callback(
         infer,
         info,
+        axum::Extension(context),
         request_logger_sender,
         req_headers,
         req,
@@ -804,6 +823,7 @@ async fn generate_stream(
 async fn generate_stream_with_callback(
     infer: Extension<Infer>,
     info: Extension<Info>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     request_logger_sender: Extension<
         Arc<mpsc::Sender<(i64, String, String, String, String, String)>>,
     >,
@@ -813,6 +833,9 @@ async fn generate_stream_with_callback(
     end_event: Option<Event>,
 ) -> (HeaderMap, impl Stream<Item = Result<Event, Infallible>>) {
     let span = tracing::Span::current();
+    if let Some(context) = context {
+        span.set_parent(context);
+    }
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
@@ -1395,7 +1418,9 @@ pub async fn run(
         .layer(Extension(compat_return_full_text))
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
-        .layer(opentelemetry_tracing_layer())
+        .layer(OtelAxumLayer::default())
+        .layer(axum::middleware::from_fn(trace_context_middleware))
+        .layer(OtelInResponseLayer::default())
         .layer(cors_layer)
         .layer(Extension(cloned_tokenizer));
 
@@ -1572,9 +1597,13 @@ async fn embed(
 #[instrument(skip_all)]
 async fn classify(
     infer: Extension<Infer>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     Json(req): Json<ClassifyRequest>,
 ) -> Result<(HeaderMap, Json<Vec<Entity>>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
+    if let Some(context) = context {
+        span.set_parent(context);
+    }
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Input: {}", req.inputs);
@@ -1641,9 +1670,13 @@ async fn classify(
 #[instrument(skip_all)]
 async fn classify_batch(
     infer: Extension<Infer>,
+    Extension(context): Extension<Option<opentelemetry::Context>>,
     Json(req): Json<BatchClassifyRequest>,
 ) -> Result<(HeaderMap, Json<Vec<Vec<Entity>>>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
+    if let Some(context) = context {
+        span.set_parent(context);
+    }
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
     tracing::debug!("Inputs: {:?}", req.inputs);
@@ -1763,4 +1796,59 @@ async fn tokenize(
             }),
         ))
     }
+}
+
+
+
+struct TraceParent {
+    #[allow(dead_code)]
+    version: u8,
+    trace_id: TraceId,
+    parent_id: SpanId,
+    trace_flags: TraceFlags,
+}
+
+
+fn parse_traceparent(header_value: &str) -> Option<TraceParent> {
+    let parts: Vec<&str> = header_value.split('-').collect();
+    if parts.len() != 4 {
+        return None;
+    }
+
+    let version = u8::from_str_radix(parts[0], 16).ok()?;
+    if version == 0xff {
+        return None;
+    }
+
+    let trace_id = TraceId::from_hex(parts[1]).ok()?;
+    let parent_id = SpanId::from_hex(parts[2]).ok()?;
+    let trace_flags = u8::from_str_radix(parts[3], 16).ok()?;
+
+    Some(TraceParent {
+        version,
+        trace_id,
+        parent_id,
+        trace_flags: TraceFlags::new(trace_flags),
+    })
+}
+
+pub async fn trace_context_middleware<B>(mut request: Request<B>, next: Next<B>) -> Response {
+    let context = request
+        .headers()
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_traceparent)
+        .map(|traceparent| {
+            Context::new().with_remote_span_context(SpanContext::new(
+                traceparent.trace_id,
+                traceparent.parent_id,
+                traceparent.trace_flags,
+                true,
+                Default::default(),
+            ))
+        });
+
+    request.extensions_mut().insert(context);
+
+    next.run(request).await
 }
