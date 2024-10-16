@@ -6,7 +6,7 @@ use crate::validation::{Validation, ValidationError};
 use crate::{
     AdapterParameters, AlternativeToken, BatchClassifyRequest, ChatTemplateVersions,
     ClassifyRequest, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
-    TextMessage, Token, TokenizerConfigToken,
+    MessageChunk, TextMessage, Token, TokenizerConfigToken, Tool,
 };
 use crate::{GenerateRequest, PrefillToken};
 use flume::r#async::RecvStream;
@@ -42,8 +42,8 @@ pub(crate) struct ChatTemplateInputs<'a> {
     bos_token: Option<&'a str>,
     eos_token: Option<&'a str>,
     add_generation_prompt: bool,
-    tools: Option<&'a str>,
-    tools_prompt: Option<&'a str>,
+    tools: Option<Vec<Tool>>,
+    guideline: Option<&'a str>,
 }
 
 /// Raise a exception (custom function) used in the chat templates
@@ -58,6 +58,7 @@ struct ChatTemplateRenderer {
     eos_token: Option<String>,
     #[allow(dead_code)] // For now allow this field even though it is unused
     use_default_tool_template: bool,
+    variables: HashSet<String>,
 }
 
 impl ChatTemplateRenderer {
@@ -71,52 +72,71 @@ impl ChatTemplateRenderer {
         env.set_unknown_method_callback(pycompat::unknown_method_callback);
         let template_str = template.into_boxed_str();
         env.add_function("raise_exception", raise_exception);
-
-        // TODO(travis): revisit when we add tool usage
-        // check if contains the tools variable within the template
-        // let use_default_tool_template =
-        //     !template_str.as_ref().replace(' ', "").contains("{{tools}}");
-        let use_default_tool_template = false;
+        tracing::debug!("Loading template: {}", template_str);
 
         // leaking env and template_str as read-only, static resources for performance.
         let template = Box::leak(env)
             .template_from_str(Box::leak(template_str))
             .unwrap();
 
+        // get the list of variables that are used in the template
+        let variables = template.undeclared_variables(true);
+
+        // check if the `tools` variable is used in the template
+        let use_default_tool_template = !variables.contains("tools");
+        tracing::debug!("Use default tool template: {}", use_default_tool_template);
+
         Self {
             template,
             bos_token: bos_token.map(|token| token.as_str().to_string()),
             eos_token: eos_token.map(|token| token.as_str().to_string()),
             use_default_tool_template,
+            variables,
         }
     }
 
     fn apply(
         &self,
-        messages: Vec<Message>,
-        // grammar_with_prompt: Option<(GrammarType, String)>,
+        guideline: Option<&str>,
+        mut messages: Vec<Message>,
+        tools_and_prompt: Option<(Vec<Tool>, String)>,
     ) -> Result<String, InferError> {
-        // TODO(travis): revisit when we add tool usage
-        // if self.use_default_tool_template {
-        //     if let Some(last_message) = messages.last_mut() {
-        //         if let Some((GrammarType::Json(tools), tool_prompt)) = grammar_with_prompt {
-        //             last_message.content.push(MessageChunk::Text {
-        //                 text: format!("\n---\n{}\n{}", tool_prompt, tools),
-        //             });
-        //         }
-        //     }
-        // }
+        // check if guideline is expected but not provided
+        if self.variables.contains("guideline") && guideline.is_none() {
+            return Err(InferError::MissingTemplateVariable("guideline".to_string()));
+        }
+
+        let tools = match tools_and_prompt {
+            Some((tools, tool_prompt)) => {
+                // check if the `tools` variable is used in the template
+                // if not, we need to append the tools to the last message
+                let text = if self.use_default_tool_template {
+                    match serde_json::to_string(&tools) {
+                        Ok(tools_str) => format!("\n---\n{}\n{}", tools_str, tool_prompt),
+                        Err(e) => return Err(InferError::ToolError(e.to_string())),
+                    }
+                } else {
+                    // if the `tools` variable is used in the template, we just append the tool_prompt
+                    format!("\n---\n{}", tool_prompt)
+                };
+                if let Some(last_message) = messages.last_mut() {
+                    last_message.content.push(MessageChunk::Text { text });
+                }
+                Some(tools)
+            }
+            None => None,
+        };
 
         let messages: Vec<TextMessage> = messages.into_iter().map(|c| c.into()).collect();
 
         self.template
             .render(ChatTemplateInputs {
+                guideline,
                 messages,
                 bos_token: self.bos_token.as_deref(),
                 eos_token: self.eos_token.as_deref(),
                 add_generation_prompt: true,
-                tools: None,
-                tools_prompt: None,
+                tools,
             })
             .map_err(InferError::TemplateError)
     }
@@ -354,13 +374,14 @@ impl Infer {
     #[instrument(skip_all)]
     pub(crate) fn apply_chat_template(
         &self,
+        guideline: Option<String>,
         messages: Vec<Message>,
-        // grammar_with_prompt: Option<(GrammarType, String)>,
+        tools_and_prompt: Option<(Vec<Tool>, String)>,
     ) -> Result<String, InferError> {
         self.chat_template
             .as_ref()
             .ok_or_else(|| InferError::TemplateError(ErrorKind::TemplateNotFound.into()))?
-            .apply(messages)
+            .apply(guideline.as_deref(), messages, tools_and_prompt)
             .map_err(|e| {
                 metrics::increment_counter!("lorax_request_failure", "err" => "template");
                 tracing::error!("{e}");
@@ -1496,6 +1517,10 @@ pub enum InferError {
     EmbeddingFailure,
     #[error("Classification Failure")]
     ClassificationFailure,
+    #[error("Tool error: {0}")]
+    ToolError(String),
+    #[error("Missing template vatiable: {0}")]
+    MissingTemplateVariable(String),
 }
 
 impl InferError {
@@ -1508,6 +1533,8 @@ impl InferError {
             InferError::TemplateError(_) => "template_error",
             InferError::EmbeddingFailure => "embedding_failure",
             InferError::ClassificationFailure => "classification_failure",
+            InferError::ToolError(_) => "tool_error",
+            InferError::MissingTemplateVariable(_) => "missing_template_variable",
         }
     }
 }

@@ -1,13 +1,13 @@
 use crate::adapter::Adapter;
 use crate::batch::ValidGenerateRequest;
 use crate::config::Config;
-/// Payload validation logic
 use crate::validation::ValidationError::{BestOfSampling, BestOfSeed, EmptyInput};
 use crate::{GenerateParameters, GenerateRequest, HubPreprocessorConfig, Idefics2Preprocessor};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{ImageFormat, ImageReader};
 use lorax_client::{NextTokenChooserParameters, StoppingCriteriaParameters, TokenizedInputs};
 use rand::{thread_rng, Rng};
+/// Payload validation logic
 use std::io::Cursor;
 use std::iter;
 use thiserror::Error;
@@ -323,20 +323,18 @@ impl Validation {
 
         let adapter_id = adapter_id.unwrap_or_else(|| "".to_string());
 
+        let mut schema: Option<String> = None;
+        if let Some(response_format_val) = response_format {
+            if let Some(schema_value) = response_format_val.schema {
+                schema = Some(schema_value.to_string());
+            }
+        }
+
         // Validate inputs
         let inputs = request.inputs.clone();
         let (tokenized_inputs, input_length) = self
             .validate_input(request.inputs, truncate, max_new_tokens)
             .await?;
-
-        let mut schema: Option<String> = None;
-        if response_format.is_some() {
-            if let Some(response_format_val) = response_format {
-                if let Some(schema_value) = response_format_val.schema {
-                    schema = Some(schema_value.to_string());
-                }
-            }
-        }
 
         let parameters = NextTokenChooserParameters {
             temperature,

@@ -3,17 +3,19 @@ use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::config::Config;
 use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
+use crate::tool_grammar::ToolGrammar;
 use crate::validation::ValidationError;
 use crate::{
-    default_json_schema, AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
-    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
-    ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
-    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
-    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
-    EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
-    GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs,
-    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
-    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, UsageInfo, Validation,
+    default_json_schema, default_tool_prompt, AdapterParameters, AlternativeToken,
+    BatchClassifyRequest, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
+    ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
+    ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
+    CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
+    CompletionStreamResponse, Details, EmbedRequest, EmbedResponse, Entity, ErrorResponse,
+    FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest, GenerateResponse,
+    HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken,
+    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
+    TokenizeRequest, TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
 };
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use axum::extract::Extension;
@@ -30,6 +32,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use serde_json::Value;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -234,27 +237,12 @@ async fn chat_completions_v1(
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let mut req = req.0;
+    let model_id = info.model_id.clone();
     if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
         tracing::info!("Replacing base model {0} with empty adapter_id", req.model);
         req.model = "".to_string();
     }
-
-    // apply chat template to flatten the request into a single input
-    let inputs = match infer.apply_chat_template(req.messages) {
-        Ok(inputs) => inputs,
-        Err(err) => {
-            metrics::increment_counter!("tgi_request_failure", "err" => "validation");
-            tracing::error!("{err}");
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ErrorResponse {
-                    error: err.to_string(),
-                    error_type: err.error_type().to_string(),
-                }),
-            ));
-        }
-    };
 
     let mut adapter_id = Some(req.model.clone());
     if req.model == info.model_id.as_str() {
@@ -262,6 +250,8 @@ async fn chat_completions_v1(
         tracing::debug!("Replacing base model {0} with empty adapter_id", req.model);
         adapter_id = None;
     }
+
+    let system_fingerprint = format!("{}-{}", info.version, info.docker_label.unwrap_or("native"));
 
     // Modify input values to ResponseFormat to be OpenAI API compatible
     let response_format: Option<ResponseFormat> = match req.response_format {
@@ -310,6 +300,21 @@ async fn chat_completions_v1(
             }
         }
     };
+
+    let tool_prompt = req
+        .tool_prompt
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(default_tool_prompt);
+
+    let (inputs, response_format, using_tools) = prepare_chat_input(
+        &infer,
+        response_format,
+        req.tools,
+        req.tool_choice,
+        &tool_prompt,
+        req.guideline,
+        req.messages,
+    )?;
 
     let mut gen_req = CompatGenerateRequest {
         inputs: inputs.to_string(),
@@ -380,9 +385,144 @@ async fn chat_completions_v1(
             Json(gen_req.into()),
         )
         .await?;
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_secs();
+
+        let generation = &generation.0;
+        let mut generations = vec![generation.generated_text.clone()];
+        if let Some(best_of_sequences) = generation
+            .details
+            .as_ref()
+            .unwrap()
+            .best_of_sequences
+            .as_ref()
+        {
+            generations.extend(
+                best_of_sequences
+                    .into_iter()
+                    .map(|seq| seq.generated_text.clone()),
+            );
+        }
+
+        let mut choice_content = vec![];
+        for (_, gen) in generations.iter().enumerate() {
+            let (tool_calls, output) = if using_tools {
+                let gen_text_value: Value = serde_json::from_str(&gen).map_err(|e| {
+                    InferError::ToolError(format!(
+                        "Failed to parse generated text: {} {:?}",
+                        e, gen
+                    ))
+                })?;
+                let function = gen_text_value.get("function").ok_or(InferError::ToolError(
+                    "No function found in generated text".to_string(),
+                ))?;
+
+                let name = function
+                    .get("_name")
+                    .and_then(Value::as_str)
+                    .ok_or(InferError::ToolError(
+                        "No _name found in generated text".to_string(),
+                    ))?
+                    .to_string();
+
+                let mut arguments = function.clone();
+                if let Value::Object(ref mut props) = arguments {
+                    props.remove("_name");
+                }
+                match name.as_str() {
+                    "no_tool" => {
+                        // parse the content message
+                        let content_message = arguments
+                            .get("content")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                InferError::ToolError(
+                                    "No `content` found in generated text".to_string(),
+                                )
+                            })?
+                            .to_string();
+                        (None, Some(content_message))
+                    }
+                    _ => {
+                        let tool_calls = vec![ToolCall {
+                            id: "0".to_string(),
+                            r#type: "function".to_string(),
+                            function: FunctionDefinition {
+                                description: None,
+                                name,
+                                arguments,
+                            },
+                        }];
+                        (Some(tool_calls), None)
+                    }
+                }
+            } else {
+                (None, Some(gen.clone()))
+            };
+            choice_content.push((tool_calls, output));
+        }
+
+        // build the complete response object with the full text
+        let response = ChatCompletionResponse::new(
+            generation,
+            model_id,
+            system_fingerprint,
+            choice_content,
+            current_time,
+        );
+
         // wrap generation inside a Vec to match api-inference
-        Ok((headers, Json(ChatCompletionResponse::from(generation.0))).into_response())
+        Ok((headers, Json(response)).into_response())
     }
+}
+
+type PreparedInput = (String, Option<ResponseFormat>, bool);
+
+pub(crate) fn prepare_chat_input(
+    infer: &Infer,
+    response_format: Option<ResponseFormat>,
+    tools: Option<Vec<Tool>>,
+    tool_choice: ToolChoice,
+    tool_prompt: &str,
+    guideline: Option<String>,
+    messages: Vec<Message>,
+) -> Result<PreparedInput, InferError> {
+    if response_format.is_some() && tools.is_some() {
+        return Err(InferError::ToolError(
+            "Response format and tools are mutually exclusive".into(),
+        ));
+    }
+
+    // when response_format is set, tools are not included when applying the chat template to generate inputs
+    if let Some(format) = response_format {
+        let inputs = infer.apply_chat_template(guideline, messages, None)?;
+        return Ok((inputs, Some(format), false));
+    }
+
+    // when no response_format is set and tools are included, apply the chat template with the tools
+    // to generate inputs
+    if let Some(tools) = tools {
+        let (updated_tools, tool_schema) = ToolGrammar::apply(tools, tool_choice)?;
+
+        let grammar = tool_schema.as_ref().map(|t| ResponseFormat {
+            r#type: ResponseFormatType::JsonSchema,
+            schema: Some(serde_json::json!(t)),
+        });
+
+        let inputs: String = infer.apply_chat_template(
+            guideline,
+            messages,
+            Some((updated_tools, tool_prompt.into())),
+        )?;
+        return Ok((inputs, grammar, tool_schema.is_some()));
+    }
+
+    // if no response_format or tools are set simply apply the chat template to generate inputs
+    let inputs = infer.apply_chat_template(guideline, messages, None)?;
+    Ok((inputs, None, false))
 }
 
 /// LoRAX endpoint info
@@ -1524,6 +1664,8 @@ impl From<InferError> for (StatusCode, Json<ErrorResponse>) {
             InferError::TemplateError(_) => StatusCode::UNPROCESSABLE_ENTITY,
             InferError::EmbeddingFailure => StatusCode::INTERNAL_SERVER_ERROR,
             InferError::ClassificationFailure => StatusCode::INTERNAL_SERVER_ERROR,
+            InferError::ToolError(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            InferError::MissingTemplateVariable(_) => StatusCode::UNPROCESSABLE_ENTITY,
         };
 
         (

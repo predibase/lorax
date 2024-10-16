@@ -10,6 +10,7 @@ mod queue;
 mod radix;
 mod scheduler;
 pub mod server;
+mod tool_grammar;
 
 mod validation;
 use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as EntityMessage};
@@ -534,6 +535,13 @@ pub struct Url {
     url: String,
 }
 
+#[derive(Clone, Deserialize, Serialize, ToSchema, Default, Debug, PartialEq)]
+pub(crate) struct ToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: FunctionDefinition,
+}
+
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -623,6 +631,18 @@ struct ChatCompletionRequest {
     user: Option<String>,
     seed: Option<u64>,
     response_format: Option<OpenAiResponseFormat>,
+
+    /// A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of
+    /// functions the model may generate JSON inputs for.
+    #[serde(default)]
+    #[schema(nullable = true, example = "null")]
+    pub tools: Option<Vec<Tool>>,
+
+    /// A specific tool to use. If not provided, the model will default to use any of the tools provided in the tools parameter.
+    /// A specific tool to use. If not provided, the model will default to use any of the tools provided in the tools parameter.
+    #[serde(default)]
+    #[schema(nullable = true, example = "null")]
+    pub tool_choice: ToolChoice,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
     repetition_penalty: Option<f32>,
@@ -630,6 +650,123 @@ struct ChatCompletionRequest {
     ignore_eos_token: Option<bool>,
     adapter_source: Option<String>,
     api_token: Option<String>,
+
+    /// A prompt to be appended before the tools
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        example = "Given the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables."
+    )]
+    pub tool_prompt: Option<String>,
+
+    /// A guideline to be used in the chat_template
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "null")]
+    pub guideline: Option<String>,
+}
+
+pub fn default_tool_prompt() -> String {
+    "\nGiven the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables.\n".to_string()
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[schema(example = "auto")]
+/// Controls which (if any) tool is called by the model.
+pub enum ToolType {
+    /// Means the model can pick between generating a message or calling one or more tools.
+    #[schema(rename = "auto")]
+    OneOf,
+    /// Means the model will not call any tool and instead generates a message.
+    #[schema(rename = "none")]
+    NoTool,
+    /// Forces the model to call a specific tool.
+    #[schema(rename = "function")]
+    Function(FunctionName),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FunctionName {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
+#[serde(from = "ToolTypeDeserializer")]
+pub struct ToolChoice(pub Option<ToolType>);
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ToolTypeDeserializer {
+    Null,
+    String(String),
+    ToolType(ToolType),
+}
+
+impl From<ToolTypeDeserializer> for ToolChoice {
+    fn from(value: ToolTypeDeserializer) -> Self {
+        match value {
+            ToolTypeDeserializer::Null => ToolChoice(None),
+            ToolTypeDeserializer::String(s) => match s.as_str() {
+                "none" => ToolChoice(Some(ToolType::NoTool)),
+                "auto" => ToolChoice(Some(ToolType::OneOf)),
+                _ => ToolChoice(Some(ToolType::Function(FunctionName { name: s }))),
+            },
+            ToolTypeDeserializer::ToolType(tool_type) => ToolChoice(Some(tool_type)),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq)]
+pub struct JsonSchemaTool {
+    #[serde(flatten)]
+    functions_map: FunctionsMap,
+    properties: Properties,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct FunctionsMap {
+    #[serde(rename = "$functions")]
+    functions: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct FunctionRef {
+    #[serde(rename = "$ref")]
+    ref_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Properties {
+    #[serde(serialize_with = "serialize_function")]
+    function: Vec<FunctionRef>,
+}
+
+fn serialize_function<S>(functions: &Vec<FunctionRef>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeStruct;
+    let mut state = serializer.serialize_struct("Function", 1)?;
+    state.serialize_field("anyOf", functions)?;
+    state.end()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema, Default, PartialEq)]
+pub(crate) struct FunctionDefinition {
+    #[serde(default)]
+    pub description: Option<String>,
+    pub name: String,
+    #[serde(alias = "parameters")]
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(crate) struct Tool {
+    // The type of the tool. Currently, only 'function' is supported.
+    #[schema(example = "function")]
+    pub r#type: String,
+    // Grab the tool as generic JSON for debugging purposes.
+    pub function: FunctionDefinition,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -716,6 +853,22 @@ struct ChatMessage {
     role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
+pub(crate) struct DeltaToolCall {
+    pub index: u32,
+    pub id: String,
+    pub r#type: String,
+    pub function: Function,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
+pub(crate) struct Function {
+    pub name: Option<String>,
+    pub arguments: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -733,6 +886,7 @@ struct ChatCompletionResponse {
     model: String,
     choices: Vec<ChatCompletionResponseChoice>,
     usage: UsageInfo,
+    system_fingerprint: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -916,8 +1070,55 @@ impl From<StreamResponse> for CompletionStreamResponse {
     }
 }
 
-impl From<GenerateResponse> for ChatCompletionResponse {
-    fn from(resp: GenerateResponse) -> Self {
+impl ChatCompletionResponse {
+    pub(crate) fn new(
+        resp: &GenerateResponse,
+        model: String,
+        system_fingerprint: String,
+        choice_content: Vec<(Option<Vec<ToolCall>>, Option<String>)>,
+        created: u64,
+        // return_logprobs: bool,  // TODO: Implement logprobs
+    ) -> Self {
+        let mut choices = vec![];
+        for (index, (tool_calls, output)) in choice_content.into_iter().enumerate() {
+            let message = match (output, tool_calls) {
+                (Some(content), None) => ChatMessage {
+                    role: Some("assistant".to_string()),
+                    content: Some(content),
+                    tool_calls: None,
+                },
+                (None, Some(tool_calls)) => ChatMessage {
+                    role: Some("assistant".to_string()),
+                    content: None,
+                    tool_calls: Some(tool_calls),
+                },
+                (Some(output), Some(_)) => {
+                    tracing::warn!("Received both chat and tool call");
+                    ChatMessage {
+                        role: Some("assistant".to_string()),
+                        content: Some(output),
+                        tool_calls: None,
+                    }
+                }
+                (None, None) => {
+                    tracing::warn!("Didn't receive an answer");
+                    ChatMessage {
+                        role: Some("assistant".to_string()),
+                        content: None,
+                        tool_calls: None,
+                    }
+                }
+            };
+
+            choices.push(ChatCompletionResponseChoice {
+                index: index as i32,
+                message,
+                finish_reason: Some(CompletionFinishReason::from(
+                    resp.details.as_ref().unwrap().finish_reason.clone(),
+                )),
+            });
+        }
+
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
         let completion_tokens = resp
             .details
@@ -926,45 +1127,12 @@ impl From<GenerateResponse> for ChatCompletionResponse {
             .unwrap_or(0);
         let total_tokens = prompt_tokens + completion_tokens;
 
-        // assign choices as the generated text, and include the best of sequences if available
-        let mut choices = vec![ChatCompletionResponseChoice {
-            index: 0,
-            message: ChatMessage {
-                role: Some("assistant".to_string()),
-                content: Some(resp.generated_text),
-            },
-            finish_reason: resp
-                .details
-                .as_ref()
-                .map(|x| CompletionFinishReason::from(x.finish_reason.clone())),
-        }];
-
-        choices.extend(
-            resp.details
-                .as_ref()
-                .and_then(|x| x.best_of_sequences.as_ref())
-                .into_iter()
-                .flat_map(|seqs| {
-                    seqs.iter()
-                        .enumerate()
-                        .map(|(index, seq)| ChatCompletionResponseChoice {
-                            index: index as i32 + 1,
-                            message: ChatMessage {
-                                role: Some("assistant".to_string()),
-                                content: Some(seq.generated_text.clone()),
-                            },
-                            finish_reason: Some(CompletionFinishReason::from(
-                                seq.finish_reason.clone(),
-                            )),
-                        })
-                }),
-        );
-
         ChatCompletionResponse {
             id: "null".to_string(),
             object: "text_completion".to_string(),
-            created: 0,
-            model: "null".to_string(),
+            created: created as i64,
+            system_fingerprint: system_fingerprint,
+            model: model,
             choices: choices,
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
@@ -1013,6 +1181,7 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                         Some("assistant".to_string())
                     },
                     content: if is_stop { None } else { Some(resp.token.text) },
+                    tool_calls: None, // TODO(travis): support tool_calls in stram response
                 },
                 finish_reason: finish_reason,
             }],

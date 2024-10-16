@@ -58,7 +58,7 @@ ngrok = { version = "0.12.3", features = ["axum"], optional = true }
 once_cell = "1.19.0"
 itertools = "0.12.1"
 async-trait = "0.1.80"
-minijinja = { version = "2.0.2" }
+minijinja = { version = "2.2.0", features = ["json"] }
 minijinja-contrib = { version = "2.0.2", features = ["pycompat"] }
 image = "0.25.1"
 rustls = "0.22.4"
