@@ -13,7 +13,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.run_id }}
       cancel-in-progress: true
-    runs-on: a100-runner
+    runs-on: self-hosted-k8s
     permissions:
       contents: write
       packages: write
@@ -29,7 +29,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
-      
+
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
