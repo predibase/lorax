@@ -76,20 +76,20 @@ class Model(ABC):
 
         speculation_tokens = get_speculative_tokens()
 
-        support_chunking = support_chunking and PREFILL_CHUNKING
-        if support_chunking:
+        supports_chunking = supports_chunking and PREFILL_CHUNKING
+        if supports_chunking:
             if speculation_tokens != 0:
                 logger.warning(
                     "Prefill chunking does not support speculation yet. "
                     "Prefill chunking will be turned off",
                 )
-                support_chunking = False
+                supports_chunking = False
             if not FLASH_INFER:
                 logger.warning(
                     "Prefill chunking is only supported with `flashinfer` backend.",
                 )
-                support_chunking = False
-            logger.info(f"Using experimental prefill chunking = {support_chunking}")
+                supports_chunking = False
+            logger.info(f"Using experimental prefill chunking = {supports_chunking}")
 
         self.supports_chunking = supports_chunking
         set_supports_chunking(supports_chunking)
@@ -124,7 +124,7 @@ class Model(ABC):
             supports_generation=self.supports_text_generation,
             supports_embeddings=self.supports_embeddings,
             supports_classification=self.supports_classification,
-            supports_chunking=self.supports_chunking,
+            prefill_chunking=self.supports_chunking,
         )
 
     @property

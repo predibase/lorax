@@ -57,7 +57,7 @@ message InfoResponse {
     bool supports_generation = 8;
     bool supports_embeddings = 9;
     bool supports_classification = 10;
-    bool supports_chunking = 11;
+    bool prefill_chunking = 11;
 }
 
 /// Empty request
