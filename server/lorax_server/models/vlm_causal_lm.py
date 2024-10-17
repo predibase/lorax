@@ -277,6 +277,8 @@ class VlmCausalLM(FlashCausalLM):
             adapter_source=adapter_source,
             processor=processor,
             trust_remote_code=trust_remote_code,
+            # FIXME: VLM do not work with context chunking yet
+            support_chunking=False,
             **kwargs,
         )
 

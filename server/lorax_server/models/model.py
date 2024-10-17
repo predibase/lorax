@@ -17,7 +17,7 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import BLOCK_SIZE, get_speculative_tokens
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, PREFILL_CHUNKING, get_speculative_tokens, set_supports_chunking
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -41,6 +41,7 @@ class Model(ABC):
         dynamic_adapter_loading_enabled: bool = True,
         trust_remote_code: bool = False,
         processor=None,
+        supports_chunking: bool = False,
     ):
         self.model_id = model_id
         self.model = model.eval()
@@ -72,6 +73,26 @@ class Model(ABC):
         self.preloaded_adapters = []
 
         self.trust_remote_code = trust_remote_code
+
+        speculation_tokens = get_speculative_tokens()
+
+        support_chunking = support_chunking and PREFILL_CHUNKING
+        if support_chunking:
+            if speculation_tokens != 0:
+                logger.warning(
+                    "Prefill chunking does not support speculation yet. "
+                    "Prefill chunking will be turned off",
+                )
+                support_chunking = False
+            if not FLASH_INFER:
+                logger.warning(
+                    "Prefill chunking is only supported with `flashinfer` backend.",
+                )
+                support_chunking = False
+            logger.info(f"Using experimental prefill chunking = {support_chunking}")
+
+        self.supports_chunking = supports_chunking
+        set_supports_chunking(supports_chunking)
 
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 

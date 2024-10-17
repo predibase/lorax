@@ -17,6 +17,8 @@ FLASH_INFER = bool(os.environ.get("FLASH_INFER", "")) or PREFIX_CACHING
 if FLASH_INFER:
     logger.info("Using flashinfer")
 
+PREFILL_CHUNKING = bool(os.environ.get("PREFILL_CHUNKING", ""))
+logger.info(f"Prefill chunking = {PREFILL_CHUNKING}")
 
 SUPPORTS_CHUNKING: Optional[bool] = None
 MAX_PREFILL_TOKENS: Optional[int] = None
