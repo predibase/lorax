@@ -1,5 +1,6 @@
 from typing import Optional
 
+from lorax_server.utils.attention.common import Seqlen
 import torch
 
 from lorax_server.utils.import_utils import SYSTEM
@@ -54,7 +55,7 @@ def attention(
     kv_head_mapping: torch.Tensor,
     softmax_scale: float,
     block_tables: torch.Tensor,
-    input_lengths: torch.Tensor,
+    seqlen: Seqlen,
     max_s: int,
     softcap: Optional[float] = None,
 ):
@@ -86,6 +87,7 @@ def attention(
     #
 
     # value_cache => [num_blocks, num_heads, head_size, block_size]
+    input_lengths = seqlen.input_lengths + seqlen.cache_lengths
     block_size = value_cache.shape[3]
     num_seqs, num_heads, head_size = query.shape
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
