@@ -70,7 +70,7 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=raw,value=chunked-prefill,enable=${{ github.ref == 'refs/heads/chunked-prefill' }}
+            type=raw,value=chunked-prefill-2,enable=${{ github.ref == 'refs/heads/chunked-prefill' }}
 
       - name: Create a hash from tags
         env:
