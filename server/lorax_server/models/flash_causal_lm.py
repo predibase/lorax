@@ -784,12 +784,14 @@ class FlashCausalLMBatch(Batch):
         )
     
     def prepare_for_prefill(self):
+        global SLIDING_WINDOW
+        global SLIDING_WINDOW_BLOCKS
+
         # Prepare values if we need to continue prefilling
         # Speculation must be ignored while we prefill even with chunking
         # it simplifies everything
         assert self.speculative_ids is None
 
-        sliding_window = get_sliding_windows()
         position_ids = []
         cu_seqlen_prefill = [0]
         slot_indices = []
@@ -853,9 +855,9 @@ class FlashCausalLMBatch(Batch):
             )
 
             # Create tensor to slice into the kv tensor in prefill
-            if sliding_window is not None:
+            if SLIDING_WINDOW is not None:
                 request_prefill_cache_indices = torch.arange(
-                    cumulative_length + max(0, input_length - sliding_window),
+                    cumulative_length + max(0, input_length - SLIDING_WINDOW),
                     cumulative_length + input_length,
                     dtype=torch.int64,
                 )
@@ -893,13 +895,11 @@ class FlashCausalLMBatch(Batch):
             slots.extend(request_slots)
             slot_indices.append(request_slot_indices)
 
-            if sliding_window is not None:
+            if SLIDING_WINDOW is not None:
                 prefill_cache_indices.append(request_prefill_cache_indices)
 
-            ADAPTER_TO_INDEX = get_adapter_to_index()
-            adapter_index = ADAPTER_TO_INDEX.get(r.adapter_id, 0)
-            adapter_indices_list.append(torch.full((next_chunk_length,), adapter_index))
-            adapter_set.add(adapter_index)
+            adapter_indices_list.append(torch.full((next_chunk_length,), r.adapter_index))
+            adapter_set.add(r.adapter_index)
 
             # Update
             cumulative_length += next_chunk_length
@@ -917,12 +917,12 @@ class FlashCausalLMBatch(Batch):
         if len(self) > 1:
             position_ids = torch.cat(position_ids)
             slot_indices = torch.cat(slot_indices)
-            if sliding_window is not None:
+            if SLIDING_WINDOW is not None:
                 prefill_cache_indices = torch.cat(prefill_cache_indices)
         else:
             position_ids = position_ids[0]
             slot_indices = slot_indices[0]
-            if sliding_window is not None:
+            if SLIDING_WINDOW is not None:
                 prefill_cache_indices = prefill_cache_indices[0]
 
         self.prefill_cu_outlens = prefill_cu_outlens
@@ -933,7 +933,7 @@ class FlashCausalLMBatch(Batch):
         self.position_ids = position_ids.to(device)
         self.slot_indices = slot_indices.to(device)
         self.prefill_cache_indices = (
-            prefill_cache_indices.to(device) if sliding_window is not None else None
+            prefill_cache_indices.to(device) if SLIDING_WINDOW is not None else None
         )
         self.input_lengths_tensor = torch.tensor(
             self.input_lengths, dtype=torch.int32, device=device
