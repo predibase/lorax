@@ -355,7 +355,7 @@ class VlmCausalLM(FlashCausalLM):
                 block_tables = block_tables_to_ragged(
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,
-                    prefix_lens=batch.prefix_lens,
+                    cache_lengths=batch.prefix_lens,
                 )
             with self._forward_context(
                 block_tables=block_tables,

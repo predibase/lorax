@@ -254,7 +254,7 @@ class GraphWrapper:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
                 input_lengths=input_lengths.tolist(),
-                cache_lens=cache_lengths,
+                cache_lengths=cache_lengths,
             )
 
             block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
@@ -370,7 +370,7 @@ class GraphWrapper:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
                 input_lengths=seqlen.input_lengths,
-                cache_lens=seqlen.cache_lengths,
+                cache_lengths=seqlen.cache_lengths,
             )
             self.input_state.block_tables[: block_tables.shape[0]] = block_tables
         else:
