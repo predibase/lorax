@@ -318,6 +318,7 @@ class FlashCausalLMBatch(Batch):
             batch_id=pb.id,
             requests=pb.requests,
             requests_idx_mapping=requests_idx_mapping,
+            input_ids=all_postfix_ids,
             block_tables=block_tables,
             block_tables_tensor=block_tables_tensor,
             cache_lengths=cache_lengths,
@@ -1218,7 +1219,7 @@ class FlashCausalLM(Model):
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
         # The warmup batch is the biggest batch we could ever receive
-        max_total_tokens = batch.max_seqlen + max_new_tokens + get_speculative_tokens()
+        max_total_tokens = batch.max_input_length + max_new_tokens + get_speculative_tokens()
 
         torch.cuda.empty_cache()
         try:
@@ -1236,9 +1237,9 @@ class FlashCausalLM(Model):
                     logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
                     with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
                         for _ in range(max_new_tokens):
-                            cur_seqlen = batch.max_seqlen
+                            cur_seqlen = batch.max_current_length
                             _, batch = self.generate_token(batch, is_warmup=True)
-                            new_seqlen = batch.max_seqlen
+                            new_seqlen = batch.max_current_length
                             pbar.update(new_seqlen - cur_seqlen)
                             if new_seqlen >= max_total_tokens - get_speculative_tokens():
                                 break
@@ -1444,7 +1445,7 @@ class FlashCausalLM(Model):
                 input_lengths=batch.input_lengths,
                 input_lengths_tensor=input_lengths,
                 cache_lens=batch.cache_lengths,
-                cache_lengths_tensor=cache_lengths_tensor,
+                cache_lens_tensor=cache_lengths_tensor,
             ):
                 out = model.forward(
                     input_ids=input_ids,
@@ -1871,7 +1872,8 @@ class FlashCausalLM(Model):
                         prefill_token_ids,
                         request_prefill_logprobs,
                         prefill_texts,
-                        is_special=[],
+                        [],
+                        all_alternative_tokens,
                     )
                     if past_prefill_logprob_tokens is not None:
                         prefill_logprob_tokens = (
@@ -1979,11 +1981,13 @@ class FlashCausalLM(Model):
                     generation = Generation(
                         request.id,
                         batch.prefill_logprob_tokens[i],
+                        len(all_input_ids[:-1]) if prefill else 0,
                         NextTokens(
                             _next_token_ids,
                             _next_token_logprobs,
                             next_token_texts,
                             [nid in self.all_special_ids for nid in _next_token_ids],
+                            all_alternative_tokens,
                         ),
                         generated_text,
                     )
