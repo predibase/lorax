@@ -31,8 +31,8 @@ def reshape_and_cache(
     value_cache: torch.Tensor,
     slots: torch.Tensor,
     kv_cache_dtype: str = 'auto',
-    k_scale: torch.Tensor = 1.0,
-    v_scale: torch.Tensor = 1.0,
+    k_scale: float = 1.0,
+    v_scale: float = 1.0,
 ):
     if FLASH_INFER:
         shape = key_cache.shape
@@ -58,8 +58,8 @@ def attention(
     max_s: int,
     softcap: Optional[float] = None,
     kv_cache_dtype: str = 'auto',
-    k_scale: torch.Tensor = 1.0,
-    v_scale: torch.Tensor = 1.0,
+    k_scale: float = 1.0,
+    v_scale: float = 1.0,
 ):
     if FLASH_INFER:
         from lorax_server.utils.flashinfer_attention import decode_state

@@ -262,9 +262,9 @@ class MistralAttention(torch.nn.Module):
         # todo(ajinkya): only supports the default 'fp8' dtype in vLLM for kv cache but
         # we can also support other dtypes like f8_e4m3
         if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
-            self.kv_cache_dtype = 'fp8'
-            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False)
-            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False)
+            self.kv_cache_dtype = 'fp8_e4m3'
+            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
+            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
         else:
             self.kv_cache_dtype = 'auto'
             self.k_scale = 1.0
