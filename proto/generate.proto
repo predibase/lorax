@@ -159,10 +159,10 @@ message Request {
     repeated uint32 slots = 10;
     /// Tokens that can be retrieved from the KV cache.
     /// This value is set for the first prefill and never reset
-    uint32 cache_len = 12;
+    uint32 cache_len = 11;
     /// Chunk of tokens that must be computed for the first prefill
     /// This value is set for the first prefill and never reset
-    optional uint32 chunk_len = 13;
+    optional uint32 chunk_len = 12;
 }
 
 message Batch {
