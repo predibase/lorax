@@ -7,6 +7,7 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
+from lorax_server.utils.attention.common import Seqlen
 import numpy as np
 import torch
 from loguru import logger
@@ -82,9 +83,9 @@ class GraphState:
     position_ids: torch.Tensor
     block_tables: torch.Tensor
     slots: torch.Tensor
-    input_lengths: torch.Tensor
-    prefix_lens: List[int]
-    prefix_lens_tensor: torch.Tensor
+    seqlen: Seqlen
+    cache_lens: List[int]
+    cache_lens_tensor: torch.Tensor
     adapter_data: AdapterBatchData
     traced_adapter_layer_names: Set[str]
     state: Any = None
@@ -109,8 +110,8 @@ def get_max_graph_state(
     position_ids = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
     slots = torch.full((MAX_BATCH_SIZE,), SLOT_PAD_VALUE, dtype=torch.int64, device=device)
     input_lengths = torch.full((MAX_BATCH_SIZE,), max_total_tokens, dtype=torch.int32, device=device)
-    prefix_lens = [0] * MAX_BATCH_SIZE
-    prefix_lens_tensor = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
+    cache_lengths = [0] * MAX_BATCH_SIZE
+    cache_lengths_tensor = torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int32, device=device)
 
     adapter_weight_data = {}
     for layer_name in adapter_layers:
@@ -140,9 +141,14 @@ def get_max_graph_state(
         position_ids=position_ids,
         block_tables=block_tables,
         slots=slots,
-        input_lengths=input_lengths,
-        prefix_lens=prefix_lens,
-        prefix_lens_tensor=prefix_lens_tensor,
+        seqlen=Seqlen(
+            input_lengths=input_lengths,
+            cache_lengths=cache_lengths_tensor,
+            cu_seqlen_q=None,
+            max_q=1,
+            max_k=max_total_tokens,
+        ),
+        cache_lengths_tensor=cache_lengths_tensor,
         adapter_data=AdapterBatchData(
             meta=AdapterBatchMetadata(
                 adapter_indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
@@ -235,8 +241,8 @@ class GraphWrapper:
 
         block_tables = max_input_state.block_tables[:batch_size]
         input_lengths = max_input_state.input_lengths[:batch_size]
-        prefix_lengths = max_input_state.prefix_lens[:batch_size]
-        prefix_lengths_tensor = max_input_state.prefix_lens_tensor[:batch_size]
+        cache_lengths = max_input_state.cache_lens[:batch_size]
+        cache_lengths_tensor = max_input_state.cache_lens_tensor[:batch_size]
         state = None
 
         if FLASH_INFER:
@@ -247,7 +253,7 @@ class GraphWrapper:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
                 input_lengths=input_lengths.tolist(),
-                prefix_lens=prefix_lengths,
+                cache_lens=cache_lengths,
             )
 
             block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
@@ -266,9 +272,15 @@ class GraphWrapper:
             position_ids=max_input_state.position_ids[:batch_size],
             block_tables=block_tables,
             slots=max_input_state.slots[:batch_size],
-            input_lengths=input_lengths,
-            prefix_lens=prefix_lengths,
-            prefix_lens_tensor=prefix_lengths_tensor,
+            seqlen=Seqlen(
+                input_lengths=input_lengths,
+                cache_lengths=cache_lengths_tensor,
+                cu_seqlen_q=None,
+                max_q=1,
+                max_k=max_total_tokens,
+            ),
+            cache_lens=cache_lengths,
+            cache_lens_tensor=cache_lengths_tensor,
             adapter_data=AdapterBatchData(
                 meta=AdapterBatchMetadata(
                     adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
@@ -289,9 +301,9 @@ class GraphWrapper:
             block_tables=input_state.block_tables,
             cu_seqlen_prefill=None,
             input_lengths=input_lengths,
-            input_lengths_tensor=input_state.input_lengths,
-            prefix_lens=prefix_lengths,
-            prefix_lens_tensor=prefix_lengths_tensor,
+            input_lengths_tensor=input_state.seqlen.input_lengths,
+            cache_lens=cache_lengths,
+            cache_lens_tensor=cache_lengths_tensor,
             state=input_state.state,
         ):
             # warmup
@@ -302,7 +314,7 @@ class GraphWrapper:
                 kv_cache=kv_cache,
                 block_tables=input_state.block_tables,
                 slots=input_state.slots,
-                input_lengths=input_state.input_lengths,
+                seqlen=input_state.seqlen,
                 max_s=max_total_tokens,
                 adapter_data=input_state.adapter_data,
                 prefill_cache_indices=None,
@@ -319,7 +331,7 @@ class GraphWrapper:
                     kv_cache=kv_cache,
                     block_tables=input_state.block_tables,
                     slots=input_state.slots,
-                    input_lengths=input_state.input_lengths,
+                    seqlen=input_state.seqlen,
                     max_s=max_total_tokens,
                     adapter_data=input_state.adapter_data,
                     prefill_cache_indices=None,
@@ -338,9 +350,9 @@ class GraphWrapper:
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
-        prefix_lens: List[int],
-        prefix_lens_tensor: torch.Tensor,
+        seqlen: Seqlen,
+        cache_lens: List[int],
+        cache_lens_tensor: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -348,15 +360,16 @@ class GraphWrapper:
         pad_and_fill(self.input_state.input_ids, input_ids, 0)
         pad_and_fill(self.input_state.position_ids, position_ids, 0)
         pad_and_fill(self.input_state.slots, slots, SLOT_PAD_VALUE)
-        pad_and_fill(self.input_state.input_lengths, input_lengths + prefix_lens_tensor, 0)
-        self.input_state.prefix_lens[: len(prefix_lens)] = prefix_lens
-        pad_and_fill(self.input_state.prefix_lens_tensor, prefix_lens_tensor, 0)
+        pad_and_fill(self.input_state.seqlen.input_lengths, seqlen.input_lengths, 0)
+        pad_and_fill(self.input_state.seqlen.cache_lengths, seqlen.cache_lengths, 0)
+        self.input_state.cache_lens[: len(cache_lens)] = cache_lens
+        pad_and_fill(self.input_state.cache_lens_tensor, cache_lens_tensor, 0)
 
         if FLASH_INFER:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
-                input_lengths=input_lengths,
-                prefix_lens=prefix_lens,
+                input_lengths=seqlen.input_lengths,
+                cache_lens=seqlen.cache_lengths,
             )
             self.input_state.block_tables[: block_tables.shape[0]] = block_tables
         else:
@@ -390,8 +403,8 @@ class GraphWrapper:
             cu_seqlen_prefill=None,
             input_lengths=input_lengths,
             input_lengths_tensor=self.input_state.input_lengths,
-            prefix_lens=self.input_state.prefix_lens,
-            prefix_lens_tensor=self.input_state.prefix_lens_tensor,
+            cache_lens=self.input_state.cache_lens,
+            cache_lens_tensor=self.input_state.cache_lens_tensor,
             state=self.input_state.state,
         ):
             self.graph.replay()
@@ -541,9 +554,9 @@ class GraphCache:
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
-        prefix_lens: List[int],
-        prefix_lens_tensor: torch.Tensor,
+        seqlen: Seqlen,
+        cache_lens: List[int],
+        cache_lens_tensor: torch.Tensor,
         max_s: int,
         adapter_data: AdapterBatchData,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -587,9 +600,9 @@ class GraphCache:
             kv_cache=kv_cache,
             block_tables=block_tables,
             slots=slots,
-            input_lengths=input_lengths,
-            prefix_lens=prefix_lens,
-            prefix_lens_tensor=prefix_lens_tensor,
+            seqlen=seqlen,
+            cache_lens=cache_lens,
+            cache_lens_tensor=cache_lens_tensor,
             max_s=max_s,
             adapter_data=adapter_data,
             lm_head_indices=lm_head_indices,

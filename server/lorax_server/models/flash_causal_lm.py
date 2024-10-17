@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
+from lorax_server.utils.attention.common import Seqlen
 import numpy as np
 import torch
 import torch.distributed
@@ -1330,8 +1331,8 @@ class FlashCausalLM(Model):
         cu_seqlen_prefill: Optional[torch.Tensor],
         input_lengths: List[int],
         input_lengths_tensor: torch.Tensor,
-        prefix_lens: List[int],
-        prefix_lens_tensor: torch.Tensor,
+        cache_lens: List[int],
+        cache_lens_tensor: torch.Tensor,
         state: Optional[Any] = None,
     ) -> ContextManager:
         if not FLASH_INFER:
@@ -1387,11 +1388,12 @@ class FlashCausalLM(Model):
 
         input_ids = batch.input_ids
         position_ids = batch.position_ids
+        cu_seqlen_prefill = batch.cu_seqlen_prefill
         block_tables = batch.block_tables_tensor
         slots = batch.slots[batch.slot_indices]
         input_lengths = batch.input_lengths_tensor
-        prefix_lens_tensor = batch.prefix_lens_tensor
-        max_s = batch.max_seqlen
+        cache_lengths_tensor = batch.cache_lengths_tensor
+        max_s = batch.max_current_length
 
         if batch.speculative_ids is not None:
             speculative_ids = batch.speculative_ids
@@ -1404,23 +1406,36 @@ class FlashCausalLM(Model):
             new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
+            cache_lengths_tensor = (batch.cache_lengths_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
             max_s = max_s + speculative_length
 
             input_ids = new_input_ids
             position_ids = new_position_ids
-
+        
+        if cu_seqlen_prefill is None and self.max_past() is not None:
+            # In decode, not prefill, we're actually overwriting the KV-cache
+            # in a circular buffer mode.
+            # This makes sure the max_s for the decode pass is correct.
+            max_s = min(self.max_past(), max_s)
+        
+        seqlen = Seqlen(
+            input_lengths=input_lengths,
+            cache_lengths=cache_lengths_tensor,
+            cu_seqlen_q=None,
+            max_q=batch.max_input_length,
+            max_k=batch.max_current_length,
+        )
+        
         # Model Forward
         if not use_graph:
             # eager mode
-            input_lengths = input_lengths + prefix_lens_tensor
             if FLASH_INFER:
                 block_tables = block_tables_to_ragged(
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,
-                    prefix_lens=batch.prefix_lens,
+                    cache_lengths=batch.cache_lengths,
                 )
 
             with self._forward_context(
@@ -1428,8 +1443,8 @@ class FlashCausalLM(Model):
                 cu_seqlen_prefill=batch.cu_seqlen_prefill,
                 input_lengths=batch.input_lengths,
                 input_lengths_tensor=input_lengths,
-                prefix_lens=batch.prefix_lens,
-                prefix_lens_tensor=prefix_lens_tensor,
+                cache_lens=batch.cache_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
             ):
                 out = model.forward(
                     input_ids=input_ids,
@@ -1438,7 +1453,7 @@ class FlashCausalLM(Model):
                     kv_cache=self.kv_cache,
                     block_tables=block_tables,
                     slots=slots,
-                    input_lengths=input_lengths,
+                    seqlen=seqlen,
                     max_s=max_s,
                     adapter_data=adapter_data,
                     prefill_cache_indices=batch.prefill_cache_indices,
@@ -1453,9 +1468,9 @@ class FlashCausalLM(Model):
                 kv_cache=self.kv_cache,
                 block_tables=block_tables,
                 slots=slots,
-                input_lengths=input_lengths,
-                prefix_lens=batch.prefix_lens,
-                prefix_lens_tensor=prefix_lens_tensor,
+                seqlen=seqlen,
+                cache_lens=batch.cache_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
                 max_s=max_s,
                 adapter_data=adapter_data,
                 prefill_cache_indices=batch.prefill_cache_indices,
@@ -1471,7 +1486,9 @@ class FlashCausalLM(Model):
     def generate_token(
         self, batch: FlashCausalLMBatch, is_warmup: bool = False
     ) -> Tuple[List[Generation], Optional[FlashCausalLMBatch]]:
-        prefill = batch.cu_seqlen_prefill is not None
+        prefill = batch.prefilling
+        if prefill:
+            batch.prepare_for_prefill()
         prefill_logprobs = batch.prefill_next_token_indices is not None
         return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
 
