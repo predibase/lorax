@@ -127,6 +127,8 @@ if FLASH_INFER:
         window_size_left=-1,
         causal=True,
         softcap=0.0,
+        k_scale=1.0,
+        v_scale=1.0,
     ):
         assert window_size_left == -1, "Windowing is not supported with flash infer when using kv cache"
         from lorax_server.utils.flashinfer_attention import prefill_state, prefill_with_paged_kv_state
@@ -149,6 +151,8 @@ if FLASH_INFER:
             paged_kv_cache=(key_cache, value_cache),
             logits_soft_cap=softcap,
             sm_scale=softmax_scale,
+            k_scale=k_scale,
+            v_scale=v_scale,
         )
 
 elif HAS_FLASH_ATTN_V2_CUDA:

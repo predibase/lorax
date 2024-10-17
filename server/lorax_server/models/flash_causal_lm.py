@@ -963,12 +963,12 @@ class FlashCausalLM(Model):
                 (
                     torch.empty(
                         (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=dtype,
+                        dtype=torch.float8_e4m3fn,
                         device=device,
                     ),
                     torch.empty(
                         (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=dtype,
+                        dtype=torch.float8_e4m3fn,
                         device=device,
                     ),
                 )

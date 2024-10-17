@@ -26,6 +26,11 @@ else:
 # else:
 fp8_supported = False
 
+def static_per_tensor_quantize(tensor: torch.Tensor, inv_scale: float) -> torch.Tensor:
+    finfo = torch.finfo(torch.float8_e4m3fn)
+    qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)
+    return qweight.to(torch.float8_e4m3fn)
+
 
 def reshape_and_cache(
     key: torch.Tensor,
@@ -33,8 +38,14 @@ def reshape_and_cache(
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
     slots: torch.Tensor,
+    k_scale: float = 1.0,
+    v_scale: float = 1.0,
 ):
     if FLASH_INFER:
+        key = static_per_tensor_quantize(key, k_scale).view(torch.uint8)
+        value = static_per_tensor_quantize(value, v_scale).view(torch.uint8)
+        key_cache = key_cache.view(torch.uint8)
+        value_cache = value_cache.view(torch.uint8)
         shape = key_cache.shape
         key_cache.view(-1, shape[-2], shape[-1])[slots] = key
         value_cache.view(-1, shape[-2], shape[-1])[slots] = value
@@ -57,6 +68,8 @@ def attention(
     input_lengths: torch.Tensor,
     max_s: int,
     softcap: Optional[float] = None,
+    k_scale: float = 1.0,
+    v_scale: float = 1.0,
 ):
     if FLASH_INFER:
         from lorax_server.utils.flashinfer_attention import decode_state
@@ -66,6 +79,8 @@ def attention(
             paged_kv_cache=(key_cache, value_cache),
             logits_soft_cap=softcap,
             sm_scale=softmax_scale,
+            k_scale=k_scale,
+            v_scale=v_scale,
         )
 
     # Adapted from: https://github.com/vllm-project/vllm/blob/f8a1e39fae05ca610be8d5a78be9d40f5274e5fc/vllm/model_executor/layers/attention.py
