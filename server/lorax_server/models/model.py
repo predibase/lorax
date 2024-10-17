@@ -124,6 +124,7 @@ class Model(ABC):
             supports_generation=self.supports_text_generation,
             supports_embeddings=self.supports_embeddings,
             supports_classification=self.supports_classification,
+            supports_chunking=self.supports_chunking,
         )
 
     @property
