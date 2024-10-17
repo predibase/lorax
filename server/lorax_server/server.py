@@ -100,7 +100,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.device,
         )
 
-        if self.model.support_chunking:
+        if self.model.supports_chunking:
             if request.HasField("cached_batch"):
                 cached_batch = self.cache.pop(request.cached_batch.id)
                 if cached_batch is None:
