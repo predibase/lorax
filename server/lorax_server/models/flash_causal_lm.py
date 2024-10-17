@@ -1471,7 +1471,7 @@ class FlashCausalLM(Model):
                 slots=slots,
                 seqlen=seqlen,
                 cache_lens=batch.cache_lengths,
-                cache_lengths_tensor=cache_lengths_tensor,
+                cache_lens_tensor=cache_lengths_tensor,
                 max_s=max_s,
                 adapter_data=adapter_data,
                 prefill_cache_indices=batch.prefill_cache_indices,

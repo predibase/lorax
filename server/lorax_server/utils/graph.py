@@ -148,7 +148,8 @@ def get_max_graph_state(
             max_q=1,
             max_k=max_total_tokens,
         ),
-        cache_lengths_tensor=cache_lengths_tensor,
+        cache_lens=cache_lengths,
+        cache_lens_tensor=cache_lengths_tensor,
         adapter_data=AdapterBatchData(
             meta=AdapterBatchMetadata(
                 adapter_indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
@@ -240,7 +241,7 @@ class GraphWrapper:
             }
 
         block_tables = max_input_state.block_tables[:batch_size]
-        input_lengths = max_input_state.input_lengths[:batch_size]
+        input_lengths = max_input_state.seqlen.input_lengths[:batch_size]
         cache_lengths = max_input_state.cache_lens[:batch_size]
         cache_lengths_tensor = max_input_state.cache_lens_tensor[:batch_size]
         state = None
@@ -401,8 +402,8 @@ class GraphWrapper:
         with self.forward_context(
             block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,
-            input_lengths=input_lengths,
-            input_lengths_tensor=self.input_state.input_lengths,
+            input_lengths=seqlen.input_lengths,
+            input_lengths_tensor=self.input_state.seqlen.input_lengths,
             cache_lens=self.input_state.cache_lens,
             cache_lens_tensor=self.input_state.cache_lens_tensor,
             state=self.input_state.state,
@@ -452,7 +453,7 @@ class GraphCache:
         max_rank = max(ranks) if len(ranks) > 0 else 0
 
         batch_size = batch.input_ids.shape[0]
-        max_s = batch.max_seqlen
+        max_s = batch.max_current_length
 
         # TODO(travis): allow using CUDA graphs with multi-rank batches
         return (
