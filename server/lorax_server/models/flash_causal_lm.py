@@ -812,6 +812,11 @@ class FlashCausalLM(Model):
 
         config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+            self.kv_dtype = torch.float8_e4m3fn
+            logger.info('Enabling FP8 KV Cache')
+        else:
+            self.kv_dtype = dtype
 
         torch.distributed.barrier(group=self.process_group)
 
@@ -958,21 +963,18 @@ class FlashCausalLM(Model):
 
         element_size = torch.tensor([], dtype=dtype).element_size()
         x = BLOCK_SIZE // element_size
-        kv_dtype = dtype
 
         if FLASH_INFER:
-            if paged_attention.is_fp8_supported() and self.config.quantize and self.config.quantize.endswith('_kv'):
-                kv_dtype = torch.float8_e4m3fn
             self.kv_cache = [
                 (
                     torch.empty(
                         (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=kv_dtype,
+                        dtype=dtype,
                         device=device,
                     ),
                     torch.empty(
                         (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=kv_dtype,
+                        dtype=dtype,
                         device=device,
                     ),
                 )
@@ -983,12 +985,12 @@ class FlashCausalLM(Model):
                 (
                     torch.empty(
                         (num_blocks, num_heads, head_size // x, BLOCK_SIZE, x),
-                        dtype=kv_dtype,
+                        dtype=dtype,
                         device=device,
                     ),
                     torch.empty(
                         (num_blocks, num_heads, head_size, BLOCK_SIZE),
-                        dtype=kv_dtype,
+                        dtype=dtype,
                         device=device,
                     ),
                 )
@@ -1010,7 +1012,7 @@ class FlashCausalLM(Model):
                 self.num_layers,
                 self.num_kv_heads,
                 self.head_size,
-                self.dtype,
+                self.kv_dtype,
                 self.device,
             )
 
@@ -1089,7 +1091,7 @@ class FlashCausalLM(Model):
             self.num_layers,
             self.num_kv_heads,
             self.head_size,
-            self.dtype,
+            self.kv_dtype,
             self.device,
         )
 
