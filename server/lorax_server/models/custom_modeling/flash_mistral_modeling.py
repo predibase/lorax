@@ -19,6 +19,7 @@
 # limitations under the License.
 
 from typing import List, Optional, Tuple
+from loguru import logger
 
 # Flash attention imports
 import dropout_layer_norm
@@ -261,6 +262,7 @@ class MistralAttention(torch.nn.Module):
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
         self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
         self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+        logger.info('load kv scales')
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id, self.head_size)
 
