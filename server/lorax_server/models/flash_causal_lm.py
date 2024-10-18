@@ -353,19 +353,6 @@ class FlashCausalLMBatch(Batch):
             adapter_meta=None,
         )
 
-    @classmethod
-    def from_pb_embed(
-        self,
-        pb: generate_pb2.EmbedRequest,
-        tokenizer: PreTrainedTokenizerBase,
-        tokenizers: TokenizerManager,
-        processor,
-        config,
-        dtype,
-        device,
-    ) -> "FlashCausalLMBatch":
-        return self.from_pb(pb, tokenizer, tokenizers, None, None, dtype, device)
-
     @tracer.start_as_current_span("filter")
     def filter(self, request_ids: List[int]) -> "FlashCausalLMBatch":
         if len(request_ids) == 0:
