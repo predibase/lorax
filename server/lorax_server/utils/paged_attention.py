@@ -25,10 +25,6 @@ def is_fp8_supported():
         or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
 
 
-def is_fp8_kv_supported(quantization_type):
-    return FLASH_INFER and is_fp8_supported() and quantization_type and quantization_type.endswith('_kv')
-
-
 def static_per_tensor_quantize(tensor: torch.Tensor, inv_scale: float) -> torch.Tensor:
     finfo = torch.finfo(torch.float8_e4m3fn)
     qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)

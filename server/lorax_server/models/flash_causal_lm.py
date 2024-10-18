@@ -958,13 +958,11 @@ class FlashCausalLM(Model):
 
         element_size = torch.tensor([], dtype=dtype).element_size()
         x = BLOCK_SIZE // element_size
-
-        if paged_attention.is_fp8_kv_supported(self.config.quantize):
-            kv_dtype = torch.float8_e4m3fn
-        else:
-            kv_dtype = dtype
+        kv_dtype = dtype
 
         if FLASH_INFER:
+            if paged_attention.is_fp8_supported() and self.config.quantize and self.config.quantize.endswith('_kv'):
+                kv_dtype = torch.float8_e4m3fn
             self.kv_cache = [
                 (
                     torch.empty(
