@@ -3,6 +3,7 @@ from io import BytesIO
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from lorax_server.utils.attention.common import Seqlen
+import numpy as np
 import torch
 from opentelemetry import trace
 from PIL import Image
@@ -151,6 +152,12 @@ class MllamaCausalLMBatch(VlmCausalLMBatch):
 
         # XXX: <|image|> token is actually out of bounds and bugs out the logit processors.
         batch.all_input_ids_tensor = batch.all_input_ids_tensor.clamp(max=config.text_config.vocab_size - 1)
+        if isinstance(batch.input_ids, list):
+            if len(batch) > 1:
+                input_ids = np.concatenate(batch.input_ids, dtype=np.int64)
+            else:
+                input_ids = batch.input_ids[0]
+            batch.input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
         batch.input_ids = batch.input_ids.clamp(max=config.text_config.vocab_size - 1)
 
         if image_inputs is not None:
