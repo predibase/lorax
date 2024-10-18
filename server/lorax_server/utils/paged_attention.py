@@ -1,8 +1,8 @@
 from typing import Optional
 
-from lorax_server.utils.attention.common import Seqlen
 import torch
 
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.import_utils import SYSTEM
 from lorax_server.utils.state import FLASH_INFER
 

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-import torch
 from typing import Optional
+
+import torch
 
 
 @dataclass
@@ -50,4 +51,3 @@ class Seqlen:
     def clamp(self, max):
         self.input_lengths = torch.clamp(self.input_lengths, max=max)
         return self
-    

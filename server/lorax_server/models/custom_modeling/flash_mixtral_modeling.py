@@ -21,8 +21,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
-
 # Flash attention imports
 import dropout_layer_norm
 import numpy as np
@@ -35,6 +33,7 @@ from transformers.configuration_utils import PretrainedConfig
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
     FastLinear,
@@ -189,13 +188,15 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(get_linear(
-        weight, 
-        bias=None, 
-        quantize=config.quantize, 
-        weight_scale=weight_scale,
-        input_scale=input_scale,
-    ))
+    return TensorParallelColumnLinear(
+        get_linear(
+            weight,
+            bias=None,
+            quantize=config.quantize,
+            weight_scale=weight_scale,
+            input_scale=input_scale,
+        )
+    )
 
 
 def _load_experts(config, prefix, mat, weights):

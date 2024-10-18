@@ -6,8 +6,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
-
 # Flash attention imports
 import dropout_layer_norm
 import torch
@@ -18,6 +16,7 @@ from transformers.activations import ACT2FN
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,

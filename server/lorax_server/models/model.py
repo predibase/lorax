@@ -17,7 +17,13 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, CHUNKED_PREFILL, get_speculative_tokens, set_supports_chunking
+from lorax_server.utils.state import (
+    BLOCK_SIZE,
+    CHUNKED_PREFILL,
+    FLASH_INFER,
+    get_speculative_tokens,
+    set_supports_chunking,
+)
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -80,8 +86,7 @@ class Model(ABC):
         if supports_chunking:
             if speculation_tokens != 0:
                 logger.warning(
-                    "Chunked prefill does not support speculation yet. "
-                    "Chunked prefill will be disabled",
+                    "Chunked prefill does not support speculation yet. " "Chunked prefill will be disabled",
                 )
                 supports_chunking = False
             if not FLASH_INFER:

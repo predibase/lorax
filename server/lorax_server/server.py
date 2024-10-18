@@ -75,7 +75,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
     async def Warmup(self, request: generate_pb2.WarmupRequest, context):
         set_max_prefill_tokens(request.max_prefill_tokens)
-        
+
         batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,
@@ -104,9 +104,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             if request.HasField("cached_batch"):
                 cached_batch = self.cache.pop(request.cached_batch.id)
                 if cached_batch is None:
-                    raise ValueError(
-                        f"Batch ID {request.cached_batch.id} not found in cache."
-                    )
+                    raise ValueError(f"Batch ID {request.cached_batch.id} not found in cache.")
                 batch = self.model.batch_type.concatenate([cached_batch, batch])
 
         generations, next_batch = self.model.generate_token(batch)

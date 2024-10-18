@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
 import numpy as np
 import torch
 from opentelemetry import trace
@@ -13,6 +12,7 @@ from transformers import (
 
 from lorax_server.models.vlm_causal_lm import VlmCausalLM, VlmCausalLMBatch
 from lorax_server.pb import generate_pb2
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
@@ -227,7 +227,7 @@ class MllamaCausalLM(VlmCausalLM):
             # in a circular buffer mode.
             # This makes sure the max_s for the decode pass is correct.
             max_s = min(self.max_past(), max_s)
-        
+
         seqlen = Seqlen(
             input_lengths=input_lengths,
             cache_lengths=cache_lengths_tensor,

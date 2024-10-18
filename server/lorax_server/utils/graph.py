@@ -7,7 +7,6 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
 import numpy as np
 import torch
 from loguru import logger
@@ -17,6 +16,7 @@ from tqdm import tqdm
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.sgmv import BGMV_MAX_RANK
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER

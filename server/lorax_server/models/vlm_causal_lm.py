@@ -1,7 +1,6 @@
 from io import BytesIO
 from typing import Iterable, List, Optional, Tuple, Type
 
-from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.distributed
 from loguru import logger
@@ -17,6 +16,7 @@ from lorax_server.models.flash_causal_lm import (
     block_tables_to_ragged,
 )
 from lorax_server.pb import generate_pb2
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
 
@@ -349,7 +349,7 @@ class VlmCausalLM(FlashCausalLM):
         ):
             use_graph = True
             model = self.model_graph_wrapper
-        
+
         seqlen = Seqlen(
             input_lengths=input_lengths,
             cache_lengths=cache_lengths_tensor,

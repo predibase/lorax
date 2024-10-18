@@ -16,7 +16,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -32,6 +31,7 @@ from lorax_server.models.custom_modeling.vlm import (
     load_text_model,
     load_vision_model,
 )
+from lorax_server.utils.attention.common import Seqlen
 
 
 def get_anyres_image_grid_shape(image_size, grid_pinpoints, patch_size):

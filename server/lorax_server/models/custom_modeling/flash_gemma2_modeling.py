@@ -20,7 +20,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.distributed
 from torch import nn
@@ -40,6 +39,7 @@ from lorax_server.layers.layernorm import (
 from lorax_server.layers.rotary import PositionRotaryEmbedding
 from lorax_server.layers.tensor_parallel import TensorParallelHead
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import MultiAdapterHead, TensorParallelAdapterRowLinear, TensorParallelMultiAdapterLinear
 from lorax_server.utils.lora import (
     DOWN_PROJ,

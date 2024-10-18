@@ -10,9 +10,7 @@ def block_tables_to_ragged(
     assert len(input_lengths) == len(cache_lengths)
 
     total_len = sum(input_lengths) + sum(cache_lengths)
-    block_tables_ragged = torch.empty(
-        total_len, dtype=torch.int32, device=block_tables.device
-    )
+    block_tables_ragged = torch.empty(total_len, dtype=torch.int32, device=block_tables.device)
 
     offset = 0
     for i, (input_length, cache_length) in enumerate(zip(input_lengths, cache_lengths)):

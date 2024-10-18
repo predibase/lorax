@@ -16,8 +16,6 @@
 
 from typing import List, Optional, Tuple
 
-from lorax_server.utils.attention.common import Seqlen
-
 import flash_attn_2_cuda
 import torch
 import torch.nn.functional as F
@@ -36,6 +34,7 @@ from lorax_server.models.custom_modeling.flash_llama_modeling import (
     FlashLlamaForCausalLM,
     FlashLlamaLayer,
 )
+from lorax_server.utils.attention.common import Seqlen
 
 
 # Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
