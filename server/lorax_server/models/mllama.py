@@ -194,7 +194,7 @@ class MllamaCausalLM(VlmCausalLM):
             new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
+            cache_lengths_tensor = (batch.cache_lengths_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             # Add Copy the block tables for all members
             block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
@@ -210,7 +210,7 @@ class MllamaCausalLM(VlmCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            prefix_lens_tensor = batch.prefix_lens_tensor
+            cache_lengths_tensor = batch.cache_lengths_tensor
             max_s = batch.max_seqlen
             lm_head_indices = batch.prefill_head_indices
 
@@ -221,23 +221,23 @@ class MllamaCausalLM(VlmCausalLM):
             max_s = min(self.max_past(), max_s)
 
         # TODO: cuda graph
-        input_lengths = input_lengths + prefix_lens_tensor
+        input_lengths = input_lengths + cache_lengths_tensor
         if PREFIX_CACHING:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
                 input_lengths=batch.input_lengths,
-                cache_lengths=batch.prefix_lens,
+                cache_lengths=batch.cache_lengths,
             )
         with self._forward_context(
             block_tables=block_tables,
             cu_seqlen_prefill=cu_seqlen_prefill,
             input_lengths=batch.input_lengths,
             input_lengths_tensor=input_lengths,
-            prefix_lens=batch.prefix_lens,
-            prefix_lens_tensor=prefix_lens_tensor,
+            cache_lengths=batch.cache_lengths,
+            cache_lengths_tensor=cache_lengths_tensor,
         ):
             # TODO(travis): is this needed?
-            # max_k = (input_lengths + prefix_lens_tensor).max().item()
+            # max_k = (input_lengths + cache_lengths_tensor).max().item()
             if batch.pixel_values is not None:
                 cross_attention_states = self.model.vision_forward(
                     pixel_values=batch.pixel_values,

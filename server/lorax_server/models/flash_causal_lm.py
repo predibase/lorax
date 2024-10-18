@@ -1335,8 +1335,8 @@ class FlashCausalLM(Model):
         cu_seqlen_prefill: Optional[torch.Tensor],
         input_lengths: List[int],
         input_lengths_tensor: torch.Tensor,
-        cache_lens: List[int],
-        cache_lens_tensor: torch.Tensor,
+        cache_lengths: List[int],
+        cache_lengths_tensor: torch.Tensor,
         state: Optional[Any] = None,
     ) -> ContextManager:
         if not FLASH_INFER:
@@ -1347,13 +1347,12 @@ class FlashCausalLM(Model):
             use_prefill_with_paged_kv_state,
         )
 
-        # has_prefix_lens = any(prefix_len > 0 for prefix_len in prefix_lens)
         if cu_seqlen_prefill is not None:
             return use_prefill_with_paged_kv_state(
                 state=(state if state is not None else self.prefill_with_paged_kv_state),
                 block_tables=block_tables,
                 cu_seqlens=cu_seqlen_prefill,
-                input_lengths=input_lengths_tensor + cache_lens_tensor,
+                input_lengths=input_lengths_tensor + cache_lengths_tensor,
                 num_heads=self.num_heads,
                 num_kv_heads=self.num_kv_heads,
                 head_size=self.head_size,
@@ -1365,7 +1364,7 @@ class FlashCausalLM(Model):
             assert input_lengths_tensor is not None
             return use_decode_state(
                 state=state if state is not None else self.decode_state,
-                input_lengths=input_lengths_tensor + cache_lens_tensor,
+                input_lengths=input_lengths_tensor + cache_lengths_tensor,
                 block_tables=block_tables,
                 num_heads=self.num_heads,
                 num_kv_heads=self.num_kv_heads,
@@ -1446,8 +1445,8 @@ class FlashCausalLM(Model):
                 cu_seqlen_prefill=batch.cu_seqlen_prefill,
                 input_lengths=batch.input_lengths,
                 input_lengths_tensor=input_lengths,
-                cache_lens=batch.cache_lengths,
-                cache_lens_tensor=cache_lengths_tensor,
+                cache_lengths=batch.cache_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
             ):
                 out = model.forward(
                     input_ids=input_ids,
@@ -1472,8 +1471,8 @@ class FlashCausalLM(Model):
                 block_tables=block_tables,
                 slots=slots,
                 seqlen=seqlen,
-                cache_lens=batch.cache_lengths,
-                cache_lens_tensor=cache_lengths_tensor,
+                cache_lengths=batch.cache_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
                 max_s=max_s,
                 adapter_data=adapter_data,
                 prefill_cache_indices=batch.prefill_cache_indices,
