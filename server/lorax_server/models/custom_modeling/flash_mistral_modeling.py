@@ -260,8 +260,6 @@ class MistralAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        # todo(ajinkya): only supports the default 'fp8' dtype in vLLM for kv cache but
-        # we can also support other dtypes like f8_e4m3
         if paged_attention.is_fp8_kv_supported(config.quantize):
             self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
             self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
@@ -354,7 +352,6 @@ class MistralAttention(torch.nn.Module):
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            # note: flashinfer backend + fp8 kv cache can cause problems
             attn_output = flash_attn.attention(
                 query,
                 torch.select(kv, dim=1, index=0),
