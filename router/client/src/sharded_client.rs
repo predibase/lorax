@@ -124,11 +124,12 @@ impl ShardedClient {
     pub async fn prefill(
         &mut self,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
     ) -> Result<(Vec<Generation>, Option<CachedBatch>)> {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
-            .map(|client| Box::pin(client.prefill(batch.clone())))
+            .map(|client| Box::pin(client.prefill(batch.clone(), cached_batch.clone())))
             .collect();
         let results: Result<Vec<(Vec<Generation>, Option<CachedBatch>)>> =
             join_all(futures).await.into_iter().collect();

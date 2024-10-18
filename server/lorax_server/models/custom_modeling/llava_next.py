@@ -16,6 +16,7 @@
 
 from typing import List, Optional, Tuple
 
+from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -168,7 +169,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor],
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -255,7 +256,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
             kv_cache=kv_cache,
             block_tables=block_tables,
             slots=slots,
-            input_lengths=input_lengths,
+            seqlen=seqlen,
             max_s=max_s,
             prefill_cache_indices=None,
             cross_attention_states=None,

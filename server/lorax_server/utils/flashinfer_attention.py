@@ -44,7 +44,8 @@ def use_prefill_with_paged_kv_state(
     num_kv_heads: int,
     head_size: int,
     page_size: int,
-    query_dtype: str = "float16",
+    dtype: torch.dtype,
+    window_left: int,
 ):
     """
     Context manager to set the active flashinfer prefill state to the given
@@ -52,7 +53,9 @@ def use_prefill_with_paged_kv_state(
     `attention` function while the context manager is active.
     """
 
-    indptr = torch.zeros(input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32)
+    indptr = torch.zeros(
+        input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32
+    )
     # Round up to page size and then calculate the cumulative sum to get
     # the indices into the block table.
     torch.add(input_lengths, page_size - 1, out=indptr[1:])
@@ -61,9 +64,13 @@ def use_prefill_with_paged_kv_state(
 
     # Get the lengths of the last page in a block.
     if page_size == 1:
-        last_page_len = torch.ones(input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device)
+        last_page_len = torch.ones(
+            input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
+        )
     else:
-        last_page_len = torch.empty(input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device)
+        last_page_len = torch.empty(
+            input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
+        )
         torch.sub(input_lengths, 1, out=last_page_len)
         last_page_len.remainder_(page_size)
         last_page_len += 1
@@ -78,8 +85,9 @@ def use_prefill_with_paged_kv_state(
             num_qo_heads=num_heads,
             num_kv_heads=num_kv_heads,
             head_dim=head_size,
-            q_data_type=query_dtype,
+            q_data_type=dtype,
             page_size=page_size,
+            # window_left=window_left, # TODO
         )
         yield
     finally:
@@ -182,14 +190,17 @@ def use_decode_state(
     num_kv_heads: int,
     head_size: int,
     page_size: int,
-    query_dtype: str = "float16",
+    dtype: torch.dtype,
+    window_left: int,
 ):
     """
     Context manager to set the active flashinfer decoding state to the given
     `state` and parameters. This state will be used by all calls to the
     `paged_attention` function while the context manager is active.
     """
-    indptr = torch.zeros(input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32)
+    indptr = torch.zeros(
+        input_lengths.shape[0] + 1, device=input_lengths.device, dtype=torch.int32
+    )
     # Round up to page size and then calculate the cumulative sum to get
     # the indices into the block table.
     torch.add(input_lengths, page_size - 1, out=indptr[1:])
@@ -197,7 +208,9 @@ def use_decode_state(
     indptr[1:].cumsum_(-1)
 
     # Get the lengths of the last page in a block.
-    last_page_len = torch.empty(input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device)
+    last_page_len = torch.empty(
+        input_lengths.shape[0], dtype=torch.int32, device=input_lengths.device
+    )
     torch.sub(input_lengths, 1, out=last_page_len)
     last_page_len.remainder_(page_size)
     last_page_len += 1
@@ -213,7 +226,9 @@ def use_decode_state(
             num_kv_heads=num_kv_heads,
             head_dim=head_size,
             page_size=page_size,
-            q_data_type=query_dtype,
+            data_type=dtype,
+            q_data_type=dtype,
+            # window_left=window_left, TODO
         )
         yield
     finally:

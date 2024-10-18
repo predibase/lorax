@@ -57,6 +57,7 @@ message InfoResponse {
     bool supports_generation = 8;
     bool supports_embeddings = 9;
     bool supports_classification = 10;
+    bool chunked_prefill = 11;
 }
 
 /// Empty request
@@ -156,8 +157,12 @@ message Request {
     repeated uint32 blocks = 9;
     /// Paged attention slots
     repeated uint32 slots = 10;
-    /// Prefix length that can be retrieved from the KV cache
-    uint32 prefix_len = 11;
+    /// Tokens that can be retrieved from the KV cache.
+    /// This value is set for the first prefill and never reset
+    uint32 cache_len = 11;
+    /// Chunk of tokens that must be computed for the first prefill
+    /// This value is set for the first prefill and never reset
+    optional uint32 chunk_len = 12;
 }
 
 message Batch {
@@ -182,6 +187,8 @@ message CachedBatch {
     uint32 size = 3;
     /// Maximum number of tokens this batch will grow to
     uint32 max_tokens = 4;
+    /// Number of tokens in the next forward
+    uint32 current_tokens = 5;
 }
 
 enum FinishReason {
@@ -261,6 +268,8 @@ message FilterBatchResponse {
 message PrefillRequest {
     /// Batch
     Batch batch = 1;
+    /// Optional cached batch
+    CachedBatch cached_batch = 2;
 }
 
 message PrefillResponse {
@@ -268,6 +277,16 @@ message PrefillResponse {
     repeated Generation generations = 1;
     /// Next batch (cached)
     optional CachedBatch batch = 2;
+
+    // TODO(travis): add timings
+    // /// Forward elapsed time in nanoseconds
+    // uint64 forward_ns = 3;
+    // /// Decode elapsed time in nanoseconds
+    // uint64 decode_ns = 4;
+    // /// Total elapsed time in nanoseconds
+    // uint64 total_ns = 5;
+    // /// Concatenate elapsed time in nanoseconds
+    // optional uint64 concat_ns = 6;
 }
 
 message DecodeRequest {
@@ -344,9 +363,9 @@ message ClassifyResponse {
 message WarmupRequest {
     /// Batch to warmup on
     Batch batch = 1;
-
-    /// Maximum number of new tokens to warmup
-    uint32 max_new_tokens = 2;
+    uint32 max_input_length = 2;
+    uint32 max_prefill_tokens = 3;
+    uint32 max_new_tokens = 4;
 }
 
 /// Empty response

@@ -73,7 +73,8 @@ impl Health {
                 // Block 0 is reserved for health checks
                 blocks: vec![0],
                 slots: (0..16).collect(),
-                prefix_len: 0,
+                cache_len: 0,
+                chunk_len: None,
             };
             let batch = Batch {
                 id: BATCH_ID,
@@ -83,7 +84,7 @@ impl Health {
                 max_blocks: 1,
             };
             // Skips the queue
-            let value = self.client.prefill(batch).await.is_ok();
+            let value = self.client.prefill(batch, None).await.is_ok();
             // Update generation health
             self.generation_health.store(value, Ordering::SeqCst);
             value
