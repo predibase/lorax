@@ -24,6 +24,7 @@ from lorax_server.models.types import (
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
+from lorax_server.utils import paged_attention
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
@@ -958,17 +959,22 @@ class FlashCausalLM(Model):
         element_size = torch.tensor([], dtype=dtype).element_size()
         x = BLOCK_SIZE // element_size
 
+        if paged_attention.is_fp8_kv_supported(self.config.quantize):
+            kv_dtype = torch.float8_e4m3fn
+        else:
+            kv_dtype = dtype
+
         if FLASH_INFER:
             self.kv_cache = [
                 (
                     torch.empty(
                         (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=torch.float8_e4m3fn,
+                        dtype=kv_dtype,
                         device=device,
                     ),
                     torch.empty(
                         (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=torch.float8_e4m3fn,
+                        dtype=kv_dtype,
                         device=device,
                     ),
                 )
@@ -979,12 +985,12 @@ class FlashCausalLM(Model):
                 (
                     torch.empty(
                         (num_blocks, num_heads, head_size // x, BLOCK_SIZE, x),
-                        dtype=dtype,
+                        dtype=kv_dtype,
                         device=device,
                     ),
                     torch.empty(
                         (num_blocks, num_heads, head_size, BLOCK_SIZE),
-                        dtype=dtype,
+                        dtype=kv_dtype,
                         device=device,
                     ),
                 )

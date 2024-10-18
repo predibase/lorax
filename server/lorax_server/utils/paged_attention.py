@@ -2,6 +2,7 @@ from typing import Optional
 
 import torch
 
+from lorax_server.utils import paged_attention
 from lorax_server.utils.import_utils import SYSTEM
 from lorax_server.utils.state import FLASH_INFER
 
@@ -18,13 +19,15 @@ else:
             f"Could not import vllm paged attention. Make sure your installation is correct. Error: {e}"
         ) from e
 
-# TODO(travis): fix for CUDA 8.9 (Lovelace) and 9.0 (Hopper)
-# if torch.cuda.is_available():
-#     fp8_supported = (
-#         torch.cuda.get_device_capability()[0] >= 9
-#     )  # or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
-# else:
-fp8_supported = False
+
+def is_fp8_supported():
+    return (torch.cuda.get_device_capability()[0] >= 9) \
+        or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
+
+
+def is_fp8_kv_supported(quantization_type):
+    return FLASH_INFER and is_fp8_supported() and quantization_type and quantization_type.endswith('_kv')
+
 
 def static_per_tensor_quantize(tensor: torch.Tensor, inv_scale: float) -> torch.Tensor:
     finfo = torch.finfo(torch.float8_e4m3fn)
@@ -42,19 +45,18 @@ def reshape_and_cache(
     v_scale: float = 1.0,
 ):
     if FLASH_INFER:
-        key = static_per_tensor_quantize(key, k_scale).view(torch.uint8)
-        value = static_per_tensor_quantize(value, v_scale).view(torch.uint8)
-        key_cache = key_cache.view(torch.uint8)
-        value_cache = value_cache.view(torch.uint8)
+        if key_cache.dtype == torch.float8_e4m3fn and value_cache.dtype == torch.float8_e4m3fn:
+            key = static_per_tensor_quantize(key, k_scale).view(torch.uint8)
+            value = static_per_tensor_quantize(value, v_scale).view(torch.uint8)
+            key_cache = key_cache.view(torch.uint8)
+            value_cache = value_cache.view(torch.uint8)
         shape = key_cache.shape
         key_cache.view(-1, shape[-2], shape[-1])[slots] = key
         value_cache.view(-1, shape[-2], shape[-1])[slots] = value
     elif SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
-        torch.ops._C_cache_ops.reshape_and_cache(
-            key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0, 1.0
-        )
+        torch.ops._C_cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, 'auto', 1.0, 1.0)
 
 
 def attention(
@@ -143,7 +145,7 @@ def attention(
             block_size,
             max_s,
             None,
-            "fp8" if fp8_supported else "auto",
+            'auto',
             1.0,
             1.0,
         )
@@ -177,7 +179,7 @@ def attention(
             block_size,
             max_s,
             None,
-            "fp8" if fp8_supported else "auto",
+            'auto',
             1.0,
             1.0,
         )
