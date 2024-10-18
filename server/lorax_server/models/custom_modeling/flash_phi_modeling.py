@@ -11,6 +11,7 @@
 
 from typing import List, Optional, Tuple
 
+from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.distributed
 from torch import nn
@@ -140,7 +141,7 @@ class FlashPhiAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
     ):
@@ -184,7 +185,7 @@ class FlashPhiAttention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -262,7 +263,7 @@ class FlashPhiLayer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
     ):
@@ -276,7 +277,7 @@ class FlashPhiLayer(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
         )
@@ -327,7 +328,7 @@ class FlashPhiModel(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
@@ -348,7 +349,7 @@ class FlashPhiModel(torch.nn.Module):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
                 adapter_data,
             )
@@ -382,7 +383,7 @@ class FlashPhiForCausalLM(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
@@ -395,7 +396,7 @@ class FlashPhiForCausalLM(torch.nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
         )

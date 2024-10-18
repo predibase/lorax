@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.distributed
 from torch import nn
@@ -153,7 +154,7 @@ class FlashRWAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         qkv = self.query_key_value(hidden_states)
@@ -198,7 +199,7 @@ class FlashRWAttention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -260,7 +261,7 @@ class FlashRWLargeAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         qkv = self.query_key_value(hidden_states)
@@ -310,7 +311,7 @@ class FlashRWLargeAttention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -387,7 +388,7 @@ class FlashRWLayer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         if self.parallel_attn:
@@ -401,7 +402,7 @@ class FlashRWLayer(nn.Module):
                 kv_cache,
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -423,7 +424,7 @@ class FlashRWLayer(nn.Module):
                 kv_cache,
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -470,7 +471,7 @@ class FlashRWLargeLayer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         ln_attn, residual = self.ln_attn(hidden_states, residual)
@@ -485,7 +486,7 @@ class FlashRWLargeLayer(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
         )
 
@@ -541,7 +542,7 @@ class FlashRWModel(FlashRWPreTrainedModel):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
     ) -> torch.Tensor:
         hidden_states = self.word_embeddings(input_ids)
@@ -561,7 +562,7 @@ class FlashRWModel(FlashRWPreTrainedModel):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -587,7 +588,7 @@ class FlashRWForCausalLM(FlashRWPreTrainedModel):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -599,7 +600,7 @@ class FlashRWForCausalLM(FlashRWPreTrainedModel):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
         )
         if lm_head_indices is not None:
