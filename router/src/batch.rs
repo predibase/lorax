@@ -519,7 +519,7 @@ impl BatchEntries for EmbedBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
-        cached_batch: Option<CachedBatch>,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
@@ -644,7 +644,7 @@ impl BatchEntries for ClassifyBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
-        cached_batch: Option<CachedBatch>,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {

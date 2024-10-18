@@ -940,7 +940,7 @@ async fn batching_task(
                 adapter_scheduler.remove_errored_adapters().await;
 
                 let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-                let (min_size, max_size, prefill_token_budget) = if prefill_chunking {
+                let (min_size, _max_size, prefill_token_budget) = if prefill_chunking {
                     // Since the next batch will be concatenated with the current batch,
                     // the current batch tokens must be subtracted to the prefill budget
                     let prefill_token_budget =
