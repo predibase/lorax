@@ -475,6 +475,7 @@ class FlashCausalLMBatch(Batch):
             max_blocks = max(max_blocks, len(request_block_table))
 
         all_input_ids_tensor = self.all_input_ids_tensor[indices]
+
         block_tables_tensor = self.block_tables_tensor[indices]
         next_token_chooser = self.next_token_chooser.filter(indices)
         speculative_ids = self.speculative_ids[indices] if self.speculative_ids is not None else None
@@ -571,17 +572,17 @@ class FlashCausalLMBatch(Batch):
             # `total_slots` is not used if any of the batches is prefilling
             total_slots += len(b.slots) if not b.prefilling else 0
             num_blocks += b.num_blocks
+            speculative_length = (
+                b.speculative_ids.shape[1] if b.speculative_ids is not None else 0
+            )
             max_input_length = max(max_input_length, b.max_input_length)
             max_current_length = max(max_current_length, b.max_current_length)
-
-            speculative_length = b.speculative_ids.shape[1] if b.speculative_ids is not None else 0
             max_length = max(
                 max_length,
                 max(
                     prompt_length
                     + stopping_criteria.max_new_tokens
                     + speculative_length
-                    - stopping_criteria.current_tokens
                     for prompt_length, stopping_criteria in zip(
                         b.prompt_lengths, b.stopping_criterias
                     )
