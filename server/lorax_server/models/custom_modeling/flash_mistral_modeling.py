@@ -19,7 +19,6 @@
 # limitations under the License.
 
 from typing import List, Optional, Tuple
-from loguru import logger
 
 # Flash attention imports
 import dropout_layer_norm

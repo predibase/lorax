@@ -2,7 +2,6 @@ from typing import Optional
 
 import torch
 
-from lorax_server.utils import paged_attention
 from lorax_server.utils.import_utils import SYSTEM
 from lorax_server.utils.state import FLASH_INFER
 

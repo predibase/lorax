@@ -23,8 +23,7 @@ from lorax_server.models.types import (
     PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
-from lorax_server.utils import paged_attention
+from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria, paged_attention
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
