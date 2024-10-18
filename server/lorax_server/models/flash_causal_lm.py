@@ -23,7 +23,7 @@ from lorax_server.models.types import (
     PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
+from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria, paged_attention
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
@@ -811,6 +811,11 @@ class FlashCausalLM(Model):
 
         config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+            self.kv_dtype = torch.float8_e4m3fn
+            logger.info('Enabling FP8 KV Cache')
+        else:
+            self.kv_dtype = dtype
 
         torch.distributed.barrier(group=self.process_group)
 
@@ -1006,7 +1011,7 @@ class FlashCausalLM(Model):
                 self.num_layers,
                 self.num_kv_heads,
                 self.head_size,
-                self.dtype,
+                self.kv_dtype,
                 self.device,
             )
 
@@ -1085,7 +1090,7 @@ class FlashCausalLM(Model):
             self.num_layers,
             self.num_kv_heads,
             self.head_size,
-            self.dtype,
+            self.kv_dtype,
             self.device,
         )
 
