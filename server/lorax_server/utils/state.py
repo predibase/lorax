@@ -9,7 +9,7 @@ SPECULATIVE_TOKENS = 0
 
 
 PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHING", ""))
-PREFILL_CHUNKING = bool(os.environ.get("PREFILL_CHUNKING", ""))
+CHUNKED_PREFILL = bool(os.environ.get("CHUNKED_PREFILL", ""))
 
 # Always use flashinfer when prefix caching is enabled
 FLASH_INFER = bool(os.environ.get("FLASH_INFER", "")) or PREFIX_CACHING
@@ -19,7 +19,7 @@ else:
     logger.info("Backend = fa2")
 
 logger.info(f"Prefix caching = {PREFIX_CACHING}")
-logger.info(f"Prefill chunking = {PREFILL_CHUNKING}")
+logger.info(f"Chunked prefill = {CHUNKED_PREFILL}")
 
 SUPPORTS_CHUNKING: Optional[bool] = None
 MAX_PREFILL_TOKENS: Optional[int] = None

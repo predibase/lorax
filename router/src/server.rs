@@ -1401,7 +1401,7 @@ pub async fn run(
         shard_info.speculate,
         shard_info.preloaded_adapters,
         prefix_caching,
-        shard_info.prefill_chunking,
+        shard_info.chunked_prefill,
         is_causal_lm,
     );
 

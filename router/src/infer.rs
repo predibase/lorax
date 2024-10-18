@@ -181,7 +181,7 @@ impl Infer {
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
         prefix_caching: bool,
-        prefill_chunking: bool,
+        chunked_prefill: bool,
         is_causal_lm: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
@@ -251,7 +251,7 @@ impl Infer {
             generation_health,
             adapter_scheduler.clone(),
             eager_prefill,
-            prefill_chunking,
+            chunked_prefill,
         ));
 
         // Inference limit with a semaphore
@@ -900,7 +900,7 @@ async fn batching_task(
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
     eager_prefill: bool,
-    prefill_chunking: bool,
+    chunked_prefill: bool,
 ) {
     // Infinite loop
     loop {
@@ -940,7 +940,7 @@ async fn batching_task(
                 adapter_scheduler.remove_errored_adapters().await;
 
                 let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
-                let (min_size, _max_size, prefill_token_budget) = if prefill_chunking {
+                let (min_size, _max_size, prefill_token_budget) = if chunked_prefill {
                     // Since the next batch will be concatenated with the current batch,
                     // the current batch tokens must be subtracted to the prefill budget
                     let prefill_token_budget =
@@ -1000,14 +1000,14 @@ async fn batching_task(
                     if min_size.is_some() {
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
                     } else {
-                        if prefill_chunking {
+                        if chunked_prefill {
                             metrics::increment_counter!("lorax_batch_concat", "reason" => "chunking")
                         } else {
                             metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded")
                         };
                     }
 
-                    let cached_batch = if prefill_chunking {
+                    let cached_batch = if chunked_prefill {
                         // Concat current batch to the new one
                         batches.pop()
                     } else {
@@ -1048,7 +1048,7 @@ async fn batching_task(
                     // Extend current batch with the new batch
                     if let Some(new_cached_batch) = new_cached_batch {
                         batches.push(new_cached_batch);
-                    } else if prefill_chunking {
+                    } else if chunked_prefill {
                         // New cached batch is empty, no work left
                         break;
                     }

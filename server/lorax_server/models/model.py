@@ -17,7 +17,7 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, PREFILL_CHUNKING, get_speculative_tokens, set_supports_chunking
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, CHUNKED_PREFILL, get_speculative_tokens, set_supports_chunking
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -76,20 +76,20 @@ class Model(ABC):
 
         speculation_tokens = get_speculative_tokens()
 
-        supports_chunking = supports_chunking and PREFILL_CHUNKING
+        supports_chunking = supports_chunking and CHUNKED_PREFILL
         if supports_chunking:
             if speculation_tokens != 0:
                 logger.warning(
-                    "Prefill chunking does not support speculation yet. "
-                    "Prefill chunking will be turned off",
+                    "Chunked prefill does not support speculation yet. "
+                    "Chunked prefill will be disabled",
                 )
                 supports_chunking = False
             if not FLASH_INFER:
                 logger.warning(
-                    "Prefill chunking is only supported with `flashinfer` backend.",
+                    "Chunked prefill is only supported with `flashinfer` backend.",
                 )
                 supports_chunking = False
-            logger.info(f"Using experimental prefill chunking = {supports_chunking}")
+            logger.info(f"Using experimental chunked prefill = {supports_chunking}")
 
         self.supports_chunking = supports_chunking
         set_supports_chunking(supports_chunking)
@@ -124,7 +124,7 @@ class Model(ABC):
             supports_generation=self.supports_text_generation,
             supports_embeddings=self.supports_embeddings,
             supports_classification=self.supports_classification,
-            prefill_chunking=self.supports_chunking,
+            chunked_prefill=self.supports_chunking,
         )
 
     @property
