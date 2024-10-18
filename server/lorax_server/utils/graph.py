@@ -84,6 +84,7 @@ class GraphState:
     block_tables: torch.Tensor
     slots: torch.Tensor
     seqlen: Seqlen
+    input_lengths: List[int]
     cache_lens: List[int]
     cache_lens_tensor: torch.Tensor
     adapter_data: AdapterBatchData
@@ -148,6 +149,7 @@ def get_max_graph_state(
             max_q=1,
             max_k=max_total_tokens,
         ),
+        input_lengths=input_lengths.tolist(),
         cache_lens=cache_lengths,
         cache_lens_tensor=cache_lengths_tensor,
         adapter_data=AdapterBatchData(
@@ -241,7 +243,8 @@ class GraphWrapper:
             }
 
         block_tables = max_input_state.block_tables[:batch_size]
-        input_lengths = max_input_state.seqlen.input_lengths[:batch_size]
+        input_lengths = max_input_state.input_lengths[:batch_size]
+        input_lengths_tensor = max_input_state.seqlen.input_lengths[:batch_size]
         cache_lengths = max_input_state.cache_lens[:batch_size]
         cache_lengths_tensor = max_input_state.cache_lens_tensor[:batch_size]
         state = None
@@ -253,7 +256,7 @@ class GraphWrapper:
 
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
-                input_lengths=input_lengths.tolist(),
+                input_lengths=input_lengths,
                 cache_lengths=cache_lengths,
             )
 
@@ -274,12 +277,13 @@ class GraphWrapper:
             block_tables=block_tables,
             slots=max_input_state.slots[:batch_size],
             seqlen=Seqlen(
-                input_lengths=input_lengths,
+                input_lengths=input_lengths_tensor,
                 cache_lengths=cache_lengths_tensor,
                 cu_seqlen_q=None,
                 max_q=1,
                 max_k=max_total_tokens,
             ),
+            input_lengths=input_lengths,
             cache_lens=cache_lengths,
             cache_lens_tensor=cache_lengths_tensor,
             adapter_data=AdapterBatchData(
