@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from lorax_server.utils.attention.common import Seqlen
 import torch
 from opentelemetry import trace
 from PIL import Image
@@ -181,7 +182,7 @@ class MllamaCausalLM(VlmCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            max_s = batch.max_seqlen
+            max_s = batch.max_current_length
             lm_head_indices = batch.prefill_head_indices
 
             speculative_ids = batch.speculative_ids
@@ -211,7 +212,7 @@ class MllamaCausalLM(VlmCausalLM):
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
             cache_lengths_tensor = batch.cache_lengths_tensor
-            max_s = batch.max_seqlen
+            max_s = batch.max_current_length
             lm_head_indices = batch.prefill_head_indices
 
         if cu_seqlen_prefill is None and self.max_past() is not None:
@@ -219,6 +220,14 @@ class MllamaCausalLM(VlmCausalLM):
             # in a circular buffer mode.
             # This makes sure the max_s for the decode pass is correct.
             max_s = min(self.max_past(), max_s)
+        
+        seqlen = Seqlen(
+            input_lengths=input_lengths,
+            cache_lengths=cache_lengths_tensor,
+            cu_seqlen_q=None,
+            max_q=batch.max_input_length,
+            max_k=batch.max_current_length,
+        )
 
         # TODO: cuda graph
         input_lengths = input_lengths + cache_lengths_tensor
@@ -255,7 +264,7 @@ class MllamaCausalLM(VlmCausalLM):
                 kv_cache=kv_cache,
                 block_tables=block_tables,
                 slots=slots,
-                input_lengths=input_lengths,
+                seqlen=seqlen,
                 max_s=max_s,
                 prefill_cache_indices=batch.prefill_cache_indices,
                 lm_head_indices=lm_head_indices,

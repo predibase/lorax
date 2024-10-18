@@ -1,6 +1,7 @@
 from io import BytesIO
 from typing import Iterable, List, Optional, Tuple, Type
 
+from lorax_server.utils.attention.common import Seqlen
 import torch
 import torch.distributed
 from loguru import logger
@@ -302,7 +303,7 @@ class VlmCausalLM(FlashCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            max_s = batch.max_seqlen
+            max_s = batch.max_current_length
 
             speculative_ids = batch.speculative_ids
 
@@ -330,7 +331,7 @@ class VlmCausalLM(FlashCausalLM):
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
             cache_lengths_tensor = batch.cache_lengths_tensor
-            max_s = batch.max_seqlen
+            max_s = batch.max_current_length
 
         if cu_seqlen_prefill is None and self.max_past() is not None:
             # In decode, not prefill, we're actually overwriting the KV-cache
@@ -348,6 +349,14 @@ class VlmCausalLM(FlashCausalLM):
         ):
             use_graph = True
             model = self.model_graph_wrapper
+        
+        seqlen = Seqlen(
+            input_lengths=input_lengths,
+            cache_lengths=cache_lengths_tensor,
+            cu_seqlen_q=None,
+            max_q=batch.max_input_length,
+            max_k=batch.max_current_length,
+        )
 
         if not use_graph:
             input_lengths = input_lengths + cache_lengths_tensor
@@ -373,7 +382,7 @@ class VlmCausalLM(FlashCausalLM):
                     kv_cache=self.kv_cache,
                     block_tables=block_tables,
                     slots=slots,
-                    input_lengths=input_lengths,
+                    seqlen=seqlen,
                     max_s=max_s,
                     adapter_data=adapter_data,
                     prefill_cache_indices=batch.prefill_cache_indices,
@@ -391,7 +400,7 @@ class VlmCausalLM(FlashCausalLM):
                 kv_cache=self.kv_cache,
                 block_tables=block_tables,
                 slots=slots,
-                input_lengths=input_lengths,
+                seqlen=seqlen,
                 cache_lengths=batch.cache_lengths,
                 cache_lengths_tensor=cache_lengths_tensor,
                 max_s=max_s,
