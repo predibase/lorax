@@ -30,6 +30,7 @@ from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -308,7 +309,7 @@ class MistralAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
         prefill_cache_indices,
@@ -358,7 +359,7 @@ class MistralAttention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -445,7 +446,7 @@ class MistralLayer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
         prefill_cache_indices,
@@ -461,7 +462,7 @@ class MistralLayer(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
             prefill_cache_indices,
@@ -509,7 +510,7 @@ class MistralModel(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
@@ -531,7 +532,7 @@ class MistralModel(torch.nn.Module):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
                 adapter_data,
                 prefill_cache_indices,
@@ -581,7 +582,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
@@ -594,7 +595,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
-            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+            seqlen = torch.clamp(seqlen, max=self.max_past)
 
         inputs_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
@@ -604,7 +605,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
             prefill_cache_indices,

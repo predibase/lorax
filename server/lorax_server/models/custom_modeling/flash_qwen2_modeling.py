@@ -16,6 +16,7 @@ from transformers.activations import ACT2FN
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,
@@ -219,7 +220,7 @@ class FlashQwen2Attention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         prefill_cache_indices,
         adapter_data,
@@ -270,7 +271,7 @@ class FlashQwen2Attention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -358,7 +359,7 @@ class FlashQwen2Layer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         prefill_cache_indices,
         adapter_data,
@@ -374,7 +375,7 @@ class FlashQwen2Layer(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             prefill_cache_indices,
             adapter_data,
@@ -423,7 +424,7 @@ class FlashQwen2Model(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor],
         adapter_data: AdapterBatchData,
@@ -444,7 +445,7 @@ class FlashQwen2Model(torch.nn.Module):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
                 prefill_cache_indices,
                 adapter_data,
@@ -482,7 +483,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
@@ -495,7 +496,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
-            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+            seqlen = seqlen.clamp(max=self.max_past)
 
         hidden_states = self.model(
             input_ids,
@@ -504,7 +505,7 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             prefill_cache_indices,
             adapter_data,
@@ -537,7 +538,7 @@ class FlashQwen2ForEmbeddings(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
@@ -550,7 +551,7 @@ class FlashQwen2ForEmbeddings(torch.nn.Module):
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
-            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+            seqlen = seqlen.clamp(max=self.max_past)
 
         hidden_states = self.model(
             input_ids,
@@ -559,7 +560,7 @@ class FlashQwen2ForEmbeddings(torch.nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             prefill_cache_indices,
             adapter_data,

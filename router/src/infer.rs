@@ -181,6 +181,7 @@ impl Infer {
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
         prefix_caching: bool,
+        chunked_prefill: bool,
         is_causal_lm: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
@@ -250,6 +251,7 @@ impl Infer {
             generation_health,
             adapter_scheduler.clone(),
             eager_prefill,
+            chunked_prefill,
         ));
 
         // Inference limit with a semaphore
@@ -898,6 +900,7 @@ async fn batching_task(
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
     eager_prefill: bool,
+    chunked_prefill: bool,
 ) {
     // Infinite loop
     loop {
@@ -917,7 +920,7 @@ async fn batching_task(
             .await
         {
             let mut cached_batch = batch_entries
-                .process_first(&mut client, batch, span, &generation_health)
+                .process_first(&mut client, batch, None, span, &generation_health)
                 .await;
             let mut waiting_tokens = 1;
 
@@ -927,6 +930,7 @@ async fn batching_task(
                 // Get current batch info
                 let mut batch_size = batch.size;
                 let batch_max_tokens = batch.max_tokens;
+                let current_tokens = batch.current_tokens;
                 let mut batches = vec![batch];
                 metrics::gauge!("lorax_batch_current_size", batch_size as f64);
                 metrics::gauge!("lorax_batch_current_max_tokens", batch_max_tokens as f64);
@@ -935,24 +939,53 @@ async fn batching_task(
                 // TODO(travis): can execute this more efficiently by making it event-driven
                 adapter_scheduler.remove_errored_adapters().await;
 
-                let min_size = if waiting_tokens >= max_waiting_tokens || eager_prefill {
-                    // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                    // to add a new batch even though its size might be small
-                    None
+                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                let (min_size, _max_size, prefill_token_budget) = if chunked_prefill {
+                    // Since the next batch will be concatenated with the current batch,
+                    // the current batch tokens must be subtracted to the prefill budget
+                    let prefill_token_budget =
+                        max_batch_prefill_tokens.saturating_sub(current_tokens);
+                    // We can ignore min_size and max_size
+                    // Models than rely on max_size cannot support chunking
+                    // Regarding min_size, chunking allow us to consistently run at the compute
+                    // bound, making min_size useless.
+                    (None, None, prefill_token_budget)
                 } else {
-                    // Minimum batch size
-                    Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                    let min_size = if waiting_tokens >= max_waiting_tokens {
+                        // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                        // to add a new batch even though its size might be small
+                        None
+                    } else {
+                        // Minimum batch size
+                        // TODO: temporarily disable to avoid incorrect deallocation +
+                        //       reallocation when using prefix caching.
+                        Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                    };
+
+                    let max_batch_size: Option<usize> = None; // TODO(travis)
+                    let max_size =
+                        max_batch_size.map(|max_size| max_size.saturating_sub(batch_size as usize));
+
+                    (min_size, max_size, max_batch_prefill_tokens)
                 };
 
-                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                // let min_size = if waiting_tokens >= max_waiting_tokens || eager_prefill {
+                //     // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                //     // to add a new batch even though its size might be small
+                //     None
+                // } else {
+                //     // Minimum batch size
+                //     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                // };
+
                 let mut adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                while let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                while let Some((new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use.clone(),
                         min_size,
-                        max_batch_prefill_tokens,
+                        prefill_token_budget,
                         token_budget,
                     )
                     .await
@@ -967,37 +1000,57 @@ async fn batching_task(
                     if min_size.is_some() {
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
                     } else {
-                        metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded");
+                        if chunked_prefill {
+                            metrics::increment_counter!("lorax_batch_concat", "reason" => "chunking")
+                        } else {
+                            metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded")
+                        };
                     }
 
-                    batch_entries
-                        .mut_state()
-                        .batch_entries
-                        .iter_mut()
-                        .for_each(|(_, entry)| {
-                            // Create a new span to add the info that this entry is waiting
-                            // because a new batch is being computed
-                            let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
-                            // Add relationships
-                            span.follows_from(&entry_waiting_span);
-                            entry_waiting_span.follows_from(&span);
-                            // Update entry
-                            entry.temp_span = Some(entry_waiting_span);
-                        });
+                    let cached_batch = if chunked_prefill {
+                        // Concat current batch to the new one
+                        batches.pop()
+                    } else {
+                        // Request are waiting only if we don't support chunking
+                        batch_entries.mut_state().batch_entries.iter_mut().for_each(
+                            |(_, entry)| {
+                                // Create a new span to add the info that this entry is waiting
+                                // because a new batch is being computed
+                                let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                                // Add relationships
+                                span.follows_from(&entry_waiting_span);
+                                entry_waiting_span.follows_from(&span);
+                                // Update entry
+                                entry.temp_span = Some(entry_waiting_span);
+                            },
+                        );
+                        None
+                    };
+
+                    let new_adapters_in_use = new_entries.adapters_in_use();
+                    batch_entries.extend(new_entries);
 
                     // Generate one token for this new batch to have the attention past in cache
-                    let new_cached_batch = new_entries
-                        .process_first(&mut client, new_batch, span, &generation_health)
+                    let new_cached_batch = batch_entries
+                        .process_first(
+                            &mut client,
+                            new_batch,
+                            cached_batch,
+                            span,
+                            &generation_health,
+                        )
                         .await;
 
-                    adapters_in_use.extend(new_entries.adapters_in_use());
+                    adapters_in_use.extend(new_adapters_in_use);
 
                     // Reset waiting counter
                     waiting_tokens = 1;
                     // Extend current batch with the new batch
                     if let Some(new_cached_batch) = new_cached_batch {
-                        batch_entries.extend(new_entries);
                         batches.push(new_cached_batch);
+                    } else if chunked_prefill {
+                        // New cached batch is empty, no work left
+                        break;
                     }
 
                     if !eager_prefill {
@@ -1040,6 +1093,7 @@ async fn batching_task(
 pub(crate) async fn prefill(
     client: &mut ShardedClient,
     batch: Batch,
+    cached_batch: Option<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
     generation_health: &Arc<AtomicBool>,
 ) -> Option<CachedBatch> {
@@ -1047,7 +1101,7 @@ pub(crate) async fn prefill(
     let batch_id = batch.id;
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
 
-    match client.prefill(batch).await {
+    match client.prefill(batch, cached_batch).await {
         Ok((generations, next_batch)) => {
             // Update health
             generation_health.store(true, Ordering::SeqCst);
@@ -1056,6 +1110,12 @@ pub(crate) async fn prefill(
 
             // Filter next batch and remove requests that were stopped
             let next_batch = filter_batch(client, next_batch, entries).await;
+
+            // TODO(travis)
+            // if let Some(concat_duration) = timings.concat {
+            //     metrics::histogram!("lorax_batch_concat_duration", "method" => "decode")
+            //         .record(concat_duration.as_secs_f64());
+            // }
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "prefill");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "prefill");

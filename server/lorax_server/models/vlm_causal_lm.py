@@ -16,6 +16,7 @@ from lorax_server.models.flash_causal_lm import (
     block_tables_to_ragged,
 )
 from lorax_server.pb import generate_pb2
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
 
@@ -277,6 +278,8 @@ class VlmCausalLM(FlashCausalLM):
             adapter_source=adapter_source,
             processor=processor,
             trust_remote_code=trust_remote_code,
+            # FIXME: VLM do not work with context chunking yet
+            supports_chunking=False,
             **kwargs,
         )
 
@@ -300,7 +303,7 @@ class VlmCausalLM(FlashCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            max_s = batch.max_seqlen
+            max_s = batch.max_current_length
 
             speculative_ids = batch.speculative_ids
 
@@ -312,7 +315,7 @@ class VlmCausalLM(FlashCausalLM):
             new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
+            cache_lengths_tensor = (batch.cache_lengths_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             # Add Copy the block tables for all members
             block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
@@ -327,8 +330,8 @@ class VlmCausalLM(FlashCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            prefix_lens_tensor = batch.prefix_lens_tensor
-            max_s = batch.max_seqlen
+            cache_lengths_tensor = batch.cache_lengths_tensor
+            max_s = batch.max_current_length
 
         if cu_seqlen_prefill is None and self.max_past() is not None:
             # In decode, not prefill, we're actually overwriting the KV-cache
@@ -347,21 +350,29 @@ class VlmCausalLM(FlashCausalLM):
             use_graph = True
             model = self.model_graph_wrapper
 
+        seqlen = Seqlen(
+            input_lengths=input_lengths,
+            cache_lengths=cache_lengths_tensor,
+            cu_seqlen_q=None,
+            max_q=batch.max_input_length,
+            max_k=batch.max_current_length,
+        )
+
         if not use_graph:
-            input_lengths = input_lengths + prefix_lens_tensor
+            input_lengths = input_lengths + cache_lengths_tensor
             if PREFIX_CACHING:
                 block_tables = block_tables_to_ragged(
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,
-                    prefix_lens=batch.prefix_lens,
+                    cache_lengths=batch.cache_lengths,
                 )
             with self._forward_context(
                 block_tables=block_tables,
                 cu_seqlen_prefill=cu_seqlen_prefill,
                 input_lengths=batch.input_lengths,
                 input_lengths_tensor=input_lengths,
-                prefix_lens=batch.prefix_lens,
-                prefix_lens_tensor=prefix_lens_tensor,
+                cache_lengths=batch.cache_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
             ):
                 # input_lengths = Seqlen(input_lengths=input_lengths)
                 out = model.forward(
@@ -371,7 +382,7 @@ class VlmCausalLM(FlashCausalLM):
                     kv_cache=self.kv_cache,
                     block_tables=block_tables,
                     slots=slots,
-                    input_lengths=input_lengths,
+                    seqlen=seqlen,
                     max_s=max_s,
                     adapter_data=adapter_data,
                     prefill_cache_indices=batch.prefill_cache_indices,
@@ -389,9 +400,9 @@ class VlmCausalLM(FlashCausalLM):
                 kv_cache=self.kv_cache,
                 block_tables=block_tables,
                 slots=slots,
-                input_lengths=input_lengths,
-                prefix_lens=batch.prefix_lens,
-                prefix_lens_tensor=prefix_lens_tensor,
+                seqlen=seqlen,
+                cache_lengths=batch.cache_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
                 max_s=max_s,
                 adapter_data=adapter_data,
                 prefill_cache_indices=batch.prefill_cache_indices,

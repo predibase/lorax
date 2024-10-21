@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import numpy as np
 import torch
 from opentelemetry import trace
 from PIL import Image
@@ -11,6 +12,7 @@ from transformers import (
 
 from lorax_server.models.vlm_causal_lm import VlmCausalLM, VlmCausalLMBatch
 from lorax_server.pb import generate_pb2
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
@@ -150,6 +152,12 @@ class MllamaCausalLMBatch(VlmCausalLMBatch):
 
         # XXX: <|image|> token is actually out of bounds and bugs out the logit processors.
         batch.all_input_ids_tensor = batch.all_input_ids_tensor.clamp(max=config.text_config.vocab_size - 1)
+        if isinstance(batch.input_ids, list):
+            if len(batch) > 1:
+                input_ids = np.concatenate(batch.input_ids, dtype=np.int64)
+            else:
+                input_ids = batch.input_ids[0]
+            batch.input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
         batch.input_ids = batch.input_ids.clamp(max=config.text_config.vocab_size - 1)
 
         if image_inputs is not None:
@@ -181,7 +189,7 @@ class MllamaCausalLM(VlmCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            max_s = batch.max_seqlen
+            max_s = batch.max_current_length
             lm_head_indices = batch.prefill_head_indices
 
             speculative_ids = batch.speculative_ids
@@ -194,7 +202,7 @@ class MllamaCausalLM(VlmCausalLM):
             new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
             slots = (slots.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            prefix_lens_tensor = (batch.prefix_lens_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
+            cache_lengths_tensor = (batch.cache_lengths_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             # Add Copy the block tables for all members
             block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
@@ -210,8 +218,8 @@ class MllamaCausalLM(VlmCausalLM):
             block_tables = batch.block_tables_tensor
             slots = batch.slots[batch.slot_indices]
             input_lengths = batch.input_lengths_tensor
-            prefix_lens_tensor = batch.prefix_lens_tensor
-            max_s = batch.max_seqlen
+            cache_lengths_tensor = batch.cache_lengths_tensor
+            max_s = batch.max_current_length
             lm_head_indices = batch.prefill_head_indices
 
         if cu_seqlen_prefill is None and self.max_past() is not None:
@@ -220,24 +228,32 @@ class MllamaCausalLM(VlmCausalLM):
             # This makes sure the max_s for the decode pass is correct.
             max_s = min(self.max_past(), max_s)
 
+        seqlen = Seqlen(
+            input_lengths=input_lengths,
+            cache_lengths=cache_lengths_tensor,
+            cu_seqlen_q=None,
+            max_q=batch.max_input_length,
+            max_k=batch.max_current_length,
+        )
+
         # TODO: cuda graph
-        input_lengths = input_lengths + prefix_lens_tensor
+        input_lengths = input_lengths + cache_lengths_tensor
         if PREFIX_CACHING:
             block_tables = block_tables_to_ragged(
                 block_tables=block_tables,
                 input_lengths=batch.input_lengths,
-                prefix_lens=batch.prefix_lens,
+                cache_lengths=batch.cache_lengths,
             )
         with self._forward_context(
             block_tables=block_tables,
             cu_seqlen_prefill=cu_seqlen_prefill,
             input_lengths=batch.input_lengths,
             input_lengths_tensor=input_lengths,
-            prefix_lens=batch.prefix_lens,
-            prefix_lens_tensor=prefix_lens_tensor,
+            cache_lengths=batch.cache_lengths,
+            cache_lengths_tensor=cache_lengths_tensor,
         ):
             # TODO(travis): is this needed?
-            # max_k = (input_lengths + prefix_lens_tensor).max().item()
+            # max_k = (input_lengths + cache_lengths_tensor).max().item()
             if batch.pixel_values is not None:
                 cross_attention_states = self.model.vision_forward(
                     pixel_values=batch.pixel_values,
@@ -255,7 +271,7 @@ class MllamaCausalLM(VlmCausalLM):
                 kv_cache=kv_cache,
                 block_tables=block_tables,
                 slots=slots,
-                input_lengths=input_lengths,
+                seqlen=seqlen,
                 max_s=max_s,
                 prefill_cache_indices=batch.prefill_cache_indices,
                 lm_head_indices=lm_head_indices,

@@ -274,6 +274,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
@@ -341,7 +342,8 @@ impl BatchEntries for GenerateBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
-            prefix_len,
+            cache_len: prefix_len,
+            chunk_len: None,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -385,12 +387,14 @@ impl BatchEntries for GenerateBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         prefill(
             client,
             batch,
+            cached_batch,
             &mut self.state.batch_entries,
             &generation_health,
         )
@@ -470,7 +474,8 @@ impl BatchEntries for EmbedBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
-            prefix_len,
+            cache_len: prefix_len,
+            chunk_len: None,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -514,6 +519,7 @@ impl BatchEntries for EmbedBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
@@ -593,7 +599,8 @@ impl BatchEntries for ClassifyBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
-            prefix_len,
+            cache_len: prefix_len,
+            chunk_len: None,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -637,6 +644,7 @@ impl BatchEntries for ClassifyBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
