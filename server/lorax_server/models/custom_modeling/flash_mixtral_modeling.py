@@ -33,6 +33,7 @@ from transformers.configuration_utils import PretrainedConfig
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
     FastLinear,
@@ -187,13 +188,15 @@ def _load_gqa(config, prefix: str, weights):
             config.hidden_size,
         ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
-    return TensorParallelColumnLinear(get_linear(
-        weight, 
-        bias=None, 
-        quantize=config.quantize, 
-        weight_scale=weight_scale,
-        input_scale=input_scale,
-    ))
+    return TensorParallelColumnLinear(
+        get_linear(
+            weight,
+            bias=None,
+            quantize=config.quantize,
+            weight_scale=weight_scale,
+            input_scale=input_scale,
+        )
+    )
 
 
 def _load_experts(config, prefix, mat, weights):
@@ -366,7 +369,7 @@ class MixtralAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
         prefill_cache_indices,
@@ -382,7 +385,7 @@ class MixtralAttention(torch.nn.Module):
             kv_cache: The key-value cache.
             block_tables: The block tables for attention computation.
             slots: The number of slots.
-            input_lengths: The lengths of the input sequences.
+            seqlen: The lengths of the input sequences.
             max_s: The maximum sequence length.
             adapter_data: The adapter data.
             prefill_cache_indices: The indices for prefilling the cache.
@@ -436,7 +439,7 @@ class MixtralAttention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -835,7 +838,7 @@ class MixtralLayer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
         prefill_cache_indices,
@@ -851,7 +854,7 @@ class MixtralLayer(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
             prefill_cache_indices,
@@ -896,7 +899,7 @@ class MixtralModel(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
@@ -918,7 +921,7 @@ class MixtralModel(torch.nn.Module):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
                 adapter_data,
                 prefill_cache_indices,
@@ -955,7 +958,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
@@ -968,7 +971,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
-            input_lengths = torch.clamp(input_lengths, max=self.max_past)
+            seqlen = torch.clamp(seqlen, max=self.max_past)
 
         hidden_states = self.model(
             input_ids,
@@ -977,7 +980,7 @@ class FlashMixtralForCausalLM(torch.nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
             prefill_cache_indices,

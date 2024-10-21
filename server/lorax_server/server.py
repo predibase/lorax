@@ -24,7 +24,7 @@ from lorax_server.utils.adapter import (
     is_base_model,
 )
 from lorax_server.utils.sgmv import has_sgmv
-from lorax_server.utils.state import set_speculative_tokens
+from lorax_server.utils.state import set_max_prefill_tokens, set_speculative_tokens
 
 
 class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
@@ -74,6 +74,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return generate_pb2.FilterBatchResponse(batch=filtered_batch.to_pb())
 
     async def Warmup(self, request: generate_pb2.WarmupRequest, context):
+        set_max_prefill_tokens(request.max_prefill_tokens)
+
         batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,
@@ -97,6 +99,13 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.model.dtype,
             self.model.device,
         )
+
+        if self.model.supports_chunking:
+            if request.HasField("cached_batch"):
+                cached_batch = self.cache.pop(request.cached_batch.id)
+                if cached_batch is None:
+                    raise ValueError(f"Batch ID {request.cached_batch.id} not found in cache.")
+                batch = self.model.batch_type.concatenate([cached_batch, batch])
 
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
@@ -127,7 +136,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         if not self.model.supports_embeddings:
             raise ValueError("Model does not support embeddings")
 
-        batch = self.model.batch_type.from_pb_embed(
+        batch = self.model.batch_type.from_pb(
             request.batch,
             self.model.tokenizer,
             self.model.tokenizers,
