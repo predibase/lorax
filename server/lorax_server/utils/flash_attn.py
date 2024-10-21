@@ -54,6 +54,8 @@ if SYSTEM == "xpu":
         )
 
 
+print(f">>>>>>>>>> SYSTEM: {SYSTEM}")
+
 if SYSTEM in {"cuda", "rocm"}:
     if not torch.cuda.is_available():
         raise ImportError("CUDA is not available")
@@ -88,9 +90,11 @@ if SYSTEM in {"cuda", "rocm"}:
         if SYSTEM == "cuda" and not (is_sm8x or is_sm90):
             raise ImportError(f"GPU with CUDA capability {major} {minor} is not supported for " "Flash Attention V2")
         elif SYSTEM == "rocm" and not (is_sm8x or is_sm90 or is_sm94):
-            raise ImportError(
-                f"AMD GPU with compute capability {major} {minor} is not supported for " "Flash Attention V2"
-            )
+            import lorax_server.utils.flash_attn_rocm as flash_attn_rocm
+
+            # raise ImportError(
+            # f"AMD GPU with compute capability {major} {minor} is not supported for " "Flash Attention V2"
+            # )
         HAS_FLASH_ATTN_V2_CUDA = SYSTEM == "cuda"
         HAS_FLASH_ATTN_V2_ROCM = SYSTEM == "rocm"
     except ImportError as e:
@@ -207,31 +211,42 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
         causal=True,
         softcap=0.0,
     ):
-        if window_size_left <= 0 and window_size_left != -1:
-            raise ValueError("`window_size_left` must be > 0 or -1")
-        if window_size_left != -1:
-            raise ValueError(
-                f"RoCm version of Flash Attention v2 does not support window attention (window_size_left != -1, got window_size_left={window_size_left})."
-            )
-
-        # RoCm flash API does not take the window_size_left and window_size_right arguments.
-        out = torch.empty_like(q)
-        return flash_attn_2_cuda.varlen_fwd(
+        return flash_attn_rocm.attention(
             q,
             k,
             v,
-            out,
-            cu_seqlens,
+            key_cache,
+            value_cache,
             cu_seqlens,
             max_s,
-            max_s,
-            0.0,
             softmax_scale,
-            False,
-            causal,
-            False,
-            None,
-        )[0]
+        )
+
+        # if window_size_left <= 0 and window_size_left != -1:
+        #     raise ValueError("`window_size_left` must be > 0 or -1")
+        # if window_size_left != -1:
+        #     raise ValueError(
+        #         f"RoCm version of Flash Attention v2 does not support window attention (window_size_left != -1, got window_size_left={window_size_left})."
+        #     )
+
+        # # RoCm flash API does not take the window_size_left and window_size_right arguments.
+        # out = torch.empty_like(q)
+        # return flash_attn_2_cuda.varlen_fwd(
+        #     q,
+        #     k,
+        #     v,
+        #     out,
+        #     cu_seqlens,
+        #     cu_seqlens,
+        #     max_s,
+        #     max_s,
+        #     0.0,
+        #     softmax_scale,
+        #     False,
+        #     causal,
+        #     False,
+        #     None,
+        # )[0]
 
 elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
 

@@ -21,7 +21,6 @@
 from typing import List, Optional, Tuple
 
 # Flash attention imports
-import dropout_layer_norm
 import torch
 import torch.distributed
 from torch import nn
@@ -29,6 +28,7 @@ from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.layers import FastLayerNorm
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
@@ -115,6 +115,7 @@ class LlamaRMSNorm(nn.Module):
         weight = weights.get_tensor(f"{prefix}.weight")
         self.weight = nn.Parameter(weight)
         self.variance_epsilon = eps
+        self.layer_norm = FastLayerNorm()
 
     def forward(self, hidden_states, residual=None):
         if hidden_states.shape[-1] > 8192:
@@ -133,26 +134,7 @@ class LlamaRMSNorm(nn.Module):
             return self.weight * hidden_states, residual
         else:
             # faster post attention rms norm
-            normed_hidden_states, res, *rest = dropout_layer_norm.dropout_add_ln_fwd(
-                hidden_states,
-                residual,
-                self.weight,
-                None,
-                None,
-                None,
-                None,
-                None,
-                0.0,
-                self.variance_epsilon,
-                1.0,
-                0,
-                None,
-                False,
-                True,  # Activate RMSNorm
-            )
-            if res is None:
-                res = hidden_states
-
+            normed_hidden_states, res = self.layer_norm(hidden_states, residual)
             return normed_hidden_states, res
 
 
