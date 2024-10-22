@@ -522,9 +522,6 @@ fn shard_manager(
         fs::remove_file(uds).unwrap();
     }
 
-    // Copy current process env
-    let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
-
     // Process args
     let mut shard_args = vec![
         "serve".to_string(),
@@ -588,13 +585,6 @@ fn shard_manager(
         shard_args.push(preloaded_adapter_source);
     }
 
-    if let Some(predibase_api_token) = predibase_api_token {
-        envs.push((
-            "PREDIBASE_API_TOKEN".into(),
-            predibase_api_token.to_string().into(),
-        ));
-    }
-
     if let Some(dtype) = dtype {
         shard_args.push("--dtype".to_string());
         shard_args.push(dtype.to_string())
@@ -620,6 +610,13 @@ fn shard_manager(
 
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
+
+    if let Some(predibase_api_token) = predibase_api_token {
+        envs.push((
+            "PREDIBASE_API_TOKEN".into(),
+            predibase_api_token.to_string().into(),
+        ));
+    }
 
     // Torch Distributed Env vars
     envs.push(("RANK".into(), rank.to_string().into()));
