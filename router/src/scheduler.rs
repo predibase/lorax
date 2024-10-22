@@ -6,11 +6,7 @@ use crate::{
     AdapterLoader,
 };
 use lorax_client::{Batch, ShardedClient};
-use std::{
-    cmp::{max, min},
-    collections::HashSet,
-    sync::Arc,
-};
+use std::{cmp::max, collections::HashSet, sync::Arc};
 use tokio::sync::{oneshot, Mutex};
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -197,7 +193,7 @@ struct AdapterSchedulerState {
     block_size: u32,
 
     /// Sliding window
-    window_size: Option<u32>,
+    // window_size: Option<u32>,
 
     /// Speculation amount
     speculate: u32,
@@ -245,7 +241,7 @@ impl AdapterSchedulerState {
             next_batch_id: 0,
             requires_padding,
             block_size,
-            window_size,
+            // window_size,
             speculate,
             chunked_prefill,
             block_allocator,
@@ -412,7 +408,6 @@ impl AdapterSchedulerState {
                     };
 
                     let postfix_len = entry.request.input_length() - block_allocation.prefix_len;
-
                     if prefill_tokens + postfix_len > prefill_token_budget {
                         // Entry is over budget
                         if self.chunked_prefill {

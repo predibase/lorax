@@ -219,15 +219,6 @@ class FlashCausalLMBatch(Batch):
             if cache_length == prompt_length:
                 assert False, "unreachable"
 
-            # TODO(travis): double-check prefix caching
-            # if PREFIX_CACHING:
-            #     prefix_len = r.prefix_len
-            #     if prefix_len == orig_input_length:
-            #         assert prefix_len > 0
-            #         prefix_len -= 1
-            # else:
-            #     prefix_len = 0
-
             # `chunk_len` is an optional field in the protobuf
             # It is only set if the model support chunking
             if r.HasField("chunk_len"):
