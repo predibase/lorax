@@ -200,6 +200,7 @@ impl Infer {
             speculate,
             max_batch_total_tokens,
             prefix_caching,
+            chunked_prefill,
             is_causal_lm,
         );
 

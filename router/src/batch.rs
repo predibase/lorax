@@ -259,6 +259,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     );
     fn extend(&mut self, entries: Box<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
@@ -323,6 +324,7 @@ impl BatchEntries for GenerateBatchEntries {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     ) {
         let valid_request = entry
             .request
@@ -343,7 +345,7 @@ impl BatchEntries for GenerateBatchEntries {
             blocks,
             slots,
             cache_len: prefix_len,
-            chunk_len: None,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -455,6 +457,7 @@ impl BatchEntries for EmbedBatchEntries {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     ) {
         let valid_request = entry
             .request
@@ -475,7 +478,7 @@ impl BatchEntries for EmbedBatchEntries {
             blocks,
             slots,
             cache_len: prefix_len,
-            chunk_len: None,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -580,6 +583,7 @@ impl BatchEntries for ClassifyBatchEntries {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     ) {
         let valid_request = entry
             .request
@@ -600,7 +604,7 @@ impl BatchEntries for ClassifyBatchEntries {
             blocks,
             slots,
             cache_len: prefix_len,
-            chunk_len: None,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
