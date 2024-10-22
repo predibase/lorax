@@ -1,4 +1,4 @@
-use std::{cmp::min, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::radix::RadixAllocator;
@@ -167,7 +167,7 @@ impl Allocator for SimpleAllocator {
                 None => (tokens, 1),
                 Some(window_size) => {
                     let repeats = (tokens + window_size - 1) / window_size;
-                    let tokens = min(tokens, window_size);
+                    let tokens = core::cmp::min(tokens, window_size);
                     (tokens, repeats as usize)
                 }
             };
