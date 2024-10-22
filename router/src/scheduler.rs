@@ -393,7 +393,7 @@ impl AdapterSchedulerState {
                     );
 
                     match block_allocator
-                        .allocate(tokens, entry.request.input_ids())
+                        .allocate(adapter.index(), tokens, entry.request.input_ids())
                         .await
                     {
                         None => {
