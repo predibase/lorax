@@ -6,11 +6,7 @@ use crate::{
     AdapterLoader,
 };
 use lorax_client::{Batch, ShardedClient};
-use std::{
-    cmp::{max, min},
-    collections::HashSet,
-    sync::Arc,
-};
+use std::{cmp::max, collections::HashSet, sync::Arc};
 use tokio::sync::{oneshot, Mutex};
 use tracing::{info_span, instrument, Instrument, Span};
 
@@ -44,6 +40,7 @@ impl AdapterScheduler {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        chunked_prefill: bool,
         is_causal_lm: bool,
     ) -> Self {
         let (sender, receiver) = flume::unbounded();
@@ -61,6 +58,7 @@ impl AdapterScheduler {
             speculate,
             max_batch_total_tokens,
             prefix_caching,
+            chunked_prefill,
             is_causal_lm,
         ));
 
@@ -126,6 +124,7 @@ async fn adapter_scheduler_task(
     speculate: u32,
     max_batch_total_tokens: u32,
     prefix_caching: bool,
+    chunked_prefill: bool,
     is_causal_lm: bool,
 ) {
     let mut state = AdapterSchedulerState::new(
@@ -138,6 +137,7 @@ async fn adapter_scheduler_task(
         speculate,
         max_batch_total_tokens,
         prefix_caching,
+        chunked_prefill,
         is_causal_lm,
     );
 
@@ -193,10 +193,13 @@ struct AdapterSchedulerState {
     block_size: u32,
 
     /// Sliding window
-    window_size: Option<u32>,
+    // window_size: Option<u32>,
 
     /// Speculation amount
     speculate: u32,
+
+    /// Chunked prefill
+    chunked_prefill: bool,
 
     /// Paged Attention Block Allocation
     block_allocator: Option<BlockAllocator>,
@@ -213,6 +216,7 @@ impl AdapterSchedulerState {
         speculate: u32,
         max_batch_total_tokens: u32,
         prefix_caching: bool,
+        chunked_prefill: bool,
         is_causal_lm: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
@@ -237,8 +241,9 @@ impl AdapterSchedulerState {
             next_batch_id: 0,
             requires_padding,
             block_size,
-            window_size,
+            // window_size,
             speculate,
+            chunked_prefill,
             block_allocator,
         }
     }
@@ -282,6 +287,10 @@ impl AdapterSchedulerState {
         prefill_token_budget: u32,
         token_budget: u32,
     ) -> Option<NextBatch> {
+        if prefill_token_budget == 0 || token_budget == 0 {
+            return None;
+        };
+
         let num_entries = self.queues_state.lock().await.len();
         if num_entries == 0 {
             return None;
@@ -331,6 +340,8 @@ impl AdapterSchedulerState {
                 batch_requests_len = batch_entries.len();
             }
 
+            let mut should_break = false;
+            let mut chunk_len = None;
             let block_allocation = match &self.block_allocator {
                 None => {
                     // We pad to max input length in the Python shards
@@ -354,31 +365,6 @@ impl AdapterSchedulerState {
                     None
                 }
                 Some(block_allocator) => {
-                    prefill_tokens += entry.request.input_length();
-                    let max_new_tokens = match self.window_size {
-                        None => entry.request.max_new_tokens(),
-                        Some(window_size) => min(
-                            window_size.saturating_sub(entry.request.input_length()),
-                            entry.request.max_new_tokens(),
-                        ),
-                    };
-                    decode_tokens += max_new_tokens;
-
-                    // If we're prefix caching, this check could be under-estimating the number of available blocks
-                    // due to shared prefixes, so we'll let the block allocator determine whether we have enough space.
-                    if prefill_tokens > prefill_token_budget
-                        || (prefill_tokens + decode_tokens + self.speculate) > token_budget
-                    {
-                        // Entry is over budget
-                        // Add it back to the front
-                        tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
-                        self.queues_state
-                            .lock()
-                            .await
-                            .push_front(&adapter, id, entry);
-                        break;
-                    }
-
                     let tokens = entry.request.input_length()
                         + entry.request.max_new_tokens()
                         + self.speculate
@@ -392,8 +378,8 @@ impl AdapterSchedulerState {
                         self.speculate
                     );
 
-                    match block_allocator
-                        .allocate(tokens, entry.request.input_ids())
+                    let block_allocation = match block_allocator
+                        .allocate(adapter.index(), tokens, entry.request.input_ids())
                         .await
                     {
                         None => {
@@ -406,12 +392,62 @@ impl AdapterSchedulerState {
                                 .push_front(&adapter, id, entry);
                             break 'entry_loop;
                         }
-                        Some(block_allocation) => {
+                        Some(mut block_allocation) => {
                             tracing::debug!("Allocation: {block_allocation:?}");
                             max_blocks = max(max_blocks, block_allocation.blocks.len() as u32);
-                            Some(block_allocation)
+
+                            if block_allocation.prefix_len == entry.request.input_length() {
+                                // The whole request was found in the radix trie
+                                // However, for the transformer forward to work, we need to
+                                // have at least one token of postfix.
+                                block_allocation.prefix_len -= 1;
+                            }
+
+                            block_allocation
+                        }
+                    };
+
+                    let postfix_len = entry.request.input_length() - block_allocation.prefix_len;
+                    if prefill_tokens + postfix_len > prefill_token_budget {
+                        // Entry is over budget
+                        if self.chunked_prefill {
+                            // We support chunking, just set postfix_len to exactly match prefill_token_budget
+                            let entry_chunk_len =
+                                prefill_token_budget.saturating_sub(prefill_tokens);
+                            if entry_chunk_len > 0 {
+                                chunk_len = Some(entry_chunk_len);
+                            } else {
+                                // We cannot prefill even one token for this entry
+                                // Add it back to the queue
+                                self.queues_state
+                                    .lock()
+                                    .await
+                                    .push_front(&adapter, id, entry);
+                                break 'entry_loop;
+                            }
+                            tracing::debug!(
+                                "Matched budget: prefill_tokens={} == {prefill_token_budget}",
+                                prefill_tokens + postfix_len
+                            );
+                            should_break = true;
+                        } else {
+                            // We don't support chunking, this entry needs to go back to the buffer
+                            // Add it back to the front
+                            tracing::debug!(
+                                "Over budget: prefill_tokens={} > {prefill_token_budget}",
+                                prefill_tokens + postfix_len
+                            );
+                            self.queues_state
+                                .lock()
+                                .await
+                                .push_front(&adapter, id, entry);
+                            break 'entry_loop;
                         }
                     }
+
+                    prefill_tokens += postfix_len;
+
+                    Some(block_allocation)
                 }
             };
 
@@ -454,7 +490,11 @@ impl AdapterSchedulerState {
             batch_entries
                 .as_mut()
                 .unwrap()
-                .add(id, entry, adapter, blocks, slots, prefix_len);
+                .add(id, entry, adapter, blocks, slots, prefix_len, chunk_len);
+
+            if should_break {
+                break 'entry_loop;
+            }
         }
 
         if batch_entries.is_none() {
