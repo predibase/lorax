@@ -11,11 +11,12 @@ use crate::{
     ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
     ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
     CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
-    CompletionStreamResponse, Details, EmbedRequest, EmbedResponse, Entity, ErrorResponse,
-    FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest, GenerateResponse,
-    HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken,
-    ResponseFormat, ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token,
-    TokenizeRequest, TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
+    CompletionStreamResponse, Details, EmbedParameters, EmbedRequest, EmbedResponse, Entity,
+    ErrorResponse, FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest,
+    GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message,
+    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
+    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, Tool, ToolCall,
+    ToolChoice, UsageInfo, Validation,
 };
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use axum::extract::Extension;
@@ -577,7 +578,7 @@ async fn health(
                 adapter_source: None,
                 adapter_parameters: None,
                 api_token: None,
-            }
+            },
         };
         match infer.embed(embed_request).await {
             Ok(_) => {}
