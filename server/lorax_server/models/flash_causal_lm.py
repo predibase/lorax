@@ -1187,9 +1187,6 @@ class FlashCausalLM(Model):
             if self.world_size > 1:
                 raise ValueError("Cannot enable `--compile` when sharding across multiple GPUs")
 
-            # This will be recalculated in the graph step
-            self.decode_state = None
-
             # Estimate the memory overhead from CUDA graphs so we can subtract it from the kv cache.
             # Needs to be estimated here rather than fully initialized as the graph cache relies on the
             # cache manager being set.
