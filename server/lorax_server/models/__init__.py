@@ -120,6 +120,18 @@ def get_model(
         if config_dict["architectures"][0] == "DistilBertForTokenClassification":
             return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
 
+    if model_type == "xlm-roberta":
+        from lorax_server.models.flash_roberta import FlashXlmRoberta
+
+        return FlashXlmRoberta(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision=revision,
+            dtype=dtype,
+            merge_adapter_weights=merge_adapter_weights,
+        )
+
     flash_causal_lm_kwargs = dict(
         quantize=quantize,
         compile=compile,

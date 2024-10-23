@@ -922,8 +922,43 @@ pub(crate) enum CompletionFinishReason {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+pub(crate) struct EmbedParameters {
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "arnavgrg/codealpaca-qlora"
+    )]
+    pub adapter_id: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "hub")]
+    pub adapter_source: Option<String>,
+    #[serde(rename(deserialize = "merged_adapters"))]
+    #[schema(nullable = true, default = "null")]
+    pub adapter_parameters: Option<AdapterParameters>,
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "<token for private adapters>"
+    )]
+    pub api_token: Option<String>,
+}
+
+fn default_embed_parameters() -> EmbedParameters {
+    EmbedParameters {
+        adapter_id: None,
+        adapter_source: None,
+        adapter_parameters: None,
+        api_token: None,
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct EmbedRequest {
     inputs: String,
+    #[serde(default = "default_embed_parameters")]
+    pub parameters: EmbedParameters,
 }
 
 #[derive(Serialize, ToSchema)]
