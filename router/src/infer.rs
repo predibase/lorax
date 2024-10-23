@@ -488,34 +488,32 @@ impl Infer {
                 err
             })?;
 
-        // TODO(travis): support adapters
-        // let (adapter_source, adapter_parameters) = extract_adapter_params(
-        //     request.parameters.adapter_id.clone(),
-        //     request.parameters.adapter_source.clone(),
-        //     request.parameters.adapter_parameters.clone(),
-        // );
 
-        // let adapter_idx;
-        // {
-        //     // TODO(travis): can optimize concurrency here using RWLock
-        //     let mut adapter_to_index = self.adapter_to_index.lock().await;
-        //     let adapter_key = adapter_parameters.clone();
-        //     if adapter_to_index.contains_key(&adapter_key) {
-        //         adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
-        //     } else {
-        //         adapter_idx = adapter_to_index.len() as u32;
-        //         adapter_to_index.insert(adapter_key, adapter_idx);
-        //     }
-        // }
+        let (adapter_source, adapter_parameters) = extract_adapter_params(
+            request.parameters.adapter_id.clone(),
+            request.parameters.adapter_source.clone(),
+            request.parameters.adapter_parameters.clone(),
+        );
 
+        let adapter_idx;
+        {
+            // TODO(travis): can optimize concurrency here using RWLock
+            let mut adapter_to_index = self.adapter_to_index.lock().await;
+            let adapter_key = adapter_parameters.clone();
+            if adapter_to_index.contains_key(&adapter_key) {
+                adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
+            } else {
+                adapter_idx = adapter_to_index.len() as u32;
+                adapter_to_index.insert(adapter_key, adapter_idx);
+            }
+        }
+
+        let api_token = request.parameters.api_token.clone();
         let adapter = Adapter::new(
-            AdapterParameters {
-                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
-                ..Default::default()
-            },
-            "hub".to_string(),
-            0,
-            None,
+            adapter_parameters,
+            adapter_source.unwrap(),
+            adapter_idx,
+            api_token,
         );
 
         // TODO(travis): robust validation
