@@ -28,6 +28,7 @@ from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.import_utils import get_cuda_free_memory
+from lorax_server.utils.profiler import timer
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.sources.hub import weight_files
@@ -1408,517 +1409,521 @@ class FlashCausalLM(Model):
     def generate_token(
         self, batch: FlashCausalLMBatch, is_warmup: bool = False
     ) -> Tuple[List[Generation], Optional[FlashCausalLMBatch]]:
-        prefill = batch.prefilling
-        if prefill:
-            batch.prepare_for_prefill()
-        prefill_logprobs = batch.prefill_next_token_indices is not None
-        return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
+        stage_str = "prefill" if batch.prefilling else "decode"
+        with timer(f"{stage_str}::generate_token::pre_forward"):
+            prefill = batch.prefilling
+            if prefill:
+                batch.prepare_for_prefill()
+            prefill_logprobs = batch.prefill_next_token_indices is not None
+            return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
 
-        # Update adapter indices for speculative tokens (if present)
-        adapter_meta = batch.adapter_meta
-        if batch.speculative_ids is not None:
-            B, speculative_length = batch.speculative_ids.shape
-            new_length = speculative_length + 1
-            adapter_indices = adapter_meta.adapter_indices.unsqueeze(-1).expand(B, new_length).reshape(-1)
-            adapter_segments = adapter_meta.adapter_segments * new_length
-            adapter_meta = AdapterBatchMetadata(
-                adapter_indices=adapter_indices,
-                adapter_set=adapter_meta.adapter_set,
-                adapter_segments=adapter_segments,
-                segment_indices=adapter_meta.segment_indices,
-            )
-
-        # Assign pointers to adapter weights
-        # TODO(travis): don't update this if indices haven't changed
-        adapter_data = AdapterBatchData.from_meta(
-            adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
-        )
-
-        out, speculative_logits = self.forward(batch, adapter_data)
-
-        if prefill:
-            next_token_logits = out[batch.prefill_next_token_indices] if prefill_logprobs else out
-            if speculative_logits is not None:
-                speculative_logits = (
-                    speculative_logits[batch.prefill_next_token_indices] if prefill_logprobs else speculative_logits
+            # Update adapter indices for speculative tokens (if present)
+            adapter_meta = batch.adapter_meta
+            if batch.speculative_ids is not None:
+                B, speculative_length = batch.speculative_ids.shape
+                new_length = speculative_length + 1
+                adapter_indices = adapter_meta.adapter_indices.unsqueeze(-1).expand(B, new_length).reshape(-1)
+                adapter_segments = adapter_meta.adapter_segments * new_length
+                adapter_meta = AdapterBatchMetadata(
+                    adapter_indices=adapter_indices,
+                    adapter_set=adapter_meta.adapter_set,
+                    adapter_segments=adapter_segments,
+                    segment_indices=adapter_meta.segment_indices,
                 )
-            if len(batch) > 1 and prefill_logprobs:
-                # We create the prefill_tokens_indices tensor that will be used to gather prefill logprobs
-                # When batch == 1, we will just use the batch.input_ids values directly
-                prefill_tokens_indices = batch.input_ids.new_zeros(len(out))
-        else:
-            prefill_logprobs = None
-            next_token_logits = out
-            next_adapter_indices = batch.adapter_meta.adapter_indices
 
-        finished_prefilling = True
-        next_chunk_lengths = []
-        current_prefilling_mask = batch.prefilling_mask
-        if prefill:
-            if get_supports_chunking():
-                next_prefilling_mask = []
-                # Budget in tokens for the next batch
-                # We remove (len(batch) - 1) to always have enough space for at least a single decode
-                # for the remaining requests -1 because the first request does not need to be removed from the budget
-                # (ex: you have one request in the batch, you want it to take the full budget not budget -1)
-                batch_budget = get_max_prefill_tokens() - (len(batch) - 1)
-                # We reverse to prioritize older requests
-                # zip() is not reversible so reverse the underlying lists instead
-                for cache_length, input_length, prompt_length in zip(
-                    reversed(batch.cache_lengths),
-                    reversed(batch.input_lengths),
-                    reversed(batch.prompt_lengths),
-                ):
-                    remaining_prefill_tokens = max(prompt_length - cache_length - input_length, 0)
-                    if remaining_prefill_tokens > 0:
-                        next_chunk_length = max(min(remaining_prefill_tokens, batch_budget), 1)
-                        batch_budget -= next_chunk_length
-                        finished_prefilling = False
-                        next_prefilling_mask.append(True)
-                    else:
-                        # FIXME: use true number of accepted tokens instead of 1
-                        # Since speculation will be turned off, this is always true
-                        next_chunk_length = 1
-                        next_prefilling_mask.append(False)
-                    next_chunk_lengths.append(next_chunk_length)
+            # Assign pointers to adapter weights
+            # TODO(travis): don't update this if indices haven't changed
+            adapter_data = AdapterBatchData.from_meta(
+                adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+            )
 
-                # Reverse back the obtained values²
-                next_chunk_lengths.reverse()
-                next_prefilling_mask.reverse()
+        with timer(f"{stage_str}::generate_token::forward"):
+            out, speculative_logits = self.forward(batch, adapter_data)
+
+        with timer(f"{stage_str}::generate_token::post_forward"):
+            if prefill:
+                next_token_logits = out[batch.prefill_next_token_indices] if prefill_logprobs else out
+                if speculative_logits is not None:
+                    speculative_logits = (
+                        speculative_logits[batch.prefill_next_token_indices] if prefill_logprobs else speculative_logits
+                    )
+                if len(batch) > 1 and prefill_logprobs:
+                    # We create the prefill_tokens_indices tensor that will be used to gather prefill logprobs
+                    # When batch == 1, we will just use the batch.input_ids values directly
+                    prefill_tokens_indices = batch.input_ids.new_zeros(len(out))
             else:
-                # The model does not support chunking
-                # We know we only do a single prefill
-                finished_prefilling = True
-                next_prefilling_mask = [False] * len(batch)
+                prefill_logprobs = None
+                next_token_logits = out
+                next_adapter_indices = batch.adapter_meta.adapter_indices
 
-            batch.prefilling = not finished_prefilling
-            batch.prefilling_mask = next_prefilling_mask
+            finished_prefilling = True
+            next_chunk_lengths = []
+            current_prefilling_mask = batch.prefilling_mask
+            if prefill:
+                if get_supports_chunking():
+                    next_prefilling_mask = []
+                    # Budget in tokens for the next batch
+                    # We remove (len(batch) - 1) to always have enough space for at least a single decode
+                    # for the remaining requests -1 because the first request does not need to be removed from the budget
+                    # (ex: you have one request in the batch, you want it to take the full budget not budget -1)
+                    batch_budget = get_max_prefill_tokens() - (len(batch) - 1)
+                    # We reverse to prioritize older requests
+                    # zip() is not reversible so reverse the underlying lists instead
+                    for cache_length, input_length, prompt_length in zip(
+                        reversed(batch.cache_lengths),
+                        reversed(batch.input_lengths),
+                        reversed(batch.prompt_lengths),
+                    ):
+                        remaining_prefill_tokens = max(prompt_length - cache_length - input_length, 0)
+                        if remaining_prefill_tokens > 0:
+                            next_chunk_length = max(min(remaining_prefill_tokens, batch_budget), 1)
+                            batch_budget -= next_chunk_length
+                            finished_prefilling = False
+                            next_prefilling_mask.append(True)
+                        else:
+                            # FIXME: use true number of accepted tokens instead of 1
+                            # Since speculation will be turned off, this is always true
+                            next_chunk_length = 1
+                            next_prefilling_mask.append(False)
+                        next_chunk_lengths.append(next_chunk_length)
 
-        speculative_tokens = get_speculative_tokens()
-        (
-            next_input_ids,
-            next_token_logprobs,
-            accepted_ids,
-            speculative_ids,
-        ) = batch.next_token_chooser(
-            batch.all_input_ids_tensor[:, : batch.max_current_length],
-            next_token_logits,
-            speculative_tokens,
-            batch.speculative_ids,
-            speculative_logits,
-        )
+                    # Reverse back the obtained values²
+                    next_chunk_lengths.reverse()
+                    next_prefilling_mask.reverse()
+                else:
+                    # The model does not support chunking
+                    # We know we only do a single prefill
+                    finished_prefilling = True
+                    next_prefilling_mask = [False] * len(batch)
 
-        if return_alternatives:
-            alternative_token_logprobs, alternative_token_ids = torch.sort(
-                torch.log_softmax(next_token_logits, -1), dim=-1, stable=True, descending=True
+                batch.prefilling = not finished_prefilling
+                batch.prefilling_mask = next_prefilling_mask
+
+            speculative_tokens = get_speculative_tokens()
+            (
+                next_input_ids,
+                next_token_logprobs,
+                accepted_ids,
+                speculative_ids,
+            ) = batch.next_token_chooser(
+                batch.all_input_ids_tensor[:, : batch.max_current_length],
+                next_token_logits,
+                speculative_tokens,
+                batch.speculative_ids,
+                speculative_logits,
             )
 
-        # Since we are done prefilling, all the tensors that were concatenating values for all the requests
-        # instantly become of shape [BATCH_SIZE]
-        if prefill and finished_prefilling:
-            next_position_ids = batch.position_ids.new_empty(len(batch))
-            batch.slot_indices = batch.slot_indices[batch.cu_seqlen_prefill[1:] - 1]
-            next_adapter_indices = batch.adapter_meta.adapter_indices.new_empty(len(batch))
-        elif not prefill:
-            next_position_ids = batch.position_ids
+            if return_alternatives:
+                alternative_token_logprobs, alternative_token_ids = torch.sort(
+                    torch.log_softmax(next_token_logits, -1), dim=-1, stable=True, descending=True
+                )
 
-        # Zipped iterator
-        iterator = zip(
-            batch.requests,
-            batch.prompt_lengths,
-            batch.cache_lengths,
-            batch.input_lengths,
-            batch.all_input_ids,
-            accepted_ids,
-            current_prefilling_mask,
-            batch.prefilling_mask,
-        )
-
-        # We do two for loops as the first one can run completely asynchronously from the GPU while for the second
-        # one, we need to first do a GPU <-> CPU sync
-        # It is faster if we delay this sync for the maximum amount of time
-
-        # For each member of the batch
-        index = 0
-        # Cumulative length
-        cumulative_length = 0
-        for i, (
-            request,
-            prompt_length,
-            cache_length,
-            input_length,
-            all_input_ids,
-            n_accepted_ids,
-            request_was_prefilling,
-            request_is_prefilling,
-        ) in enumerate(iterator):
+            # Since we are done prefilling, all the tensors that were concatenating values for all the requests
+            # instantly become of shape [BATCH_SIZE]
             if prefill and finished_prefilling:
-                # Indexing metadata
-                _start_index = cumulative_length
-                end_index = cumulative_length + input_length
+                next_position_ids = batch.position_ids.new_empty(len(batch))
+                batch.slot_indices = batch.slot_indices[batch.cu_seqlen_prefill[1:] - 1]
+                next_adapter_indices = batch.adapter_meta.adapter_indices.new_empty(len(batch))
+            elif not prefill:
+                next_position_ids = batch.position_ids
 
-                # Initialize position_ids
-                # In decode, we do not need this as we can just increment position ids
-                next_position_ids[i] = batch.position_ids[end_index - 1]
-
-                # Initialize adapter indices
-                # In decode, we only have one token per row in the batch, so grab last index
-                next_adapter_indices[i] = batch.adapter_meta.adapter_indices[end_index - 1]
-
-                # Used to gather prefill logprobs
-                # Copy batch.all_input_ids_tensor to prefill_token_indices
-                if request.prefill_logprobs and request_was_prefilling:
-                    # Indexing metadata
-                    out_start_index = batch.prefill_cu_outlens[i]
-                    out_end_index = batch.prefill_cu_outlens[i + 1]
-
-                    # Logprobs generated by the model are for the next token
-                    # So we need to translate the id tensor by 1
-                    ids = batch.all_input_ids_tensor[i, cache_length + 1 : cache_length + input_length + 1]
-                    if len(batch) > 1:
-                        prefill_tokens_indices[out_start_index:out_end_index] = ids
-                    else:
-                        # Set prefill_tokens_indices to the correct slice
-                        prefill_tokens_indices = ids
-
-                if not request_is_prefilling:
-                    # Only save tokens if we are done prefilling for this request
-                    for j in range(n_accepted_ids):
-                        batch.all_input_ids_tensor[i, cache_length + input_length + j] = next_input_ids[index + j]
-
-            batch.all_input_ids_tensor[i, input_length] = next_input_ids[i]
-
-            index += n_accepted_ids
-            cumulative_length += input_length
-
-        # Update values
-        # These values can be updated without a GPU -> CPU sync
-        if not prefill or (prefill and finished_prefilling):
-            batch.input_ids = next_input_ids[accepted_ids.cumsum(dim=-1) - 1]
-            batch.speculative_ids = speculative_ids
-            batch.position_ids = next_position_ids + accepted_ids
-            batch.cache_lengths_tensor += batch.input_lengths_tensor
-            batch.input_lengths_tensor = accepted_ids.to(dtype=torch.int32)
-            batch.slot_indices += accepted_ids
-            batch.adapter_meta.adapter_indices = next_adapter_indices
-
-        if prefill and prefill_logprobs:
-            # Get prefill logprobs with inplace softmax (avoid copying the `out` tensor (max_batch_prefill_tokens * vocab_size))
-            torch.log_softmax(out, -1, out=out)
-            prefill_logprobs_tensor = out
-            prefill_logprobs = torch.gather(prefill_logprobs_tensor, 1, prefill_tokens_indices.view(-1, 1))
-            # GPU <-> CPU sync
-            prefill_logprobs = prefill_logprobs.view(-1).tolist()
-
-        # Does a GPU <-> CPU sync internally
-        if prefill and finished_prefilling:
-            # adjust segment lengths to account for all request lengths being 1 during decoding
-            adapter_segments, _ = find_segments(batch.adapter_meta.adapter_indices)
-            batch.adapter_meta.adapter_segments = torch.tensor(
-                adapter_segments,
-                dtype=torch.int32,
-                device=batch.adapter_meta.adapter_segments.device,
+            # Zipped iterator
+            iterator = zip(
+                batch.requests,
+                batch.prompt_lengths,
+                batch.cache_lengths,
+                batch.input_lengths,
+                batch.all_input_ids,
+                accepted_ids,
+                current_prefilling_mask,
+                batch.prefilling_mask,
             )
 
-        # GPU <-> CPU sync
-        next_token_logprobs = next_token_logprobs.tolist()
-        next_token_ids = next_input_ids.tolist()
-        accepted_ids = accepted_ids.tolist()
+            # We do two for loops as the first one can run completely asynchronously from the GPU while for the second
+            # one, we need to first do a GPU <-> CPU sync
+            # It is faster if we delay this sync for the maximum amount of time
 
-        if return_alternatives:
-            alternative_token_logprobs = alternative_token_logprobs.tolist()
-            alternative_token_ids = alternative_token_ids.tolist()
-
-        # Update values if we need to continue prefilling
-        # This represents the `else` case of the `Update values` if above
-        # but since this require the `next_token_ids` to be on CPU, it is better to do it here
-        if prefill and not finished_prefilling:
-            # Speculation must be ignored while we prefill even with chunking
-            # it simplifies everything
-            assert batch.speculative_ids is None
-
-            all_postfix_ids = []
+            # For each member of the batch
+            index = 0
+            # Cumulative length
+            cumulative_length = 0
             for i, (
-                request_prefilling,
-                next_token_id,
-                all_input_ids,
+                request,
+                prompt_length,
                 cache_length,
                 input_length,
-                next_chunk_length,
-            ) in enumerate(
-                zip(
-                    batch.prefilling_mask,
-                    next_token_ids,
-                    batch.all_input_ids,
-                    batch.cache_lengths,
-                    batch.input_lengths,
-                    next_chunk_lengths,
-                )
-            ):
-                if request_prefilling:
-                    next_cache_length = cache_length + input_length
-                    # Get new prompt IDs to prefill
-                    postfix_ids = all_input_ids[next_cache_length : next_cache_length + next_chunk_length]
-                else:
-                    # This request is done prefilling, the new id is the one selected the sampling method
-                    postfix_ids = [next_token_id]
+                all_input_ids,
+                n_accepted_ids,
+                request_was_prefilling,
+                request_is_prefilling,
+            ) in enumerate(iterator):
+                if prefill and finished_prefilling:
+                    # Indexing metadata
+                    _start_index = cumulative_length
+                    end_index = cumulative_length + input_length
 
-                all_postfix_ids.append(postfix_ids)
+                    # Initialize position_ids
+                    # In decode, we do not need this as we can just increment position ids
+                    next_position_ids[i] = batch.position_ids[end_index - 1]
 
-            batch.input_ids = all_postfix_ids
+                    # Initialize adapter indices
+                    # In decode, we only have one token per row in the batch, so grab last index
+                    next_adapter_indices[i] = batch.adapter_meta.adapter_indices[end_index - 1]
 
-        # Results
-        generations: List[Generation] = []
-        stopped = not is_warmup
+                    # Used to gather prefill logprobs
+                    # Copy batch.all_input_ids_tensor to prefill_token_indices
+                    if request.prefill_logprobs and request_was_prefilling:
+                        # Indexing metadata
+                        out_start_index = batch.prefill_cu_outlens[i]
+                        out_end_index = batch.prefill_cu_outlens[i + 1]
 
-        # Zipped iterator
-        iterator = zip(
-            batch.requests,
-            batch.prompt_lengths,
-            batch.cache_lengths,
-            batch.input_lengths,
-            batch.prefix_offsets,
-            batch.read_offsets,
-            batch.stopping_criterias,
-            batch.all_input_ids,
-            batch.next_token_chooser.do_sample,
-            batch.next_token_chooser.seeds,
-            current_prefilling_mask,
-            batch.prefilling_mask,
-            accepted_ids,
-        )
+                        # Logprobs generated by the model are for the next token
+                        # So we need to translate the id tensor by 1
+                        ids = batch.all_input_ids_tensor[i, cache_length + 1 : cache_length + input_length + 1]
+                        if len(batch) > 1:
+                            prefill_tokens_indices[out_start_index:out_end_index] = ids
+                        else:
+                            # Set prefill_tokens_indices to the correct slice
+                            prefill_tokens_indices = ids
 
-        # Reset max_input_length
-        batch.max_input_length = 0
-        # For each member of the batch
-        index = 0
-        for i, (
-            request,
-            prompt_length,
-            cache_length,
-            input_length,
-            prefix_offset,
-            read_offset,
-            stopping_criteria,
-            all_input_ids,
-            do_sample,
-            seed,
-            request_was_prefilling,
-            request_is_prefilling,
-            n_accepted_ids,
-        ) in enumerate(iterator):
-            all_alternative_tokens = [] if request.parameters.return_k_alternatives > 0 else None
-
-            # TODO(travis): return_k_alternatives
-            # if request.parameters.return_k_alternatives > 0:
-            #         # Limit the number of alternatives to the vocabulary size
-            #         num_alternatives = min(
-            #             request.parameters.return_k_alternatives,
-            #             len(alternative_token_ids[token_idx]),
-            #         )
-
-            #         # Select top-k logprobs
-            #         request_alternative_token_ids = alternative_token_ids[token_idx][:num_alternatives]
-            #         request_alternative_token_logprobs = alternative_token_logprobs[token_idx][:num_alternatives]
-
-            #         # Decode tokens
-            #         request_alternative_token_texts = []
-            #         for alternative_token_id in request_alternative_token_ids:
-            #             all_input_ids.append(alternative_token_id)
-            #             alternative_token_text, _, _ = self.decode_token(
-            #                 all_input_ids,
-            #                 prefix_offset,
-            #                 read_offset,
-            #             )
-            #             request_alternative_token_texts.append(alternative_token_text)
-            #             all_input_ids.pop()
-            #         alternative_tokens = AlternativeTokens(
-            #             request_alternative_token_ids,
-            #             request_alternative_token_logprobs,
-            #             request_alternative_token_texts,
-            #         )
-            #         all_alternative_tokens.append(alternative_tokens)
-
-            # Compute logprobs first as, even though we might skip the token,
-            # it can still be required to compute the logprobs
-            # modulo on request.id as it is robust to batch.filter whereas the index in the batch is not and we need
-            # this state to be stable
-            if request.id % self.world_size == self.rank:
-                # Prefill
-                if request_was_prefilling and request.prefill_logprobs:
-                    out_start_index = batch.prefill_cu_outlens[i]
-                    out_end_index = batch.prefill_cu_outlens[i + 1]
                     if not request_is_prefilling:
-                        # The request is dones prefilling, meaning that we started generating new tokens
-                        # The last logprob is a logprob for a generated token that was not part of the prompt
-                        # We need to remove it
-                        out_end_index -= 1
+                        # Only save tokens if we are done prefilling for this request
+                        for j in range(n_accepted_ids):
+                            batch.all_input_ids_tensor[i, cache_length + input_length + j] = next_input_ids[index + j]
 
-                    request_prefill_logprobs = prefill_logprobs[out_start_index:out_end_index]
-                    # Logprobs generated by the model are for the next token
-                    # So we need to translate the id tensor by 1
-                    prefill_token_ids = all_input_ids[cache_length + 1 : cache_length + input_length + 1]
+                batch.all_input_ids_tensor[i, input_length] = next_input_ids[i]
 
-                    past_prefill_logprob_tokens = batch.prefill_logprob_tokens[i]
-
-                    if past_prefill_logprob_tokens is None:
-                        # add nan for cached prompt tokens/first token
-                        request_prefill_logprobs = [float("nan")] * (cache_length + 1) + request_prefill_logprobs
-                        prefill_token_ids = all_input_ids[: cache_length + 1] + prefill_token_ids
-
-                    prefill_texts = self.tokenizer.batch_decode(
-                        prefill_token_ids,
-                        clean_up_tokenization_spaces=False,
-                        skip_special_tokens=False,
-                    )
-
-                    prefill_logprob_tokens = NextTokens(
-                        prefill_token_ids,
-                        request_prefill_logprobs,
-                        prefill_texts,
-                        [],
-                        all_alternative_tokens,
-                    )
-                    if past_prefill_logprob_tokens is not None:
-                        prefill_logprob_tokens = past_prefill_logprob_tokens + prefill_logprob_tokens
-
-                    batch.prefill_logprob_tokens[i] = prefill_logprob_tokens
-                else:
-                    batch.prefill_logprob_tokens[i] = None
-
-            # If it is, the tokens we decoded should be ignored
-            if request_is_prefilling:
-                # Make sure that we do not stop as even though this request did not create a token, it is still
-                # processing
-                stopped = False
-                new_input_length = next_chunk_lengths[i]
-            else:
-                new_input_length = n_accepted_ids
-                # Append next token to all tokens
-                next_token_texts = []
-                left = 0
-
-                if n_accepted_ids > 1:
-                    logger.debug(f"speculated ids {n_accepted_ids - 1}")
-
-                current_stopped = False
-                for j in range(index, index + n_accepted_ids):
-                    # Generated token
-                    next_token_id = next_token_ids[j]
-                    all_input_ids.append(next_token_id)
-                    next_token_text, prefix_offset, read_offset = self.decode_token(
-                        all_input_ids,
-                        prefix_offset,
-                        read_offset,
-                    )
-                    next_token_texts.append(next_token_text)
-
-                    stop, reason = stopping_criteria(
-                        next_token_id,
-                        next_token_text,
-                    )
-
-                    if stop:
-                        left = index + n_accepted_ids - j - 1
-                        current_stopped = True
-                        break
-                    else:
-                        current_stopped = False
-                stopped = stopped and current_stopped
-
-                _next_token_ids = next_token_ids[index : index + n_accepted_ids - left]
-                _next_token_logprobs = next_token_logprobs[index : index + n_accepted_ids - left]
-
-                # Shard generations
-                # All generations will be appended in the rust sharded client
-                if request.id % self.world_size == self.rank:
-                    if stop:
-                        # Decode generated tokens
-                        output_text, _, _ = self.decode_token(
-                            all_input_ids,
-                            prefix_offset=len(all_input_ids) - stopping_criteria.current_tokens - 1,
-                            read_offset=len(all_input_ids) - stopping_criteria.current_tokens,
-                            skip_special_tokens=True,
-                        )
-                        generated_text = GeneratedText(
-                            output_text,
-                            stopping_criteria.current_tokens,
-                            reason,
-                            seed if do_sample else None,
-                        )
-                    else:
-                        generated_text = None
-
-                    # TODO(travis): top tokens
-                    # if top_n_tokens > 0:
-                    #     all_top_tokens = []
-                    #     for top_token_ids, top_token_logprobs in zip(
-                    #         top_token_ids, top_token_logprobs
-                    #     ):
-                    #         toptoken_texts = self.tokenizer.batch_decode(
-                    #             top_token_ids,
-                    #             clean_up_tokenization_spaces=False,
-                    #             skip_special_tokens=False,
-                    #         )
-                    #         special_toptokens = [
-                    #             token_id in self.all_special_ids
-                    #             for token_id in top_token_ids
-                    #         ]
-                    #         top_tokens = Tokens(
-                    #             top_token_ids,
-                    #             top_token_logprobs,
-                    #             toptoken_texts,
-                    #             special_toptokens,
-                    #         )
-                    #         all_top_tokens.append(top_tokens)
-                    #     top_tokens = all_top_tokens
-                    # else:
-                    #     top_tokens = None
-
-                    generation = Generation(
-                        request.id,
-                        batch.prefill_logprob_tokens[i],
-                        len(all_input_ids[:-1]) if prefill else 0,
-                        NextTokens(
-                            _next_token_ids,
-                            _next_token_logprobs,
-                            next_token_texts,
-                            [nid in self.all_special_ids for nid in _next_token_ids],
-                            all_alternative_tokens,
-                        ),
-                        generated_text,
-                    )
-
-                    generations.append(generation)
-
-                # advance the FSM for each accepted token (as we may have more than one from speculative decoding)
-                for next_token_id in _next_token_ids:
-                    batch.next_token_chooser.next_state(i, next_token_id)
+                index += n_accepted_ids
+                cumulative_length += input_length
 
             # Update values
-            index += n_accepted_ids
-            current_cache_length = cache_length + input_length
-            batch.cache_lengths[i] = current_cache_length
-            current_input_length = new_input_length
-            batch.max_input_length = max(batch.max_input_length, current_input_length)
-            batch.input_lengths[i] = current_input_length
-            current_length = current_cache_length + current_input_length
-            batch.max_current_length = max(batch.max_current_length, current_length)
+            # These values can be updated without a GPU -> CPU sync
+            if not prefill or (prefill and finished_prefilling):
+                batch.input_ids = next_input_ids[accepted_ids.cumsum(dim=-1) - 1]
+                batch.speculative_ids = speculative_ids
+                batch.position_ids = next_position_ids + accepted_ids
+                batch.cache_lengths_tensor += batch.input_lengths_tensor
+                batch.input_lengths_tensor = accepted_ids.to(dtype=torch.int32)
+                batch.slot_indices += accepted_ids
+                batch.adapter_meta.adapter_indices = next_adapter_indices
 
-            batch.prefix_offsets[i] = prefix_offset
-            batch.read_offsets[i] = read_offset
-            batch.all_input_ids[i] = all_input_ids
+            if prefill and prefill_logprobs:
+                # Get prefill logprobs with inplace softmax (avoid copying the `out` tensor (max_batch_prefill_tokens * vocab_size))
+                torch.log_softmax(out, -1, out=out)
+                prefill_logprobs_tensor = out
+                prefill_logprobs = torch.gather(prefill_logprobs_tensor, 1, prefill_tokens_indices.view(-1, 1))
+                # GPU <-> CPU sync
+                prefill_logprobs = prefill_logprobs.view(-1).tolist()
 
-        if stopped:
-            # No need to return a batch if we know that all requests stopped
-            return generations, None
+            # Does a GPU <-> CPU sync internally
+            if prefill and finished_prefilling:
+                # adjust segment lengths to account for all request lengths being 1 during decoding
+                adapter_segments, _ = find_segments(batch.adapter_meta.adapter_indices)
+                batch.adapter_meta.adapter_segments = torch.tensor(
+                    adapter_segments,
+                    dtype=torch.int32,
+                    device=batch.adapter_meta.adapter_segments.device,
+                )
 
-        if prefill and finished_prefilling:
-            # We do not need prefill tensors anymore
-            batch.cu_seqlen_prefill = None
-            batch.prefill_cache_indices = None
-            batch.prefill_cu_outlens = None
-            batch.prefill_head_indices = None
-            batch.prefill_next_token_indices = None
+            # GPU <-> CPU sync
+            next_token_logprobs = next_token_logprobs.tolist()
+            next_token_ids = next_input_ids.tolist()
+            accepted_ids = accepted_ids.tolist()
 
-        return generations, batch
+            if return_alternatives:
+                alternative_token_logprobs = alternative_token_logprobs.tolist()
+                alternative_token_ids = alternative_token_ids.tolist()
+
+            # Update values if we need to continue prefilling
+            # This represents the `else` case of the `Update values` if above
+            # but since this require the `next_token_ids` to be on CPU, it is better to do it here
+            if prefill and not finished_prefilling:
+                # Speculation must be ignored while we prefill even with chunking
+                # it simplifies everything
+                assert batch.speculative_ids is None
+
+                all_postfix_ids = []
+                for i, (
+                    request_prefilling,
+                    next_token_id,
+                    all_input_ids,
+                    cache_length,
+                    input_length,
+                    next_chunk_length,
+                ) in enumerate(
+                    zip(
+                        batch.prefilling_mask,
+                        next_token_ids,
+                        batch.all_input_ids,
+                        batch.cache_lengths,
+                        batch.input_lengths,
+                        next_chunk_lengths,
+                    )
+                ):
+                    if request_prefilling:
+                        next_cache_length = cache_length + input_length
+                        # Get new prompt IDs to prefill
+                        postfix_ids = all_input_ids[next_cache_length : next_cache_length + next_chunk_length]
+                    else:
+                        # This request is done prefilling, the new id is the one selected the sampling method
+                        postfix_ids = [next_token_id]
+
+                    all_postfix_ids.append(postfix_ids)
+
+                batch.input_ids = all_postfix_ids
+
+            # Results
+            generations: List[Generation] = []
+            stopped = not is_warmup
+
+            # Zipped iterator
+            iterator = zip(
+                batch.requests,
+                batch.prompt_lengths,
+                batch.cache_lengths,
+                batch.input_lengths,
+                batch.prefix_offsets,
+                batch.read_offsets,
+                batch.stopping_criterias,
+                batch.all_input_ids,
+                batch.next_token_chooser.do_sample,
+                batch.next_token_chooser.seeds,
+                current_prefilling_mask,
+                batch.prefilling_mask,
+                accepted_ids,
+            )
+
+            # Reset max_input_length
+            batch.max_input_length = 0
+            # For each member of the batch
+            index = 0
+            for i, (
+                request,
+                prompt_length,
+                cache_length,
+                input_length,
+                prefix_offset,
+                read_offset,
+                stopping_criteria,
+                all_input_ids,
+                do_sample,
+                seed,
+                request_was_prefilling,
+                request_is_prefilling,
+                n_accepted_ids,
+            ) in enumerate(iterator):
+                all_alternative_tokens = [] if request.parameters.return_k_alternatives > 0 else None
+
+                # TODO(travis): return_k_alternatives
+                # if request.parameters.return_k_alternatives > 0:
+                #         # Limit the number of alternatives to the vocabulary size
+                #         num_alternatives = min(
+                #             request.parameters.return_k_alternatives,
+                #             len(alternative_token_ids[token_idx]),
+                #         )
+
+                #         # Select top-k logprobs
+                #         request_alternative_token_ids = alternative_token_ids[token_idx][:num_alternatives]
+                #         request_alternative_token_logprobs = alternative_token_logprobs[token_idx][:num_alternatives]
+
+                #         # Decode tokens
+                #         request_alternative_token_texts = []
+                #         for alternative_token_id in request_alternative_token_ids:
+                #             all_input_ids.append(alternative_token_id)
+                #             alternative_token_text, _, _ = self.decode_token(
+                #                 all_input_ids,
+                #                 prefix_offset,
+                #                 read_offset,
+                #             )
+                #             request_alternative_token_texts.append(alternative_token_text)
+                #             all_input_ids.pop()
+                #         alternative_tokens = AlternativeTokens(
+                #             request_alternative_token_ids,
+                #             request_alternative_token_logprobs,
+                #             request_alternative_token_texts,
+                #         )
+                #         all_alternative_tokens.append(alternative_tokens)
+
+                # Compute logprobs first as, even though we might skip the token,
+                # it can still be required to compute the logprobs
+                # modulo on request.id as it is robust to batch.filter whereas the index in the batch is not and we need
+                # this state to be stable
+                if request.id % self.world_size == self.rank:
+                    # Prefill
+                    if request_was_prefilling and request.prefill_logprobs:
+                        out_start_index = batch.prefill_cu_outlens[i]
+                        out_end_index = batch.prefill_cu_outlens[i + 1]
+                        if not request_is_prefilling:
+                            # The request is dones prefilling, meaning that we started generating new tokens
+                            # The last logprob is a logprob for a generated token that was not part of the prompt
+                            # We need to remove it
+                            out_end_index -= 1
+
+                        request_prefill_logprobs = prefill_logprobs[out_start_index:out_end_index]
+                        # Logprobs generated by the model are for the next token
+                        # So we need to translate the id tensor by 1
+                        prefill_token_ids = all_input_ids[cache_length + 1 : cache_length + input_length + 1]
+
+                        past_prefill_logprob_tokens = batch.prefill_logprob_tokens[i]
+
+                        if past_prefill_logprob_tokens is None:
+                            # add nan for cached prompt tokens/first token
+                            request_prefill_logprobs = [float("nan")] * (cache_length + 1) + request_prefill_logprobs
+                            prefill_token_ids = all_input_ids[: cache_length + 1] + prefill_token_ids
+
+                        prefill_texts = self.tokenizer.batch_decode(
+                            prefill_token_ids,
+                            clean_up_tokenization_spaces=False,
+                            skip_special_tokens=False,
+                        )
+
+                        prefill_logprob_tokens = NextTokens(
+                            prefill_token_ids,
+                            request_prefill_logprobs,
+                            prefill_texts,
+                            [],
+                            all_alternative_tokens,
+                        )
+                        if past_prefill_logprob_tokens is not None:
+                            prefill_logprob_tokens = past_prefill_logprob_tokens + prefill_logprob_tokens
+
+                        batch.prefill_logprob_tokens[i] = prefill_logprob_tokens
+                    else:
+                        batch.prefill_logprob_tokens[i] = None
+
+                # If it is, the tokens we decoded should be ignored
+                if request_is_prefilling:
+                    # Make sure that we do not stop as even though this request did not create a token, it is still
+                    # processing
+                    stopped = False
+                    new_input_length = next_chunk_lengths[i]
+                else:
+                    new_input_length = n_accepted_ids
+                    # Append next token to all tokens
+                    next_token_texts = []
+                    left = 0
+
+                    if n_accepted_ids > 1:
+                        logger.debug(f"speculated ids {n_accepted_ids - 1}")
+
+                    current_stopped = False
+                    for j in range(index, index + n_accepted_ids):
+                        # Generated token
+                        next_token_id = next_token_ids[j]
+                        all_input_ids.append(next_token_id)
+                        next_token_text, prefix_offset, read_offset = self.decode_token(
+                            all_input_ids,
+                            prefix_offset,
+                            read_offset,
+                        )
+                        next_token_texts.append(next_token_text)
+
+                        stop, reason = stopping_criteria(
+                            next_token_id,
+                            next_token_text,
+                        )
+
+                        if stop:
+                            left = index + n_accepted_ids - j - 1
+                            current_stopped = True
+                            break
+                        else:
+                            current_stopped = False
+                    stopped = stopped and current_stopped
+
+                    _next_token_ids = next_token_ids[index : index + n_accepted_ids - left]
+                    _next_token_logprobs = next_token_logprobs[index : index + n_accepted_ids - left]
+
+                    # Shard generations
+                    # All generations will be appended in the rust sharded client
+                    if request.id % self.world_size == self.rank:
+                        if stop:
+                            # Decode generated tokens
+                            output_text, _, _ = self.decode_token(
+                                all_input_ids,
+                                prefix_offset=len(all_input_ids) - stopping_criteria.current_tokens - 1,
+                                read_offset=len(all_input_ids) - stopping_criteria.current_tokens,
+                                skip_special_tokens=True,
+                            )
+                            generated_text = GeneratedText(
+                                output_text,
+                                stopping_criteria.current_tokens,
+                                reason,
+                                seed if do_sample else None,
+                            )
+                        else:
+                            generated_text = None
+
+                        # TODO(travis): top tokens
+                        # if top_n_tokens > 0:
+                        #     all_top_tokens = []
+                        #     for top_token_ids, top_token_logprobs in zip(
+                        #         top_token_ids, top_token_logprobs
+                        #     ):
+                        #         toptoken_texts = self.tokenizer.batch_decode(
+                        #             top_token_ids,
+                        #             clean_up_tokenization_spaces=False,
+                        #             skip_special_tokens=False,
+                        #         )
+                        #         special_toptokens = [
+                        #             token_id in self.all_special_ids
+                        #             for token_id in top_token_ids
+                        #         ]
+                        #         top_tokens = Tokens(
+                        #             top_token_ids,
+                        #             top_token_logprobs,
+                        #             toptoken_texts,
+                        #             special_toptokens,
+                        #         )
+                        #         all_top_tokens.append(top_tokens)
+                        #     top_tokens = all_top_tokens
+                        # else:
+                        #     top_tokens = None
+
+                        generation = Generation(
+                            request.id,
+                            batch.prefill_logprob_tokens[i],
+                            len(all_input_ids[:-1]) if prefill else 0,
+                            NextTokens(
+                                _next_token_ids,
+                                _next_token_logprobs,
+                                next_token_texts,
+                                [nid in self.all_special_ids for nid in _next_token_ids],
+                                all_alternative_tokens,
+                            ),
+                            generated_text,
+                        )
+
+                        generations.append(generation)
+
+                    # advance the FSM for each accepted token (as we may have more than one from speculative decoding)
+                    for next_token_id in _next_token_ids:
+                        batch.next_token_chooser.next_state(i, next_token_id)
+
+                # Update values
+                index += n_accepted_ids
+                current_cache_length = cache_length + input_length
+                batch.cache_lengths[i] = current_cache_length
+                current_input_length = new_input_length
+                batch.max_input_length = max(batch.max_input_length, current_input_length)
+                batch.input_lengths[i] = current_input_length
+                current_length = current_cache_length + current_input_length
+                batch.max_current_length = max(batch.max_current_length, current_length)
+
+                batch.prefix_offsets[i] = prefix_offset
+                batch.read_offsets[i] = read_offset
+                batch.all_input_ids[i] = all_input_ids
+
+            if stopped:
+                # No need to return a batch if we know that all requests stopped
+                return generations, None
+
+            if prefill and finished_prefilling:
+                # We do not need prefill tensors anymore
+                batch.cu_seqlen_prefill = None
+                batch.prefill_cache_indices = None
+                batch.prefill_cu_outlens = None
+                batch.prefill_head_indices = None
+                batch.prefill_next_token_indices = None
+
+            return generations, batch
