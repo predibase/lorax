@@ -1550,6 +1550,7 @@ dependencies = [
  "ctrlc",
  "float_eq",
  "h2",
+ "hf-hub",
  "nix",
  "openssl",
  "reqwest",
