@@ -243,6 +243,7 @@ class Model(ABC):
         if preloaded_adapters is None:
             return
         
+        self.dynamic_adapter_loading_enabled = False
         self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
         self.preloaded_adapter_memory_fractions.update(
             {
@@ -271,6 +272,10 @@ class Model(ABC):
                     else:
                         # only applicable to lora for now
                         continue
+                
+                if adapter_weights is None:
+                    # no weights for this layer
+                    continue
             
                 # transpose into col major
                 lora_a = adapter_weights.weights_a.transpose(1, 2)
@@ -318,10 +323,9 @@ class Model(ABC):
 
         if dynamic and not self.dynamic_adapter_loading_enabled:
             raise ValueError(
-                f"This model was initialized with the adapter {self.static_adapter_id} "
-                f"and therefore does not support dynamic adapter loading. "
-                f"Please initialize a new model instance from the base model in "
-                f"order to use the dynamic adapter loading feature."
+                f"This model does not support dynamic adapter loading. "
+                f"Please initialize a new model instance from the base model and remove preloaded adapters "
+                f"to use the dynamic adapter loading feature."
             )
 
         logger.info(f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}")
@@ -400,10 +404,9 @@ class Model(ABC):
 
         if not self.dynamic_adapter_loading_enabled:
             raise ValueError(
-                f"This model was initialized with the adapter {self.static_adapter_id} "
-                f"and therefore does not support dynamic adapter loading. "
-                f"Please initialize a new model instance from the base model in "
-                f"order to use the dynamic adapter loading feature."
+                f"This model does not support dynamic adapter loading. "
+                f"Please initialize a new model instance from the base model and remove preloaded adapters "
+                f"to use the dynamic adapter loading feature."
             )
 
         for layer_name in self.adapter_layers:

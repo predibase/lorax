@@ -336,6 +336,11 @@ def serve(
                 create_exllama_buffers()
             except ImportError:
                 pass
+        
+        # set speculative decoding tokens
+        speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
+        if speculative_tokens > 0:
+            set_speculative_tokens(speculative_tokens)
 
         if preloaded_adapter_ids:
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
@@ -407,11 +412,6 @@ def serve(
 
             adapter_memory_fractions = [r.memory_fraction for r in download_responses]
             model.register_preloaded_adapters(preloaded_adapters, adapter_memory_fractions)
-
-        # set speculative decoding tokens
-        speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
-        if speculative_tokens > 0:
-            set_speculative_tokens(speculative_tokens)
 
         server = aio.server(
             interceptors=[
