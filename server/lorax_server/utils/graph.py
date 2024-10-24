@@ -267,6 +267,7 @@ class GraphWrapper:
 
             block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
             last_page_len = torch.ones(batch_size, dtype=torch.int32, device=device)
+
             state = create_decode_state_cuda_graphs(
                 device=max_input_state.input_ids.device,
                 block_tables=block_tables,
