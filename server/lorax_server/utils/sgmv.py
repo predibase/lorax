@@ -461,10 +461,15 @@ class PunicaWrapper:
         prefill: bool,
     ):
         # token_lora_indices is adapter_indices - 1 to account for base model offset
-        self._token_lora_indices = meta.adapter_indices - 1
+        base_indices = meta.adapter_indices - 1
+
+        self._token_lora_indices[:base_indices.shape[0]].copy_(base_indices)
+        # self._token_lora_indices = base_indices
+        self.indices_len[0] = base_indices.shape[-1]
+        
         if prefill:
             # Update metadata required for prefill-related operators.
-            self._update_prefill_metada(self._token_lora_indices)
+            self._update_prefill_metada(self._token_lora_indices, base_indices.shape[-1])
             self.is_prefill = True
         else:
             self.is_prefill = False
@@ -506,10 +511,10 @@ class PunicaWrapper:
 
         self.indices_len[:] = indices_len
 
-    def _update_prefill_metada(self, token_lora_tensor: torch.Tensor) -> None:
+    def _update_prefill_metada(self, token_lora_tensor: torch.Tensor, indices_len: int) -> None:
 
         (b_seq_start_tensor, seq_length_tensor, lora_indices_tensor,
-         batch_size, max_length, no_lora) = compute_meta(token_lora_tensor)
+         batch_size, max_length, no_lora) = compute_meta(token_lora_tensor[:indices_len])
 
         self._seq_start_locs[:b_seq_start_tensor.shape[0]].copy_(
             b_seq_start_tensor)

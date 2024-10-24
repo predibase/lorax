@@ -18,7 +18,7 @@ from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
-from lorax_server.utils.sgmv import BGMV_MAX_RANK
+from lorax_server.utils.sgmv import BGMV_MAX_RANK, PunicaWrapper
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
 
 if TYPE_CHECKING:
@@ -155,10 +155,13 @@ def get_max_graph_state(
         adapter_data=AdapterBatchData(
             meta=AdapterBatchMetadata(
                 adapter_indices=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
+                adapter_list=[],
                 adapter_set=set(),
                 adapter_segments=torch.zeros((MAX_BATCH_SIZE,), dtype=torch.int64, device=device),
                 segment_indices=[],
             ),
+            layer_to_lora_weights={},
+            punica_wrapper=None,
             data=adapter_weight_data,
             prefill=False,
         ),
@@ -198,6 +201,8 @@ class GraphWrapper:
         num_kv_heads: int,
         sliding_window_blocks: Optional[int] = None,
         traced_adapter_layer_names: Optional[Set[str]] = None,
+        layer_to_lora_weights: Dict[str, Dict[str, Any]] = {},
+        punica_wrapper: Optional[PunicaWrapper] = None,
     ) -> "GraphWrapper":
         max_input_state = get_max_graph_state(device, adapter_layers, max_total_tokens, sliding_window_blocks)
 
@@ -270,6 +275,18 @@ class GraphWrapper:
                 num_heads=num_heads,
                 num_kv_heads=num_kv_heads,
             )
+        
+        meta = AdapterBatchMetadata(
+            adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
+            adapter_list=max_input_state.adapter_data.meta.adapter_list,
+            adapter_set=max_input_state.adapter_data.meta.adapter_set,
+            adapter_segments=max_input_state.adapter_data.meta.adapter_segments[:batch_size],
+            segment_indices=max_input_state.adapter_data.meta.segment_indices,
+        )
+        punica_wrapper.update_metadata(
+            meta=meta,
+            prefill=False
+        )
 
         input_state = GraphState(
             input_ids=max_input_state.input_ids[:batch_size],
@@ -287,12 +304,9 @@ class GraphWrapper:
             cache_lengths=cache_lengths,
             cache_lengths_tensor=cache_lengths_tensor,
             adapter_data=AdapterBatchData(
-                meta=AdapterBatchMetadata(
-                    adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
-                    adapter_set=max_input_state.adapter_data.meta.adapter_set,
-                    adapter_segments=max_input_state.adapter_data.meta.adapter_segments[:batch_size],
-                    segment_indices=max_input_state.adapter_data.meta.segment_indices,
-                ),
+                meta=meta,
+                layer_to_lora_weights=layer_to_lora_weights,
+                punica_wrapper=punica_wrapper,
                 data=adapter_weight_data,
                 prefill=False,
             ),
@@ -403,6 +417,11 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
+        self.input_state.adapter_data.punica_wrapper.update_metadata(
+            meta=adapter_data.meta,
+            prefill=False
+        )
+        
         with self.forward_context(
             block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,
@@ -433,6 +452,8 @@ class GraphCache:
         num_heads: int,
         num_kv_heads: int,
         sliding_window_blocks: Optional[int] = None,
+        layer_to_lora_weights: Dict[str, Dict[str, Any]] = {},
+        punica_wrapper: Optional[PunicaWrapper] = None,
     ):
         self.model = model
         self.device = device
@@ -446,6 +467,8 @@ class GraphCache:
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
         self.sliding_window_blocks = sliding_window_blocks
+        self.layer_to_lora_weights = layer_to_lora_weights
+        self.punica_wrapper = punica_wrapper
 
     def can_use_graph(
         self,
@@ -502,6 +525,8 @@ class GraphCache:
                 self.num_kv_heads,
                 self.sliding_window_blocks,
                 self.adapter_layers,  # estimate memory assuming all adapters are traced
+                self.layer_to_lora_weights,
+                self.punica_wrapper,
             )
             tmp_cache[key] = graph
             pool = graph.memory_pool
@@ -546,6 +571,8 @@ class GraphCache:
                         self.num_kv_heads,
                         self.sliding_window_blocks,
                         self.default_traced_adapter_layers,
+                        self.layer_to_lora_weights,
+                        self.punica_wrapper,
                     )
                     self.cache[key] = graph
                     pool = graph.memory_pool
@@ -595,6 +622,8 @@ class GraphCache:
                 self.num_kv_heads,
                 self.sliding_window_blocks,
                 adapter_data.layer_names(),
+                self.layer_to_lora_weights,
+                self.punica_wrapper,
             )
             self.cache[key] = graph
 
