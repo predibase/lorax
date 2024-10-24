@@ -100,7 +100,8 @@ class LoraWeights(AdapterWeights):
         self._is_transposed = False
 
         # [num_layers, hidden_size, r]
-        weights_a = [orient_for_rank(w, w.size(1)).contiguous() for w in weights_a]
+        # TODO(travis): add this back if rank is 8 and we're not using triton
+        # weights_a = [orient_for_rank(w, w.size(1)).contiguous() for w in weights_a]
         self._weights_a = torch.stack(weights_a)
 
         # [num_layers, r, hidden_size]

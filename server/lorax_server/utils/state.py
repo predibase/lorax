@@ -8,6 +8,7 @@ WARMUP = False
 SPECULATIVE_TOKENS = 0
 
 
+LORAX_PROFILER_DIR = os.environ.get("LORAX_PROFILER_DIR", None)
 PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHING", ""))
 CHUNKED_PREFILL = bool(os.environ.get("CHUNKED_PREFILL", ""))
 
@@ -20,6 +21,9 @@ else:
 
 logger.info(f"Prefix caching = {PREFIX_CACHING}")
 logger.info(f"Chunked prefill = {CHUNKED_PREFILL}")
+
+if LORAX_PROFILER_DIR:
+    logger.info(f"Torch profiling enabled, output dir = {LORAX_PROFILER_DIR}")
 
 SUPPORTS_CHUNKING: Optional[bool] = None
 MAX_PREFILL_TOKENS: Optional[int] = None
