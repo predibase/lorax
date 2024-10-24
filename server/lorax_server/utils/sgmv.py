@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
-    from lorax_server.adapters.weights import AdapterBatchData
+    from lorax_server.adapters.weights import AdapterBatchMetadata
 
 try:
     import punica_kernels as _kernels
@@ -272,8 +272,7 @@ def compute_meta(
 
 # TODO see if this can be vectorized
 def convert_mapping(
-    meta: "AdapterBatchData",
-    lora_index_to_id: List[Optional[int]],
+    meta: "AdapterBatchMetadata",
     max_loras: int,
     vocab_size: int,
     extra_vocab_size: int,
@@ -283,7 +282,6 @@ def convert_mapping(
     """Converts LoRAMapping to index tensors.
     Args:
         mapping: LoRAMapping mapping rows in a batch to LoRA ids.
-        lora_index_to_id: List mapping LoRA ids to LoRA indices.
         max_loras: Maximum number of LoRAs.
         vocab_size: Model vocab size.
         extra_vocab_size: Extra vocab size each LoRA can have.
@@ -311,7 +309,7 @@ def convert_mapping(
                 (base_indices, sampler_indices, sampler_indices_padded,
                 embeddings_indices, long_lora_indices).
     """
-    index_mapping_indices: List[int] = meta.meta.token_indices.tolist()
+    index_mapping_indices: List[int] = meta.adapter_indices.tolist()
     embedding_indices = index_mapping_indices.copy()
     lora_indices = index_mapping_indices.copy()
     long_lora_offsets: Optional[torch.Tensor] = None
@@ -319,15 +317,10 @@ def convert_mapping(
         long_lora_offsets = torch.zeros(len(index_mapping_indices),
                                         device="cuda",
                                         dtype=torch.long)
-    prompt_mapping: List[int] = [
-        lora_index_to_id.index(x) if x > 0 else -1
-        for x in meta.meta.adapter_indices
-    ]
+    prompt_mapping = meta.adapter_list.copy()
     lora_idx = None
     for i in range(len(index_mapping_indices)):
-        # TODO index can be slow. optimize
-        lora_idx = (lora_index_to_id.index(index_mapping_indices[i])
-                    if index_mapping_indices[i] > 0 else -1)
+        lora_idx = index_mapping_indices[i]
         embedding_indices[i] = lora_idx if index_mapping_indices[i] > 0 else 0
         lora_indices[i] = lora_idx
         if long_lora_context:
@@ -433,30 +426,41 @@ class PunicaWrapper:
         self.is_prefill = False
         self.no_lora = False
 
+    # def update_metadata(
+    #     self,
+    #     meta: "AdapterBatchMetadata",
+    #     prefill: bool,
+    #     max_loras: int,
+    #     vocab_size: int,
+    #     extra_vocab_size: int,
+    #     long_lora_context = None,
+    # ):
+
+    #     self._update_base_metadata(meta, max_loras,
+    #                                vocab_size, extra_vocab_size,
+    #                                long_lora_context)
+    #     if prefill:
+    #         # Update metadata required for prefill-related operators.
+    #         self._update_prefill_metada(self.token_lora_indices)
+    #         self.is_prefill = True
+    #     else:
+    #         self.is_prefill = False
+    
     def update_metadata(
         self,
-        meta: "AdapterBatchData",
-        lora_index_to_id: List[Optional[int]],
-        max_loras: int,
-        vocab_size: int,
-        extra_vocab_size: int,
-        long_lora_context = None,
+        meta: "AdapterBatchMetadata",
+        prefill: bool,
     ):
-
-        self._update_base_metadata(meta, lora_index_to_id, max_loras,
-                                   vocab_size, extra_vocab_size,
-                                   long_lora_context)
-        if meta.prefill:
+        if prefill:
             # Update metadata required for prefill-related operators.
-            self._update_prefill_metada(self.token_lora_indices)
+            self._update_prefill_metada(meta.adapter_indices)
             self.is_prefill = True
         else:
             self.is_prefill = False
 
     def _update_base_metadata(
         self,
-        meta: "AdapterBatchData",
-        lora_index_to_id: List[Optional[int]],
+        meta: "AdapterBatchMetadata",
         max_loras: int,
         vocab_size: int,
         extra_vocab_size: int,
@@ -471,7 +475,6 @@ class PunicaWrapper:
             indices_len,
         ) = convert_mapping(
             meta,
-            lora_index_to_id,
             max_loras,
             vocab_size,
             extra_vocab_size,
@@ -711,16 +714,19 @@ class PunicaWrapper:
                                       self.expand_slice_decode)
         expand_slice_fun(y, x, w_t_all, y_offset, y_slice_size, add_input)
 
-    def add_lora(self,
-                 y: torch.Tensor,
-                 x: torch.Tensor,
-                 wa_t_all: torch.Tensor,
-                 wb_t_all: torch.Tensor,
-                 scale: float,
-                 y_offset: Optional[int] = None,
-                 y_slice_size: Optional[int] = None,
-                 *,
-                 buffer: Optional[torch.Tensor] = None) -> None:
+    def add_lora(
+            self,
+            y: torch.Tensor,
+            x: torch.Tensor,
+            wa_t_all: torch.Tensor,
+            wb_t_all: torch.Tensor,
+            scale: float,
+            y_offset: Optional[int] = None,
+            y_slice_size: Optional[int] = None,
+            *,
+            buffer: Optional[torch.Tensor] = None,
+            callback: Optional[Callable] = None,
+    ):
         """
         Semantics:
         y[i] += (
@@ -752,6 +758,11 @@ class PunicaWrapper:
                                  device=x.device)
 
         self.add_shrink(buffer, x, wa_t_all, scale)
+        
+        if callback is not None:
+            # callback used to aggregate intermediate results (i.e., allreduce, allgather)
+            buffer = callback(buffer)
+        
         if y_offset is None and y_slice_size is None:
             self.add_expand(y, buffer, wb_t_all, add_input=True)
         else:

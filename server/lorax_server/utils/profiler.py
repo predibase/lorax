@@ -36,4 +36,4 @@ def timer(name: str):
         _timers[name] = TimingContextManager(name)
     with _timers[name].timing():
         yield
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()

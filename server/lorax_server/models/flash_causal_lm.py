@@ -386,7 +386,7 @@ class FlashCausalLMBatch(Batch):
         prefill_logprob_tokens = []
 
         stopping_criterias = []
-        adapter_set = set()
+        adapter_list = []
 
         num_blocks = 0
         max_blocks = 0
@@ -423,7 +423,7 @@ class FlashCausalLMBatch(Batch):
 
             prefill_logprob_tokens.append(self.prefill_logprob_tokens[idx])
 
-            adapter_set.add(self.requests[idx].adapter_index)
+            adapter_list.append(self.requests[idx].adapter_index)
 
             request_block_table = self.block_tables[idx]
             num_blocks += len(request_block_table)
@@ -481,7 +481,8 @@ class FlashCausalLMBatch(Batch):
             adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
             adapter_meta = AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
-                adapter_set=adapter_set,
+                adapter_list=adapter_list,
+                adapter_set=set(adapter_list),
                 adapter_segments=adapter_segments,
                 segment_indices=adapter_segment_indices,
             )
@@ -581,6 +582,7 @@ class FlashCausalLMBatch(Batch):
             total_indices_size = sum(b.adapter_meta.adapter_indices.shape[0] for b in batches)
             adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
             adapter_segment_builder = SegmentConcatBuilder()
+            adapter_list = []
             adapter_set = set()
 
         prompt_lengths_tensor = batches[0].prompt_lengths_tensor.new_empty(total_batch_size)
@@ -648,6 +650,7 @@ class FlashCausalLMBatch(Batch):
                 adapter_end_index = cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
                 adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_meta.adapter_indices
                 cumulative_adapter_indices_size = adapter_end_index
+                adapter_list.extend(batch.adapter_meta.adapter_list)
                 adapter_set.update(batch.adapter_meta.adapter_set)
                 adapter_segment_builder.concat(
                     batch.adapter_meta.adapter_segments,
@@ -701,6 +704,7 @@ class FlashCausalLMBatch(Batch):
             adapter_segments, adapter_segment_indices = adapter_segment_builder.build()
             adapter_meta = AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
+                adapter_list=adapter_list,
                 adapter_set=adapter_set,
                 adapter_segments=adapter_segments,
                 segment_indices=adapter_segment_indices,
@@ -771,7 +775,7 @@ class FlashCausalLMBatch(Batch):
 
         slots = []
         adapter_indices_list = []
-        adapter_set = set()
+        adapter_list = []
 
         for i, (
             r,
@@ -853,7 +857,7 @@ class FlashCausalLMBatch(Batch):
                 prefill_cache_indices.append(request_prefill_cache_indices)
 
             adapter_indices_list.append(torch.full((next_chunk_length,), r.adapter_index))
-            adapter_set.add(r.adapter_index)
+            adapter_list.append(r.adapter_index)
 
             # Update
             cumulative_length += next_chunk_length
@@ -906,7 +910,8 @@ class FlashCausalLMBatch(Batch):
         adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
         self.adapter_meta = AdapterBatchMetadata(
             adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_list=adapter_list,
+            adapter_set=set(adapter_list),
             adapter_segments=adapter_segments,
             segment_indices=adapter_segment_indices,
         )
@@ -1459,6 +1464,7 @@ class FlashCausalLM(Model):
                 adapter_segments = adapter_meta.adapter_segments * new_length
                 adapter_meta = AdapterBatchMetadata(
                     adapter_indices=adapter_indices,
+                    adapter_list=adapter_meta.adapter_list,
                     adapter_set=adapter_meta.adapter_set,
                     adapter_segments=adapter_segments,
                     segment_indices=adapter_meta.segment_indices,
@@ -1466,8 +1472,17 @@ class FlashCausalLM(Model):
 
             # Assign pointers to adapter weights
             # TODO(travis): don't update this if indices haven't changed
+            # self.punica_wrapper.update_metadata(
+            #     adapter_meta,
+            #     prefill,
+            #     len(adapter_meta.adapter_set),
+            #     self.model.config.vocab_size,
+            #     self.model.config.vocab_size,
+            #     None,
+            # )
+            self.punica_wrapper.update_metadata(adapter_meta, prefill)
             adapter_data = AdapterBatchData.from_meta(
-                adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+                adapter_meta, self.layer_to_adapter_weights, self.punica_wrapper, prefill, batch.prefill_head_indices
             )
 
         with timer(f"{stage_str}::generate_token::forward"):
