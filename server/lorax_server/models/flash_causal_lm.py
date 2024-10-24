@@ -1630,8 +1630,6 @@ class FlashCausalLM(Model):
                             current_prefilling_mask_tensor,
                         )
 
-            print("all_input_ids", batch.all_input_ids_tensor.shape)
-
             with timer(f"generate_token::prefill_logprobs"):
                 if prefill and finished_prefilling:
                     # Used to gather prefill logprobs
