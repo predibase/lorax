@@ -451,9 +451,11 @@ class PunicaWrapper:
         meta: "AdapterBatchMetadata",
         prefill: bool,
     ):
+        # token_lora_indices is adapter_indices - 1 to account for base model offset
+        self._token_lora_indices = meta.adapter_indices - 1
         if prefill:
             # Update metadata required for prefill-related operators.
-            self._update_prefill_metada(meta.adapter_indices)
+            self._update_prefill_metada(self._token_lora_indices)
             self.is_prefill = True
         else:
             self.is_prefill = False

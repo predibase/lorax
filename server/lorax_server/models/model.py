@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
+from lorax_server.adapters.lora import LoraWeights
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -237,6 +238,9 @@ class Model(ABC):
     def register_preloaded_adapters(
         self, preloaded_adapters: List[generate_pb2.PreloadedAdapter], adapter_memory_fractions: List[float]
     ):
+        if preloaded_adapters is None:
+            return
+        
         self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
         self.preloaded_adapter_memory_fractions.update(
             {
@@ -245,6 +249,34 @@ class Model(ABC):
             }
         )
         self.preloaded_adapters.extend(preloaded_adapters)
+
+        # For Triton kernels: need weights into contiguous tensor
+        # dict of layer_name -> (lora_a_weights, lora_b_weights)
+        # where:
+        #   lora_a_weights = [num_adapters, r, hidden_size] 
+        #   lora_b_weights = [num_adapters, hidden_size, r]
+        self.layer_to_lora_weights = {}
+        for layer_name, layer_adapter_weights in self.layer_to_adapter_weights.items():
+            lora_a_weights = []
+            lora_b_weights = []
+            for i, adapter in enumerate(preloaded_adapters):
+                adapter_index = adapter.adapter_index
+                adapter_weights = layer_adapter_weights.adapter_weights.get(adapter_index)
+                if not isinstance(adapter_weights, LoraWeights):
+                    # Only applicable to lora for now
+                    continue
+            
+                # transpose to ensure col major
+                lora_a = adapter_weights.weights_a_t
+                lora_b = adapter_weights.weights_b_t
+                
+                lora_a_weights.append(lora_a)
+                lora_b_weights.append(lora_b)
+            
+            # stack into [num_adapters, r, hidden_size] and [num_adapters, hidden_size, r]
+            lora_a_weights = torch.stack(lora_a_weights, device=self.device).contiguous()
+            lora_b_weights = torch.stack(lora_b_weights, device=self.device).contiguous()
+            self.layer_to_lora_weights[layer_name] = (lora_a_weights, lora_b_weights)
 
     def load_adapter(
         self,
