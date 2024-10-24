@@ -25,6 +25,11 @@ class AdapterBatchMetadata:
     # segment_indices[s] == adapter_indices[i]
     segment_indices: List[int]
 
+    @property
+    def token_indices(self) -> torch.Tensor:
+        # Create the `token_indices` by repeating each segment index by the number of tokens in it
+        return torch.cat([torch.full((count,), idx, dtype=torch.long) for idx, count in enumerate(self.segment_indices)])
+
 
 class AdapterWeights(ABC):
     @abstractclassmethod

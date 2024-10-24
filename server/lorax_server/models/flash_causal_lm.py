@@ -4,9 +4,11 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
+from lorax_server.utils.sgmv import PunicaWrapper
 import numpy as np
 import torch
 import torch.distributed
+import torch.profiler
 from loguru import logger
 from opentelemetry import trace
 from tqdm import tqdm
@@ -35,6 +37,7 @@ from lorax_server.utils.sources.hub import weight_files
 from lorax_server.utils.state import (
     BLOCK_SIZE,
     FLASH_INFER,
+    LORAX_PROFILER_DIR,
     get_max_prefill_tokens,
     get_speculative_tokens,
     get_supports_chunking,
@@ -89,6 +92,7 @@ class FlashCausalLMBatch(Batch):
     prefilling: bool
     # Whether each request is prefilling
     prefilling_mask: List[bool]
+    prefilling_mask_tensor: Optional[torch.Tensor]
 
     # Prefill metadata tensors to efficiently compute logprobs
     # tensor of length b containing the cumulative sequence lengths of the sequences in the batch, only used in prefill
@@ -300,6 +304,9 @@ class FlashCausalLMBatch(Batch):
         block_tables_tensor = block_tables_tensor.to(device)
         prompt_lengths_tensor = torch.tensor(prompt_lengths, dtype=torch.int32, device=device)
 
+        prefilling_mask = [True] * len(pb.requests)
+        prefilling_mask_tensor = torch.tensor(prefilling_mask, dtype=torch.bool, device=device)
+
         return cls(
             batch_id=pb.id,
             requests=pb.requests,
@@ -311,7 +318,8 @@ class FlashCausalLMBatch(Batch):
             max_input_length=max_input_length,
             max_current_length=max_current_length,
             prefilling=True,
-            prefilling_mask=[True] * len(pb.requests),
+            prefilling_mask=prefilling_mask,
+            prefilling_mask_tensor=prefilling_mask_tensor,
             prefill_logprob_tokens=[None] * len(pb.requests),
             input_lengths=input_lengths,
             prompt_lengths=prompt_lengths,
@@ -455,6 +463,7 @@ class FlashCausalLMBatch(Batch):
             cache_lengths_tensor = None
             input_lengths_tensor = None
             adapter_meta = None
+            prefilling_mask_tensor = self.prefilling_mask_tensor[indices]
         else:
             # Index into tensors
             input_ids = self.input_ids[indices]
@@ -463,6 +472,7 @@ class FlashCausalLMBatch(Batch):
             input_lengths_tensor = self.input_lengths_tensor[indices]
             slots = self.slots[slot_filtering_indices]
             cache_lengths_tensor = self.cache_lengths_tensor[indices]
+            prefilling_mask_tensor = None
 
             # Move to GPU now that we have the whole tensor
             slot_indices = slot_indices.to(device)
@@ -493,6 +503,7 @@ class FlashCausalLMBatch(Batch):
             max_current_length=max_current_length,
             prefilling=self.prefilling,
             prefilling_mask=prefilling_mask,
+            prefilling_mask_tensor=prefilling_mask_tensor,
             prefill_head_indices=None,
             prefill_next_token_indices=None,
             prefill_cu_outlens=None,
@@ -556,6 +567,7 @@ class FlashCausalLMBatch(Batch):
             slot_indices = None
             cache_lengths_tensor = None
             input_lengths_tensor = None
+            prefilling_mask_tensor = batches[0].prefilling_mask_tensor.new_empty(total_batch_size)
             adapter_meta = None
             adapter_segment_builder = None
         else:
@@ -565,6 +577,7 @@ class FlashCausalLMBatch(Batch):
             slot_indices = batches[0].slot_indices.new_empty(total_batch_size)
             input_lengths_tensor = batches[0].input_lengths_tensor.new_empty(total_batch_size)
             cache_lengths_tensor = batches[0].cache_lengths_tensor.new_empty(total_batch_size)
+            prefilling_mask_tensor = None
             total_indices_size = sum(b.adapter_meta.adapter_indices.shape[0] for b in batches)
             adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
             adapter_segment_builder = SegmentConcatBuilder()
@@ -647,6 +660,7 @@ class FlashCausalLMBatch(Batch):
                 if isinstance(batch.input_ids, torch.Tensor):
                     batch.input_ids = batch.input_ids.view(-1, 1).tolist()
                 input_ids.extend(batch.input_ids)
+                prefilling_mask_tensor[start_index:end_index] = batch.prefilling_mask_tensor
 
             prefilling_mask.extend(batch.prefilling_mask)
             block_tables.extend(batch.block_tables)
@@ -711,6 +725,7 @@ class FlashCausalLMBatch(Batch):
             max_current_length=max_current_length,
             prefilling=prefilling,
             prefilling_mask=prefilling_mask,
+            prefilling_mask_tensor=prefilling_mask_tensor,
             prefill_head_indices=None,
             prefill_next_token_indices=None,
             prefill_cu_outlens=None,
@@ -1076,6 +1091,24 @@ class FlashCausalLM(Model):
                 num_heads=self.num_heads,
                 num_kv_heads=self.num_kv_heads,
             )
+        
+        self.profiler = None
+        if LORAX_PROFILER_DIR is not None:
+            self.profiler = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                with_stack=True,
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(LORAX_PROFILER_DIR, use_gzip=True)
+            )
+            self.steps = 0
+        
+        self.punica_wrapper = PunicaWrapper(
+            max_num_batched_tokens=10000,
+            max_batches=128,
+            device=self.device,
+        )
 
     @property
     def block_size(self) -> int:
@@ -1243,6 +1276,9 @@ class FlashCausalLM(Model):
             self.model_graph_wrapper.kv_cache = self.kv_cache
             self.model_graph_wrapper.warmup()
             torch.cuda.synchronize(self.device)
+
+        if self.profiler is not None:
+            self.profiler.start()
 
         return int(num_blocks * BLOCK_SIZE)
 
@@ -1456,6 +1492,7 @@ class FlashCausalLM(Model):
             finished_prefilling = True
             next_chunk_lengths = []
             current_prefilling_mask = batch.prefilling_mask
+            current_prefilling_mask_tensor = batch.prefilling_mask_tensor
             if prefill:
                 if get_supports_chunking():
                     next_prefilling_mask = []
@@ -1487,11 +1524,14 @@ class FlashCausalLM(Model):
                     # Reverse back the obtained values²
                     next_chunk_lengths.reverse()
                     next_prefilling_mask.reverse()
+
+                    batch.prefilling_mask_tensor = torch.tensor(next_prefilling_mask, device=batch.all_input_ids_tensor.device)
                 else:
                     # The model does not support chunking
                     # We know we only do a single prefill
                     finished_prefilling = True
                     next_prefilling_mask = [False] * len(batch)
+                    batch.prefilling_mask_tensor = None
 
                 batch.prefilling = not finished_prefilling
                 batch.prefilling_mask = next_prefilling_mask
@@ -1544,18 +1584,19 @@ class FlashCausalLM(Model):
 
             with timer(f"generate_token::cumulative_length"):
                 if prefill and finished_prefilling:
-                    current_prefilling_mask_tensor = torch.tensor(current_prefilling_mask, device=batch.all_input_ids_tensor.device)
-                    
                     # Discard first elem, which is 0
-                    end_index = batch.cu_seqlen_prefill[1:]
+                    with timer(f"generate_token::cumulative_length::end_index"):
+                        end_index = batch.cu_seqlen_prefill[1:]
                     
                     # Initialize position_ids
                     # In decode, we do not need this as we can just increment position ids
-                    next_position_ids[:] = batch.position_ids[end_index - 1]
+                    with timer(f"generate_token::cumulative_length::next_position_ids"):
+                        next_position_ids[:] = batch.position_ids[end_index - 1]
 
                     # Initialize adapter indices
                     # In decode, we only have one token per row in the batch, so grab last index
-                    next_adapter_indices[:] = batch.adapter_meta.adapter_indices[end_index - 1]
+                    with timer(f"generate_token::cumulative_length::adapter_indices"):
+                        next_adapter_indices[:] = batch.adapter_meta.adapter_indices[end_index - 1]
 
                     # if not request_is_prefilling:
                     #     # Only save tokens if we are done prefilling for this request
@@ -1563,55 +1604,17 @@ class FlashCausalLM(Model):
                     #         batch.all_input_ids_tensor[i, cache_length + input_length + j] = next_input_ids[index + j]
 
                     # Only save tokens if we are done prefilling for this request
-                    offsets = batch.cache_lengths_tensor + batch.input_lengths_tensor
+                    with timer(f"generate_token::cumulative_length::offsets"):
+                        offsets = batch.cache_lengths_tensor + batch.input_lengths_tensor
 
-                    batch.all_input_ids_tensor = update_all_input_ids_tensor(
-                        accepted_ids,
-                        batch.all_input_ids_tensor,
-                        offsets,
-                        next_input_ids,
-                        current_prefilling_mask_tensor,
-                    )
-                    
-                    # batch_size = accepted_ids.shape[0]
-
-                    # # Create a batch index tensor [0, 1, 2, ..., batch_size - 1]
-                    # batch_indices = torch.arange(batch_size, device=batch.all_input_ids_tensor.device)
-
-                    # # Apply the current_prefilling_mask to get only the rows that should be updated
-                    # valid_batch_indices = batch_indices[current_prefilling_mask_tensor]
-
-                    # # Gather only the accepted_ids, offsets, and next_input_ids for valid rows
-                    # print("!!! offsets", offsets, offsets.shape)
-                    # print("!!! current_prefilling_mask", current_prefilling_mask_tensor)
-
-                    # accepted_ids_valid = accepted_ids[current_prefilling_mask_tensor]
-                    # offsets_valid = offsets[current_prefilling_mask_tensor]
-
-                    # print("!!! accepted_ids_valid", accepted_ids_valid, accepted_ids_valid.shape)
-                    # print("!!! offsets_valid", offsets_valid, offsets_valid.shape)
-
-                    # # Reshape next_input_ids to [batch_size, S]
-                    # max_candidates_per_batch = next_input_ids.shape[0] // batch_size
-                    # next_input_ids_2d = next_input_ids.view(batch_size, max_candidates_per_batch)
-
-                    # # Gather only the next_input_ids for valid rows
-                    # next_input_ids_valid = next_input_ids_2d[current_prefilling_mask_tensor]
-                    # print("!!! next_input_ids_valid", next_input_ids_valid, next_input_ids_valid.shape)
-
-                    # # Generate a mask to gather the accepted IDs from next_input_ids
-                    # expanded_accepted_ids = torch.repeat_interleave(accepted_ids_valid)
-                    # print("!!! expanded_accepted_ids", expanded_accepted_ids, expanded_accepted_ids.shape)
-
-                    # # Flatten the accepted next_input_ids
-                    # accepted_next_input_ids = next_input_ids_valid[torch.arange(accepted_ids_valid.shape[0]), expanded_accepted_ids]
-
-                    # # Compute insertion points for each valid batch, from the offset
-                    # print("!!! expanded_accepted_ids", expanded_accepted_ids, expanded_accepted_ids.shape)
-                    # insertion_indices = torch.repeat_interleave(offsets_valid) + torch.arange(expanded_accepted_ids.shape[0], device=offsets.device)
-
-                    # # Place the accepted tokens into the right locations in valid rows only
-                    # batch.all_input_ids_tensor[valid_batch_indices, insertion_indices] = accepted_next_input_ids
+                    with timer(f"generate_token::cumulative_length::update_all_input_ids_tensor"):
+                        batch.all_input_ids_tensor = update_all_input_ids_tensor(
+                            accepted_ids,
+                            batch.all_input_ids_tensor,
+                            offsets,
+                            next_input_ids,
+                            current_prefilling_mask_tensor,
+                        )
 
             print("all_input_ids", batch.all_input_ids_tensor.shape)
 
@@ -1991,47 +1994,86 @@ def update_all_input_ids_tensor(
     next_input_ids,
     current_prefilling_mask
 ):
-    # Get batch size and compute S (number of candidate tokens per batch)
-    batch_size = accepted_ids.size(0)
+    # Get batch size
+    batch_size = all_input_ids_tensor.size(0)
+    # Calculate S (number of candidate tokens per batch)
     S = next_input_ids.size(0) // batch_size
 
     # Reshape next_input_ids to [batch_size, S]
     next_input_ids = next_input_ids.view(batch_size, S)
 
-    # Select indices of batches to process based on the current_prefilling_mask
-    batch_indices = torch.nonzero(current_prefilling_mask, as_tuple=False).squeeze(1)
-    num_batches = batch_indices.size(0)
-
-    # Gather the accepted_ids, offsets, and next_input_ids for the selected batches
-    accepted_ids_selected = accepted_ids[batch_indices]
-    offsets_selected = offsets[batch_indices]
-    next_input_ids_selected = next_input_ids[batch_indices]
-
-    # Determine the maximum number of accepted IDs to pad sequences
-    max_accepted_ids = accepted_ids_selected.max()
-
-    # Create sequence indices offsets for each batch
-    seq_indices_offsets = torch.arange(max_accepted_ids, device=accepted_ids.device).unsqueeze(0)
-    seq_indices_offsets = seq_indices_offsets.expand(num_batches, -1)
-
-    # Create a mask to identify valid positions within accepted_ids for each batch
-    seq_mask = seq_indices_offsets < accepted_ids_selected.unsqueeze(1)
-
-    # Calculate the sequence indices where updates will occur
-    seq_indices = seq_indices_offsets + offsets_selected.unsqueeze(1)
-
-    # Expand batch indices to align with seq_indices
-    batch_indices_expanded = batch_indices.unsqueeze(1).expand(-1, max_accepted_ids)
-
-    # Extract the values to be written into all_input_ids_tensor
-    values = next_input_ids_selected[:, :max_accepted_ids]
-
-    # Flatten tensors and apply the mask to select valid positions
-    batch_indices_flat = batch_indices_expanded.reshape(-1)[seq_mask.reshape(-1)]
-    seq_indices_flat = seq_indices.reshape(-1)[seq_mask.reshape(-1)]
-    values_flat = values.reshape(-1)[seq_mask.reshape(-1)]
+    # Since accepted_ids is always 1, we only need the first candidate token for each batch
+    values = next_input_ids[:, 0]
 
     # Update all_input_ids_tensor at the specified positions with the accepted IDs
-    all_input_ids_tensor[batch_indices_flat, seq_indices_flat] = values_flat
+    all_input_ids_tensor[torch.arange(batch_size), offsets] = values
 
     return all_input_ids_tensor
+
+    # NO SPECULATION
+    # # Get batch size
+    # batch_size = all_input_ids_tensor.size(0)
+    # # Calculate S (number of candidate tokens per batch)
+    # S = next_input_ids.size(0) // batch_size
+
+    # # Reshape next_input_ids to [batch_size, S]
+    # next_input_ids = next_input_ids.view(batch_size, S)
+
+    # # Select indices of batches to process based on current_prefilling_mask
+    # batch_indices = torch.nonzero(current_prefilling_mask, as_tuple=False).squeeze(1)
+
+    # # Gather offsets and next_input_ids for the selected batches
+    # offsets_selected = offsets[batch_indices]
+    # # Since accepted_ids is always 1, we only need the first candidate token
+    # values = next_input_ids[batch_indices, 0]
+
+    # # Update all_input_ids_tensor at the specified positions with the accepted IDs
+    # all_input_ids_tensor[batch_indices, offsets_selected] = values
+
+    # return all_input_ids_tensor
+
+    # FULL
+    # # Get batch size and compute S (number of candidate tokens per batch)
+    # batch_size = accepted_ids.size(0)
+    # S = next_input_ids.size(0) // batch_size
+
+    # # Reshape next_input_ids to [batch_size, S]
+    # next_input_ids = next_input_ids.view(batch_size, S)
+
+    # # Select indices of batches to process based on the current_prefilling_mask
+    # batch_indices = torch.nonzero(current_prefilling_mask, as_tuple=False).squeeze(1)
+    # num_batches = batch_indices.size(0)
+
+    # # Gather the accepted_ids, offsets, and next_input_ids for the selected batches
+    # accepted_ids_selected = accepted_ids[batch_indices]
+    # offsets_selected = offsets[batch_indices]
+    # next_input_ids_selected = next_input_ids[batch_indices]
+
+    # # Determine the maximum number of accepted IDs to pad sequences
+    # max_accepted_ids = accepted_ids_selected.max()
+
+    # # Create sequence indices offsets for each batch
+    # seq_indices_offsets = torch.arange(max_accepted_ids, device=accepted_ids.device).unsqueeze(0)
+    # seq_indices_offsets = seq_indices_offsets.expand(num_batches, -1)
+
+    # # Create a mask to identify valid positions within accepted_ids for each batch
+    # seq_mask = seq_indices_offsets < accepted_ids_selected.unsqueeze(1)
+
+    # # Calculate the sequence indices where updates will occur
+    # seq_indices = seq_indices_offsets + offsets_selected.unsqueeze(1)
+
+    # # Expand batch indices to align with seq_indices
+    # batch_indices_expanded = batch_indices.unsqueeze(1).expand(-1, max_accepted_ids)
+
+    # # Extract the values to be written into all_input_ids_tensor
+    # values = next_input_ids_selected[:, :max_accepted_ids]
+
+    # # Flatten tensors and apply the mask to select valid positions
+    # batch_indices_flat = batch_indices_expanded.reshape(-1)[seq_mask.reshape(-1)]
+    # seq_indices_flat = seq_indices.reshape(-1)[seq_mask.reshape(-1)]
+    # values_flat = values.reshape(-1)[seq_mask.reshape(-1)]
+
+    # # Update all_input_ids_tensor at the specified positions with the accepted IDs
+    # all_input_ids_tensor[batch_indices_flat, seq_indices_flat] = values_flat
+
+    # return all_input_ids_tensor

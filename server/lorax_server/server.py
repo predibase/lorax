@@ -64,6 +64,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 self.cache.delete(request.id)
             else:
                 self.cache.clear()
+
             return generate_pb2.ClearCacheResponse()
         except:
             exit(1)
@@ -117,6 +118,12 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             with timer("prefill::generate_token"):
                 generations, next_batch = self.model.generate_token(batch)
                 self.cache.set(next_batch)
+            
+            if self.model.profiler:
+                self.model.steps += 1
+                if self.model.steps == 10:
+                    self.model.profiler.stop()
+                    print(self.model.profiler.key_averages())
 
             return generate_pb2.PrefillResponse(
                 generations=[generation.to_pb() for generation in generations],
