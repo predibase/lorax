@@ -303,8 +303,8 @@ class Qwen2MLP(nn.Module):
             layer_id,
             [MLP_GATE_PROJ, MLP_UP_PROJ],
             sizes=[
-                config.intermediate_size // 2,
-                config.intermediate_size // 2,
+                config.intermediate_size,
+                config.intermediate_size,
             ],
             process_group=weights.process_group,
         )

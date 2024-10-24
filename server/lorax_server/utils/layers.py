@@ -76,6 +76,7 @@ class LoraLinear(nn.Module):
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
 
         if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
+            print("!!! layer_type", layer_type, "start_idx", start_idx, "end_idx", end_idx, "result", result.shape)
             if end_idx - start_idx != result.shape[1]:
                 # proj = torch.zeros_like(result[:, start_idx:end_idx])
                 y_offset = start_idx
@@ -89,7 +90,7 @@ class LoraLinear(nn.Module):
                 # lora_a_ptr = rank_segments.lora_a_ptr
                 # lora_b_ptr = rank_segments.lora_b_ptr
 
-                lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[layer_type]
+                lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[(layer_type, self.layer_id)]
                 adapter_data.punica_wrapper.add_lora(
                     result,
                     input,
@@ -230,6 +231,7 @@ class TensorParallelMultiAdapterLinear(LoraLinear):
                 end_idx = offset // self.process_group.size()
             else:
                 end_idx = result.shape[1]
+            print("!!! sizes", self.sizes, self.process_group.size())
 
             result = self.forward_layer_type(result, input, adapter_data, layer_name, start_idx, end_idx)
 

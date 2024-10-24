@@ -3,9 +3,15 @@ import warnings
 from functools import lru_cache
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
-from lorax_server.utils.ops import bgmv_expand, bgmv_expand_slice, bgmv_shrink, sgmv_expand, sgmv_expand_slice, sgmv_shrink
 import torch
 import torch.nn.functional as F
+
+from lorax_server.utils.ops.bgmv_expand import bgmv_expand
+from lorax_server.utils.ops.bgmv_expand_slice import bgmv_expand_slice
+from lorax_server.utils.ops.bgmv_shrink import bgmv_shrink
+from lorax_server.utils.ops.sgmv_expand import sgmv_expand
+from lorax_server.utils.ops.sgmv_expand_slice import sgmv_expand_slice
+from lorax_server.utils.ops.sgmv_shrink import sgmv_shrink
 
 if TYPE_CHECKING:
     from lorax_server.adapters.weights import AdapterBatchMetadata
@@ -39,7 +45,10 @@ def pad_rank(t: torch.Tensor, dim: int, world_size: int) -> torch.Tensor:
     # tensor parallelism will result in effective rank being divided by world_size,
     # so we need to scale the min rank to offset that effect
     min_rank = MIN_SGMV_RANK * world_size
+    return pad_to_min_rank(t, dim, min_rank)
 
+
+def pad_to_min_rank(t: torch.Tensor, dim: int, min_rank: int) -> torch.Tensor:
     # if we're at or below the min rank, pad up to the min rank
     # otherwise, pad to the nearest multiple of the block size
     current_rank = t.size(dim)

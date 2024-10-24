@@ -9,7 +9,7 @@ import torch
 import triton
 import triton.language as tl
 
-from lorax_server.utils.ops import libentry
+from lorax_server.utils.ops.libentry import libentry
 
 
 @libentry()
@@ -131,6 +131,15 @@ def sgmv_shrink(
             in the batch
         scaling (float):  Scaling factor.
     """
+    print("!!! inputs", inputs.shape)
+    print("!!! lora_a_weights", lora_a_weights.shape)
+    print("!!! output_tensor", output_tensor.shape)
+    print("!!! b_seq_start_loc", b_seq_start_loc)
+    print("!!! seq_len_tensor", seq_len_tensor)
+    print("!!! lora_indices_tensor", lora_indices_tensor)
+    print("!!! batch_size", batches)
+    print("!!! max_seq_length", max_seq_length)
+    print("!!! scaling", scaling)
     assert inputs.dtype == lora_a_weights.dtype
     assert inputs.dtype in [torch.float16, torch.bfloat16]
     assert lora_a_weights.dtype in [

@@ -118,7 +118,7 @@ class AdapterBatchData:
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
     # layer type -> fused lora weights
-    layer_to_lora_weights: Dict[str, Tuple[torch.Tensor, torch.Tensor]]
+    layer_to_lora_weights: Dict[Tuple[str, int], Tuple[torch.Tensor, torch.Tensor]]
 
     punica_wrapper: "PunicaWrapper"
 
@@ -128,6 +128,7 @@ class AdapterBatchData:
     def from_meta(
         meta: AdapterBatchMetadata,
         weights: Dict[str, LayerAdapterWeights],
+        layer_to_lora_weights: Dict[Tuple[str, int], Tuple[torch.Tensor, torch.Tensor]],
         punica_wrapper: "PunicaWrapper",
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
@@ -139,7 +140,13 @@ class AdapterBatchData:
             layer_weights = v.get_data(meta, k, prefill, prefill_head_indices if k == LM_HEAD else None)
             if layer_weights:
                 data[k] = layer_weights
-        return AdapterBatchData(meta=meta, data=data, punica_wrapper=punica_wrapper, prefill=prefill)
+        return AdapterBatchData(
+            meta=meta, 
+            data=data, 
+            layer_to_lora_weights=layer_to_lora_weights, 
+            punica_wrapper=punica_wrapper, 
+            prefill=prefill,
+        )
 
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation
