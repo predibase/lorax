@@ -1109,11 +1109,7 @@ class FlashCausalLM(Model):
             )
             self.steps = 0
         
-        self.punica_wrapper = PunicaWrapper(
-            max_num_batched_tokens=10000,
-            max_batches=128,
-            device=self.device,
-        )
+        self.punica_wrapper = None
 
     @property
     def block_size(self) -> int:
@@ -1185,6 +1181,12 @@ class FlashCausalLM(Model):
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
         # The warmup batch is the biggest batch we could ever receive
         max_total_tokens = batch.max_input_length + max_new_tokens + get_speculative_tokens()
+
+        self.punica_wrapper = PunicaWrapper(
+            max_num_batched_tokens=get_max_prefill_tokens(),
+            max_batches=256,  # TODO(travis): consider how to handle this if we exceed this limit
+            device=self.device,
+        )
 
         torch.cuda.empty_cache()
         try:
