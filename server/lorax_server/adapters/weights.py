@@ -1,7 +1,7 @@
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Type
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
 import torch
 
@@ -116,6 +116,9 @@ class AdapterBatchData:
 
     # layer type -> adapter type -> batch weight data
     data: Dict[str, Dict[str, BatchAdapterWeights]]
+
+    # layer type -> fused lora weights
+    layer_to_lora_weights: Dict[str, Tuple[torch.Tensor, torch.Tensor]]
 
     punica_wrapper: "PunicaWrapper"
 

@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
 from lorax_server.adapters.lora import LoraWeights
+from lorax_server.adapters.medusa_lora import MedusaLoraWeights
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -263,8 +264,12 @@ class Model(ABC):
                 adapter_index = adapter.adapter_index
                 adapter_weights = layer_adapter_weights.adapter_weights.get(adapter_index)
                 if not isinstance(adapter_weights, LoraWeights):
-                    # Only applicable to lora for now
-                    continue
+                    if isinstance(adapter_weights, MedusaLoraWeights):
+                        # only use lora component
+                        adapter_weights = adapter_weights.lora_weights
+                    else:
+                        # only applicable to lora for now
+                        continue
             
                 # transpose to ensure col major
                 lora_a = adapter_weights.weights_a_t

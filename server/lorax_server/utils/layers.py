@@ -86,14 +86,15 @@ class LoraLinear(nn.Module):
                 y_slice_size = None
 
             for r, rank_segments in data.rank_data.items():
-                lora_a_ptr = rank_segments.lora_a_ptr
-                lora_b_ptr = rank_segments.lora_b_ptr
+                # lora_a_ptr = rank_segments.lora_a_ptr
+                # lora_b_ptr = rank_segments.lora_b_ptr
 
+                lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[layer_type]
                 adapter_data.punica_wrapper.add_lora(
                     result,
                     input,
-                    lora_a_ptr,
-                    lora_b_ptr,
+                    lora_a_weights,
+                    lora_b_weights,
                     1.0,
                     y_offset,
                     y_slice_size,

@@ -1472,17 +1472,14 @@ class FlashCausalLM(Model):
 
             # Assign pointers to adapter weights
             # TODO(travis): don't update this if indices haven't changed
-            # self.punica_wrapper.update_metadata(
-            #     adapter_meta,
-            #     prefill,
-            #     len(adapter_meta.adapter_set),
-            #     self.model.config.vocab_size,
-            #     self.model.config.vocab_size,
-            #     None,
-            # )
             self.punica_wrapper.update_metadata(adapter_meta, prefill)
             adapter_data = AdapterBatchData.from_meta(
-                adapter_meta, self.layer_to_adapter_weights, self.punica_wrapper, prefill, batch.prefill_head_indices
+                adapter_meta, 
+                self.layer_to_adapter_weights, 
+                self.layer_to_lora_weights, 
+                self.punica_wrapper, 
+                prefill, 
+                batch.prefill_head_indices
             )
 
         with timer(f"{stage_str}::generate_token::forward"):
