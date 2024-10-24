@@ -128,14 +128,14 @@ def sgmv_expand(
         add_inputs (bool, optional):  Defaults to False. adds the final lora 
             results to the output.
     """
-    print("!!! inputs", inputs.shape)
-    print("!!! lora_b_weights", lora_b_weights.shape)
-    print("!!! output_tensor", output_tensor.shape)
-    print("!!! b_seq_start_loc", b_seq_start_loc)
-    print("!!! seq_len_tensor", seq_len_tensor)
-    print("!!! lora_indices_tensor", lora_indices_tensor)
-    print("!!! batches", batches)
-    print("!!! max_seq_length", max_seq_length)
+    # print("!!! inputs", inputs.shape)
+    # print("!!! lora_b_weights", lora_b_weights.shape)
+    # print("!!! output_tensor", output_tensor.shape)
+    # print("!!! b_seq_start_loc", b_seq_start_loc)
+    # print("!!! seq_len_tensor", seq_len_tensor)
+    # print("!!! lora_indices_tensor", lora_indices_tensor)
+    # print("!!! batches", batches)
+    # print("!!! max_seq_length", max_seq_length)
 
     assert inputs.dtype in [torch.float16, torch.bfloat16, torch.float32]
     assert lora_b_weights.dtype in [

@@ -293,9 +293,6 @@ class Model(ABC):
                 # stack into [num_adapters, r, hidden_size] and [num_adapters, hidden_size, r]
                 lora_a_weights = torch.stack(lora_a_weights).to(self.device).contiguous()
                 lora_b_weights = torch.stack(lora_b_weights).to(self.device).contiguous()
-                print("!!! lora_a_weights", lora_a_weights.shape, layer_name, layer_id)
-                print("!!! lora_b_weights", lora_b_weights.shape)
-                # ('self_attn.q_proj', 32)
                 self.layer_to_lora_weights[(layer_name, layer_id)] = (lora_a_weights, lora_b_weights)
 
     def load_adapter(
