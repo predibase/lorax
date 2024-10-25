@@ -21,7 +21,7 @@ from lorax_server.models.types import (
     NextTokens,
 )
 from lorax_server.pb import generate_pb2
-from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria, paged_attention
+from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
@@ -955,6 +955,8 @@ class FlashCausalLM(Model):
 
         config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+
+        from lorax_server.utils import paged_attention
         if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
             self.kv_dtype = torch.float8_e4m3fn
             logger.info('Enabling FP8 KV Cache')
