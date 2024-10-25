@@ -1285,13 +1285,14 @@ class FlashCausalLM(Model):
                     num_kv_heads=self.num_kv_heads,
                     head_size=self.head_size,
                     query_dtype=self.dtype,
+                    window_left=self.sliding_window,
                 )
             else:
-                assert input_lengths_tensor is not None
-                return use_decode_state(
-                    state=state if state is not None else self.decode_state,
-                    input_lengths=input_lengths_tensor + cache_lengths_tensor,
+                return use_prefill_with_paged_kv_state(
+                    state=(state if state is not None else self.prefill_with_paged_kv_state),
                     block_tables=block_tables,
+                    cu_seqlens=cu_seqlen_prefill,
+                    input_lengths=input_lengths_tensor + cache_lengths_tensor,
                     num_heads=self.num_heads,
                     num_kv_heads=self.num_kv_heads,
                     head_size=self.head_size,
