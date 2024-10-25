@@ -34,6 +34,7 @@ from lorax_server.models.custom_modeling.flash_llama_modeling import (
     FlashLlamaForCausalLM,
     FlashLlamaLayer,
 )
+from lorax_server.utils.attention.common import Seqlen
 
 
 # Copied from transformers.models.llama.modeling_llama.apply_rotary_pos_emb
@@ -875,7 +876,7 @@ class MllamaForConditionalGeneration(nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
@@ -895,7 +896,7 @@ class MllamaForConditionalGeneration(nn.Module):
                 indices = []
                 for index in image_indices:
                     cu_q.append(offset)
-                    length = input_lengths[index].item()
+                    length = seqlen.input_lengths[index].item()
                     assert index < cu_seqlen_prefill.shape[0]
                     input_ids_offset = cu_seqlen_prefill[index]
                     indices.extend(range(input_ids_offset, input_ids_offset + length))
@@ -947,7 +948,7 @@ class MllamaForConditionalGeneration(nn.Module):
             kv_cache=kv_cache,
             block_tables=block_tables,
             slots=slots,
-            input_lengths=input_lengths,
+            seqlen=seqlen,
             max_s=max_s,
             adapter_data=adapter_data,
             prefill_cache_indices=prefill_cache_indices,

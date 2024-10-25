@@ -259,6 +259,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     );
     fn extend(&mut self, entries: Box<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
@@ -274,6 +275,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
@@ -322,6 +324,7 @@ impl BatchEntries for GenerateBatchEntries {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     ) {
         let valid_request = entry
             .request
@@ -341,7 +344,8 @@ impl BatchEntries for GenerateBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
-            prefix_len,
+            cache_len: prefix_len,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -385,12 +389,14 @@ impl BatchEntries for GenerateBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         prefill(
             client,
             batch,
+            cached_batch,
             &mut self.state.batch_entries,
             &generation_health,
         )
@@ -451,6 +457,7 @@ impl BatchEntries for EmbedBatchEntries {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     ) {
         let valid_request = entry
             .request
@@ -470,7 +477,8 @@ impl BatchEntries for EmbedBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
-            prefix_len,
+            cache_len: prefix_len,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -514,6 +522,7 @@ impl BatchEntries for EmbedBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
@@ -574,6 +583,7 @@ impl BatchEntries for ClassifyBatchEntries {
         blocks: Vec<u32>,
         slots: Vec<u32>,
         prefix_len: u32,
+        chunk_len: Option<u32>,
     ) {
         let valid_request = entry
             .request
@@ -593,7 +603,8 @@ impl BatchEntries for ClassifyBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
-            prefix_len,
+            cache_len: prefix_len,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -637,6 +648,7 @@ impl BatchEntries for ClassifyBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {

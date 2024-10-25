@@ -1,4 +1,4 @@
-use std::{cmp::min, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::radix::RadixAllocator;
@@ -56,12 +56,14 @@ impl BlockAllocator {
 
     pub(crate) async fn allocate(
         &self,
+        adapter_index: u32,
         tokens: u32,
         prefill_tokens: Option<Arc<Vec<u32>>>,
     ) -> Option<BlockAllocation> {
         let (response_sender, response_receiver) = oneshot::channel();
         self.block_allocator
             .send(BlockAllocatorCommand::Allocate {
+                adapter_index,
                 tokens,
                 prefill_tokens,
                 response_sender,
@@ -103,12 +105,13 @@ async fn block_allocator_task(
                 allocation_id,
             } => allocator.free(blocks, allocation_id),
             BlockAllocatorCommand::Allocate {
+                adapter_index,
                 tokens,
                 prefill_tokens,
                 response_sender,
             } => {
                 response_sender
-                    .send(allocator.allocate(tokens, prefill_tokens))
+                    .send(allocator.allocate(adapter_index, tokens, prefill_tokens))
                     .unwrap();
             }
         }
@@ -122,6 +125,7 @@ enum BlockAllocatorCommand {
         allocation_id: u64,
     },
     Allocate {
+        adapter_index: u32,
         tokens: u32,
         prefill_tokens: Option<Arc<Vec<u32>>>,
         response_sender: oneshot::Sender<Option<BlockAllocation>>,
@@ -131,6 +135,7 @@ enum BlockAllocatorCommand {
 pub(crate) trait Allocator {
     fn allocate(
         &mut self,
+        adapter_index: u32,
         tokens: u32,
         prefill_tokens: Option<Arc<Vec<u32>>>,
     ) -> Option<BlockAllocation>;
@@ -158,6 +163,7 @@ impl SimpleAllocator {
 impl Allocator for SimpleAllocator {
     fn allocate(
         &mut self,
+        _adapter_index: u32,
         tokens: u32,
         _prefill_tokens: Option<Arc<Vec<u32>>>,
     ) -> Option<BlockAllocation> {
@@ -167,7 +173,7 @@ impl Allocator for SimpleAllocator {
                 None => (tokens, 1),
                 Some(window_size) => {
                     let repeats = (tokens + window_size - 1) / window_size;
-                    let tokens = min(tokens, window_size);
+                    let tokens = core::cmp::min(tokens, window_size);
                     (tokens, repeats as usize)
                 }
             };

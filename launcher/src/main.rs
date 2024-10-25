@@ -333,6 +333,11 @@ struct Args {
     #[clap(long, env)]
     eager_prefill: Option<bool>,
 
+    /// Split prefill requests into multiple chunks and batch them with decode requests. For high QPS scenarios, this
+    /// can greatly improve throughput by overlapping request types. See: https://arxiv.org/pdf/2308.16369.
+    #[clap(long, env)]
+    chunked_prefill: Option<bool>,
+
     /// Whether to use the prefix caching mechanism. This will skip computing attention on previously cached prefixes
     /// in the prompt. Useful in cases where many queries need to be run over a shared context, or for long multi-turn
     /// chats conversations.
@@ -500,6 +505,7 @@ fn shard_manager(
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
     prefix_caching: Option<bool>,
+    chunked_prefill: Option<bool>,
     merge_adapter_weights: bool,
     backend: Backend,
     otlp_endpoint: Option<String>,
@@ -519,9 +525,6 @@ fn shard_manager(
     if uds.exists() {
         fs::remove_file(uds).unwrap();
     }
-
-    // Copy current process env
-    let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
     // Process args
     let mut shard_args = vec![
@@ -586,13 +589,6 @@ fn shard_manager(
         shard_args.push(preloaded_adapter_source);
     }
 
-    if let Some(predibase_api_token) = predibase_api_token {
-        envs.push((
-            "PREDIBASE_API_TOKEN".into(),
-            predibase_api_token.to_string().into(),
-        ));
-    }
-
     if let Some(dtype) = dtype {
         shard_args.push("--dtype".to_string());
         shard_args.push(dtype.to_string())
@@ -619,6 +615,13 @@ fn shard_manager(
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
+    if let Some(predibase_api_token) = predibase_api_token {
+        envs.push((
+            "PREDIBASE_API_TOKEN".into(),
+            predibase_api_token.to_string().into(),
+        ));
+    }
+
     // Torch Distributed Env vars
     envs.push(("RANK".into(), rank.to_string().into()));
     envs.push(("WORLD_SIZE".into(), world_size.to_string().into()));
@@ -641,6 +644,11 @@ fn shard_manager(
     // Prefix caching
     if let Some(prefix_caching) = prefix_caching {
         envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+    }
+
+    // Chunked prefill
+    if let Some(chunked_prefill) = chunked_prefill {
+        envs.push(("CHUNKED_PREFILL".into(), chunked_prefill.to_string().into()));
     }
 
     // Backend
@@ -1097,6 +1105,7 @@ fn spawn_shards(
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
         let prefix_caching = args.prefix_caching;
+        let chunked_prefill = args.chunked_prefill;
         let merge_adapter_weights = args.merge_adapter_weights;
         let backend = args.backend;
         let embedding_dim = args.embedding_dim;
@@ -1129,6 +1138,7 @@ fn spawn_shards(
                 cuda_memory_fraction,
                 adapter_memory_fraction,
                 prefix_caching,
+                chunked_prefill,
                 merge_adapter_weights,
                 backend,
                 otlp_endpoint,

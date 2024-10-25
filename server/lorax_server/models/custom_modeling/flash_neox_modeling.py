@@ -29,6 +29,7 @@ from transformers.models.gpt_neox import GPTNeoXConfig
 
 from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
     FastLayerNorm,
     PositionRotaryEmbedding,
@@ -122,7 +123,7 @@ class FlashNeoxAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         qkv = self.query_key_value(hidden_states)
@@ -158,7 +159,7 @@ class FlashNeoxAttention(torch.nn.Module):
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -222,7 +223,7 @@ class FlashNeoXLayer(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         if self.use_parallel_residual:
@@ -236,7 +237,7 @@ class FlashNeoXLayer(nn.Module):
                 kv_cache,
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -260,7 +261,7 @@ class FlashNeoXLayer(nn.Module):
                 kv_cache,
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -307,7 +308,7 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
     ) -> torch.Tensor:
         hidden_states = self.embed_in(input_ids)
@@ -327,7 +328,7 @@ class FlashGPTNeoXModel(FlashGPTNeoXPreTrainedModel):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -352,7 +353,7 @@ class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
@@ -364,7 +365,7 @@ class FlashGPTNeoXForCausalLM(FlashGPTNeoXPreTrainedModel):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
         )
         if lm_head_indices is not None:

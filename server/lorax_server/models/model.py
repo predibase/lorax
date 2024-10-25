@@ -17,7 +17,13 @@ from lorax_server.utils.adapter import (
     load_and_merge_adapters,
 )
 from lorax_server.utils.sources import HUB
-from lorax_server.utils.state import BLOCK_SIZE, get_speculative_tokens
+from lorax_server.utils.state import (
+    BLOCK_SIZE,
+    CHUNKED_PREFILL,
+    FLASH_INFER,
+    get_speculative_tokens,
+    set_supports_chunking,
+)
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.weights import shard_on_dim
 
@@ -41,6 +47,7 @@ class Model(ABC):
         dynamic_adapter_loading_enabled: bool = True,
         trust_remote_code: bool = False,
         processor=None,
+        supports_chunking: bool = False,
     ):
         self.model_id = model_id
         self.model = model.eval()
@@ -73,6 +80,25 @@ class Model(ABC):
 
         self.trust_remote_code = trust_remote_code
 
+        speculation_tokens = get_speculative_tokens()
+
+        supports_chunking = supports_chunking and CHUNKED_PREFILL
+        if supports_chunking:
+            if speculation_tokens != 0:
+                logger.warning(
+                    "Chunked prefill does not support speculation yet. " "Chunked prefill will be disabled",
+                )
+                supports_chunking = False
+            if not FLASH_INFER:
+                logger.warning(
+                    "Chunked prefill is only supported with `flashinfer` backend.",
+                )
+                supports_chunking = False
+            logger.info(f"Using experimental chunked prefill = {supports_chunking}")
+
+        self.supports_chunking = supports_chunking
+        set_supports_chunking(supports_chunking)
+
         self.has_position_ids = inspect.signature(model.forward).parameters.get("position_ids", None) is not None
 
         if dynamic_adapter_loading_enabled and adapter_id and adapter_id != BASE_MODEL_ADAPTER_ID:
@@ -103,6 +129,7 @@ class Model(ABC):
             supports_generation=self.supports_text_generation,
             supports_embeddings=self.supports_embeddings,
             supports_classification=self.supports_classification,
+            chunked_prefill=self.supports_chunking,
         )
 
     @property
