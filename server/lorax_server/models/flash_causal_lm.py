@@ -1130,14 +1130,31 @@ class FlashCausalLM(Model):
 
         # has_prefix_lens = any(prefix_len > 0 for prefix_len in prefix_lens)
         if cu_seqlen_prefill is not None:
-            return use_prefill_state(
-                state=(state if state is not None else self.prefill_state),
-                cu_seqlens=cu_seqlen_prefill,
-                num_heads=self.num_heads,
-                num_kv_heads=self.num_kv_heads,
-                head_size=self.head_size,
-                query_dtype='bfloat16'
-            )
+            if self.kv_dtype == torch.float8_e4m3fn:
+                return use_prefill_state(
+                    state=(state if state is not None else self.prefill_state),
+                    cu_seqlens=cu_seqlen_prefill,
+                    num_heads=self.num_heads,
+                    num_kv_heads=self.num_kv_heads,
+                    head_size=self.head_size,
+                    query_dtype=self.dtype,
+                )
+            else:
+                return use_prefill_with_paged_kv_state(
+                    state=(state if state is not None else self.prefill_with_paged_kv_state),
+                    # block_tables=block_tables_to_ragged(
+                    #     block_tables=block_tables,
+                    #     input_lengths=input_lengths,
+                    #     prefix_lens=prefix_lens,
+                    # ),
+                    block_tables=block_tables,
+                    cu_seqlens=cu_seqlen_prefill,
+                    input_lengths=input_lengths_tensor,
+                    num_heads=self.num_heads,
+                    num_kv_heads=self.num_kv_heads,
+                    head_size=self.head_size,
+                    page_size=BLOCK_SIZE,
+                )
         else:
             assert input_lengths_tensor is not None
             return use_decode_state(

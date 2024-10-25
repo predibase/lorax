@@ -262,9 +262,11 @@ class MistralAttention(torch.nn.Module):
         if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
             self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
             self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+            self.kv_dtype = 'fp8'
         else:
             self.k_scale = 1.0
             self.v_scale = 1.0
+            self.kv_dtype = 'auto'
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id, self.head_size)
 
@@ -355,8 +357,8 @@ class MistralAttention(torch.nn.Module):
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                None,
-                None,
+                None if self.kv_dtype == 'fp8' else kv_cache[0],
+                None if self.kv_dtype == 'fp8' else kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
