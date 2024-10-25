@@ -23,7 +23,6 @@ from lorax_server.utils.adapter import (
     enum_string_to_adapter_source,
     is_base_model,
 )
-from lorax_server.utils.profiler import timer
 from lorax_server.utils.sgmv import has_sgmv
 from lorax_server.utils.state import set_max_prefill_tokens, set_speculative_tokens
 
@@ -95,40 +94,36 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return generate_pb2.WarmupResponse(max_supported_total_tokens=max_supported_total_tokens)
 
     async def Prefill(self, request: generate_pb2.PrefillRequest, context):
-        with timer("prefill::total"):
-            with timer("prefill::batch::from_pb"):
-                batch = self.model.batch_type.from_pb(
-                    request.batch,
-                    self.model.tokenizer,
-                    self.model.tokenizers,
-                    self.model.processor,
-                    self.model.model.config,
-                    self.model.dtype,
-                    self.model.device,
-                )
+        batch = self.model.batch_type.from_pb(
+            request.batch,
+            self.model.tokenizer,
+            self.model.tokenizers,
+            self.model.processor,
+            self.model.model.config,
+            self.model.dtype,
+            self.model.device,
+        )
 
-            if self.model.supports_chunking:
-                if request.HasField("cached_batch"):
-                    with timer("prefill::batch::concatenate"):
-                        cached_batch = self.cache.pop(request.cached_batch.id)
-                        if cached_batch is None:
-                            raise ValueError(f"Batch ID {request.cached_batch.id} not found in cache.")
-                        batch = self.model.batch_type.concatenate([cached_batch, batch])
+        if self.model.supports_chunking:
+            if request.HasField("cached_batch"):
+                cached_batch = self.cache.pop(request.cached_batch.id)
+                if cached_batch is None:
+                    raise ValueError(f"Batch ID {request.cached_batch.id} not found in cache.")
+                batch = self.model.batch_type.concatenate([cached_batch, batch])
 
-            with timer("prefill::generate_token"):
-                generations, next_batch = self.model.generate_token(batch)
-                self.cache.set(next_batch)
+        generations, next_batch = self.model.generate_token(batch)
+        self.cache.set(next_batch)
             
-            if self.model.profiler:
-                self.model.steps += 1
-                if self.model.steps == 10:
-                    self.model.profiler.stop()
-                    print(self.model.profiler.key_averages())
+        if self.model.profiler:
+            self.model.steps += 1
+            if self.model.steps == 10:
+                self.model.profiler.stop()
+                print(self.model.profiler.key_averages())
 
-            return generate_pb2.PrefillResponse(
-                generations=[generation.to_pb() for generation in generations],
-                batch=next_batch.to_pb() if next_batch else None,
-            )
+        return generate_pb2.PrefillResponse(
+            generations=[generation.to_pb() for generation in generations],
+            batch=next_batch.to_pb() if next_batch else None,
+        )
 
     async def Classify(self, request: generate_pb2.ClassifyRequest, context):
         if not self.model.supports_classification:
@@ -165,34 +160,31 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return embeddings_pb
 
     async def Decode(self, request: generate_pb2.DecodeRequest, context):
-        with timer("decode::total"):
-            if len(request.batches) == 0:
-                raise ValueError("Must provide at least one batch")
+        if len(request.batches) == 0:
+            raise ValueError("Must provide at least one batch")
 
-            batches = []
-            for batch_pb in request.batches:
-                batch = self.cache.pop(batch_pb.id)
-                if batch is None:
-                    raise ValueError(f"Batch ID {batch_pb.id} not found in cache.")
-                batches.append(batch)
+        batches = []
+        for batch_pb in request.batches:
+            batch = self.cache.pop(batch_pb.id)
+            if batch is None:
+                raise ValueError(f"Batch ID {batch_pb.id} not found in cache.")
+            batches.append(batch)
 
-            if len(batches) == 0:
-                raise ValueError("All batches are empty")
+        if len(batches) == 0:
+            raise ValueError("All batches are empty")
 
-            if len(batches) > 1:
-                with timer("decode::batch::concatenate"):
-                    batch = self.model.batch_type.concatenate(batches)
-            else:
-                batch = batches[0]
+        if len(batches) > 1:
+            batch = self.model.batch_type.concatenate(batches)
+        else:
+            batch = batches[0]
 
-            with timer("decode::generate_token"):
-                generations, next_batch = self.model.generate_token(batch)
-                self.cache.set(next_batch)
+        generations, next_batch = self.model.generate_token(batch)
+        self.cache.set(next_batch)
 
-            return generate_pb2.DecodeResponse(
-                generations=[generation.to_pb() for generation in generations],
-                batch=next_batch.to_pb() if next_batch else None,
-            )
+        return generate_pb2.DecodeResponse(
+            generations=[generation.to_pb() for generation in generations],
+            batch=next_batch.to_pb() if next_batch else None,
+        )
 
     async def DownloadAdapter(self, request: generate_pb2.DownloadAdapterRequest, context):
         if (
