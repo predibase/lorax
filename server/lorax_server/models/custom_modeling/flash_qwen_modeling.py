@@ -200,6 +200,14 @@ class FlashQwenAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = self.num_heads
+        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
+            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+            self.kv_dtype = 'fp8'
+        else:
+            self.k_scale = 1.0
+            self.v_scale = 1.0
+            self.kv_dtype = 'auto'
 
         self.c_attn = load_attention(config, prefix, weights, layer_id)
 
@@ -246,7 +254,15 @@ class FlashQwenAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
-        paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(
+            kv[:, 0],
+            kv[:, 1],
+            kv_cache[0],
+            kv_cache[1],
+            slots,
+            self.k_scale,
+            self.v_scale
+        )
 
         # Prefill
         if cu_seqlen_prefill is not None:
@@ -255,11 +271,13 @@ class FlashQwenAttention(torch.nn.Module):
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                kv_cache[0],
-                kv_cache[1],
+                None if self.kv_dtype == 'fp8' else kv_cache[0],
+                None if self.kv_dtype == 'fp8' else kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
             )
         # Decode
         else:
@@ -274,6 +292,8 @@ class FlashQwenAttention(torch.nn.Module):
                 block_tables,
                 seqlen,
                 max_s,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
             )
 
         return self.c_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)

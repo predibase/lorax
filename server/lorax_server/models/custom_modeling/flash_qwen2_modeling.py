@@ -133,7 +133,7 @@ def _load_gqa(config, prefix: str, weights):
     if isinstance(weight, tuple):
         weight, input_scale, weight_scale = weight
 
-    if config.quantize not in ["gptq", "awq", "fp8"]:
+    if config.quantize not in ["gptq", "awq", "fp8", "fp8_kv"]:
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.hidden_size // config.num_attention_heads
@@ -192,6 +192,14 @@ class FlashQwen2Attention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
+        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
+            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+            self.kv_dtype = 'fp8'
+        else:
+            self.k_scale = 1.0
+            self.v_scale = 1.0
+            self.kv_dtype = 'auto'
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
@@ -244,7 +252,15 @@ class FlashQwen2Attention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attention.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(
+            kv_to_cache[:, 0],
+            kv_to_cache[:, 1],
+            kv_cache[0],
+            kv_cache[1],
+            slots,
+            self.k_scale,
+            self.v_scale
+        )
 
         # Prefill
         if cu_seqlen_prefill is not None:
@@ -253,12 +269,14 @@ class FlashQwen2Attention(torch.nn.Module):
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                kv_cache[0],
-                kv_cache[1],
+                None if self.kv_dtype == 'fp8' else kv_cache[0],
+                None if self.kv_dtype == 'fp8' else kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
                 window_size_left=self.max_past,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
             )
         # Decode
         else:
@@ -273,6 +291,8 @@ class FlashQwen2Attention(torch.nn.Module):
                 block_tables,
                 seqlen,
                 max_s,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
             )
 
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
