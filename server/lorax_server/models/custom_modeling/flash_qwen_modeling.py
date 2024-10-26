@@ -29,7 +29,7 @@ from lorax_server.utils.layers import (
     TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
+from lorax_server.utils.torch_utils import is_fp8_kv
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"
