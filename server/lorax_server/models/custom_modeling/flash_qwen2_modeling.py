@@ -260,7 +260,8 @@ class FlashQwen2Attention(torch.nn.Module):
             kv_cache[1],
             slots,
             self.k_scale,
-            self.v_scale
+            self.v_scale,
+            self.fp8_kv,
         )
 
         # Prefill

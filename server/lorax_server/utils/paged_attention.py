@@ -34,9 +34,10 @@ def reshape_and_cache(
     slots: torch.Tensor,
     k_scale: float = 1.0,
     v_scale: float = 1.0,
+    fp8_kv: bool = False,
 ):
     if FLASH_INFER:
-        if key_cache.dtype == torch.float8_e4m3fn and value_cache.dtype == torch.float8_e4m3fn:
+        if fp8_kv:
             key = static_per_tensor_quantize(key, k_scale).view(torch.uint8)
             value = static_per_tensor_quantize(value, v_scale).view(torch.uint8)
             key_cache = key_cache.view(torch.uint8)
