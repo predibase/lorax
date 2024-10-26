@@ -3,6 +3,7 @@ import warnings
 from contextlib import nullcontext
 from typing import List, Optional, Set, Tuple, Union
 
+from lorax_server.utils.state import use_ngram
 import torch
 from transformers import (
     PreTrainedTokenizerBase,
@@ -421,7 +422,7 @@ class HeterogeneousNextTokenChooser:
             if speculative_scores is not None:
                 # Only use greedy sampling for speculative tokens
                 speculative_ids = Greedy()(speculative_scores)
-            else:
+            elif use_ngram():
                 speculative_ids = ngram_speculate(input_ids, next_ids, accepted_ids, speculate)
 
         return next_ids, next_logprobs, accepted_ids, speculative_ids

@@ -695,8 +695,11 @@ class FlashCausalLMBatch(Batch):
             sequence_processors=sequence_processors,
         )
 
+        # Discard speculative IDs if they are not present in all batches
         speculative_ids = (
-            torch.cat([b.speculative_ids for b in batches], dim=0) if batches[0].speculative_ids is not None else None
+            torch.cat(
+                [b.speculative_ids for b in batches], dim=0) 
+                if all(b.speculative_ids is not None for b in batches) else None
         )
 
         if adapter_segment_builder is not None:

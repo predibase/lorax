@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
+from loguru import logger
 import torch
 import torch.distributed
 
@@ -10,7 +11,7 @@ from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, 
 from lorax_server.layers import FastLinear, TensorParallelColumnLinear
 from lorax_server.utils.segments import find_segments
 from lorax_server.utils.sgmv import segmented_matmul
-from lorax_server.utils.state import get_speculative_tokens
+from lorax_server.utils.state import LORAX_SPECULATION_MAX_BATCH_SIZE, get_speculative_tokens
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 
 if TYPE_CHECKING:
@@ -20,7 +21,6 @@ if TYPE_CHECKING:
 EMPTY_TENSOR = torch.tensor([])
 
 _MEDUSA_ENABLED = False
-
 
 @dataclass
 class MedusaConfig(AdapterConfig):
@@ -159,7 +159,8 @@ class MedusaV2(torch.nn.Module):
 
     def forward(self, x, lm_head, segments: Optional[MedusaSegments] = None):
         # If we have too many tokens, we skip speculative logits
-        if x.shape[0] > 128:
+        if x.shape[0] > LORAX_SPECULATION_MAX_BATCH_SIZE:
+            logger.info(f"Skipping speculation at batch size = {x.shape[0]}")
             logits = lm_head(x)
             return logits, None
 

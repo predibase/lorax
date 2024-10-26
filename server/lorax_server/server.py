@@ -332,7 +332,9 @@ def serve(
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
         if speculative_tokens > 0:
-            set_speculative_tokens(speculative_tokens)
+            # Only use ngram speculation if the model does not support speculative tokens itself
+            use_ngram = model.max_speculative_tokens == 0
+            set_speculative_tokens(speculative_tokens, use_ngram=use_ngram)
 
         if preloaded_adapter_ids:
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")

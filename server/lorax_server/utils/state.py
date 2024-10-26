@@ -6,11 +6,13 @@ from loguru import logger
 
 WARMUP = False
 SPECULATIVE_TOKENS = 0
+NGRAM = False
 
 
 LORAX_PROFILER_DIR = os.environ.get("LORAX_PROFILER_DIR", None)
 PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHING", ""))
 CHUNKED_PREFILL = bool(os.environ.get("CHUNKED_PREFILL", ""))
+LORAX_SPECULATION_MAX_BATCH_SIZE = int(os.environ.get("LORAX_SPECULATION_MAX_BATCH_SIZE", 32))
 
 # Always use flashinfer when prefix caching is enabled
 FLASH_INFER = bool(os.environ.get("FLASH_INFER", "")) or PREFIX_CACHING
@@ -54,13 +56,19 @@ def warmup_mode():
         set_warmup(False)
 
 
-def set_speculative_tokens(value: int):
+def set_speculative_tokens(value: int, use_ngram: bool):
     global SPECULATIVE_TOKENS
+    global NGRAM
     SPECULATIVE_TOKENS = value
+    NGRAM = use_ngram
 
 
 def get_speculative_tokens() -> int:
     return SPECULATIVE_TOKENS
+
+
+def use_ngram() -> bool:
+    return NGRAM
 
 
 def set_supports_chunking(supports_chunking: bool):
