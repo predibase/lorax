@@ -40,6 +40,7 @@ from lorax_server.utils.state import (
     warmup_mode,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
+from lorax_server.utils.torch_utils import is_fp8_kv
 from lorax_server.utils.weights import Weights
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
@@ -956,8 +957,7 @@ class FlashCausalLM(Model):
         config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
-        from lorax_server.utils import paged_attention
-        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+        if is_fp8_kv(config.quantize):
             self.kv_dtype = torch.float8_e4m3fn
             logger.info('Enabling FP8 KV Cache')
         else:

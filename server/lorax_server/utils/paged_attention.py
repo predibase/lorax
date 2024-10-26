@@ -20,11 +20,6 @@ else:
         ) from e
 
 
-def is_fp8_supported():
-    return (torch.cuda.get_device_capability()[0] >= 9) \
-        or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
-
-
 def static_per_tensor_quantize(tensor: torch.Tensor, inv_scale: float) -> torch.Tensor:
     finfo = torch.finfo(torch.float8_e4m3fn)
     qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)

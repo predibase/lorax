@@ -129,10 +129,11 @@ if FLASH_INFER:
         softcap=0.0,
         k_scale=1.0,
         v_scale=1.0,
+        fp8_kv=False,
     ):
         from lorax_server.utils.flashinfer_attention import prefill_state, prefill_with_paged_kv_state
 
-        if key_cache is None or value_cache is None:
+        if fp8_kv or (key_cache is None or value_cache is None):
             return prefill_state.get().forward(
                 q,
                 k,
@@ -171,6 +172,7 @@ elif HAS_FLASH_ATTN_V2_CUDA:
         softcap=0.0,
         k_scale=1.0,
         v_scale=1.0,
+        fp8_kv=False,
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
@@ -214,6 +216,7 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_CK:
         softcap=0.0,
         k_scale=1.0,
         v_scale=1.0,
+        fp8_kv=False,
     ):
         if window_size_left <= 0 and window_size_left != -1:
             raise ValueError("`window_size_left` must be > 0 or -1")
@@ -257,6 +260,7 @@ elif HAS_FLASH_ATTN_V2_ROCM and ROCM_USE_FLASH_ATTN_V2_TRITON:
         softcap=0.0,
         k_scale=1.0,
         v_scale=1.0,
+        fp8_kv=False,
     ):
         out = torch.empty_like(q)
         output, _ = triton_attention(
@@ -289,6 +293,7 @@ elif HAS_FLASH_ATTN:
         softcap=0.0,
         k_scale=1.0,
         v_scale=1.0,
+        fp8_kv=False,
     ):
         if window_size_left != -1:
             raise NotImplementedError("window_size_left is only available with flash attn v2")
