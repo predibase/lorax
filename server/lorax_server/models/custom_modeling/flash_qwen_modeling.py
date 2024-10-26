@@ -29,6 +29,7 @@ from lorax_server.utils.layers import (
     TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
 
 ATTN_C_ATTN = "attn.c_attn"
 ATTN_C_PROJ = "attn.c_proj"
@@ -200,7 +201,7 @@ class FlashQwenAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = self.num_heads
-        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+        if is_fp8_kv(config.quantize):
             self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
             self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
             self.kv_dtype = 'fp8'
@@ -278,6 +279,7 @@ class FlashQwenAttention(torch.nn.Module):
                 self.softmax_scale,
                 k_scale=self.k_scale,
                 v_scale=self.v_scale,
+                fp8_kv=self.fp8_kv,
             )
         # Decode
         else:

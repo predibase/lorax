@@ -29,6 +29,7 @@ from lorax_server.utils.layers import (
     get_linear,
 )
 from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
 
 ATTN_Q_PROJ = "self_attn.q_proj"
 ATTN_K_PROJ = "self_attn.k_proj"
@@ -133,7 +134,7 @@ def _load_gqa(config, prefix: str, weights):
     if isinstance(weight, tuple):
         weight, input_scale, weight_scale = weight
 
-    if config.quantize not in ["gptq", "awq", "fp8", "fp8_kv"]:
+    if not is_quantized(config.quantize):
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.hidden_size // config.num_attention_heads
@@ -192,7 +193,7 @@ class FlashQwen2Attention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        if paged_attention.is_fp8_supported() and config.quantize and config.quantize.endswith('_kv'):
+        if is_fp8_kv(config.quantize):
             self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
             self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
             self.kv_dtype = 'fp8'
@@ -277,6 +278,7 @@ class FlashQwen2Attention(torch.nn.Module):
                 window_size_left=self.max_past,
                 k_scale=self.k_scale,
                 v_scale=self.v_scale,
+                fp8_kv=self.fp8_kv,
             )
         # Decode
         else:
