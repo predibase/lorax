@@ -6,12 +6,23 @@ use std::{
     sync::Arc,
 };
 
+// fn hash(adapter_index: u32, slice: &[u32]) -> u64 {
+//     assert!(!slice.is_empty());
+//     let mut s = std::hash::DefaultHasher::new();
+//     adapter_index.hash(&mut s);
+//     slice.hash(&mut s);
+//     s.finish()
+// }
+
 fn hash(adapter_index: u32, slice: &[u32]) -> u64 {
     assert!(!slice.is_empty());
-    let mut s = std::hash::DefaultHasher::new();
-    adapter_index.hash(&mut s);
-    slice.hash(&mut s);
-    s.finish()
+    if slice.len() == 1 {
+        slice[0] as u64
+    } else {
+        let mut s = std::hash::DefaultHasher::new();
+        slice.hash(&mut s);
+        s.finish()
+    }
 }
 
 pub struct RadixAllocator {
@@ -82,6 +93,9 @@ impl Allocator for RadixAllocator {
         tokens: u32,
         prefill_tokens: Option<Arc<Vec<u32>>>,
     ) -> Option<BlockAllocation> {
+        // ensure root node exists
+        self.cache_blocks.get_or_create_root(adapter_index);
+
         let mut blocks = vec![];
         let prefix_node = if let Some(prefill_tokens) = prefill_tokens.as_ref() {
             let node_id =
@@ -89,7 +103,7 @@ impl Allocator for RadixAllocator {
                     .find(adapter_index, prefill_tokens.as_slice(), &mut blocks);
             node_id
         } else {
-            self.cache_blocks.get_or_create_root(adapter_index)
+            self.cache_blocks.root_id(adapter_index)
         };
 
         // Even if this allocation fails below, we need to increase he
@@ -325,7 +339,8 @@ impl RadixTrie {
             .get_mut(node_id)
             .ok_or(TrieError::InvalidNodeId)?;
         if node.ref_count == 0 {
-            return Err(TrieError::RefCountUnderflow);
+            // return Err(TrieError::RefCountUnderflow);
+            return Ok(());
         }
 
         node.ref_count -= 1;
