@@ -8,14 +8,10 @@ use std::{
 
 fn hash(adapter_index: u32, slice: &[u32]) -> u64 {
     assert!(!slice.is_empty());
-    if slice.len() == 1 && adapter_index == 0 {
-        slice[0] as u64
-    } else {
-        let mut s = std::hash::DefaultHasher::new();
-        adapter_index.hash(&mut s);
-        slice.hash(&mut s);
-        s.finish()
-    }
+    let mut s = std::hash::DefaultHasher::new();
+    adapter_index.hash(&mut s);
+    slice.hash(&mut s);
+    s.finish()
 }
 
 pub struct RadixAllocator {
@@ -93,13 +89,13 @@ impl Allocator for RadixAllocator {
                     .find(adapter_index, prefill_tokens.as_slice(), &mut blocks);
             node_id
         } else {
-            self.cache_blocks.root_id()
+            self.cache_blocks.get_or_create_root(adapter_index)
         };
 
         // Even if this allocation fails below, we need to increase he
         // refcount to ensure that the prefix that was found is not evicted.
         self.cache_blocks
-            .incref(prefix_node)
+            .incref(adapter_index, prefix_node)
             .expect("Failed to increment refcount");
 
         let prefix_len = blocks.len() * self.block_size as usize;
@@ -116,7 +112,7 @@ impl Allocator for RadixAllocator {
                 tracing::debug!("Found {prefix_len} prefix tokens need {suffix_blocks} suffix blocks for {tokens} tokens");
                 tracing::debug!("Block size {}", self.block_size);
                 self.cache_blocks
-                    .decref(prefix_node)
+                    .decref(adapter_index, prefix_node)
                     .expect("Failed to decrement refcount");
                 return None;
             }
@@ -164,7 +160,7 @@ impl Allocator for RadixAllocator {
         };
 
         self.cache_blocks
-            .decref(allocation.prefix_node)
+            .decref(allocation.adapter_index, allocation.prefix_node)
             .expect("Failed to decrement refcount");
 
         if let Some(prefill_tokens) = allocation.prefill_tokens {
@@ -241,8 +237,8 @@ pub type NodeId = DefaultKey;
 
 #[derive(Debug)]
 pub struct RadixTrie {
-    /// Identifier of the root nod.
-    root: DefaultKey,
+    /// Adapter index --> Identifier of the root node.
+    roots: HashMap<u32, DefaultKey>,
 
     /// Leave node identifiers ordered by increasing recency.
     leaves: BTreeSet<(u64, NodeId)>,
@@ -261,13 +257,13 @@ pub struct RadixTrie {
 impl RadixTrie {
     /// Construct a new radix trie.
     pub fn new(block_size: usize) -> Self {
-        let root = TrieNode::new(vec![], vec![], 0, None);
-        let mut nodes = SlotMap::new();
-        let root = nodes.insert(root);
+        let nodes = SlotMap::new();
+        let roots = HashMap::new();
+
         RadixTrie {
             leaves: BTreeSet::new(),
             nodes,
-            root,
+            roots,
             time: 0,
             block_size,
         }
@@ -284,7 +280,7 @@ impl RadixTrie {
     /// Using this method will update the access time of the traversed nodes.
     pub fn find(&mut self, adapter_index: u32, key: &[u32], blocks: &mut Vec<u32>) -> NodeId {
         self.time += 1;
-        self.find_(adapter_index, self.root, key, blocks)
+        self.find_(adapter_index, self.root_id(adapter_index), key, blocks)
     }
 
     /// Find worker.
@@ -317,10 +313,10 @@ impl RadixTrie {
     }
 
     /// Decrease the reference count of a node.
-    pub fn decref(&mut self, node_id: NodeId) -> Result<(), TrieError> {
+    pub fn decref(&mut self, adapter_index: u32, node_id: NodeId) -> Result<(), TrieError> {
         // We don't care about refcounting for root, since it will never
         // be evicted.
-        if node_id == self.root {
+        if node_id == self.root_id(adapter_index) {
             return Ok(());
         }
 
@@ -346,8 +342,8 @@ impl RadixTrie {
     }
 
     /// Increase the reference count of a node.
-    pub fn incref(&mut self, node_id: NodeId) -> Result<(), TrieError> {
-        if node_id == self.root {
+    pub fn incref(&mut self, adapter_index: u32, node_id: NodeId) -> Result<(), TrieError> {
+        if node_id == self.root_id(adapter_index) {
             return Ok(());
         }
 
@@ -382,7 +378,7 @@ impl RadixTrie {
             let blocks_needed = n_blocks.saturating_sub(evicted.len());
             tracing::debug!("Evicting node {node_id:?} ");
 
-            let node = self.nodes.get(node_id).expect("Leave does not exist");
+            let node = self.nodes.get(node_id).expect("Leaf does not exist");
             assert_eq!(
                 node.ref_count, 0,
                 "Leaf must have refcount of 0, got {}",
@@ -401,7 +397,7 @@ impl RadixTrie {
                 // The node has more blocks than needed, so we'll just remove
                 // the required number of blocks and leave the remaining blocks
                 // untouched.
-                let node = self.nodes.get_mut(node_id).expect("Leave does not exist");
+                let node = self.nodes.get_mut(node_id).expect("Leaf does not exist");
 
                 let truncate_blocks = node.blocks.len() - blocks_needed;
                 let truncate_tokens = truncate_blocks * self.block_size;
@@ -427,7 +423,8 @@ impl RadixTrie {
         blocks: &[u32],
     ) -> Result<usize, TrieError> {
         self.time += 1;
-        let common = self.insert_(adapter_index, self.root, tokens, blocks)?;
+        let node_id = self.get_or_create_root(adapter_index);
+        let common = self.insert_(adapter_index, node_id, tokens, blocks)?;
         Ok(common)
     }
 
@@ -507,7 +504,7 @@ impl RadixTrie {
 
         let grandparent_id = node.parent.expect("Node does not have a parent");
         let parent_id = self.add_node(adapter_index, grandparent_id, parent_key, parent_blocks);
-        self.add_node_to_parent(parent_id, node_key, node_id);
+        self.add_node_to_parent(adapter_index, parent_id, node_key, node_id);
 
         // Reborrow to make the borrow checker happy.
         let node = self
@@ -534,19 +531,25 @@ impl RadixTrie {
         let child = TrieNode::new(key, blocks, self.time, Some(parent_id));
         let child_id = self.nodes.insert(child);
 
-        self.add_node_to_parent(parent_id, first, child_id);
+        self.add_node_to_parent(adapter_index, parent_id, first, child_id);
         self.leaves.insert((self.time, child_id));
 
         child_id
     }
 
     /// Add a node to the parent.
-    fn add_node_to_parent(&mut self, parent_id: NodeId, hash: u64, child_id: NodeId) {
+    fn add_node_to_parent(
+        &mut self,
+        adapter_index: u32,
+        parent_id: NodeId,
+        hash: u64,
+        child_id: NodeId,
+    ) {
         // Unwrap here, passing in an unknown id is a programming error.
         let parent = self.nodes.get_mut(parent_id).expect("Unknown parent node");
         if parent.children.insert(hash, child_id).is_none() {
             // Only increase reference count if child does not replace another child.
-            self.incref(parent_id)
+            self.incref(adapter_index, parent_id)
                 .expect("Failed to increase parent refcount");
         }
     }
@@ -565,7 +568,7 @@ impl RadixTrie {
 
         let node_key = hash(adapter_index, &node.key[..self.block_size]);
         parent.children.remove(&node_key);
-        self.decref(parent_id)
+        self.decref(adapter_index, parent_id)
             .expect("Failed to decrease parent refcount");
         node
     }
@@ -587,8 +590,8 @@ impl RadixTrie {
     /// Print debugging output for the trie.
     ///
     /// In contrast to `Debug` nicely formatted.
-    pub fn print_debug(&self) {
-        self.print_debug_(self.root, 0);
+    pub fn print_debug(&self, adapter_index: u32) {
+        self.print_debug_(self.root_id(adapter_index), 0);
     }
 
     fn print_debug_(&self, node_id: NodeId, indent: usize) {
@@ -609,8 +612,15 @@ impl RadixTrie {
         }
     }
 
-    pub(crate) fn root_id(&self) -> DefaultKey {
-        self.root
+    fn get_or_create_root(&mut self, adapter_index: u32) -> DefaultKey {
+        *self.roots.entry(adapter_index).or_insert_with(|| {
+            let root = TrieNode::new(vec![], vec![], 0, None);
+            self.nodes.insert(root)
+        })
+    }
+
+    pub(crate) fn root_id(&self, adapter_index: u32) -> DefaultKey {
+        self.roots[&adapter_index]
     }
 }
 

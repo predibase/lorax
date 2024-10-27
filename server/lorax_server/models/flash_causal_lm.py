@@ -696,6 +696,8 @@ class FlashCausalLMBatch(Batch):
         )
 
         # Discard speculative IDs if they are not present in all batches
+        if not all(b.speculative_ids is not None for b in batches):
+            print("!!! CONCATENATE -- discard speculative_ids")
         speculative_ids = (
             torch.cat(
                 [b.speculative_ids for b in batches], dim=0) 
