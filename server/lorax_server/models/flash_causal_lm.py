@@ -696,12 +696,14 @@ class FlashCausalLMBatch(Batch):
         )
 
         # Discard speculative IDs if they are not present in all batches
-        if not all(b.speculative_ids is not None for b in batches):
-            print("!!! CONCATENATE -- discard speculative_ids")
+        keep_speculative_ids = all(b.speculative_ids is not None for b in batches)
+        if not keep_speculative_ids:
+            logger.info("Discarding speculative IDs, not every batch has them")
+        
         speculative_ids = (
             torch.cat(
                 [b.speculative_ids for b in batches], dim=0) 
-                if all(b.speculative_ids is not None for b in batches) else None
+                if keep_speculative_ids else None
         )
 
         if adapter_segment_builder is not None:
