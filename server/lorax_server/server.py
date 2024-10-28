@@ -58,15 +58,12 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return generate_pb2.ServiceDiscoveryResponse(urls=self.server_urls)
 
     async def ClearCache(self, request, context):
-        try:
-            if request.HasField("id"):
-                self.cache.delete(request.id)
-            else:
-                self.cache.clear()
+        if request.HasField("id"):
+            self.cache.delete(request.id)
+        else:
+            self.cache.clear()
 
-            return generate_pb2.ClearCacheResponse()
-        except:
-            exit(1)
+        return generate_pb2.ClearCacheResponse()
 
     async def FilterBatch(self, request, context):
         batch = self.cache.pop(request.batch_id)
@@ -115,8 +112,8 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         self.cache.set(next_batch)
             
         if self.model.profiler:
-            self.model.steps += 1
-            if self.model.steps == 10:
+            self.model.profiler_steps += 1
+            if self.model.profiler_steps == 10:
                 self.model.profiler.stop()
                 print(self.model.profiler.key_averages())
 

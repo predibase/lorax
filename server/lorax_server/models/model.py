@@ -24,6 +24,7 @@ from lorax_server.utils.state import (
     BLOCK_SIZE,
     CHUNKED_PREFILL,
     FLASH_INFER,
+    LORAX_PROFILER_DIR,
     get_speculative_tokens,
     set_supports_chunking,
 )
@@ -115,6 +116,18 @@ class Model(ABC):
             )
 
         self.check_initialized()
+
+        self.profiler = None
+        if LORAX_PROFILER_DIR is not None:
+            self.profiler = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                with_stack=True,
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(LORAX_PROFILER_DIR, use_gzip=True)
+            )
+            self.profiler_steps = 0
 
     @property
     def info(self) -> InfoResponse:
@@ -290,10 +303,9 @@ class Model(ABC):
                 lora_b_weights = layer_id_to_lora_b_weights[layer_id]
 
                 # right pad every adapter to the max rank
-                # TODO(travis)
-                # r = max([w.size(-1) for w in lora_b_weights])
-                # lora_a_weights = [pad_to_min_rank(w, 1, r) for w in lora_a_weights]
-                # lora_b_weights = [pad_to_min_rank(w, 2, r) for w in lora_b_weights]
+                r = max([w.size(-1) for w in lora_b_weights])
+                lora_a_weights = [pad_to_min_rank(w, 1, r) for w in lora_a_weights]
+                lora_b_weights = [pad_to_min_rank(w, 2, r) for w in lora_b_weights]
 
                 # stack into [num_adapters, r, hidden_size] and [num_adapters, hidden_size, r]
                 lora_a_weights = torch.stack(lora_a_weights).to(self.device).contiguous()

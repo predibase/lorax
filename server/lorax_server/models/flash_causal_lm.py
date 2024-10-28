@@ -1103,18 +1103,6 @@ class FlashCausalLM(Model):
                 num_kv_heads=self.num_kv_heads,
             )
         
-        self.profiler = None
-        if LORAX_PROFILER_DIR is not None:
-            self.profiler = torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.CUDA,
-                ],
-                with_stack=True,
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(LORAX_PROFILER_DIR, use_gzip=True)
-            )
-            self.steps = 0
-        
         self.punica_wrapper = None
 
     @property
