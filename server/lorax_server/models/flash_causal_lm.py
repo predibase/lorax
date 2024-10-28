@@ -1419,6 +1419,8 @@ class FlashCausalLM(Model):
                     lm_head_indices=batch.prefill_head_indices,
                 )
         else:
+            skip_lm_head = get_speculative_tokens() > 0
+
             # CUDA graph mode
             out = model.forward(
                 input_ids=input_ids,
@@ -1435,6 +1437,10 @@ class FlashCausalLM(Model):
                 prefill_cache_indices=batch.prefill_cache_indices,
                 lm_head_indices=batch.prefill_head_indices,
             )
+
+            if skip_lm_head:
+                # re-run through the LM head as the graph did not capture it
+                out = self.model.lm_head(out[0], adapter_data)
 
         if batch.prefill_cache_indices is not None:
             batch.prefill_cache_indices = None

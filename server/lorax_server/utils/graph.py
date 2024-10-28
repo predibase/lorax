@@ -19,7 +19,7 @@ from lorax_server.adapters.types import LORA
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.sgmv import BGMV_MAX_RANK, PunicaWrapper
-from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER
+from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, get_speculative_tokens
 
 if TYPE_CHECKING:
     from lorax_server.models.flash_causal_lm import FlashCausalLMBatch
@@ -339,6 +339,7 @@ class GraphWrapper:
                 adapter_data=input_state.adapter_data,
                 prefill_cache_indices=None,
                 lm_head_indices=None,
+                skip_lm_head=get_speculative_tokens() > 0,
             )
             torch.cuda.synchronize()
 
@@ -356,6 +357,7 @@ class GraphWrapper:
                     adapter_data=input_state.adapter_data,
                     prefill_cache_indices=None,
                     lm_head_indices=None,
+                    skip_lm_head=get_speculative_tokens() > 0,
                 )
 
         torch.cuda.synchronize(device)
