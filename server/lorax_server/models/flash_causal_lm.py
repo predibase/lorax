@@ -40,7 +40,7 @@ from lorax_server.utils.state import (
     warmup_mode,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.torch_utils import is_fp8_kv, is_fp8_supported, is_fp8
+from lorax_server.utils.torch_utils import is_fp8, is_fp8_kv, is_fp8_supported
 from lorax_server.utils.weights import Weights
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
