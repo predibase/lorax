@@ -15,8 +15,9 @@ def is_quantized(quantize):
 
 
 def is_fp8_supported():
-    return (torch.cuda.get_device_capability()[0] >= 9) \
-        or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
+    return torch.cuda.is_available() and \
+        (torch.cuda.get_device_capability()[0] >= 9) or \
+        (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
 
 
 def is_fp8_kv(quantize):
