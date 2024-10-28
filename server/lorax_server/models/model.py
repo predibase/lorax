@@ -81,6 +81,7 @@ class Model(ABC):
         self.preloaded_adapter_indices = set()
         self.preloaded_adapter_memory_fractions = {}
         self.preloaded_adapters = []
+        self.layer_to_lora_weights = {}
 
         self.trust_remote_code = trust_remote_code
 
@@ -271,7 +272,6 @@ class Model(ABC):
         # where:
         #   lora_a_weights = [num_adapters, r, hidden_size] 
         #   lora_b_weights = [num_adapters, hidden_size, r]
-        self.layer_to_lora_weights = {}
         for layer_name, layer_adapter_weights in self.layer_to_adapter_weights.items():
             layer_id_to_lora_a_weights = defaultdict(list)
             layer_id_to_lora_b_weights = defaultdict(list)
