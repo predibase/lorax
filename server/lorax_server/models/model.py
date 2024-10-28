@@ -304,8 +304,8 @@ class Model(ABC):
 
                 # right pad every adapter to the max rank
                 r = max([w.size(-1) for w in lora_b_weights])
-                lora_a_weights = [pad_to_min_rank(w, 1, r) for w in lora_a_weights]
-                lora_b_weights = [pad_to_min_rank(w, 2, r) for w in lora_b_weights]
+                lora_a_weights = [pad_to_min_rank(w, 0, r) for w in lora_a_weights]
+                lora_b_weights = [pad_to_min_rank(w, 1, r) for w in lora_b_weights]
 
                 # stack into [num_adapters, r, hidden_size] and [num_adapters, hidden_size, r]
                 lora_a_weights = torch.stack(lora_a_weights).to(self.device).contiguous()

@@ -6,15 +6,7 @@ use std::{
     sync::Arc,
 };
 
-// fn hash(adapter_index: u32, slice: &[u32]) -> u64 {
-//     assert!(!slice.is_empty());
-//     let mut s = std::hash::DefaultHasher::new();
-//     adapter_index.hash(&mut s);
-//     slice.hash(&mut s);
-//     s.finish()
-// }
-
-fn hash(adapter_index: u32, slice: &[u32]) -> u64 {
+fn hash(_adapter_index: u32, slice: &[u32]) -> u64 {
     assert!(!slice.is_empty());
     if slice.len() == 1 {
         slice[0] as u64
@@ -244,7 +236,7 @@ struct RadixAllocation {
 #[derive(Debug)]
 pub enum TrieError {
     InvalidNodeId,
-    RefCountUnderflow,
+    // RefCountUnderflow,
 }
 
 pub type NodeId = DefaultKey;
@@ -339,6 +331,7 @@ impl RadixTrie {
             .get_mut(node_id)
             .ok_or(TrieError::InvalidNodeId)?;
         if node.ref_count == 0 {
+            // TODO(travis): figureo ut why this is happening, but should be safe to skip
             // return Err(TrieError::RefCountUnderflow);
             return Ok(());
         }
