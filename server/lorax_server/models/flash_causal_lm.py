@@ -40,7 +40,7 @@ from lorax_server.utils.state import (
     warmup_mode,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.utils.torch_utils import is_fp8_kv
+from lorax_server.utils.torch_utils import is_fp8_kv, is_fp8_supported, is_fp8
 from lorax_server.utils.weights import Weights
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
@@ -956,6 +956,9 @@ class FlashCausalLM(Model):
 
         config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
+
+        if is_fp8(config.quantize) and not is_fp8_supported():
+            raise ValueError('FP8 quantization is only supported on hardware that supports FP8')
 
         if is_fp8_kv(config.quantize):
             self.kv_dtype = torch.float8_e4m3fn

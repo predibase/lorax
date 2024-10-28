@@ -21,8 +21,8 @@ def is_fp8_supported():
 
 
 def is_fp8_kv(quantize):
-    return is_fp8_supported() and quantize and quantize == 'fp8_kv'
+    return quantize and quantize == 'fp8_kv'
 
 
 def is_fp8(quantize):
-    return is_fp8_supported() and quantize and quantize.startswith('fp8')
+    return quantize and quantize.startswith('fp8')
