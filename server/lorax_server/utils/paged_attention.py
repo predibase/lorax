@@ -111,6 +111,9 @@ def attention(
         )
         return out
 
+    if SYSTEM == "rocm":
+        breakpoint()
+
     # NOTE(woosuk): We use a simple heuristic to decide whether to use
     # PagedAttention V1 or V2. If the number of partitions is 1, we use
     # V1 to avoid the overhead of reduction. Also, if the number of

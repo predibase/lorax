@@ -66,6 +66,8 @@ if SYSTEM in {"cuda", "rocm"}:
     is_sm90 = major == 9 and minor == 0
     is_sm94 = major == 9 and minor == 4
 
+    import lorax_server.utils.flash_attn_rocm as flash_attn_rocm
+
     if SYSTEM == "rocm":
         if (
             os.getenv("ROCM_USE_FLASH_ATTN_V2_TRITON", "").lower() == "true"

@@ -1,0 +1,23 @@
+{
+    "name": "AWS Build Server",
+    "host": "ec2-54-245-26-58.us-west-2.compute.amazonaws.com",
+    "protocol": "sftp",
+    "port": 22,
+    "username": "ubuntu",
+    "remotePath": "/home/ubuntu/lorax",
+    "uploadOnSave": true,
+    "useTempFile": false,
+    "privateKeyPath": "/Users/magdy/magdy-aws-dev.pem",
+    "ignore": [
+        ".vscode",
+        ".git",
+        ".github",
+        "target",
+        ".DS_Store",
+        ".ruff_cache",
+        "server/punica_kernels",
+        "server/exllama_kernels",
+        "server/exllamav2_kernels",
+        "server/custom_kernels"
+    ]
+}

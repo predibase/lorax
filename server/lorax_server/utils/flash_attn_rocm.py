@@ -4,10 +4,8 @@ from typing import Optional
 import torch
 from loguru import logger
 
-from lorax_server.layers.attention import Seqlen
-from lorax_server.layers.attention.kv_cache import KVCache
+from lorax_server.utils.attention import KVCache, Seqlen
 from lorax_server.utils.import_utils import SYSTEM
-from lorax_server.utils.log import log_master
 
 major, minor = torch.cuda.get_device_capability()
 is_sm75 = major == 7 and minor == 5
@@ -23,10 +21,7 @@ try:
     if use_rocm_custom_paged_attn:
         from vllm._custom_C import paged_attention_custom
 except ImportError as e:
-    log_master(
-        logger.info,
-        f"Custom Paged Attention not available. Complete error: {e}",
-    )
+    logger.info(f"Custom Paged Attention not available. Complete error: {e}")
     use_rocm_custom_paged_attn = False
 
 
@@ -169,8 +164,7 @@ if ENGINE != "triton":
     try:
         import flash_attn_2_cuda
 
-        log_master(
-            logger.info,
+        logger.info(
             "ROCm: using Flash Attention 2 Composable Kernel implementation.",
         )
     except ImportError as e:
@@ -199,7 +193,6 @@ SUPPORTS_WINDOWING = False
 
 
 def attention(
-    *,
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,

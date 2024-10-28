@@ -29,11 +29,12 @@ from transformers.configuration_utils import PretrainedConfig
 
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.layers import FastLayerNorm
-from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.layers.rotary import PositionRotaryEmbedding
 from lorax_server.utils.attention.common import Seqlen
+from lorax_server.utils.flash_attn_rocm import attention as rocm_attention
+from lorax_server.utils.flash_attn_rocm import paged_attention as rocm_paged_attention
 from lorax_server.utils.layers import (
     MultiAdapterHead,
-    PositionRotaryEmbedding,
     TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelEmbedding,
@@ -107,7 +108,7 @@ class LlamaConfig(PretrainedConfig):
 
 
 class LlamaRMSNorm(nn.Module):
-    def __init__(self, prefix, weights, eps=1e-6):
+    def __init__(self, prefix, weights, eps=1e-6, hidden_size=4096, device=None, dtype=None):
         """
         LlamaRMSNorm is equivalent to T5LayerNorm
         """
@@ -116,7 +117,7 @@ class LlamaRMSNorm(nn.Module):
         weight = weights.get_tensor(f"{prefix}.weight")
         self.weight = nn.Parameter(weight)
         self.variance_epsilon = eps
-        self.layer_norm = FastLayerNorm()
+        self.layer_norm = FastLayerNorm(hidden_size, device=device, dtype=dtype)
 
     def forward(self, hidden_states, residual=None):
         if hidden_states.shape[-1] > 8192:
@@ -222,7 +223,7 @@ class FlashLlamaAttention(torch.nn.Module):
             dim=self.head_size,
             base=config.rope_theta,
             device=weights.device,
-            dtype=weights.dtype,
+            # dtype=weights.dtype, # New ones always use float32
         )
 
         self.softmax_scale = self.head_size**-0.5
@@ -298,32 +299,38 @@ class FlashLlamaAttention(torch.nn.Module):
         query = query.view(-1, self.num_heads, self.head_size)
         kv = kv.view(-1, 2, self.num_key_value_heads, self.head_size)
 
-        self.rotary_emb(query, cos, sin)
-        self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
+        # key = torch.select(kv, dim=1, index=0)
 
-        paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
+        # self.rotary_emb(query, key, cos, sin)
+        # self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
+        self.rotary_emb(query, torch.select(kv, dim=1, index=0), cos, sin)
+
+        # paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
+        kv_cache.store(
+            key=kv[:, 0],
+            value=kv[:, 1],
+            slots=slots,
+            # kv_scales=self.kv_scales,
+        )
 
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            attn_output = flash_attn.attention(
+            attn_output = rocm_attention(
                 query,
                 torch.select(kv, dim=1, index=0),
                 torch.select(kv, dim=1, index=1),
-                kv_cache[0],
-                kv_cache[1],
-                cu_seqlen_prefill,
-                max_s,
+                kv_cache,
+                seqlen,
+                block_tables,
                 self.softmax_scale,
             )
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            attn_output = paged_attention.attention(
+            attn_output = rocm_paged_attention(
                 query,
-                kv_cache[0],
-                kv_cache[1],
-                self.num_key_value_heads,
+                kv_cache,
                 self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
@@ -396,12 +403,20 @@ class FlashLlamaLayer(nn.Module):
         self.mlp = LlamaMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
 
         self.input_layernorm = LlamaRMSNorm(
-            prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
+            prefix=f"{prefix}.input_layernorm",
+            weights=weights,
+            eps=config.rms_norm_eps,
+            hidden_size=config.hidden_size,
+            device=weights.device,
+            dtype=weights.dtype,
         )
         self.post_attention_layernorm = LlamaRMSNorm(
             prefix=f"{prefix}.post_attention_layernorm",
             weights=weights,
             eps=config.rms_norm_eps,
+            hidden_size=config.hidden_size,
+            device=weights.device,
+            dtype=weights.dtype,
         )
 
     def forward(
@@ -466,7 +481,12 @@ class FlashLlamaModel(torch.nn.Module):
             ]
         )
         self.norm = LlamaRMSNorm(
-            prefix="model.norm" if not prefix else f"{prefix}.model.norm", weights=weights, eps=config.rms_norm_eps
+            prefix="model.norm" if not prefix else f"{prefix}.model.norm",
+            weights=weights,
+            eps=config.rms_norm_eps,
+            hidden_size=config.hidden_size,
+            device=weights.device,
+            dtype=weights.dtype,
         )
 
         self.gradient_checkpointing = False

@@ -1,0 +1,98 @@
+# Rust builder
+FROM lukemathwalker/cargo-chef:latest-rust-1.80.1 AS chef
+WORKDIR /usr/src
+ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+# Planner stage
+FROM chef as planner
+COPY Cargo.toml Cargo.toml
+COPY rust-toolchain.toml rust-toolchain.toml
+COPY proto proto
+COPY router router
+COPY launcher launcher
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Builder stage
+FROM chef AS builder
+ARG GIT_SHA
+ARG DOCKER_LABEL
+RUN PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \
+    curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP && \
+    unzip -o $PROTOC_ZIP -d /usr/local bin/protoc && \
+    unzip -o $PROTOC_ZIP -d /usr/local 'include/*' && \
+    rm -f $PROTOC_ZIP
+COPY --from=planner /usr/src/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY Cargo.toml Cargo.toml
+COPY rust-toolchain.toml rust-toolchain.toml
+COPY proto proto
+COPY router router
+COPY launcher launcher
+RUN cargo build --release
+
+# Final image
+FROM ghcr.io/predibase/lorax:amd-base
+# Copy built artifacts from builder
+COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router
+COPY --from=builder /usr/src/target/release/lorax-launcher /usr/local/bin/lorax-launcher
+
+# Install server dependencies and setup
+COPY proto proto
+COPY server server
+COPY server/Makefile server/Makefile
+RUN cd server && \
+    make gen-server && \
+    pip install -r requirements_rocm.txt && \
+    pip install ".[accelerate, peft, outlines]" --no-cache-dir
+
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/conda/lib/"
+ENV HIP_FORCE_DEV_KERNARG=1
+ENV ROCM_USE_CUSTOM_PAGED_ATTN=1
+ENV PYTORCH_TUNABLEOP_TUNING_AFTER_WARMUP=0
+ENV VLLM_MOE_PADDING=0
+ENV ATTENTION=paged
+ENV PREFIX_CACHING=0
+ENV PREFILL_CHUNKING=0
+ENV ROCM_USE_SKINNY_GEMM=1
+
+LABEL source="https://github.com/predibase/lorax"
+
+# Install SSH and additional tools
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    sudo \
+    curl \
+    unzip \
+    parallel \
+    time
+
+# Setup SSH directory and generate keys with system OpenSSL
+RUN mkdir -p /run/sshd && \
+    chmod 0755 /run/sshd && \
+    # Create SSH host keys directory
+    mkdir -p /etc/ssh && \
+    mkdir -p /root/.ssh && \
+    # Temporary fix for OpenSSL version mismatch
+    export LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH && \
+    apt-get update && apt-get install -y --no-install-recommends openssh-server && \
+    ssh-keygen -A && \
+    # Set correct permissions for SSH host keys
+    chmod 600 /etc/ssh/ssh_host_*_key && \
+    chmod 644 /etc/ssh/ssh_host_*_key.pub && \
+    # Clean up
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Setup scripts
+COPY container-entrypoint.sh entrypoint.sh
+COPY sync.sh sync.sh
+RUN chmod +x entrypoint.sh sync.sh
+
+COPY . /lorax
+COPY start_ssh.sh start_ssh.sh
+RUN chmod +x start_ssh.sh
+
+RUN echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPmJhbH5eRLoPAgzDHeGgFtdKA167Tm8Q0hfB7shtCsl magdy@predibase.com" >> /root/.ssh/authorized_keys
+
+EXPOSE 22
+
+ENTRYPOINT ["./start_ssh.sh"]

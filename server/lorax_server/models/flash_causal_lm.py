@@ -23,11 +23,12 @@ from lorax_server.models.types import (
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
+from lorax_server.utils.attention import KVCache
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
 from lorax_server.utils.graph import GraphCache
-from lorax_server.utils.import_utils import get_cuda_free_memory
+from lorax_server.utils.import_utils import empty_cache, get_cuda_free_memory
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.sources.hub import weight_files
@@ -265,12 +266,18 @@ class FlashCausalLMBatch(Batch):
 
             # Tokens that need to be mapped to blocks.
             # Remove one as the first token des not have a past
+            print(">>>>> prompt_length", prompt_length)
+            print(">>>>> max_new_tokens", max_new_tokens)
+            print(">>>>> speculative_tokens", speculative_tokens)
             block_tokens = prompt_length + max_new_tokens - 1 + speculative_tokens
 
             # blocks and slots can be empty (for example in warmup)
             if not r.blocks:
                 needed_blocks = math.ceil(block_tokens / BLOCK_SIZE)
                 request_blocks = [b for b in range(num_blocks, num_blocks + needed_blocks)]
+                print(f"request_blocks: {request_blocks}")
+                print(">>>>> BLOCK SIZE", BLOCK_SIZE)
+                print(">>>>> block_tokens", block_tokens)
             else:
                 request_blocks = r.blocks
 
@@ -1110,43 +1117,17 @@ class FlashCausalLM(Model):
         device: torch.device,
     ):
         self.kv_cache = []
-        torch.cuda.empty_cache()
-
-        element_size = torch.tensor([], dtype=dtype).element_size()
-        x = BLOCK_SIZE // element_size
-
-        if FLASH_INFER:
-            self.kv_cache = [
-                (
-                    torch.empty(
-                        (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=dtype,
-                        device=device,
-                    ),
-                    torch.empty(
-                        (num_blocks, BLOCK_SIZE, num_heads, head_size),
-                        dtype=dtype,
-                        device=device,
-                    ),
-                )
-                for _ in range(num_layers)
-            ]
-        else:
-            self.kv_cache = [
-                (
-                    torch.empty(
-                        (num_blocks, num_heads, head_size // x, BLOCK_SIZE, x),
-                        dtype=dtype,
-                        device=device,
-                    ),
-                    torch.empty(
-                        (num_blocks, num_heads, head_size, BLOCK_SIZE),
-                        dtype=dtype,
-                        device=device,
-                    ),
-                )
-                for _ in range(num_layers)
-            ]
+        empty_cache()
+        self.kv_cache = [
+            KVCache(
+                num_blocks=num_blocks,
+                num_heads=num_heads,
+                head_size=head_size,
+                dtype=dtype,
+                device=device,
+            )
+            for _ in range(num_layers)
+        ]
 
     def adapter_memory_size(self) -> int:
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory

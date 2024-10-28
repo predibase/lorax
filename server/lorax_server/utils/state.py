@@ -13,6 +13,7 @@ CHUNKED_PREFILL = bool(os.environ.get("CHUNKED_PREFILL", ""))
 
 # Always use flashinfer when prefix caching is enabled
 FLASH_INFER = bool(os.environ.get("FLASH_INFER", "")) or PREFIX_CACHING
+ATTENTION = "flashinfer" if FLASH_INFER else "fa2"
 if FLASH_INFER:
     logger.info("Backend = flashinfer")
 else:
