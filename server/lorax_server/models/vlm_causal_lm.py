@@ -290,6 +290,10 @@ class VlmCausalLM(FlashCausalLM):
     def max_past(self) -> Optional[int]:
         return getattr(self.model.text_model, "max_past", None)
 
+    @property
+    def supports_adapter_loading(self) -> bool:
+        return True
+
     def forward(
         self,
         batch: VlmCausalLMBatch,
