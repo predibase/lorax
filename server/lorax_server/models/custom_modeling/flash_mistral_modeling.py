@@ -618,7 +618,7 @@ class FlashMistralForCausalLM(torch.nn.Module):
             # Clamp in decode mode as paged attention requires clamped values whereas the flash attention
             # kernel requires the true values
             max_s = min(self.max_past, max_s)
-            seqlen = torch.clamp(seqlen, max=self.max_past)
+            seqlen = seqlen.clamp(max=self.max_past)
 
         inputs_embeds = self.embed_tokens(input_ids)
         hidden_states = self.model(
