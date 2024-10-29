@@ -8,6 +8,11 @@ on:
     secrets:
       RUNPOD_API_KEY:
         required: true
+  workflow_dispatch:
+    inputs:
+      lorax_tag:
+        required: true
+        type: string
 jobs:
   deploy:
     runs-on: ubuntu-latest
