@@ -70,7 +70,7 @@ impl std::fmt::Display for Quantization {
                 write!(f, "fp8")
             }
             Quantization::Fp8_KV => {
-                write!(f, "fp8_kv")
+                write!(f, "fp8-kv")
             }
         }
     }

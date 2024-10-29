@@ -11,7 +11,7 @@ def is_bf16_supported() -> bool:
 
 
 def is_quantized(quantize):
-    return quantize and quantize in ["gptq", "awq", "fp8", "fp8_kv"]
+    return quantize and quantize in ["gptq", "awq", "fp8", "fp8-kv"]
 
 
 def is_fp8_supported():
@@ -21,7 +21,7 @@ def is_fp8_supported():
 
 
 def is_fp8_kv(quantize):
-    return quantize and quantize == 'fp8_kv'
+    return quantize and quantize == 'fp8-kv'
 
 
 def is_fp8(quantize):

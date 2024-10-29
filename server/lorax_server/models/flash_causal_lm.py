@@ -961,8 +961,10 @@ class FlashCausalLM(Model):
             raise ValueError('FP8 quantization is only supported on hardware that supports FP8')
 
         if is_fp8_kv(config.quantize):
+            if not FLASH_INFER:
+                raise ValueError('FP8 KV cache requires FLASH_INFER backend')
             self.kv_dtype = torch.float8_e4m3fn
-            logger.info('Enabling FP8 KV Cache')
+            logger.info('Enabling FP8 KV cache. Prefix caching will not work.')
         else:
             self.kv_dtype = dtype
 
