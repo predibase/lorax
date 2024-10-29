@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import Iterable, List, Optional, Tuple, Type
+from typing import Dict, Iterable, List, Optional, Tuple, Type
 
 import torch
 import torch.distributed
@@ -19,11 +19,21 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
+from lorax_server.utils.lora import LM_HEAD
 
 tracer = trace.get_tracer(__name__)
 
 IDEFICS2_FAKE_TOKEN = "<fake_token_around_image>"
 IDEFICS2_IMAGE_TOKEN = "<image>"
+
+LANGUAGE_ATTN_Q_PROJ = "self_attn.language.q_proj"
+LANGUAGE_ATTN_K_PROJ = "self_attn.language.k_proj"
+LANGUAGE_ATTN_V_PROJ = "self_attn.language.v_proj"
+LANGUAGE_ATTN_O_PROJ = "self_attn.language.out_proj"
+VISION_ATTN_Q_PROJ = "self_attn.vision.q_proj"
+VISION_ATTN_K_PROJ = "self_attn.vision.k_proj"
+VISION_ATTN_V_PROJ = "self_attn.vision.v_proj"
+VISION_ATTN_O_PROJ = "self_attn.vision.out_proj"
 
 
 def get_anyres_image_grid_shape(image_size, grid_pinpoints, patch_size):
@@ -293,6 +303,49 @@ class VlmCausalLM(FlashCausalLM):
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+    
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        layer_weights = {}
+        language_prefix = "text_model.model.layers"
+        vision_prefix = "vision_tower.encoder.layers"
+        for i, layer in enumerate(self.model.text_model.model.layers):
+            layer_weights[(i, LANGUAGE_ATTN_K_PROJ)] = (
+                f"{language_prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, LANGUAGE_ATTN_V_PROJ)] = (
+                f"{language_prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, LANGUAGE_ATTN_O_PROJ)] = (
+                f"{language_prefix}.{i}.self_attn.out_proj",
+                layer.self_attn.o_proj,
+            )
+            layer_weights[(i, LANGUAGE_ATTN_Q_PROJ)] = (
+                f"{language_prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.query_key_value,
+            )
+        for i, layer in enumerate(self.model.vision_tower.encoder.layers):
+            layer_weights[(i, VISION_ATTN_K_PROJ)] = (
+                f"{vision_prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.k_proj,
+            )
+            layer_weights[(i, VISION_ATTN_V_PROJ)] = (
+                f"{vision_prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.v_proj,
+            )
+            layer_weights[(i, VISION_ATTN_O_PROJ)] = (
+                f"{vision_prefix}.{i}.self_attn.out_proj",
+                layer.self_attn.out_proj,
+            )
+            layer_weights[(i, VISION_ATTN_Q_PROJ)] = (
+                f"{vision_prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.q_proj,
+            )
+        
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.text_model.lm_head)
+        return layer_weights
+        
 
     def forward(
         self,
