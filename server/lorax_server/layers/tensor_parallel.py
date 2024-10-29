@@ -37,7 +37,7 @@ class TensorParallelHead(SuperLayer):
             should_gather = False
 
         # GPTQ,AWQ,EETQ don't quantize heads (nor embeddings)
-        if config.quantize in ["gptq", "awq", "eetq", "fp8"]:
+        if config.quantize in ["gptq", "awq", "eetq", "fp8", "fp8-kv"]:
             quantize = None
         else:
             quantize = config.quantize

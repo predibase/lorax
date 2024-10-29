@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from lorax_server.utils.import_utils import SYSTEM
+from lorax_server.utils.torch_utils import is_fp8
 
 if SYSTEM == "rocm":
     try:
@@ -95,9 +96,10 @@ def get_linear(weight, bias, quantize, fan_in_fan_out=False, weight_scale=None, 
     if fan_in_fan_out:
         weight = weight.T.contiguous()
 
-    if quantize is None or (quantize == "fp8" and weight_scale is None):
+    if quantize is None:
         linear = FastLinear(weight, bias)
-    elif quantize == "fp8":
+
+    elif is_fp8(quantize):
         from lorax_server.layers.fp8 import Fp8Linear
 
         linear = Fp8Linear(weight, bias, weight_scale=weight_scale, input_scale=input_scale)

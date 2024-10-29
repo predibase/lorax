@@ -23,6 +23,7 @@ class Quantization(str, Enum):
     hqq_3bit = "hqq-3bit"
     hqq_2bit = "hqq-2bit"
     fp8 = "fp8"
+    fp8_kv = "fp8-kv"
 
 
 class Dtype(str, Enum):

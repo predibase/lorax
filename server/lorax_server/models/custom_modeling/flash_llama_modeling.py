@@ -52,6 +52,7 @@ from lorax_server.utils.lora import (
     UP_PROJ,
     V_PROJ,
 )
+from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
 
 
 class LlamaConfig(PretrainedConfig):
@@ -200,7 +201,7 @@ def _load_gqa(config, prefix: str, weights):
     if isinstance(weight, tuple):
         weight, input_scale, weight_scale = weight
 
-    if config.quantize not in ["gptq", "awq", "fp8"]:
+    if not is_quantized(config.quantize):
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         head_size = config.hidden_size // config.num_attention_heads
@@ -252,6 +253,14 @@ class FlashLlamaAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
+        if is_fp8_kv(config.quantize):
+            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
+            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+            self.kv_dtype = 'fp8'
+        else:
+            self.k_scale = 1.0
+            self.v_scale = 1.0
+            self.kv_dtype = 'auto'
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
@@ -319,7 +328,16 @@ class FlashLlamaAttention(torch.nn.Module):
         self.rotary_emb(query, cos, sin)
         self.rotary_emb(torch.select(kv, dim=1, index=0), cos, sin)
 
-        paged_attention.reshape_and_cache(kv[:, 0], kv[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(
+            kv[:, 0],
+            kv[:, 1],
+            kv_cache[0],
+            kv_cache[1],
+            slots,
+            self.k_scale,
+            self.v_scale,
+            self.fp8_kv,
+        )
 
         # Prefill
         if cu_seqlen_prefill is not None:
@@ -333,6 +351,9 @@ class FlashLlamaAttention(torch.nn.Module):
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
+                fp8_kv=self.fp8_kv,
             )
         # Decode
         else:
@@ -347,6 +368,8 @@ class FlashLlamaAttention(torch.nn.Module):
                 block_tables,
                 seqlen,
                 max_s,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
             )
 
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)

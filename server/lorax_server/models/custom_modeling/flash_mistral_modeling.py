@@ -53,6 +53,7 @@ from lorax_server.utils.lora import (
     UP_PROJ,
     V_PROJ,
 )
+from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
 
 if not HAS_FLASH_ATTN_V2_CUDA:
     raise ImportError("Mistral model requires flash attn v2")
@@ -205,7 +206,7 @@ def _load_gqa(config, prefix: str, weights, head_size):
     if type(weight) is tuple:
         weight, input_scale, weight_scale = weight
 
-    if config.quantize not in ["gptq", "awq", "fp8"]:
+    if not is_quantized(config.quantize):
         weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
         num_heads = config.num_attention_heads // weights.process_group.size()
@@ -260,6 +261,14 @@ class MistralAttention(torch.nn.Module):
             )
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
+        if is_fp8_kv(config.quantize):
+            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
+            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+            self.fp8_kv = True
+        else:
+            self.k_scale = 1.0
+            self.v_scale = 1.0
+            self.fp8_kv = False
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id, self.head_size)
 
@@ -333,7 +342,16 @@ class MistralAttention(torch.nn.Module):
         else:
             kv_to_cache = kv
 
-        paged_attention.reshape_and_cache(kv_to_cache[:, 0], kv_to_cache[:, 1], kv_cache[0], kv_cache[1], slots)
+        paged_attention.reshape_and_cache(
+            kv_to_cache[:, 0],
+            kv_to_cache[:, 1],
+            kv_cache[0],
+            kv_cache[1],
+            slots,
+            self.k_scale,
+            self.v_scale,
+            self.fp8_kv,
+        )
 
         # Prefill
         if cu_seqlen_prefill is not None:
@@ -348,6 +366,9 @@ class MistralAttention(torch.nn.Module):
                 max_s,
                 self.softmax_scale,
                 window_size_left=self.max_past,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
+                fp8_kv=self.fp8_kv,
             )
         # Decode
         else:
@@ -361,6 +382,8 @@ class MistralAttention(torch.nn.Module):
                 block_tables,
                 seqlen,
                 max_s,
+                k_scale=self.k_scale,
+                v_scale=self.v_scale,
             )
 
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)

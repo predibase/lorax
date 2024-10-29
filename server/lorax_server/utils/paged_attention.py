@@ -19,13 +19,11 @@ else:
             f"Could not import vllm paged attention. Make sure your installation is correct. Error: {e}"
         ) from e
 
-# TODO(travis): fix for CUDA 8.9 (Lovelace) and 9.0 (Hopper)
-# if torch.cuda.is_available():
-#     fp8_supported = (
-#         torch.cuda.get_device_capability()[0] >= 9
-#     )  # or (torch.cuda.get_device_capability()[0] == 8 and torch.cuda.get_device_capability()[1] >= 9)
-# else:
-fp8_supported = False
+
+def static_per_tensor_quantize(tensor: torch.Tensor, inv_scale: float) -> torch.Tensor:
+    finfo = torch.finfo(torch.float8_e4m3fn)
+    qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)
+    return qweight.to(torch.float8_e4m3fn)
 
 
 def reshape_and_cache(
@@ -34,17 +32,23 @@ def reshape_and_cache(
     key_cache: torch.Tensor,
     value_cache: torch.Tensor,
     slots: torch.Tensor,
+    k_scale: float = 1.0,
+    v_scale: float = 1.0,
+    fp8_kv: bool = False,
 ):
     if FLASH_INFER:
+        if fp8_kv:
+            key = static_per_tensor_quantize(key, k_scale).view(torch.uint8)
+            value = static_per_tensor_quantize(value, v_scale).view(torch.uint8)
+            key_cache = key_cache.view(torch.uint8)
+            value_cache = value_cache.view(torch.uint8)
         shape = key_cache.shape
         key_cache.view(-1, shape[-2], shape[-1])[slots] = key
         value_cache.view(-1, shape[-2], shape[-1])[slots] = value
     elif SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
-        torch.ops._C_cache_ops.reshape_and_cache(
-            key, value, key_cache, value_cache, slots, "fp8" if fp8_supported else "auto", 1.0, 1.0
-        )
+        torch.ops._C_cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, 'auto', 1.0, 1.0)
 
 
 def attention(
@@ -58,6 +62,8 @@ def attention(
     seqlen: Seqlen,
     max_s: int,
     softcap: Optional[float] = None,
+    k_scale: float = 1.0,
+    v_scale: float = 1.0,
 ):
     if FLASH_INFER:
         from lorax_server.utils.flashinfer_attention import decode_state
@@ -67,6 +73,8 @@ def attention(
             paged_kv_cache=(key_cache, value_cache),
             logits_soft_cap=softcap,
             sm_scale=softmax_scale,
+            k_scale=k_scale,
+            v_scale=v_scale,
         )
 
     # Adapted from: https://github.com/vllm-project/vllm/blob/f8a1e39fae05ca610be8d5a78be9d40f5274e5fc/vllm/model_executor/layers/attention.py
@@ -130,7 +138,7 @@ def attention(
             block_size,
             max_s,
             None,
-            "fp8" if fp8_supported else "auto",
+            'auto',
             1.0,
             1.0,
         )
@@ -164,7 +172,7 @@ def attention(
             block_size,
             max_s,
             None,
-            "fp8" if fp8_supported else "auto",
+            'auto',
             1.0,
             1.0,
         )
