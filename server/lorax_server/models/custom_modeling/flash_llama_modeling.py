@@ -256,11 +256,11 @@ class FlashLlamaAttention(torch.nn.Module):
         if is_fp8_kv(config.quantize):
             self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
             self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
-            self.kv_dtype = 'fp8'
+            self.fp8_kv = True
         else:
             self.k_scale = 1.0
             self.v_scale = 1.0
-            self.kv_dtype = 'auto'
+            self.fp8_kv = False
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
