@@ -306,8 +306,8 @@ class VlmCausalLM(FlashCausalLM):
     
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
-        language_prefix = "text_model.model.layers"
-        vision_prefix = "vision_tower.encoder.layers"
+        language_prefix = "language_model.model.layers"
+        vision_prefix = "vision_tower.vision_model.encoder.layers"
         for i, layer in enumerate(self.model.text_model.model.layers):
             layer_weights[(i, LANGUAGE_ATTN_K_PROJ)] = (
                 f"{language_prefix}.{i}.self_attn.k_proj",
@@ -328,11 +328,11 @@ class VlmCausalLM(FlashCausalLM):
         for i, layer in enumerate(self.model.vision_tower.encoder.layers):
             layer_weights[(i, VISION_ATTN_K_PROJ)] = (
                 f"{vision_prefix}.{i}.self_attn.k_proj",
-                layer.self_attn.k_proj,
+                layer.self_attn.qkv,
             )
             layer_weights[(i, VISION_ATTN_V_PROJ)] = (
                 f"{vision_prefix}.{i}.self_attn.v_proj",
-                layer.self_attn.v_proj,
+                layer.self_attn.qkv,
             )
             layer_weights[(i, VISION_ATTN_O_PROJ)] = (
                 f"{vision_prefix}.{i}.self_attn.out_proj",
@@ -340,7 +340,7 @@ class VlmCausalLM(FlashCausalLM):
             )
             layer_weights[(i, VISION_ATTN_Q_PROJ)] = (
                 f"{vision_prefix}.{i}.self_attn.q_proj",
-                layer.self_attn.q_proj,
+                layer.self_attn.qkv,
             )
         
         layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.text_model.lm_head)
