@@ -68,6 +68,9 @@ base64 = "0.22.0"
 [build-dependencies]
 vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
+[dev-dependencies]
+tracing-test = "0.1"
+
 [features]
 default = ["ngrok"]
 ngrok = ["dep:ngrok"]

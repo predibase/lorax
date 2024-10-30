@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-fn hash(_adapter_index: u32, slice: &[u32]) -> u64 {
+fn hash(slice: &[u32]) -> u64 {
     assert!(!slice.is_empty());
     if slice.len() == 1 {
         slice[0] as u64
@@ -49,7 +49,7 @@ impl RadixAllocator {
         }
     }
 
-    fn alloc_or_reclaim(&mut self, adapter_index: u32, n_blocks_needed: usize) -> Option<Vec<u32>> {
+    fn alloc_or_reclaim(&mut self, n_blocks_needed: usize) -> Option<Vec<u32>> {
         if self.free_blocks.len() < n_blocks_needed {
             // This is a bit annoying, we first extend the free list and then
             // split it off again below. This is because we need to put it on
@@ -62,7 +62,7 @@ impl RadixAllocator {
             );
             self.free_blocks.extend(
                 self.cache_blocks
-                    .evict(adapter_index, n_blocks_needed - self.free_blocks.len()),
+                    .evict(n_blocks_needed - self.free_blocks.len()),
             );
         }
 
@@ -101,7 +101,7 @@ impl Allocator for RadixAllocator {
         // Even if this allocation fails below, we need to increase he
         // refcount to ensure that the prefix that was found is not evicted.
         self.cache_blocks
-            .incref(adapter_index, prefix_node)
+            .incref(prefix_node)
             .expect("Failed to increment refcount");
 
         let prefix_len = blocks.len() * self.block_size as usize;
@@ -111,14 +111,14 @@ impl Allocator for RadixAllocator {
 
         tracing::debug!("Prefix {prefix_len} - Suffix {suffix_len}");
 
-        match self.alloc_or_reclaim(adapter_index, suffix_blocks as usize) {
+        match self.alloc_or_reclaim(suffix_blocks as usize) {
             Some(suffix_blocks) => blocks.extend(suffix_blocks),
             None => {
                 tracing::debug!("Cannot allocate {:?}", self.cache_blocks);
                 tracing::debug!("Found {prefix_len} prefix tokens need {suffix_blocks} suffix blocks for {tokens} tokens");
                 tracing::debug!("Block size {}", self.block_size);
                 self.cache_blocks
-                    .decref(adapter_index, prefix_node)
+                    .decref(prefix_node)
                     .expect("Failed to decrement refcount");
                 return None;
             }
@@ -166,7 +166,7 @@ impl Allocator for RadixAllocator {
         };
 
         self.cache_blocks
-            .decref(allocation.adapter_index, allocation.prefix_node)
+            .decref(allocation.prefix_node)
             .expect("Failed to decrement refcount");
 
         if let Some(prefill_tokens) = allocation.prefill_tokens {
@@ -236,7 +236,7 @@ struct RadixAllocation {
 #[derive(Debug)]
 pub enum TrieError {
     InvalidNodeId,
-    // RefCountUnderflow,
+    RefCountUnderflow,
 }
 
 pub type NodeId = DefaultKey;
@@ -300,7 +300,7 @@ impl RadixTrie {
         let node = &self.nodes[node_id];
 
         if key.len() >= self.block_size {
-            let node_key = hash(adapter_index, &key[..self.block_size]);
+            let node_key = hash(&key[..self.block_size]);
             if let Some(&child_id) = node.children.get(&node_key) {
                 self.update_access_time(child_id);
                 let child = self.nodes.get(child_id).expect("Invalid child identifier");
@@ -319,10 +319,10 @@ impl RadixTrie {
     }
 
     /// Decrease the reference count of a node.
-    pub fn decref(&mut self, adapter_index: u32, node_id: NodeId) -> Result<(), TrieError> {
+    pub fn decref(&mut self, node_id: NodeId) -> Result<(), TrieError> {
         // We don't care about refcounting for root, since it will never
         // be evicted.
-        if node_id == self.root_id(adapter_index) {
+        if self.is_root(node_id) {
             return Ok(());
         }
 
@@ -331,9 +331,7 @@ impl RadixTrie {
             .get_mut(node_id)
             .ok_or(TrieError::InvalidNodeId)?;
         if node.ref_count == 0 {
-            // TODO(travis): figureo ut why this is happening, but should be safe to skip
-            // return Err(TrieError::RefCountUnderflow);
-            return Ok(());
+            return Err(TrieError::RefCountUnderflow);
         }
 
         node.ref_count -= 1;
@@ -350,8 +348,8 @@ impl RadixTrie {
     }
 
     /// Increase the reference count of a node.
-    pub fn incref(&mut self, adapter_index: u32, node_id: NodeId) -> Result<(), TrieError> {
-        if node_id == self.root_id(adapter_index) {
+    pub fn incref(&mut self, node_id: NodeId) -> Result<(), TrieError> {
+        if self.is_root(node_id) {
             return Ok(());
         }
 
@@ -371,7 +369,7 @@ impl RadixTrie {
     ///
     /// Returns the evicted blocks. When the length is less than `n_blocks`,
     /// not enough blocks could be evicted.
-    pub fn evict(&mut self, adapter_index: u32, n_blocks: usize) -> Vec<u32> {
+    pub fn evict(&mut self, n_blocks: usize) -> Vec<u32> {
         // NOTE: we don't return Result here. If any of the unwrapping fails,
         // it's a programming error in the trie implementation, not a user
         // error caused by e.g. an invalid argument.
@@ -395,7 +393,7 @@ impl RadixTrie {
 
             if blocks_needed >= node.blocks.len() {
                 // We need to evict the whole node if we need more blocks than it has.
-                let node = self.remove_node(adapter_index, node_id);
+                let node = self.remove_node(node_id);
                 evicted.extend(node.blocks);
 
                 if evicted.len() >= n_blocks {
@@ -450,7 +448,7 @@ impl RadixTrie {
 
         assert_eq!(tokens.len(), blocks.len() * self.block_size);
 
-        let node_key = hash(adapter_index, &tokens[..self.block_size]);
+        let node_key = hash(&tokens[..self.block_size]);
         if let Some(&child_id) = self.nodes[node_id].children.get(&node_key) {
             self.update_access_time(child_id);
             let child = self
@@ -479,17 +477,17 @@ impl RadixTrie {
             // The node's prefix and the insertion prefix only match partially,
             // split the node to just contain the matching part. Then insert the
             // remainder of the prefix into the node again
-            let child_id = self.split_node(adapter_index, child_id, shared_prefix_len);
+            let child_id = self.split_node(child_id, shared_prefix_len);
             let key = &tokens[shared_prefix_len..];
             let blocks = &blocks[shared_prefix_len / self.block_size..];
             Ok(shared_prefix_len + self.insert_(adapter_index, child_id, key, blocks)?)
         } else {
-            self.add_node(adapter_index, node_id, tokens, blocks);
+            self.add_node(node_id, tokens, blocks);
             Ok(0)
         }
     }
 
-    fn split_node(&mut self, adapter_index: u32, node_id: NodeId, prefix_len: usize) -> NodeId {
+    fn split_node(&mut self, node_id: NodeId, prefix_len: usize) -> NodeId {
         // We have to make the current node a child to ensure that its
         // properties and node id stay the same.
 
@@ -508,11 +506,11 @@ impl RadixTrie {
         std::mem::swap(&mut node.key, &mut parent_key);
         std::mem::swap(&mut node.blocks, &mut parent_blocks);
 
-        let node_key = hash(adapter_index, &node.key[..self.block_size]);
+        let node_key = hash(&node.key[..self.block_size]);
 
         let grandparent_id = node.parent.expect("Node does not have a parent");
-        let parent_id = self.add_node(adapter_index, grandparent_id, parent_key, parent_blocks);
-        self.add_node_to_parent(adapter_index, parent_id, node_key, node_id);
+        let parent_id = self.add_node(grandparent_id, parent_key, parent_blocks);
+        self.add_node_to_parent(parent_id, node_key, node_id);
 
         // Reborrow to make the borrow checker happy.
         let node = self
@@ -527,43 +525,36 @@ impl RadixTrie {
     /// Create a node and add it to the parent.
     fn add_node(
         &mut self,
-        adapter_index: u32,
         parent_id: NodeId,
         key: impl Into<Vec<u32>>,
         blocks: impl Into<Vec<u32>>,
     ) -> NodeId {
         let key = key.into();
         let blocks = blocks.into();
-        let first = hash(adapter_index, &key[..self.block_size]);
+        let first = hash(&key[..self.block_size]);
 
         let child = TrieNode::new(key, blocks, self.time, Some(parent_id));
         let child_id = self.nodes.insert(child);
 
-        self.add_node_to_parent(adapter_index, parent_id, first, child_id);
+        self.add_node_to_parent(parent_id, first, child_id);
         self.leaves.insert((self.time, child_id));
 
         child_id
     }
 
     /// Add a node to the parent.
-    fn add_node_to_parent(
-        &mut self,
-        adapter_index: u32,
-        parent_id: NodeId,
-        hash: u64,
-        child_id: NodeId,
-    ) {
+    fn add_node_to_parent(&mut self, parent_id: NodeId, hash: u64, child_id: NodeId) {
         // Unwrap here, passing in an unknown id is a programming error.
         let parent = self.nodes.get_mut(parent_id).expect("Unknown parent node");
         if parent.children.insert(hash, child_id).is_none() {
             // Only increase reference count if child does not replace another child.
-            self.incref(adapter_index, parent_id)
+            self.incref(parent_id)
                 .expect("Failed to increase parent refcount");
         }
     }
 
     /// Remove a node from the trie.
-    fn remove_node(&mut self, adapter_index: u32, node_id: NodeId) -> TrieNode {
+    fn remove_node(&mut self, node_id: NodeId) -> TrieNode {
         // Unwrap here, passing in an unknown id is a programming error.
         let node = self.nodes.remove(node_id).expect("Unknown node");
         assert!(
@@ -574,9 +565,9 @@ impl RadixTrie {
         let parent_id = node.parent.expect("Attempted to remove root node");
         let parent = self.nodes.get_mut(parent_id).expect("Unknown parent node");
 
-        let node_key = hash(adapter_index, &node.key[..self.block_size]);
+        let node_key = hash(&node.key[..self.block_size]);
         parent.children.remove(&node_key);
-        self.decref(adapter_index, parent_id)
+        self.decref(parent_id)
             .expect("Failed to decrease parent refcount");
         node
     }
@@ -630,6 +621,11 @@ impl RadixTrie {
     pub(crate) fn root_id(&self, adapter_index: u32) -> DefaultKey {
         self.roots[&adapter_index]
     }
+
+    pub(crate) fn is_root(&self, node_id: NodeId) -> bool {
+        let node = self.nodes.get(node_id).expect("Unknown node");
+        node.parent.is_none()
+    }
 }
 
 /// Trie node.
@@ -667,6 +663,7 @@ fn shared_prefix(left: &[u32], right: &[u32], block_size: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use tracing_test::traced_test;
 
     use super::*;
 
@@ -766,6 +763,29 @@ mod tests {
 
         // 10 blocks, of which 1 reserved for health checks, 4 for the cached blocks.
         assert_eq!(cache.free_blocks.len(), 5);
+    }
+
+    #[traced_test]
+    #[test]
+    fn allocator_frees_fully_overlapping_prefills_multi_adapter() {
+        let mut cache = RadixAllocator::new(1, 5, None);
+        let allocation1 = cache
+            .allocate(0, 4, Some(Arc::new(vec![0, 1, 2, 3])))
+            .unwrap();
+        cache.free(allocation1.blocks.clone(), allocation1.allocation_id);
+
+        let allocation2 = cache
+            .allocate(1, 4, Some(Arc::new(vec![0, 1, 2, 3])))
+            .unwrap();
+        cache.free(allocation2.blocks.clone(), allocation2.allocation_id);
+
+        let allocation3 = cache
+            .allocate(0, 4, Some(Arc::new(vec![0, 1, 2, 3])))
+            .unwrap();
+        assert_eq!(allocation3.prefix_len, 0);
+
+        // 5 blocks, of which 1 reserved for health checks, 4 for the cached blocks.
+        assert_eq!(cache.free_blocks.len(), 0);
     }
 
     #[test]
@@ -906,7 +926,7 @@ mod tests {
         let mut blocks = Vec::new();
 
         // Remove less than the leave blocks.
-        assert_eq!(trie.evict(0, 1), vec![7]);
+        assert_eq!(trie.evict(1), vec![7]);
         trie.find(0, &[0, 1, 2, 3, 5, 6, 7], &mut blocks);
         assert_eq!(blocks, vec![0, 1, 2, 3, 5, 6]);
 
@@ -915,7 +935,7 @@ mod tests {
         trie.find(0, &[1, 2, 3], &mut blocks);
 
         // Remove the leave blocks exactly.
-        assert_eq!(trie.evict(0, 2), vec![5, 6]);
+        assert_eq!(trie.evict(2), vec![5, 6]);
         blocks.clear();
         trie.find(0, &[0, 1, 2, 3, 5, 6, 7], &mut blocks);
         assert_eq!(blocks, vec![0, 1, 2, 3]);
@@ -923,12 +943,12 @@ mod tests {
         trie.find(0, &[1, 2, 3], &mut blocks);
 
         // Remove more than the leave blocks.
-        assert_eq!(trie.evict(0, 3), vec![4, 3, 2]);
+        assert_eq!(trie.evict(3), vec![4, 3, 2]);
         blocks.clear();
         trie.find(0, &[0, 1, 2, 3, 4], &mut blocks);
         assert_eq!(blocks, vec![0, 1]);
 
         // Clear out the whole trie.
-        assert_eq!(trie.evict(0, 10), vec![1, 2, 3, 0, 1]);
+        assert_eq!(trie.evict(10), vec![1, 2, 3, 0, 1]);
     }
 }
