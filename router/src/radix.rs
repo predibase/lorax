@@ -720,6 +720,35 @@ mod tests {
     }
 
     #[test]
+    fn allocator_reuses_prefixes_multi_adapter() {
+        let mut cache = RadixAllocator::new(1, 20, None);
+
+        // Allocate 8 tokens: 4 tokens in prefill + 4 slots for generation
+        let allocation = cache
+            .allocate(0, 8, Some(Arc::new(vec![0, 1, 2, 3])))
+            .unwrap();
+        assert_eq!(allocation.blocks, vec![12, 13, 14, 15, 16, 17, 18, 19]);
+        assert_eq!(allocation.blocks, allocation.slots);
+        assert_eq!(allocation.prefix_len, 0);
+        cache.free(allocation.blocks.clone(), allocation.allocation_id);
+
+        // 4 new blocks, 4 reused blocks from unused slots that were freed above.
+        let allocation = cache
+            .allocate(1, 8, Some(Arc::new(vec![0, 1, 2, 3])))
+            .unwrap();
+        assert_eq!(allocation.blocks, vec![8, 9, 10, 11, 16, 17, 18, 19]);
+        assert_eq!(allocation.prefix_len, 0);
+        cache.free(allocation.blocks.clone(), allocation.allocation_id);
+
+        // Same blocks as the first allocation, as cache was never evicted.
+        let allocation = cache
+            .allocate(0, 8, Some(Arc::new(vec![0, 1, 2, 3])))
+            .unwrap();
+        assert_eq!(allocation.blocks, vec![12, 13, 14, 15, 16, 17, 18, 19]);
+        assert_eq!(allocation.prefix_len, 4);
+    }
+
+    #[test]
     fn allocator_collects_older_prefixes_first() {
         let mut cache = RadixAllocator::new(1, 7, None);
         let allocation1 = cache
