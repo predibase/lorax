@@ -23,7 +23,7 @@ from lorax_server.utils.adapter import (
     enum_string_to_adapter_source,
     is_base_model,
 )
-from lorax_server.utils.sgmv import has_sgmv
+from lorax_server.utils.punica import has_sgmv
 from lorax_server.utils.state import set_max_prefill_tokens, set_speculative_tokens
 
 

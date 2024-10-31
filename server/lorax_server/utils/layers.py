@@ -12,7 +12,7 @@ from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.sgmv import (
+from lorax_server.utils.punica import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
     has_sgmv,

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
 from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.medusa_lora import MedusaLoraWeights
-from lorax_server.utils.sgmv import pad_to_min_rank
+from lorax_server.utils.punica import pad_to_min_rank
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase

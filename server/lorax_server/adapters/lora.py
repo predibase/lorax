@@ -10,7 +10,7 @@ from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.sgmv import (
+from lorax_server.utils.punica import (
     BGMV_MAX_RANK,
     MAX_RANK_CUSTOM,
     get_tmp_tensors,

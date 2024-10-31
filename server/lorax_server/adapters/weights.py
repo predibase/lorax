@@ -9,7 +9,7 @@ from lorax_server.adapters.types import LORA
 from lorax_server.utils.lora import LM_HEAD
 
 if TYPE_CHECKING:
-    from lorax_server.utils.sgmv import PunicaWrapper
+    from lorax_server.utils.punica import PunicaWrapper
 
 
 @dataclass

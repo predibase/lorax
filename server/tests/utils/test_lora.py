@@ -9,7 +9,7 @@ from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights, LayerAdapterWeights
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
+from lorax_server.utils.punica import MIN_RANK_CUSTOM
 
 
 class FakeAdapterWeights(AdapterWeights):

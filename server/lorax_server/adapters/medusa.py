@@ -10,7 +10,7 @@ from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.layers import FastLinear, TensorParallelColumnLinear
 from lorax_server.utils.segments import find_segments
-from lorax_server.utils.sgmv import segmented_matmul
+from lorax_server.utils.punica import segmented_matmul
 from lorax_server.utils.state import LORAX_SPECULATION_MAX_BATCH_SIZE, get_speculative_tokens
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 

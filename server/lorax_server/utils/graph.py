@@ -18,7 +18,7 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.attention.common import Seqlen
-from lorax_server.utils.sgmv import BGMV_MAX_RANK, PunicaWrapper
+from lorax_server.utils.punica import BGMV_MAX_RANK, PunicaWrapper
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, get_speculative_tokens
 
 if TYPE_CHECKING:

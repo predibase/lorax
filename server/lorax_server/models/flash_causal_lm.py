@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.sgmv import PunicaWrapper
+from lorax_server.utils.punica import PunicaWrapper
 import numpy as np
 import torch
 import torch.distributed
