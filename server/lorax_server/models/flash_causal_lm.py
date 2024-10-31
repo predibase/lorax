@@ -26,7 +26,6 @@ from lorax_server.pb import generate_pb2
 from lorax_server.utils import HeterogeneousNextTokenChooser, StoppingCriteria
 from lorax_server.utils.adapter import BASE_MODEL_ADAPTER_ID, create_merged_weight_files
 from lorax_server.utils.attention.common import Seqlen
-from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.import_utils import get_cuda_free_memory
@@ -1662,7 +1661,6 @@ class FlashCausalLM(Model):
         else:
             prefill_logprobs = None
             next_token_logits = out
-            next_adapter_indices = batch.adapter_meta.adapter_indices
 
         finished_prefilling = True
         next_chunk_lengths = []
@@ -1800,7 +1798,7 @@ class FlashCausalLM(Model):
         # If the device support triton, we can use a fused kernel
         if has_triton():
             copy_next_input_ids_inplace(
-                speculate + 1,
+                speculative_tokens + 1,
                 batch.all_input_ids_tensor,
                 batch.cache_lengths_tensor,
                 batch.input_lengths_tensor,
@@ -1818,7 +1816,6 @@ class FlashCausalLM(Model):
             batch.cache_lengths_tensor += batch.input_lengths_tensor + accepted_ids - 1
             batch.input_lengths_tensor = torch.ones_like(batch.input_lengths_tensor)
             batch.slot_indices += accepted_ids
-            batch.adapter_meta.adapter_indices = next_adapter_indices
 
         if prefill and prefill_logprobs:
             # Get prefill logprobs with inplace softmax (avoid copying the `out` tensor (max_batch_prefill_tokens * vocab_size))
