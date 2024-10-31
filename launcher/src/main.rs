@@ -168,6 +168,8 @@ enum Quantization {
     /// This is currently not the fastest because of local unpacking + padding to satisfy matrix
     /// multiplication limitations.
     Fp8,
+    /// FP8 with statically quantized KV cache
+    Fp8_KV,
     /// 4 bit quantization. Requires a specific HQQ quantized model.
     Hqq_4bit,
     /// 3 bit quantization. Requires a specific HQQ quantized model.
@@ -205,6 +207,9 @@ impl std::fmt::Display for Quantization {
             }
             Quantization::Fp8 => {
                 write!(f, "fp8")
+            }
+            Quantization::Fp8_KV => {
+                write!(f, "fp8-kv")
             }
             Quantization::Hqq_4bit => {
                 write!(f, "hqq-4bit")

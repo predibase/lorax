@@ -12,6 +12,7 @@ from loguru import logger
 from safetensors import safe_open
 
 from lorax_server.utils.sources import PBASE, S3, map_pbase_model_id_to_s3
+from lorax_server.utils.torch_utils import is_fp8
 
 
 class AbstractWeights(ABC):
@@ -119,7 +120,7 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         else:
             weight_list = self.get_sharded_list("weight", prefixes, dim=0)
-            if quantize == "fp8" and weight_list[0].dtype == torch.float8_e4m3fn:
+            if is_fp8(quantize) and weight_list[0].dtype == torch.float8_e4m3fn:
                 # Since there is no kernel for concatenating two tensors in PyTorch
                 # for fp8 datatypes, we have to cast to fp16, concat, cast back to fp8
                 fp16_weight_list = [w.to(torch.float16) for w in weight_list]
@@ -222,7 +223,7 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
-            if quantize == "fp8" and weight.dtype == torch.float8_e4m3fn:
+            if is_fp8(quantize) and weight.dtype == torch.float8_e4m3fn:
                 # weight_scale could be a tensor but if we're sharding row-wise then no
                 # need to shard the weight_scale as its row dimension would be 1
                 weight_scale = self.get_tensor(f"{prefix}.weight_scale", use_self_dtype=False)

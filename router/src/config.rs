@@ -175,6 +175,8 @@ pub enum Config {
     T5,
     Bert,
     Distilbert,
+    #[serde(rename = "xlm-roberta")]
+    XlmRoberta,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

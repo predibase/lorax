@@ -41,6 +41,7 @@ from lorax_server.utils.state import (
     warmup_mode,
 )
 from lorax_server.utils.tokenizer import TokenizerManager
+from lorax_server.utils.torch_utils import is_fp8, is_fp8_kv, is_fp8_supported
 from lorax_server.utils.weights import Weights
 from lorax_server.models.metadata_kernels import (
     has_triton,
@@ -1127,6 +1128,17 @@ class FlashCausalLM(Model):
         config = config_cls.from_pretrained(model_id, revision=revision, trust_remote_code=trust_remote_code)
         config.quantize = quantize
 
+        if is_fp8(config.quantize) and not is_fp8_supported():
+            raise ValueError('FP8 quantization is only supported on hardware that supports FP8')
+
+        if is_fp8_kv(config.quantize):
+            if not FLASH_INFER:
+                raise ValueError('FP8 KV cache requires FLASH_INFER backend')
+            self.kv_dtype = torch.float8_e4m3fn
+            logger.info('Enabling FP8 KV cache. Prefix caching will not work.')
+        else:
+            self.kv_dtype = dtype
+
         torch.distributed.barrier(group=self.process_group)
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors", embedding_dim=embedding_dim)
@@ -1333,7 +1345,7 @@ class FlashCausalLM(Model):
                 self.num_layers,
                 self.num_kv_heads,
                 self.head_size,
-                self.dtype,
+                self.kv_dtype,
                 self.device,
             )
 
@@ -1411,7 +1423,7 @@ class FlashCausalLM(Model):
             self.num_layers,
             self.num_kv_heads,
             self.head_size,
-            self.dtype,
+            self.kv_dtype,
             self.device,
         )
 
@@ -1448,10 +1460,21 @@ class FlashCausalLM(Model):
 
         from lorax_server.utils.flashinfer_attention import (
             use_decode_state,
+            use_prefill_state,
             use_prefill_with_paged_kv_state,
         )
 
         if cu_seqlen_prefill is not None:
+            if self.kv_dtype == torch.float8_e4m3fn:
+                return use_prefill_state(
+                    state=(state if state is not None else self.prefill_state),
+                    cu_seqlens=cu_seqlen_prefill,
+                    num_heads=self.num_heads,
+                    num_kv_heads=self.num_kv_heads,
+                    head_size=self.head_size,
+                    query_dtype=self.dtype,
+                    window_left=self.sliding_window,
+                )
             return use_prefill_with_paged_kv_state(
                 state=(state if state is not None else self.prefill_with_paged_kv_state),
                 block_tables=block_tables,

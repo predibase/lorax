@@ -114,6 +114,7 @@ def use_prefill_state(
     num_kv_heads: int,
     head_size: int,
     query_dtype: str = "float16",
+    window_left: int,
 ):
     """
     Context manager to set the active flashinfer prefill state to the given
@@ -130,6 +131,7 @@ def use_prefill_state(
             num_kv_heads=num_kv_heads,
             head_dim=head_size,
             q_data_type=query_dtype,
+            # window_left=window_left, TODO
         )
         yield
     finally:
