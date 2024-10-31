@@ -365,6 +365,14 @@ impl AdapterSchedulerState {
                     None
                 }
                 Some(block_allocator) => {
+                    // If users wants the prefill logprobs, we cannot reuse the cache.
+                    // So no input_ids for the radix tree.
+                    let input_ids = if entry.request.decoder_input_details() {
+                        None
+                    } else {
+                        entry.request.input_ids().clone()
+                    };
+
                     let tokens = entry.request.input_length()
                         + entry.request.max_new_tokens()
                         + self.speculate
@@ -379,7 +387,7 @@ impl AdapterSchedulerState {
                     );
 
                     let block_allocation = match block_allocator
-                        .allocate(adapter.index(), tokens, entry.request.input_ids())
+                        .allocate(adapter.index(), tokens, input_ids)
                         .await
                     {
                         None => {
