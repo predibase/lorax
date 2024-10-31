@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
-from lorax_server.adapters.types import LORA
+from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.sgmv import BGMV_MAX_RANK, PunicaWrapper
@@ -607,7 +607,8 @@ class GraphCache:
                 graph.input_state.traced_adapter_layer_names if graph is not None else set()
             )
             logger.info(
-                "Retrace graph with new adapter layers: {} -> {}",
+                "batch_size={} -- retrace graph with new adapter layers: {} -> {}",
+                batch_size,
                 current_traced_adapter_layer_names,
                 adapter_data.layer_names(),
             )

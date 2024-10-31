@@ -85,6 +85,14 @@ impl Allocator for RadixAllocator {
         tokens: u32,
         prefill_tokens: Option<Arc<Vec<u32>>>,
     ) -> Option<BlockAllocation> {
+        // print out blocks for allocation
+        tracing::debug!(
+            "!!! Allocate blocks {:?} {:?} {:?}",
+            adapter_index,
+            tokens,
+            prefill_tokens.as_ref().as_slice()
+        );
+
         // ensure root node exists
         self.cache_blocks.get_or_create_root(adapter_index);
 
@@ -110,6 +118,7 @@ impl Allocator for RadixAllocator {
         let suffix_blocks = (suffix_len + self.block_size - 1) / self.block_size;
 
         tracing::debug!("Prefix {prefix_len} - Suffix {suffix_len}");
+        tracing::debug!("Cached blocks: {blocks:?}");
 
         match self.alloc_or_reclaim(suffix_blocks as usize) {
             Some(suffix_blocks) => blocks.extend(suffix_blocks),
@@ -150,6 +159,15 @@ impl Allocator for RadixAllocator {
         self.allocation_id += 1;
         self.allocations.insert(self.allocation_id, allocation);
 
+        // log final blocks and slots
+        tracing::debug!(
+            "!!! BlockAllocation {:?} {:?} {:?} {:?}",
+            adapter_index,
+            blocks,
+            slots,
+            prefix_len
+        );
+
         Some(BlockAllocation {
             allocation_id: self.allocation_id,
             block_allocator: None,
@@ -164,6 +182,13 @@ impl Allocator for RadixAllocator {
             Some(allocation) => allocation,
             None => unreachable!("Tried to free an unknown allocation."),
         };
+
+        tracing::debug!(
+            "!!! Free blocks {:?} {:?} {:?}",
+            allocation.adapter_index,
+            allocation.cached_prefix_len,
+            allocation.prefill_tokens.as_ref().as_slice()
+        );
 
         self.cache_blocks
             .decref(allocation.prefix_node)
@@ -286,17 +311,11 @@ impl RadixTrie {
     /// Using this method will update the access time of the traversed nodes.
     pub fn find(&mut self, adapter_index: u32, key: &[u32], blocks: &mut Vec<u32>) -> NodeId {
         self.time += 1;
-        self.find_(adapter_index, self.root_id(adapter_index), key, blocks)
+        self.find_(self.root_id(adapter_index), key, blocks)
     }
 
     /// Find worker.
-    fn find_(
-        &mut self,
-        adapter_index: u32,
-        mut node_id: NodeId,
-        key: &[u32],
-        blocks: &mut Vec<u32>,
-    ) -> NodeId {
+    fn find_(&mut self, mut node_id: NodeId, key: &[u32], blocks: &mut Vec<u32>) -> NodeId {
         let node = &self.nodes[node_id];
 
         if key.len() >= self.block_size {
@@ -310,7 +329,7 @@ impl RadixTrie {
 
                 let key = &key[shared_prefix_len..];
                 if !key.is_empty() {
-                    node_id = self.find_(adapter_index, child_id, key, blocks);
+                    node_id = self.find_(child_id, key, blocks);
                 }
             }
         }
@@ -430,14 +449,13 @@ impl RadixTrie {
     ) -> Result<usize, TrieError> {
         self.time += 1;
         let node_id = self.get_or_create_root(adapter_index);
-        let common = self.insert_(adapter_index, node_id, tokens, blocks)?;
+        let common = self.insert_(node_id, tokens, blocks)?;
         Ok(common)
     }
 
     /// Insertion worker.
     fn insert_(
         &mut self,
-        adapter_index: u32,
         node_id: NodeId,
         tokens: &[u32],
         blocks: &[u32],
@@ -467,7 +485,6 @@ impl RadixTrie {
             if shared_prefix_len == child.key.len() {
                 return Ok(shared_prefix_len
                     + self.insert_(
-                        adapter_index,
                         child_id,
                         &tokens[shared_prefix_len..],
                         &blocks[shared_prefix_len / self.block_size..],
@@ -480,7 +497,7 @@ impl RadixTrie {
             let child_id = self.split_node(child_id, shared_prefix_len);
             let key = &tokens[shared_prefix_len..];
             let blocks = &blocks[shared_prefix_len / self.block_size..];
-            Ok(shared_prefix_len + self.insert_(adapter_index, child_id, key, blocks)?)
+            Ok(shared_prefix_len + self.insert_(child_id, key, blocks)?)
         } else {
             self.add_node(node_id, tokens, blocks);
             Ok(0)
@@ -719,6 +736,7 @@ mod tests {
         assert_eq!(allocation.prefix_len, 4);
     }
 
+    #[traced_test]
     #[test]
     fn allocator_reuses_prefixes_multi_adapter() {
         let mut cache = RadixAllocator::new(1, 20, None);
