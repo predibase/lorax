@@ -7,6 +7,7 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
+from lorax_server.models.metadata_kernels import block_tables_to_ragged
 import numpy as np
 import torch
 from loguru import logger
@@ -17,7 +18,6 @@ from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.utils.attention.common import Seqlen
-from lorax_server.utils.attention.utils import block_tables_to_ragged
 from lorax_server.utils.sgmv import BGMV_MAX_RANK, PunicaWrapper
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, get_speculative_tokens
 
@@ -263,6 +263,9 @@ class GraphWrapper:
                 block_tables=block_tables,
                 input_lengths=input_lengths,
                 cache_lengths=cache_lengths,
+                input_lengths_tensor=input_lengths_tensor,
+                cache_lengths_tensor=cache_lengths_tensor,
+                max_current_length=max_total_tokens,
             )
 
             block_tables_ptr = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
@@ -392,6 +395,9 @@ class GraphWrapper:
                 block_tables=block_tables,
                 input_lengths=seqlen.input_lengths,
                 cache_lengths=seqlen.cache_lengths,
+                input_lengths_tensor=seqlen.input_lengths,
+                cache_lengths_tensor=cache_lengths_tensor,
+                max_current_length=max_s,
             )
             self.input_state.block_tables[: block_tables.shape[0]] = block_tables
         else:

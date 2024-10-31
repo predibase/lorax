@@ -36,7 +36,6 @@ from lorax_server.utils.sources.hub import weight_files
 from lorax_server.utils.state import (
     BLOCK_SIZE,
     FLASH_INFER,
-    LORAX_PROFILER_DIR,
     get_max_prefill_tokens,
     get_speculative_tokens,
     get_supports_chunking,
@@ -1556,6 +1555,9 @@ class FlashCausalLM(Model):
                     block_tables=block_tables,
                     input_lengths=batch.input_lengths,
                     cache_lengths=batch.cache_lengths,
+                    input_lengths_tensor=batch.input_lengths_tensor,
+                    cache_lengths_tensor=batch.cache_lengths_tensor,
+                    max_current_length=max_s,
                 )
 
             with self._forward_context(
