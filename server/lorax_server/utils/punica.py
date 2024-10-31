@@ -390,6 +390,7 @@ def convert_mapping(
     )
 
 
+# Source: https://github.com/vllm-project/vllm/blob/main/vllm/lora/punica.py
 class PunicaWrapper:
     """
     PunicaWrapper is designed to manage and provide metadata for the punica 
@@ -398,7 +399,7 @@ class PunicaWrapper:
     """
 
     def __init__(self, max_num_batched_tokens: int, max_batches: int,
-                 device: str):
+                 device: str, enabled: bool):
         self._token_lora_indices = torch.empty(max_num_batched_tokens,
                                                dtype=torch.long,
                                                device=device)
@@ -434,26 +435,7 @@ class PunicaWrapper:
         self.batch_size: int = -1
         self.is_prefill = False
         self.no_lora = False
-
-    # def update_metadata(
-    #     self,
-    #     meta: "AdapterBatchMetadata",
-    #     prefill: bool,
-    #     max_loras: int,
-    #     vocab_size: int,
-    #     extra_vocab_size: int,
-    #     long_lora_context = None,
-    # ):
-
-    #     self._update_base_metadata(meta, max_loras,
-    #                                vocab_size, extra_vocab_size,
-    #                                long_lora_context)
-    #     if prefill:
-    #         # Update metadata required for prefill-related operators.
-    #         self._update_prefill_metada(self.token_lora_indices)
-    #         self.is_prefill = True
-    #     else:
-    #         self.is_prefill = False
+        self.enabled = enabled
     
     def update_metadata(
         self,

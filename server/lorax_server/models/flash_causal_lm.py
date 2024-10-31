@@ -1336,6 +1336,7 @@ class FlashCausalLM(Model):
             max_num_batched_tokens=get_max_prefill_tokens(),
             max_batches=256,  # TODO(travis): consider how to handle this if we exceed this limit
             device=self.device,
+            enabled=not self.dynamic_adapter_loading_enabled  # only supported for now with statically loaded adapters
         )
 
         torch.cuda.empty_cache()
