@@ -440,7 +440,7 @@ class FlashCausalLMBatch(Batch):
 
                 # Set slice
                 slot_filtering_indices[
-                    self.slot_indices[idx] : self.slot_indices[idx] + request_input_length + request_cache_length + remaining_tokens - 1
+                    self.slot_indices[idx] : self.slot_indices[idx] + request_input_length + remaining_tokens + get_speculative_tokens() - 1
                 ] = True
 
                 cumulative_max_length += request_input_length + remaining_tokens - 1
