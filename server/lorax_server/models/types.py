@@ -6,8 +6,10 @@ import numpy as np
 import torch
 from transformers import PreTrainedTokenizerBase
 
+from lorax_server.adapters import AdapterBatchMetadata
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
+from lorax_server.utils.segments import find_segments
 from lorax_server.utils.tokenizer import TokenizerManager
 
 
@@ -140,6 +142,8 @@ class FlashEmbeddingClassificationBatch(ABC):
     max_s: int
     size: int
 
+    adapter_meta: AdapterBatchMetadata
+
     def __len__(self) -> int:
         return self.size
 
@@ -173,9 +177,11 @@ class FlashEmbeddingClassificationBatch(ABC):
         position_ids = []
         all_token_type_ids = []
         cu_seqlens = [0]
+        adapter_indices_list = []
 
         max_s = 0
         cumulative_length = 0
+        adapter_set = set()
 
         for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             tokenized_input = tokenized_input[-r.truncate :]
@@ -192,20 +198,29 @@ class FlashEmbeddingClassificationBatch(ABC):
             request_position_ids = torch.arange(0, input_length, dtype=torch.int32)
             position_ids.append(request_position_ids)
 
+            adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
+            adapter_set.add(r.adapter_index)
+
             cumulative_length += input_length
 
         if len(pb.requests) > 1:
             input_ids = np.concatenate(all_input_ids, dtype=np.int64)
             final_token_type_ids = np.concatenate(all_token_type_ids, dtype=np.int64)
             position_ids = torch.cat(position_ids)
+            adapter_indices = torch.cat(adapter_indices_list)
         else:
             input_ids = all_input_ids[0]
             final_token_type_ids = all_token_type_ids[0]
             position_ids = position_ids[0]
+            adapter_indices = adapter_indices_list[0]
 
         input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
         final_token_type_ids = torch.tensor(final_token_type_ids, dtype=torch.int64, device=device)
         position_ids = position_ids.to(device)
+        adapter_indices = adapter_indices.to(dtype=torch.int64, device=device)
+
+        adapter_segments, adapter_segment_indices = find_segments(adapter_indices)
+        adapter_segments = torch.tensor(adapter_segments, dtype=torch.int32, device=device)
 
         return FlashEmbeddingClassificationBatch(
             request_ids=[r.id for r in pb.requests],
@@ -215,7 +230,26 @@ class FlashEmbeddingClassificationBatch(ABC):
             cu_seqlens=torch.tensor(cu_seqlens, dtype=torch.int32, device=device),
             max_s=max_s,
             size=len(batch_tokenized_inputs),
+            adapter_meta=AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_segment_indices,
+            ),
         )
+
+    @classmethod
+    def from_pb_embed(
+        self,
+        pb: generate_pb2.Batch,
+        tokenizer: PreTrainedTokenizerBase,
+        tokenizers: TokenizerManager,
+        processor,
+        config,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> "FlashEmbeddingClassificationBatch":
+        return self.from_pb(pb, tokenizer, tokenizers, processor, config, dtype, device)
 
     @classmethod
     def to_pb_classify(self, batch, predicted_token_classes, confidence_scores) -> generate_pb2.ClassifyResponse:
