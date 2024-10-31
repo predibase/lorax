@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.punica import PunicaWrapper
+from lorax_server.utils.punica import LORAX_PUNICA_TRION_DISABLED, PunicaWrapper
 import numpy as np
 import torch
 import torch.distributed
@@ -1334,9 +1334,12 @@ class FlashCausalLM(Model):
 
         self.punica_wrapper = PunicaWrapper(
             max_num_batched_tokens=get_max_prefill_tokens(),
-            max_batches=256,  # TODO(travis): consider how to handle this if we exceed this limit
+            max_batches=256,  # TODO(travis): find a better way to set this programmatically
             device=self.device,
-            enabled=not self.dynamic_adapter_loading_enabled  # only supported for now with statically loaded adapters
+            enabled=(
+                not self.dynamic_adapter_loading_enabled and  # only supported for now with statically loaded adapters
+                not LORAX_PUNICA_TRION_DISABLED
+            )
         )
 
         torch.cuda.empty_cache()

@@ -76,7 +76,7 @@ class LoraLinear(nn.Module):
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
 
         # Triton Punica kernels
-        if adapter_data.punica_wrapper.enabled:
+        if adapter_data.punica_wrapper.enabled and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size:
             if end_idx - start_idx != result.shape[1]:
                 y_offset = start_idx
                 y_slice_size = end_idx - start_idx

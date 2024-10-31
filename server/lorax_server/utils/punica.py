@@ -3,6 +3,7 @@ import warnings
 from functools import lru_cache
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Union
 
+from loguru import logger
 import torch
 import torch.nn.functional as F
 
@@ -24,6 +25,11 @@ except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
     _kernels = None
     HAS_SGMV = False
+
+
+LORAX_PUNICA_TRION_DISABLED = bool(os.environ.get("LORAX_PUNICA_TRION_DISABLED", ""))
+if LORAX_PUNICA_TRION_DISABLED:
+    logger.info("LORAX_PUNICA_TRION_DISABLED is set, disabling Punica Trion kernels.")
 
 
 MIN_SGMV_RANK = 8
@@ -431,6 +437,7 @@ class PunicaWrapper:
         self._lora_indices_per_batch = torch.empty(max_batches,
                                                    dtype=torch.long,
                                                    device=device)
+        self.max_batch_size = max_batches
         self.max_length: int = 0
         self.batch_size: int = -1
         self.is_prefill = False
