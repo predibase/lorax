@@ -74,9 +74,14 @@ class LoraLinear(nn.Module):
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
+        can_vectorize = data is not None and data.can_vectorize(self.process_group)
 
         # Triton Punica kernels
-        if adapter_data.punica_wrapper.enabled and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size:
+        if (
+            adapter_data.punica_wrapper.enabled and 
+            input.shape[0] <= adapter_data.punica_wrapper.max_batch_size and 
+            can_vectorize
+        ):
             if end_idx - start_idx != result.shape[1]:
                 y_offset = start_idx
                 y_slice_size = end_idx - start_idx
@@ -97,7 +102,7 @@ class LoraLinear(nn.Module):
             )
 
         # Legacy Punica kernels
-        elif has_sgmv() and data is not None and data.can_vectorize(self.process_group):
+        elif has_sgmv() and can_vectorize:
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
             else:

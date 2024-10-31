@@ -424,7 +424,7 @@ def serve(
         await server.start()
 
         # Log SGMV kernel status
-        if not LORAX_PUNICA_TRION_DISABLED:
+        if not LORAX_PUNICA_TRION_DISABLED and not model.dynamic_adapter_loading_enabled:
             logger.info("Trion kernel is enabled, multi-LoRA inference will be fast!")
         if has_sgmv():
             logger.info("SGMV kernel is enabled, multi-LoRA inference will be fast!")
