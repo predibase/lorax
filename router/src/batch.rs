@@ -12,7 +12,7 @@ use lorax_client::{
     StoppingCriteriaParameters, TokenizedInputs,
 };
 use nohash_hasher::{BuildNoHashHasher, IntMap};
-use tokio::time::Instant;
+use tokio::{sync::mpsc, time::Instant};
 use tracing::{Instrument, Span};
 
 use crate::{
@@ -167,7 +167,7 @@ pub(crate) struct Entry {
     /// Request
     pub request: Arc<dyn ValidRequest>,
     /// Response sender to communicate between the Infer struct and the batching_task
-    pub response_tx: flume::Sender<Result<InferStreamResponse, InferError>>,
+    pub response_tx: mpsc::UnboundedSender<Result<InferStreamResponse, InferError>>,
     /// Span that will live as long as entry
     pub span: Span,
     /// Temporary span used as a guard when logging inference, wait times...
@@ -222,6 +222,7 @@ impl BatchEntriesState {
         // TODO(travis): clone is not ideal, find a way to do this cleanly in place
         for r in self.batch_requests.clone().into_iter().rev() {
             let id = r.id;
+            tracing::info!("!!! drain::remove entry id={id:?}");
             let entry = self.batch_entries.remove(&id).unwrap();
             let adapter_index = r.adapter_index;
             let adapter = self.index_to_adapter.get_mut(&adapter_index).unwrap();

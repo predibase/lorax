@@ -2078,7 +2078,6 @@ class FlashCausalLM(Model):
                     batch.next_token_chooser.next_state(i, next_token_id)
 
             # Update values
-            # logger.info(f"!!! UPDATE VALUES {i} n_accepted_ids={n_accepted_ids} new_input_length={new_input_length} input_length={input_length} cache_length={cache_length}")
             index += n_accepted_ids
             batch.cache_lengths[i] = new_cache_length
             batch.max_input_length = max(batch.max_input_length, new_input_length)

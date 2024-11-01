@@ -9,8 +9,6 @@ use crate::{
     MessageChunk, TextMessage, Token, TokenizerConfigToken, Tool,
 };
 use crate::{GenerateRequest, PrefillToken};
-use flume::r#async::RecvStream;
-use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
 /// Batching and inference logic
@@ -32,8 +30,10 @@ use std::sync::{
 use std::time::Duration;
 use thiserror::Error;
 use tokenizers::Tokenizer;
-use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::{mpsc, Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{info_span, instrument, Span};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -276,7 +276,7 @@ impl Infer {
     ) -> Result<
         (
             OwnedSemaphorePermit,
-            RecvStream<Result<InferStreamResponse, InferError>>,
+            UnboundedReceiverStream<Result<InferStreamResponse, InferError>>,
         ),
         InferError,
     > {
@@ -330,7 +330,7 @@ impl Infer {
             })?;
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         // Process the request by sending it to the queue associated with `adapter`
         self.adapter_scheduler.process(
@@ -348,7 +348,7 @@ impl Infer {
         );
 
         // Return stream
-        Ok((permit, response_rx.into_stream()))
+        Ok((permit, UnboundedReceiverStream::new(response_rx)))
     }
 
     /// Tokenizer the input
@@ -542,7 +542,7 @@ impl Infer {
         };
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         // Process the request by sending it to the queue associated with `adapter`
         self.adapter_scheduler.process(
@@ -562,7 +562,7 @@ impl Infer {
         // Return values
         let mut return_embeddings = None;
 
-        let mut stream = response_rx.into_stream();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
@@ -643,7 +643,7 @@ impl Infer {
         };
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         // Process the request by sending it to the queue associated with `adapter`
         self.adapter_scheduler.process(
@@ -665,7 +665,7 @@ impl Infer {
         let mut result_start = None;
         let mut result_queued = None;
 
-        let mut stream = response_rx.into_stream();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
@@ -743,7 +743,7 @@ impl Infer {
         );
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         let request_id_map: HashMap<u64, String> = request
             .inputs
@@ -793,7 +793,7 @@ impl Infer {
         // Return values
 
         let mut all_entities = HashMap::new();
-        let mut stream = response_rx.into_stream();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
@@ -1198,10 +1198,7 @@ pub(crate) async fn embed(
                 // request and we need to stop generating hence why we unwrap_or(true)
                 let stopped = send_embeddings(embedding, entry)
                     .map_err(|err| {
-                        if let SendTimeoutError::Timeout(_) = *err {
-                            tracing::error!("Entry response channel timed out.")
-                        }
-
+                        tracing::error!("Entry response channel error.");
                         metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                         err
                     })
@@ -1258,10 +1255,7 @@ pub(crate) async fn classify(
                 // request and we need to stop generating hence why we unwrap_or(true)
                 let stopped = send_classifications(predictions, entry)
                     .map_err(|err| {
-                        if let SendTimeoutError::Timeout(_) = *err {
-                            tracing::error!("Entry response channel timed out.")
-                        }
-
+                        tracing::error!("Entry response channel error.");
                         metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                         err
                     })
@@ -1329,6 +1323,7 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
         let id = generation.request_id;
         // Get entry
         // We can `expect` here as the request id should always be in the entries
+        tracing::info!("!!! filter_send_generations id={id:?}");
         let entry = entries
             .get(&id)
             .expect("ID not found in entries. This is a bug.");
@@ -1338,15 +1333,12 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
         // Send generation responses back to the infer task
         // If the receive an error from the Flume channel, it means that the client dropped the
         // request and we need to stop generating hence why we unwrap_or(true)
-        let stopped = send_responses(generation, entry).map_err(|err| {
-            if let SendTimeoutError::Timeout(_) = *err {
-                tracing::error!("Entry response channel timed out.")
-            }
-
+        let stopped = send_responses(generation, entry).inspect_err(|_err| {
+            tracing::error!("Entry response channel error.");
             metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
-            err
         }).unwrap_or(true);
         if stopped {
+            tracing::info!("!!! filter_send_generations::remove entry id={id:?}");
             entries.remove(&id).expect("ID not found in entries. This is a bug.");
         }
     });
@@ -1356,9 +1348,10 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
 fn send_responses(
     generation: Generation,
     entry: &Entry,
-) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
-    if entry.response_tx.is_disconnected() {
+    if entry.response_tx.is_closed() {
+        tracing::info!("!!! send_responses::disconnected");
         return Ok(true);
     }
 
@@ -1366,13 +1359,10 @@ fn send_responses(
 
     if generation.prefill_tokens_length > 0 {
         // Send message
-        entry.response_tx.send_timeout(
-            Ok(InferStreamResponse::Prefill {
-                tokens: generation.prefill_tokens,
-                tokens_length: generation.prefill_tokens_length,
-            }),
-            Duration::from_millis(10),
-        )?;
+        entry.response_tx.send(Ok(InferStreamResponse::Prefill {
+            tokens: generation.prefill_tokens,
+            tokens_length: generation.prefill_tokens_length,
+        }))?;
     }
 
     // Create last Token
@@ -1420,25 +1410,24 @@ fn send_responses(
 
         match (&generation.generated_text, iterator.peek()) {
             (Some(generated_text), None) => {
+                tracing::info!(
+                    "!!! send_responses::generation_ended id={id:?} generated_text={generated_text:?}"
+                );
                 // Generation has ended
                 stopped = true;
                 // Send message
-                entry.response_tx.send_timeout(
-                    Ok(InferStreamResponse::End {
-                        token,
-                        generated_text: generated_text.clone(),
-                        queued: entry.queue_time,
-                        start: entry.batch_time.unwrap(),
-                    }),
-                    Duration::from_millis(10),
-                )?;
+                entry.response_tx.send(Ok(InferStreamResponse::End {
+                    token,
+                    generated_text: generated_text.clone(),
+                    queued: entry.queue_time,
+                    start: entry.batch_time.unwrap(),
+                }))?;
             }
             _ => {
                 // Send message
-                entry.response_tx.send_timeout(
-                    Ok(InferStreamResponse::Token(token)),
-                    Duration::from_millis(10),
-                )?;
+                entry
+                    .response_tx
+                    .send(Ok(InferStreamResponse::Token(token)))?;
             }
         }
     }
@@ -1450,20 +1439,17 @@ fn send_responses(
 fn send_embeddings(
     embedding: Embedding,
     entry: &Entry,
-) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
-    if entry.response_tx.is_disconnected() {
+    if entry.response_tx.is_closed() {
         return Ok(true);
     }
 
-    entry.response_tx.send_timeout(
-        Ok(InferStreamResponse::Embed {
-            embedding: embedding.clone(),
-            queued: entry.queue_time,
-            start: entry.batch_time.unwrap(),
-        }),
-        Duration::from_millis(10),
-    )?;
+    entry.response_tx.send(Ok(InferStreamResponse::Embed {
+        embedding: embedding.clone(),
+        queued: entry.queue_time,
+        start: entry.batch_time.unwrap(),
+    }))?;
 
     // TODO(travis): redundant as we always return true, just make it return nothing
     Ok(true)
@@ -1473,21 +1459,18 @@ fn send_embeddings(
 fn send_classifications(
     predictions: ClassifyPredictionList,
     entry: &Entry,
-) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
-    if entry.response_tx.is_disconnected() {
+    if entry.response_tx.is_closed() {
         return Ok(true);
     }
 
-    entry.response_tx.send_timeout(
-        Ok(InferStreamResponse::Classify {
-            predictions: predictions.clone(),
-            queued: entry.queue_time,
-            start: entry.batch_time.unwrap(),
-            id: entry.id,
-        }),
-        Duration::from_millis(10),
-    )?;
+    entry.response_tx.send(Ok(InferStreamResponse::Classify {
+        predictions: predictions.clone(),
+        queued: entry.queue_time,
+        start: entry.batch_time.unwrap(),
+        id: entry.id,
+    }))?;
 
     // TODO(travis): redundant as we always return true, just make it return nothing
     Ok(true)
@@ -1506,7 +1489,7 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
         // unwrap_or is valid here as we don't care if the receiver is gone.
         entry
             .response_tx
-            .send_timeout(Err(err), Duration::from_millis(10))
+            .send(Err(err))
             .unwrap_or(());
     });
 }
