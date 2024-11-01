@@ -295,7 +295,7 @@ dependencies = [
  "http",
  "opentelemetry 0.18.0",
  "tower",
- "tower-http 0.3.5",
+ "tower-http",
  "tracing",
  "tracing-opentelemetry 0.18.0",
 ]
@@ -1598,7 +1598,6 @@ dependencies = [
  "tokenizers",
  "tokio",
  "tokio-stream",
- "tower-http 0.4.1",
  "tracing",
  "tracing-opentelemetry 0.19.0",
  "tracing-subscriber 0.3.17",
@@ -3717,24 +3716,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8bd22a874a2d0b70452d5597b12c537331d49060824a95f49f108994f94aa4c"
-dependencies = [
- "bitflags 2.3.3",
- "bytes",
- "futures-core",
- "futures-util",
- "http",
- "http-body",
- "http-range-header",
- "pin-project-lite",
- "tower-layer",
- "tower-service",
 ]
 
 [[package]]
