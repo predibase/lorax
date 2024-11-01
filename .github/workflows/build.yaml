@@ -70,7 +70,7 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=raw,value=optimizations-6,enable=${{ github.ref == 'refs/heads/optimizations' }}
+            type=raw,value=optimizations-7,enable=${{ github.ref == 'refs/heads/optimizations' }}
 
       - name: Create a hash from tags
         env:
