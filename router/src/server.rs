@@ -25,6 +25,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
+use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
 use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 use futures::stream::StreamExt;
 use futures::Stream;
@@ -39,6 +40,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::Mutex;
+use thiserror::Error;
 use tokenizers::Tokenizer;
 use tokio::signal;
 use tokio::sync::mpsc;
@@ -478,6 +480,12 @@ async fn chat_completions_v1(
         // wrap generation inside a Vec to match api-inference
         Ok((headers, Json(response)).into_response())
     }
+}
+
+#[derive(Debug, Error)]
+pub enum WebServerError {
+    #[error("Axum error: {0}")]
+    Axum(#[from] axum::BoxError),
 }
 
 type PreparedInput = (String, Option<ResponseFormat>, bool);
@@ -1523,12 +1531,15 @@ pub async fn run(
         tracing::info!("REQUEST_LOGGER_URL not set, request logging is disabled");
     }
 
+    #[allow(unused_mut)] // mut is needed for conditional compilation
+    let mut doc = ApiDoc::openapi();
+
+    // Configure Swagger UI
+    let swagger_ui = SwaggerUi::new("/docs").url("/api-doc/openapi.json", doc);
+
     // Create router
-    let app = Router::new()
-        .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
+    let base_routes = Router::new()
         // Base routes
-        .route("/", post(compat_generate))
-        .route("/info", get(get_model_info))
         .route("/generate", post(generate))
         .route("/embed", post(embed))
         .route("/classify", post(classify))
@@ -1537,16 +1548,28 @@ pub async fn run(
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
         // AWS Sagemaker route
-        .route("/invocations", post(compat_generate))
-        // Base Health route
-        .route("/health", get(health))
+        .route("/invocations", post(compat_generate));
+
+    let info_routes = Router::new()
         // Inference API health route
         .route("/", get(health))
+        // Base Health route
+        .route("/health", get(health))
+        .route("/info", get(get_model_info))
         // AWS Sagemaker health route
         .route("/ping", get(health))
         // Prometheus metrics route
         .route("/metrics", get(metrics))
-        .route("/tokenize", post(tokenize))
+        .route("/tokenize", post(tokenize));
+
+    // Combine routes and layers
+    let mut app = Router::new()
+        .merge(swagger_ui)
+        .merge(base_routes)
+        .merge(info_routes);
+
+    // add layers after routes
+    app = app
         .layer(Extension(info))
         .layer(Extension(client.clone()))
         .layer(Extension(request_logger_sender.clone()))
@@ -1554,53 +1577,16 @@ pub async fn run(
         .layer(Extension(compat_return_full_text))
         .layer(Extension(infer))
         .layer(Extension(prom_handle.clone()))
-        .layer(opentelemetry_tracing_layer())
+        .layer(OtelAxumLayer::default())
         .layer(cors_layer)
         .layer(Extension(cloned_tokenizer));
 
     if ngrok {
         #[cfg(feature = "ngrok")]
         {
-            use ngrok::config::TunnelBuilder;
-
-            let _ = addr;
-
-            let authtoken =
-                ngrok_authtoken.expect("`ngrok-authtoken` must be set when using ngrok tunneling");
-
-            let edge = ngrok_edge.expect("`ngrok-edge` must be set when using ngrok tunneling");
-
-            let tunnel = ngrok::Session::builder()
-                .authtoken(authtoken)
-                .connect()
-                .await
-                .unwrap()
-                .labeled_tunnel()
-                .label("edge", edge);
-
-            let listener = tunnel.listen().await.unwrap();
-
-            // Run prom metrics and health locally too
-            tokio::spawn(
-                axum::Server::bind(&addr)
-                    .serve(
-                        Router::new()
-                            .route("/health", get(health))
-                            .route("/metrics", get(metrics))
-                            .layer(Extension(health_ext))
-                            .layer(Extension(prom_handle))
-                            .into_make_service(),
-                    )
-                    //Wait until all requests are finished to shut down
-                    .with_graceful_shutdown(shutdown_signal()),
-            );
+            panic!("ngrok feature is not functional with axum=0.7 and hyper=1, waiting on https://github.com/ngrok/ngrok-rust/pull/137/files to re-enable.");
 
             // Run server
-            axum::Server::builder(listener)
-                .serve(app.into_make_service())
-                //Wait until all requests are finished to shut down
-                .with_graceful_shutdown(shutdown_signal())
-                .await?;
         }
         #[cfg(not(feature = "ngrok"))]
         {
@@ -1609,15 +1595,16 @@ pub async fn run(
             let _ngrok_username = ngrok_username;
             let _ngrok_password = ngrok_password;
 
-            panic!("`lorax-router` was compiled without the `ngrok` feature");
+            panic!("`text-generation-router` was compiled without the `ngrok` feature");
         }
     } else {
         // Run server
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service())
-            // Wait until all requests are finished to shut down
+
+        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+        axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal())
-            .await?;
+            .await
+            .map_err(|err| WebServerError::Axum(Box::new(err)))?;
     }
     Ok(())
 }
