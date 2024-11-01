@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
 from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.medusa_lora import MedusaLoraWeights
-from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, pad_to_min_rank
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, pad_to_min_rank, use_cutlass_shrink
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -301,8 +301,10 @@ class Model(ABC):
                     continue
             
                 # transpose into col major
-                lora_a = adapter_weights.weights_a.transpose(1, 2)
                 lora_b = adapter_weights.weights_b.transpose(1, 2)
+                lora_a = adapter_weights.weights_a
+                if use_cutlass_shrink(lora_b.size(2)):
+                    lora_a = lora_a.transpose(1, 2)
 
                 nlayers = lora_a.size(0)
                 for layer_id in range(nlayers):
