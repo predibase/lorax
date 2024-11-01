@@ -30,6 +30,7 @@ def test_batched_medusa_weights(default_causal_lm: CausalLM):
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int64),
+        adapter_list=[0, 1, 0, 1],
         adapter_set={0, 1},
         adapter_segments=torch.tensor([0, 2, 4, 6, 8], dtype=torch.int64),
         segment_indices=[0, 1, 0, 1],
