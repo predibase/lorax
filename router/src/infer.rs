@@ -1348,9 +1348,10 @@ fn send_responses(
     generation: Generation,
     entry: &Entry,
 ) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
-    // Return directly if the channel is disconnected
+    // Return directly if the channel is closed
     if entry.response_tx.is_closed() {
-        tracing::info!("!!! send_responses::disconnected");
+        tracing::error!("Entry response channel closed.");
+        metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
         return Ok(true);
     }
 

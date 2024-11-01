@@ -331,6 +331,7 @@ impl AdapterSchedulerState {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
             if entry.response_tx.is_closed() {
+                tracing::error!("Entry response channel closed.");
                 metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                 continue;
             }
