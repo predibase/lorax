@@ -1389,7 +1389,7 @@ class FlashCausalLM(Model):
                 self.device,
                 self.kv_cache,
                 self.adapter_layers,
-                self.default_traced_adapter_layers,
+                self.traced_adapter_layers,
                 self._forward_context,
                 max_total_tokens,
                 self.num_heads,

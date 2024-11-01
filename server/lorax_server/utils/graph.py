@@ -561,6 +561,7 @@ class GraphCache:
     def warmup(self):
         ngraphs = len(CACHED_BATCH_SIZES) * len(CACHED_MAX_RANKS)
         pool = None
+        logger.info("Tracing CUDA graphs with initial adapter layers: {}", self.default_traced_adapter_layers)
         with tqdm(total=ngraphs, desc="Trace CUDA graphs") as pbar:
             for batch_size in reversed(CACHED_BATCH_SIZES):
                 pbar.set_postfix({"batch_size": batch_size})

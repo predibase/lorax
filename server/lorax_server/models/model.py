@@ -233,6 +233,12 @@ class Model(ABC):
     @property
     def adapter_layers(self) -> List[str]:
         return []
+    
+    @property
+    def traced_adapter_layers(self) -> List[str]:
+        if self.layer_to_adapter_weights:
+            return list(self.layer_to_adapter_weights.keys())
+        return self.default_traced_adapter_layers
 
     @property
     def default_traced_adapter_layers(self) -> List[str]:
@@ -279,7 +285,7 @@ class Model(ABC):
         for layer_name, layer_adapter_weights in self.layer_to_adapter_weights.items():
             layer_id_to_lora_a_weights = defaultdict(list)
             layer_id_to_lora_b_weights = defaultdict(list)
-            for i, adapter in enumerate(preloaded_adapters):
+            for adapter in preloaded_adapters:
                 adapter_index = adapter.adapter_index
                 adapter_weights = layer_adapter_weights.adapter_weights.get(adapter_index)
                 if not isinstance(adapter_weights, LoraWeights):
