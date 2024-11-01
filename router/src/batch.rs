@@ -222,7 +222,6 @@ impl BatchEntriesState {
         // TODO(travis): clone is not ideal, find a way to do this cleanly in place
         for r in self.batch_requests.clone().into_iter().rev() {
             let id = r.id;
-            tracing::info!("!!! drain::remove entry id={id:?}");
             let entry = self.batch_entries.remove(&id).unwrap();
             let adapter_index = r.adapter_index;
             let adapter = self.index_to_adapter.get_mut(&adapter_index).unwrap();

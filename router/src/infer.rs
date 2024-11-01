@@ -1323,7 +1323,6 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
         let id = generation.request_id;
         // Get entry
         // We can `expect` here as the request id should always be in the entries
-        tracing::info!("!!! filter_send_generations id={id:?}");
         let entry = entries
             .get(&id)
             .expect("ID not found in entries. This is a bug.");
@@ -1338,7 +1337,6 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
             metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
         }).unwrap_or(true);
         if stopped {
-            tracing::info!("!!! filter_send_generations::remove entry id={id:?}");
             entries.remove(&id).expect("ID not found in entries. This is a bug.");
         }
     });
@@ -1351,7 +1349,6 @@ fn send_responses(
 ) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
     if entry.response_tx.is_closed() {
-        tracing::info!("!!! send_responses::disconnected");
         return Ok(true);
     }
 
@@ -1410,9 +1407,6 @@ fn send_responses(
 
         match (&generation.generated_text, iterator.peek()) {
             (Some(generated_text), None) => {
-                tracing::info!(
-                    "!!! send_responses::generation_ended id={id:?} generated_text={generated_text:?}"
-                );
                 // Generation has ended
                 stopped = true;
                 // Send message
