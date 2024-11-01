@@ -538,6 +538,7 @@ class GemmaForCausalLM(torch.nn.Module):
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
+        skip_lm_head: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.model(
             input_ids,

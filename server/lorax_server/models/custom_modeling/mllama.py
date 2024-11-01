@@ -884,6 +884,7 @@ class MllamaForConditionalGeneration(nn.Module):
         # XXX: Putting these as optional so that the cuda warmup calls can go through.
         cross_attention_states: Optional[torch.Tensor] = None,
         image_indices=None,
+        skip_lm_head: bool = False,
     ):
         if cross_attention_states is not None:
             seqlen_q = len(image_indices)
@@ -954,6 +955,7 @@ class MllamaForConditionalGeneration(nn.Module):
             prefill_cache_indices=prefill_cache_indices,
             lm_head_indices=lm_head_indices,
             cross_attention_states=cross_attention_states,
+            skip_lm_head=skip_lm_head,
         )
 
         return outputs
