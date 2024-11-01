@@ -78,9 +78,9 @@ class LoraLinear(nn.Module):
 
         # Triton Punica kernels
         if (
-            adapter_data.punica_wrapper.enabled and 
-            input.shape[0] <= adapter_data.punica_wrapper.max_batch_size and 
-            can_vectorize
+            adapter_data.punica_wrapper.enabled
+            and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size
+            and can_vectorize
         ):
             if end_idx - start_idx != result.shape[1]:
                 y_offset = start_idx
@@ -88,7 +88,7 @@ class LoraLinear(nn.Module):
             else:
                 y_offset = None
                 y_slice_size = None
-            
+
             lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[(layer_type, self.layer_id)]
             adapter_data.punica_wrapper.add_lora(
                 result,
@@ -162,7 +162,7 @@ class LoraLinear(nn.Module):
 
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
-        
+
         # Vanilla PyTorch
         else:
             adapter_indices = adapter_data.meta.adapter_indices

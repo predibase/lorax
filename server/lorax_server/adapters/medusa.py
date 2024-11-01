@@ -1,16 +1,16 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
-from loguru import logger
 import torch
 import torch.distributed
+from loguru import logger
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.layers import FastLinear, TensorParallelColumnLinear
-from lorax_server.utils.segments import find_segments
 from lorax_server.utils.punica import segmented_matmul
+from lorax_server.utils.segments import find_segments
 from lorax_server.utils.state import LORAX_SPECULATION_MAX_BATCH_SIZE, get_speculative_tokens
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 EMPTY_TENSOR = torch.tensor([])
 
 _MEDUSA_ENABLED = False
+
 
 @dataclass
 class MedusaConfig(AdapterConfig):
@@ -312,11 +313,19 @@ class BatchMedusaWeights(BatchAdapterWeights):
             default_medusa=default_medusa,
             segments=MedusaSegments(
                 w=[
-                    (adapter_weights[idx].model.medusa.linear.linear.weight.data if idx in adapter_weights else EMPTY_TENSOR)
+                    (
+                        adapter_weights[idx].model.medusa.linear.linear.weight.data
+                        if idx in adapter_weights
+                        else EMPTY_TENSOR
+                    )
                     for idx in segment_indices
                 ],
                 b=[
-                    (adapter_weights[idx].model.medusa.linear.linear.bias.data if idx in adapter_weights else EMPTY_TENSOR)
+                    (
+                        adapter_weights[idx].model.medusa.linear.linear.bias.data
+                        if idx in adapter_weights
+                        else EMPTY_TENSOR
+                    )
                     for idx in segment_indices
                 ],
                 s_start=segments[indices],

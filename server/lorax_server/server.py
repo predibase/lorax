@@ -63,7 +63,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                 self.cache.delete(request.id)
             else:
                 self.cache.clear()
-        except:
+        except Exception:
             exit(1)
 
         return generate_pb2.ClearCacheResponse()
@@ -113,7 +113,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
-            
+
         if self.model.profiler:
             self.model.profiler_steps += 1
             if self.model.profiler_steps == 10:
@@ -328,7 +328,7 @@ def serve(
                 create_exllama_buffers()
             except ImportError:
                 pass
-        
+
         # set speculative decoding tokens
         speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
         if speculative_tokens > 0:

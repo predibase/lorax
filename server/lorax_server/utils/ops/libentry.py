@@ -6,7 +6,6 @@ import triton
 
 
 class LibEntry(triton.KernelInterface):
-
     def __init__(
         self,
         fn,
@@ -20,23 +19,27 @@ class LibEntry(triton.KernelInterface):
             fn = fn.fn
         self.jit_function: triton.runtime.JITFunction = fn
         self.specialize_indices = [
-            p.num for p in self.jit_function.params
-            if not p.is_constexpr and not p.do_not_specialize
+            p.num for p in self.jit_function.params if not p.is_constexpr and not p.do_not_specialize
         ]
         self.do_not_specialize_indices = [
-            p.num for p in self.jit_function.params
-            if not p.is_constexpr and p.do_not_specialize
+            p.num for p in self.jit_function.params if not p.is_constexpr and p.do_not_specialize
         ]
 
     def key(self, spec_args, dns_args, const_args):
-        spec_key = [(arg.dtype, arg.data_ptr() %
-                     self.divisibility == 0) if hasattr(arg, "data_ptr") else
-                    (type(arg), arg) for arg in spec_args]
+        spec_key = [
+            (arg.dtype, arg.data_ptr() % self.divisibility == 0) if hasattr(arg, "data_ptr") else (type(arg), arg)
+            for arg in spec_args
+        ]
         dns_key = [
-            arg.dtype if hasattr(
-                arg, "data_ptr") else type(arg) if not isinstance(arg, int)
-            else "i32" if -(2**31) <= arg and arg <= 2**31 -
-            1 else "u64" if 2**63 <= arg and arg <= 2**64 - 1 else "i64"
+            arg.dtype
+            if hasattr(arg, "data_ptr")
+            else type(arg)
+            if not isinstance(arg, int)
+            else "i32"
+            if -(2**31) <= arg and arg <= 2**31 - 1
+            else "u64"
+            if 2**63 <= arg and arg <= 2**64 - 1
+            else "i64"
             for arg in dns_args
         ]
         # const args passed by position
@@ -58,7 +61,7 @@ class LibEntry(triton.KernelInterface):
                 dns_args.append(arg)
             else:
                 const_args.append(arg)
-        for p in self.jit_function.params[len(args):]:
+        for p in self.jit_function.params[len(args) :]:
             if p.name in kwargs:
                 val = kwargs[p.name]
             elif p.default is inspect._empty:
@@ -92,11 +95,13 @@ class LibEntry(triton.KernelInterface):
                     constexprs = {**constexprs, **config.kwargs}
                 elif isinstance(fn, triton.runtime.Heuristics):
                     for v, heur in fn.values.items():
-                        constexprs[v] = heur({
-                            **dict(zip(fn.arg_names, args)),
-                            **kwargs,
-                            **constexprs,
-                        })
+                        constexprs[v] = heur(
+                            {
+                                **dict(zip(fn.arg_names, args)),
+                                **kwargs,
+                                **constexprs,
+                            }
+                        )
                 else:
                     raise RuntimeError("Invalid Runtime Function")
                 fn = fn.fn
@@ -106,7 +111,7 @@ class LibEntry(triton.KernelInterface):
             # (tl.constexpr) are assigned values through the following loop.
             for p in self.jit_function.params:
                 if p.is_constexpr and p.name not in constexprs:
-                    constexprs[p.name] = p.default  #default=inspect._empty
+                    constexprs[p.name] = p.default  # default=inspect._empty
             self.kernel_cache[entry_key] = (kernel, constexprs)
         else:
             # load kernel from cache directly
@@ -120,10 +125,7 @@ class LibEntry(triton.KernelInterface):
                 # Autotunner & Heuristics when kwargs & captured args conflict,
                 # captured args have higher priority
                 # 4. We must filter out captured args with default value firstly
-                constexprs = {
-                    k: v
-                    for k, v in constexprs.items() if v is not inspect._empty
-                }
+                constexprs = {k: v for k, v in constexprs.items() if v is not inspect._empty}
                 meta = {
                     **dict(zip(self.arg_names, args)),
                     **kwargs,
@@ -143,21 +145,21 @@ def libentry():
     """
     Decorator for triton library entries.
     Motivation:
-        The runtime overhead of Triton kernels is the reason for the lower 
-        performance of small kernels, particularly evident with smaller models. 
+        The runtime overhead of Triton kernels is the reason for the lower
+        performance of small kernels, particularly evident with smaller models.
         Using this decorator can reduce Triton runtime overhead.
     How:
         The `run` function of JITFunction needs to accomplish:
             - Parameter binding using inspect
             - KernelArg type wrapping
             - Cache key calculation
-        When dealing with small size, these steps can become bottlenecks in 
-        Triton runtime. Libentry simplifies these steps to reduce runtime 
+        When dealing with small size, these steps can become bottlenecks in
+        Triton runtime. Libentry simplifies these steps to reduce runtime
         overhead, thereby improving the runtime expenses of small kernels.
     NOTE:
         When Triton is upgraded to version 3.0.0, libentry can be removed,
         see: https://github.com/vllm-project/vllm/pull/5036#issuecomment-2243396245
-        
+
     """
 
     def decorator(fn):

@@ -4,7 +4,6 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, PunicaWrapper
 import numpy as np
 import torch
 import torch.distributed
@@ -15,6 +14,14 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoTokenizer, GenerationConfig, PretrainedConfig, PreTrainedTokenizerBase
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
+from lorax_server.models.metadata_kernels import (
+    block_tables_to_padded,
+    block_tables_to_ragged,
+    copy_next_input_ids_inplace,
+    has_triton,
+    prepare_position_slot_ids,
+    slots_filtering,
+)
 from lorax_server.models.model import Model
 from lorax_server.models.types import (
     Batch,
@@ -29,6 +36,7 @@ from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.dist import MEMORY_FRACTION, MEMORY_WIGGLE_ROOM, initialize_torch_distributed
 from lorax_server.utils.graph import GraphCache
 from lorax_server.utils.import_utils import get_cuda_free_memory
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, PunicaWrapper
 from lorax_server.utils.segments import SegmentConcatBuilder, find_segments
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.sources.hub import weight_files
@@ -43,14 +51,6 @@ from lorax_server.utils.state import (
 from lorax_server.utils.tokenizer import TokenizerManager
 from lorax_server.utils.torch_utils import is_fp8, is_fp8_kv, is_fp8_supported
 from lorax_server.utils.weights import Weights
-from lorax_server.models.metadata_kernels import (
-    has_triton,
-    copy_next_input_ids_inplace,
-    block_tables_to_ragged,
-    block_tables_to_padded,
-    prepare_position_slot_ids,
-    slots_filtering,
-)
 
 ADAPTER_MEMORY_FRACTION = float(os.getenv("ADAPTER_MEMORY_FRACTION", "0.1"))
 
@@ -281,11 +281,7 @@ class FlashCausalLMBatch(Batch):
             if not r.blocks:
                 needed_blocks = math.ceil(block_tokens / BLOCK_SIZE)
                 request_blocks = [b for b in range(num_blocks, num_blocks + needed_blocks)]
-                request_slots = [
-                    s
-                    for b in request_blocks
-                    for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)
-                ]
+                request_slots = [s for b in request_blocks for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)]
             else:
                 request_blocks = r.blocks
                 request_slots = r.slots
@@ -324,9 +320,7 @@ class FlashCausalLMBatch(Batch):
         # Create tensors on device
         all_input_ids_tensor = torch.tensor(all_input_ids_tensor, dtype=torch.int64, device=device)
 
-        block_tables_ragged = torch.tensor(
-            block_tables_ragged, device=device, dtype=torch.int32
-        )
+        block_tables_ragged = torch.tensor(block_tables_ragged, device=device, dtype=torch.int32)
         cu_blocks = torch.tensor(cu_blocks, device=device, dtype=torch.int64)
         block_tables_tensor = torch.empty(
             (len(block_tables), max_blocks),
@@ -336,18 +330,12 @@ class FlashCausalLMBatch(Batch):
 
         # If the device supports Triton, we can use a fused kernel
         if has_triton():
-            block_tables_to_padded(
-                max_blocks, cu_blocks, block_tables_tensor, block_tables_ragged
-            )
+            block_tables_to_padded(max_blocks, cu_blocks, block_tables_tensor, block_tables_ragged)
         else:
             for i, request_blocks in enumerate(block_tables):
-                block_tables_tensor[i, : len(request_blocks)] = torch.tensor(
-                    request_blocks
-                )
+                block_tables_tensor[i, : len(request_blocks)] = torch.tensor(request_blocks)
 
-        prompt_lengths_tensor = torch.tensor(
-            prompt_lengths, dtype=torch.int32, device=device
-        )
+        prompt_lengths_tensor = torch.tensor(prompt_lengths, dtype=torch.int32, device=device)
 
         slots = torch.tensor(slots, dtype=torch.int64, device=device)
         cu_slots = torch.tensor(cu_slots, dtype=torch.int64)
@@ -415,9 +403,7 @@ class FlashCausalLMBatch(Batch):
         # slots to keep after filtering
         if not has_triton():
             # slots to keep after filtering
-            slot_filtering_indices = torch.zeros(
-                self.slots.shape[0], dtype=torch.bool, device=device
-            )
+            slot_filtering_indices = torch.zeros(self.slots.shape[0], dtype=torch.bool, device=device)
 
         # Create on CPU to only move to GPU once instead of at every copy
         slot_indices = torch.empty(len(request_ids), dtype=torch.int64)
@@ -519,9 +505,7 @@ class FlashCausalLMBatch(Batch):
             slots = self.slots.new_empty(cumulative_slot_tokens)
             gpu_cu_slots = cu_slots.to(device)
             slots_indexing_start = self.cu_slots.to(device)[indices]
-            slots_filtering(
-                max_slots, self.slots, slots, gpu_cu_slots, slots_indexing_start
-            )
+            slots_filtering(max_slots, self.slots, slots, gpu_cu_slots, slots_indexing_start)
 
         if self.prefilling:
             # These values will be set by `FlashCausalLMBatch.prepare_for_prefill`
@@ -704,9 +688,7 @@ class FlashCausalLMBatch(Batch):
             slots_start_index = cumulative_slots
             slots_end_index = cumulative_slots + len(batch.slots)
             slots[slots_start_index:slots_end_index] = batch.slots
-            cu_slots[start_index + 1 : end_index + 1] = (
-                batch.cu_slots[1:] + cumulative_slots
-            )
+            cu_slots[start_index + 1 : end_index + 1] = batch.cu_slots[1:] + cumulative_slots
 
             if not prefilling:
                 input_ids[start_index:end_index] = batch.input_ids
@@ -782,7 +764,7 @@ class FlashCausalLMBatch(Batch):
                 adapter_segments=adapter_segments,
                 segment_indices=adapter_segment_indices,
             )
-        
+
         return cls(
             batch_id=batches[0].batch_id,
             requests=requests,
@@ -841,24 +823,16 @@ class FlashCausalLMBatch(Batch):
                 input_ids = self.input_ids[0]
             self.input_ids = torch.tensor(input_ids, dtype=torch.int64, device=device)
 
-        self.input_lengths_tensor = torch.tensor(
-            self.input_lengths, dtype=torch.int32, device=device
+        self.input_lengths_tensor = torch.tensor(self.input_lengths, dtype=torch.int32, device=device)
+        self.cu_seqlen_prefill = torch.nn.functional.pad(torch.cumsum(self.input_lengths_tensor, dim=0), (1, 0)).to(
+            torch.int32
         )
-        self.cu_seqlen_prefill = torch.nn.functional.pad(
-            torch.cumsum(self.input_lengths_tensor, dim=0), (1, 0)
-        ).to(torch.int32)
-        self.cache_lengths_tensor = torch.tensor(
-            self.cache_lengths, dtype=torch.int32, device=device
-        )
+        self.cache_lengths_tensor = torch.tensor(self.cache_lengths, dtype=torch.int32, device=device)
 
         # If the device supports Triton, we can use a fused kernel
         if has_triton():
-            self.position_ids = torch.empty(
-                len(self.input_ids), dtype=torch.int32, device=device
-            )
-            self.slot_indices = torch.empty(
-                len(self.input_ids), dtype=torch.int64, device=device
-            )
+            self.position_ids = torch.empty(len(self.input_ids), dtype=torch.int32, device=device)
+            self.slot_indices = torch.empty(len(self.input_ids), dtype=torch.int64, device=device)
             cu_slots_gpu = self.cu_slots.to(device)
 
             prepare_position_slot_ids(
@@ -903,20 +877,14 @@ class FlashCausalLMBatch(Batch):
             )
         ):
             next_chunk_length = input_length
-            
+
             if not has_triton():
                 # Position ids
-                request_position_ids = torch.arange(
-                    cache_length, cache_length + input_length, dtype=torch.int32
-                )
+                request_position_ids = torch.arange(cache_length, cache_length + input_length, dtype=torch.int32)
                 position_ids.append(request_position_ids)
 
                 if not r.slots:
-                    request_slots = [
-                        s
-                        for b in blocks
-                        for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)
-                    ]
+                    request_slots = [s for b in blocks for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)]
                 else:
                     request_slots = r.slots
 
@@ -991,9 +959,7 @@ class FlashCausalLMBatch(Batch):
                             dtype=torch.int64,
                         )
                     )
-                    prefill_next_token_indices.append(
-                        prefill_out_cumulative_length + input_length - 1
-                    )
+                    prefill_next_token_indices.append(prefill_out_cumulative_length + input_length - 1)
                     prefill_out_cumulative_length += input_length
                 else:
                     prefill_head_indices.append(
@@ -1115,13 +1081,13 @@ class FlashCausalLM(Model):
         config.quantize = quantize
 
         if is_fp8(config.quantize) and not is_fp8_supported():
-            raise ValueError('FP8 quantization is only supported on hardware that supports FP8')
+            raise ValueError("FP8 quantization is only supported on hardware that supports FP8")
 
         if is_fp8_kv(config.quantize):
             if not FLASH_INFER:
-                raise ValueError('FP8 KV cache requires FLASH_INFER backend')
+                raise ValueError("FP8 KV cache requires FLASH_INFER backend")
             self.kv_dtype = torch.float8_e4m3fn
-            logger.info('Enabling FP8 KV cache. Prefix caching will not work.')
+            logger.info("Enabling FP8 KV cache. Prefix caching will not work.")
         else:
             self.kv_dtype = dtype
 
@@ -1244,7 +1210,7 @@ class FlashCausalLM(Model):
                 num_heads=self.num_heads,
                 num_kv_heads=self.num_kv_heads,
             )
-        
+
         self.punica_wrapper = None
 
     @property
@@ -1323,9 +1289,9 @@ class FlashCausalLM(Model):
             max_batches=256,  # TODO(travis): find a better way to set this programmatically
             device=self.device,
             enabled=(
-                not self.dynamic_adapter_loading_enabled and  # only supported for now with statically loaded adapters
-                not LORAX_PUNICA_TRITON_DISABLED
-            )
+                not self.dynamic_adapter_loading_enabled  # only supported for now with statically loaded adapters
+                and not LORAX_PUNICA_TRITON_DISABLED
+            ),
         )
 
         torch.cuda.empty_cache()
@@ -1642,12 +1608,12 @@ class FlashCausalLM(Model):
         # TODO(travis): don't update this if indices haven't changed
         self.punica_wrapper.update_metadata(adapter_meta, prefill)
         adapter_data = AdapterBatchData.from_meta(
-            adapter_meta, 
-            self.layer_to_adapter_weights, 
-            self.layer_to_lora_weights, 
-            self.punica_wrapper, 
-            prefill, 
-            batch.prefill_head_indices
+            adapter_meta,
+            self.layer_to_adapter_weights,
+            self.layer_to_lora_weights,
+            self.punica_wrapper,
+            prefill,
+            batch.prefill_head_indices,
         )
 
         out, speculative_logits = self.forward(batch, adapter_data)
@@ -1734,9 +1700,7 @@ class FlashCausalLM(Model):
             indices = batch.cu_seqlen_prefill[1:] - 1
             batch.position_ids = batch.position_ids[indices]
             batch.slot_indices = batch.slot_indices[indices]
-            batch.adapter_meta.adapter_indices = batch.adapter_meta.adapter_indices[
-                indices
-            ]
+            batch.adapter_meta.adapter_indices = batch.adapter_meta.adapter_indices[indices]
 
         # Zipped iterator
         iterator = zip(
@@ -1756,9 +1720,7 @@ class FlashCausalLM(Model):
 
         # For each member of the batch
         # Cumulative length
-        cu_accepted_ids = torch.nn.functional.pad(
-            torch.cumsum(accepted_ids, dim=0), (1, 0)
-        )
+        cu_accepted_ids = torch.nn.functional.pad(torch.cumsum(accepted_ids, dim=0), (1, 0))
         cumulative_length = 0
         for i, (
             request,
@@ -1791,14 +1753,13 @@ class FlashCausalLM(Model):
                 # Only save tokens if we are done prefilling for this request
                 batch.all_input_ids_tensor[
                     i,
-                    batch.cache_lengths_tensor[i]
-                    + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
+                    batch.cache_lengths_tensor[i] + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
                     + batch.input_lengths[i]
                     + accepted_ids[i],
                 ] = next_input_ids[cu_accepted_ids[i] : cu_accepted_ids[i + 1]]
 
             cumulative_length += input_length
-        
+
         # If the device support triton, we can use a fused kernel
         if has_triton():
             copy_next_input_ids_inplace(

@@ -636,9 +636,9 @@ class FlashMistralForCausalLM(torch.nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
-        
+
         if skip_lm_head:
             return hidden_states, None
-        
+
         logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
         return logits, speculative_logits

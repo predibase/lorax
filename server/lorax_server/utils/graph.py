@@ -7,7 +7,6 @@ from functools import lru_cache
 from statistics import median
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
-from lorax_server.models.metadata_kernels import block_tables_to_ragged
 import numpy as np
 import torch
 from loguru import logger
@@ -16,7 +15,8 @@ from tqdm import tqdm
 
 from lorax_server.adapters import AdapterBatchData, AdapterBatchMetadata
 from lorax_server.adapters.lora import BatchLoraWeights, RankSegments
-from lorax_server.adapters.types import LORA, MEDUSA
+from lorax_server.adapters.types import LORA
+from lorax_server.models.metadata_kernels import block_tables_to_ragged
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.punica import BGMV_MAX_RANK, PunicaWrapper
 from lorax_server.utils.state import BLOCK_SIZE, FLASH_INFER, get_speculative_tokens
@@ -279,7 +279,7 @@ class GraphWrapper:
                 num_heads=num_heads,
                 num_kv_heads=num_kv_heads,
             )
-        
+
         meta = AdapterBatchMetadata(
             adapter_indices=max_input_state.adapter_data.meta.adapter_indices[:batch_size],
             adapter_list=max_input_state.adapter_data.meta.adapter_list,
@@ -287,10 +287,7 @@ class GraphWrapper:
             adapter_segments=max_input_state.adapter_data.meta.adapter_segments[:batch_size],
             segment_indices=max_input_state.adapter_data.meta.segment_indices,
         )
-        punica_wrapper.update_metadata(
-            meta=meta,
-            prefill=False
-        )
+        punica_wrapper.update_metadata(meta=meta, prefill=False)
 
         input_state = GraphState(
             input_ids=max_input_state.input_ids[:batch_size],
@@ -426,11 +423,8 @@ class GraphWrapper:
                 pad_and_fill(dest_rank_data.lora_b_ptr, source_rank_data.lora_b_ptr, 0)
                 pad_and_fill(dest_rank_data.indices, source_rank_data.indices, SEGMENT_PAD_VALUE)
 
-        self.input_state.adapter_data.punica_wrapper.update_metadata(
-            meta=adapter_data.meta,
-            prefill=False
-        )
-        
+        self.input_state.adapter_data.punica_wrapper.update_metadata(meta=adapter_data.meta, prefill=False)
+
         with self.forward_context(
             block_tables=self.input_state.block_tables,
             cu_seqlen_prefill=None,

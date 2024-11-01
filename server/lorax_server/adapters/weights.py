@@ -136,10 +136,10 @@ class AdapterBatchData:
             if layer_weights:
                 data[k] = layer_weights
         return AdapterBatchData(
-            meta=meta, 
-            data=data, 
-            layer_to_lora_weights=layer_to_lora_weights, 
-            punica_wrapper=punica_wrapper, 
+            meta=meta,
+            data=data,
+            layer_to_lora_weights=layer_to_lora_weights,
+            punica_wrapper=punica_wrapper,
             prefill=prefill,
         )
 

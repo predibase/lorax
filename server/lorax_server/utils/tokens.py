@@ -3,7 +3,6 @@ import warnings
 from contextlib import nullcontext
 from typing import List, Optional, Set, Tuple, Union
 
-from lorax_server.utils.state import use_ngram
 import torch
 from transformers import (
     PreTrainedTokenizerBase,
@@ -23,6 +22,7 @@ from lorax_server.utils.logits_process import (
     OutlinesLogitsProcessor,
     static_warper,
 )
+from lorax_server.utils.state import use_ngram
 from lorax_server.utils.watermark import WatermarkLogitsProcessor
 
 

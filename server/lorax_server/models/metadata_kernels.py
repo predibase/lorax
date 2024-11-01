@@ -1,17 +1,17 @@
 # From: https://github.com/huggingface/text-generation-inference/blob/main/server/text_generation_server/models/metadata_kernels.py
 
+from typing import List, Optional
+
 import torch
 import triton
-
 import triton.language as tl
-
 from loguru import logger
-from typing import List, Optional
 from torch.utils._triton import has_triton as has_triton_torch
 
 from lorax_server.utils.import_utils import (
     SYSTEM,
 )
+
 _HAS_TRITON: Optional[bool] = None
 
 
@@ -55,20 +55,16 @@ def block_tables_to_ragged(
     cache_lengths: List[int],
     input_lengths_tensor: torch.Tensor,
     cache_lengths_tensor: torch.Tensor,
-    max_current_length: int
+    max_current_length: int,
 ) -> torch.Tensor:
     """Convert block table to ragged format compatible with FlashInfer."""
     assert len(input_lengths) == len(cache_lengths)
 
     total_len = sum(input_lengths) + sum(cache_lengths)
-    block_tables_ragged = torch.empty(
-        total_len, dtype=torch.int32, device=block_tables.device
-    )
+    block_tables_ragged = torch.empty(total_len, dtype=torch.int32, device=block_tables.device)
 
     if has_triton():
-        cu_seqlen = torch.nn.functional.pad(
-            torch.cumsum(input_lengths_tensor + cache_lengths_tensor, dim=0), (1, 0)
-        )
+        cu_seqlen = torch.nn.functional.pad(torch.cumsum(input_lengths_tensor + cache_lengths_tensor, dim=0), (1, 0))
 
         def grid(meta):
             return (
@@ -85,9 +81,7 @@ def block_tables_to_ragged(
         )
     else:
         offset = 0
-        for i, (input_length, cache_length) in enumerate(
-            zip(input_lengths, cache_lengths)
-        ):
+        for i, (input_length, cache_length) in enumerate(zip(input_lengths, cache_lengths)):
             seq_len = cache_length + input_length
             block_tables_ragged[offset : offset + seq_len] = block_tables[i][:seq_len]
             offset += seq_len
@@ -154,9 +148,7 @@ def slots_filtering(
             len(slots_start),
         )
 
-    triton_slots_filtering[grid](
-        slots, filtered_slots, slots_start, cu_slots, BLOCK_SIZE=256
-    )
+    triton_slots_filtering[grid](slots, filtered_slots, slots_start, cu_slots, BLOCK_SIZE=256)
 
 
 @triton.jit
@@ -214,9 +206,7 @@ def triton_block_tables_to_padded(
     mask = (seq_start + block_arange) < seq_end
 
     blocks = tl.load(block_tables_ragged_ptr + seq_start + block_arange, mask=mask)
-    tl.store(
-        block_tables_ptr + bid * stride_block_tables + block_arange, blocks, mask=mask
-    )
+    tl.store(block_tables_ptr + bid * stride_block_tables + block_arange, blocks, mask=mask)
 
 
 @triton.jit
@@ -244,9 +234,7 @@ def triton_block_tables_to_ragged(
 
     mask = (seq_start + block_arange) < seq_end
 
-    blocks = tl.load(
-        block_tables_ptr + bid * stride_block_tables + block_arange, mask=mask
-    )
+    blocks = tl.load(block_tables_ptr + bid * stride_block_tables + block_arange, mask=mask)
     tl.store(block_tables_ragged_ptr + seq_start + block_arange, blocks, mask=mask)
 
 
@@ -290,17 +278,11 @@ def triton_copy_next_input_ids_inplace(
     mask = mask & decode_mask
 
     # Load this request next input ids
-    next_input_ids = tl.load(
-        next_input_ids_ptr + next_input_ids_start + block_arange, mask=mask
-    )
+    next_input_ids = tl.load(next_input_ids_ptr + next_input_ids_start + block_arange, mask=mask)
 
     # Store in all_input_ids, since it is a 2D tensor, apply stride * bid
     tl.store(
-        all_input_ids_ptr
-        + stride_all_input_ids * bid
-        + cache_length
-        + input_length
-        + block_arange,
+        all_input_ids_ptr + stride_all_input_ids * bid + cache_length + input_length + block_arange,
         next_input_ids,
         mask=mask,
     )
