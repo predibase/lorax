@@ -408,9 +408,17 @@ impl Infer {
         let mut result_start = None;
         let mut result_queued = None;
 
+        tracing::info!("Waiting for response");
+
+        let mut id = None;
+
         // Iterate on stream
         while let Some(response) = stream.next().await {
             match response? {
+                InferStreamResponse::Register { id_val } => {
+                    id = Some(id_val);
+                    tracing::info!("Register response id={id:?}");
+                }
                 // Add prefill tokens
                 InferStreamResponse::Prefill {
                     tokens,
@@ -428,9 +436,13 @@ impl Infer {
                             .collect();
                     }
                     result_prefill_length = tokens_length;
+                    tracing::info!("Prefill response id={id:?}");
                 }
                 // Push last token
-                InferStreamResponse::Token(token) => result_tokens.push(token),
+                InferStreamResponse::Token(token) => {
+                    tracing::info!("Token response id={id:?}");
+                    result_tokens.push(token)
+                }
                 // Final message
                 // Set return values
                 InferStreamResponse::End {
@@ -439,6 +451,7 @@ impl Infer {
                     start,
                     queued,
                 } => {
+                    tracing::info!("End response id={id:?}");
                     result_tokens.push(token);
                     result_generated_text = Some(generated_text);
                     result_start = Some(start);
@@ -454,6 +467,8 @@ impl Infer {
                 }
             }
         }
+
+        tracing::info!("Finished response id={id:?}");
 
         // Check that we received a `InferStreamResponse::End` message
         if let (Some(generated_text), Some(queued), Some(start)) =
@@ -564,6 +579,9 @@ impl Infer {
         let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
+                InferStreamResponse::Register { .. } => {
+                    tracing::error!("Received a Register message in embed. This is a bug.");
+                }
                 // Add prefill tokens
                 InferStreamResponse::Prefill { .. } => {
                     tracing::error!("Received a Prefill message in embed. This is a bug.");
@@ -667,6 +685,9 @@ impl Infer {
         let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
+                InferStreamResponse::Register { .. } => {
+                    tracing::error!("Received a Register message in classify. This is a bug.");
+                }
                 // Add prefill tokens
                 InferStreamResponse::Prefill { .. } => {
                     tracing::error!("Received a Prefill message in classify. This is a bug.");
@@ -1350,7 +1371,8 @@ fn send_responses(
 ) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is closed
     if entry.response_tx.is_closed() {
-        tracing::error!("Entry response channel closed.");
+        let id = generation.request_id;
+        tracing::error!("Entry id={id:?} response channel closed.");
         metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
         return Ok(true);
     }
@@ -1497,6 +1519,9 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
 #[derive(Debug)]
 pub(crate) enum InferStreamResponse {
     // Optional first message
+    Register {
+        id_val: u64,
+    },
     Prefill {
         tokens: Option<PrefillTokens>,
         tokens_length: u32,

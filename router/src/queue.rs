@@ -9,7 +9,7 @@ use std::{
 use tokio::{sync::Notify, time::Instant};
 use tracing::info_span;
 
-use crate::{adapter::Adapter, batch::Entry};
+use crate::{adapter::Adapter, batch::Entry, infer::InferStreamResponse};
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum AdapterStatus {
@@ -73,6 +73,11 @@ impl QueueState {
         // Create a span that will live as long as the entry is in the queue waiting to be batched
         let queue_span = info_span!(parent: &entry.span, "queued");
         entry.temp_span = Some(queue_span);
+
+        entry
+            .response_tx
+            .send(Ok(InferStreamResponse::Register { id_val: entry_id }))
+            .unwrap();
 
         // Push entry in the queue
         self.entries.push_back((entry_id, entry));
@@ -214,8 +219,11 @@ impl AdapterQueuesState {
 
         // ensure that append completes before sending batcher message
         let queue = self.queue_map.get_mut(&adapter).unwrap();
+        let id = self.next_id;
         queue.append(self.next_id, entry);
         self.next_id += 1;
+
+        tracing::info!("append entry id={:?} adapter={:?}", id, adapter.index());
 
         return download;
     }
