@@ -1540,6 +1540,7 @@ pub async fn run(
     // Create router
     let base_routes = Router::new()
         // Base routes
+        .route("/", post(compat_generate))
         .route("/generate", post(generate))
         .route("/embed", post(embed))
         .route("/classify", post(classify))
@@ -1551,7 +1552,6 @@ pub async fn run(
         .route("/invocations", post(compat_generate));
 
     let info_routes = Router::new()
-        // Inference API health route
         .route("/", get(health))
         // Base Health route
         .route("/health", get(health))
@@ -1595,7 +1595,7 @@ pub async fn run(
             let _ngrok_username = ngrok_username;
             let _ngrok_password = ngrok_password;
 
-            panic!("`text-generation-router` was compiled without the `ngrok` feature");
+            panic!("`lorax-router` was compiled without the `ngrok` feature");
         }
     } else {
         // Run server
