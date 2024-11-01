@@ -26,7 +26,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{http, Json, Router};
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 use futures::stream::StreamExt;
 use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
@@ -1292,8 +1291,8 @@ pub async fn run(
     cors_expose_headers: Option<ExposeHeaders>,
     tokenizer_config: HubTokenizerConfig,
     ngrok: bool,
-    ngrok_authtoken: Option<String>,
-    ngrok_edge: Option<String>,
+    _ngrok_authtoken: Option<String>,
+    _ngrok_edge: Option<String>,
     adapter_source: String,
     eager_prefill: bool,
     prefix_caching: bool,

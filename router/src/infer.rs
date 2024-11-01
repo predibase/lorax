@@ -27,7 +27,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
 use thiserror::Error;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::error::SendError;
