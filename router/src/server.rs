@@ -553,99 +553,16 @@ async fn health(
     infer: Extension<Infer>,
     health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    if health.shard_info().supports_classification {
-        let classify_request = ClassifyRequest {
-            inputs: "San Francisco".to_string(),
-        };
-        match infer.classify(classify_request).await {
-            Ok(_) => {}
-            Err(error) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: error.to_string(),
-                        error_type: error.error_type().to_string(),
-                    }),
-                ));
-            }
-        }
-    }
-    if health.shard_info().supports_embeddings {
-        let embed_request = EmbedRequest {
-            inputs: "San Francisco".to_string(),
-            parameters: EmbedParameters {
-                adapter_id: None,
-                adapter_source: None,
-                adapter_parameters: None,
-                api_token: None,
-            },
-        };
-        match infer.embed(embed_request).await {
-            Ok(_) => {}
-            Err(error) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: error.to_string(),
-                        error_type: error.error_type().to_string(),
-                    }),
-                ));
-            }
-        }
-    }
-    if health.shard_info().supports_generation {
-        let generate_request = GenerateRequest {
-            inputs: "Who?".to_string(),
-            parameters: GenerateParameters {
-                adapter_id: None,
-                adapter_source: None,
-                adapter_parameters: None,
-                api_token: None,
-                best_of: None,
-                temperature: None,
-                top_k: None,
-                top_p: None,
-                typical_p: None,
-                do_sample: false,
-                seed: None,
-                repetition_penalty: None,
-                watermark: false,
-                return_full_text: None,
-                stop: vec![],
-                truncate: None,
-                details: false,
-                decoder_input_details: false,
-                return_k_alternatives: None,
-                apply_chat_template: false,
-                response_format: None,
-                max_new_tokens: Some(1),
-                ignore_eos_token: false,
-            },
-        };
-        match infer.generate(generate_request).await {
-            Ok(response) => {
-                if response.generated_text.text.len() == 0 {
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: "Empty generation".to_string(),
-                            error_type: "failed healthcheck".to_string(),
-                        }),
-                    ));
-                }
-            }
-            Err(error) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: error.to_string(),
-                        error_type: error.error_type().to_string(),
-                    }),
-                ));
-            }
-        }
-    }
-    Ok(())
+    match health.check().await {
+      true => Ok(()),
+      false => Err((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ErrorResponse {
+            error: "unhealthy".to_string(),
+            error_type: "healthcheck".to_string(),
+        }),
+    )),    
+  }
 }
 
 /// Generate tokens
