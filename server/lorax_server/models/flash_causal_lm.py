@@ -1627,7 +1627,7 @@ class FlashCausalLM(Model):
                 lm_head_indices=batch.prefill_head_indices,
             )
 
-            if skip_lm_head:
+            if skip_lm_head and hasattr(self.model, "lm_head"):
                 # re-run through the LM head as the graph did not capture it
                 out = self.model.lm_head(out[0], adapter_data)
 
