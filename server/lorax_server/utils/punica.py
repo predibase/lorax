@@ -27,9 +27,9 @@ except ImportError:
     HAS_SGMV = False
 
 
-LORAX_PUNICA_TRION_DISABLED = bool(os.environ.get("LORAX_PUNICA_TRION_DISABLED", ""))
-if LORAX_PUNICA_TRION_DISABLED:
-    logger.info("LORAX_PUNICA_TRION_DISABLED is set, disabling Punica Trion kernels.")
+LORAX_PUNICA_TRITON_DISABLED = bool(os.environ.get("LORAX_PUNICA_TRITON_DISABLED", ""))
+if LORAX_PUNICA_TRITON_DISABLED:
+    logger.info("LORAX_PUNICA_TRITON_DISABLED is set, disabling Punica Trion kernels.")
 
 
 MIN_SGMV_RANK = 8

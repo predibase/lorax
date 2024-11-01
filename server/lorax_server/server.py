@@ -23,7 +23,7 @@ from lorax_server.utils.adapter import (
     enum_string_to_adapter_source,
     is_base_model,
 )
-from lorax_server.utils.punica import LORAX_PUNICA_TRION_DISABLED, has_sgmv
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, has_sgmv
 from lorax_server.utils.state import set_max_prefill_tokens, set_speculative_tokens
 
 
@@ -424,7 +424,7 @@ def serve(
         await server.start()
 
         # Log SGMV kernel status
-        if not LORAX_PUNICA_TRION_DISABLED and not model.dynamic_adapter_loading_enabled:
+        if not LORAX_PUNICA_TRITON_DISABLED and not model.dynamic_adapter_loading_enabled:
             logger.info("Trion kernel is enabled, multi-LoRA inference will be fast!")
         if has_sgmv():
             logger.info("SGMV kernel is enabled, multi-LoRA inference will be fast!")

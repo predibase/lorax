@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Type, TypeVar
 
 from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.medusa_lora import MedusaLoraWeights
-from lorax_server.utils.punica import pad_to_min_rank
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, pad_to_min_rank
 import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
@@ -266,6 +266,10 @@ class Model(ABC):
             }
         )
         self.preloaded_adapters.extend(preloaded_adapters)
+
+        if LORAX_PUNICA_TRITON_DISABLED:
+            # Following code is only applicable to Triton kernels
+            return
 
         # For Triton kernels: need weights into contiguous tensor
         # dict of (layer_name, layer_id) -> (lora_a_weights, lora_b_weights)

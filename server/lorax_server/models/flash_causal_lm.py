@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ContextManager, Dict, List, Optional, Tuple, Type, Union
 
-from lorax_server.utils.punica import LORAX_PUNICA_TRION_DISABLED, PunicaWrapper
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, PunicaWrapper
 import numpy as np
 import torch
 import torch.distributed
@@ -1338,7 +1338,7 @@ class FlashCausalLM(Model):
             device=self.device,
             enabled=(
                 not self.dynamic_adapter_loading_enabled and  # only supported for now with statically loaded adapters
-                not LORAX_PUNICA_TRION_DISABLED
+                not LORAX_PUNICA_TRITON_DISABLED
             )
         )
 
