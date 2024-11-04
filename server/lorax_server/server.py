@@ -58,13 +58,10 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         return generate_pb2.ServiceDiscoveryResponse(urls=self.server_urls)
 
     async def ClearCache(self, request, context):
-        try:
-            if request.HasField("id"):
-                self.cache.delete(request.id)
-            else:
-                self.cache.clear()
-        except Exception:
-            exit(1)
+        if request.HasField("id"):
+            self.cache.delete(request.id)
+        else:
+            self.cache.clear()
 
         return generate_pb2.ClearCacheResponse()
 
