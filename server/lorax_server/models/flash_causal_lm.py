@@ -388,9 +388,6 @@ class FlashCausalLMBatch(Batch):
     def filter(self, request_ids: List[int]) -> "FlashCausalLMBatch":
         if len(request_ids) == 0:
             raise ValueError("Batch must have at least one request")
-        # We assume that if len(requests) == len(self) then the requests are the same
-        if len(request_ids) == len(self):
-            return self
 
         device = self.block_tables_tensor.device
 
@@ -1487,14 +1484,14 @@ class FlashCausalLM(Model):
             arange_int = arange.to(dtype=torch.int32)
             new_position_ids = (position_ids.unsqueeze(-1).expand(B, new_length) + arange).view(-1)
 
+            input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
+            cache_lengths_tensor = (batch.cache_lengths_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
+
             # Slots can be discontiguous when prefix caching is enabled, so we need to expand the slot_indices,
             # then update the slots with the additional indices to ensure we're grabbing the ones that have been
             # allocated
             slot_indices = (batch.slot_indices.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
             slots = batch.slots[slot_indices]
-
-            input_lengths = (input_lengths.unsqueeze(-1).expand(B, new_length) + arange_int).view(-1)
-            cache_lengths_tensor = (batch.cache_lengths_tensor.unsqueeze(-1).expand(B, new_length)).reshape(-1)
 
             block_tables = block_tables.unsqueeze(1).expand(B, new_length, -1).reshape(B * new_length, -1).contiguous()
             max_s = max_s + speculative_length

@@ -408,8 +408,6 @@ impl Infer {
         let mut result_start = None;
         let mut result_queued = None;
 
-        tracing::info!("Waiting for response");
-
         let mut id = None;
 
         // Iterate on stream
@@ -417,7 +415,6 @@ impl Infer {
             match response? {
                 InferStreamResponse::Register { id_val } => {
                     id = Some(id_val);
-                    tracing::info!("Register response id={id:?}");
                 }
                 // Add prefill tokens
                 InferStreamResponse::Prefill {
@@ -436,13 +433,9 @@ impl Infer {
                             .collect();
                     }
                     result_prefill_length = tokens_length;
-                    tracing::info!("Prefill response id={id:?}");
                 }
                 // Push last token
-                InferStreamResponse::Token(token) => {
-                    tracing::info!("Token response id={id:?}");
-                    result_tokens.push(token)
-                }
+                InferStreamResponse::Token(token) => result_tokens.push(token),
                 // Final message
                 // Set return values
                 InferStreamResponse::End {
@@ -451,7 +444,6 @@ impl Infer {
                     start,
                     queued,
                 } => {
-                    tracing::info!("End response id={id:?}");
                     result_tokens.push(token);
                     result_generated_text = Some(generated_text);
                     result_start = Some(start);
@@ -467,8 +459,6 @@ impl Infer {
                 }
             }
         }
-
-        tracing::info!("Finished response id={id:?}");
 
         // Check that we received a `InferStreamResponse::End` message
         if let (Some(generated_text), Some(queued), Some(start)) =
@@ -1124,10 +1114,10 @@ pub(crate) async fn prefill(
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries);
+            let removed = filter_send_generations(generations, entries);
 
             // Filter next batch and remove requests that were stopped
-            let next_batch = filter_batch(client, next_batch, entries).await;
+            let next_batch = filter_batch(client, next_batch, entries, removed).await;
 
             // TODO(travis)
             // if let Some(concat_duration) = timings.concat {
@@ -1167,10 +1157,10 @@ pub(crate) async fn decode(
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries);
+            let removed = filter_send_generations(generations, entries);
 
             // Filter next batch and remove requests that were stopped
-            let next_batch = filter_batch(client, next_batch, entries).await;
+            let next_batch = filter_batch(client, next_batch, entries, removed).await;
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "decode");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "decode");
@@ -1308,11 +1298,12 @@ async fn filter_batch(
     client: &mut ShardedClient,
     next_batch: Option<CachedBatch>,
     entries: &IntMap<u64, Entry>,
+    removed: bool,
 ) -> Option<CachedBatch> {
     let mut batch = next_batch?;
 
-    // No need to filter
-    if batch.size as usize == entries.len() {
+    // No need to filter is we haven't removed any entries
+    if !removed {
         return Some(batch);
     }
 
@@ -1338,12 +1329,12 @@ async fn filter_batch(
 /// Send one or multiple `InferStreamResponse` to Infer for all `entries`
 /// and filter entries
 #[instrument(skip_all)]
-fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) {
+fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) -> bool {
+    let mut removed = false;
     generations.into_iter().for_each(|generation| {
         let id = generation.request_id;
         // Get entry
         // We can `expect` here as the request id should always be in the entries
-        tracing::info!("!!! filter_send_generations id={id:?}");
         let entry = entries
             .get(&id)
             .expect("ID not found in entries. This is a bug.");
@@ -1358,10 +1349,11 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
             metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
         }).unwrap_or(true);
         if stopped {
-            tracing::info!("!!! filter_send_generations::remove entry id={id:?}");
             entries.remove(&id).expect("ID not found in entries. This is a bug.");
+            removed = true;
         }
     });
+    removed
 }
 
 /// Send responses through the `entry` response channel
@@ -1370,9 +1362,9 @@ fn send_responses(
     entry: &Entry,
 ) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is closed
+    let request_id = generation.request_id;
     if entry.response_tx.is_closed() {
-        let id = generation.request_id;
-        tracing::error!("Entry id={id:?} response channel closed.");
+        tracing::error!("Entry id={request_id:?} response channel closed.");
         metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
         return Ok(true);
     }
@@ -1432,9 +1424,6 @@ fn send_responses(
 
         match (&generation.generated_text, iterator.peek()) {
             (Some(generated_text), None) => {
-                tracing::info!(
-                    "!!! send_responses::generation_ended id={id:?} generated_text={generated_text:?}"
-                );
                 // Generation has ended
                 stopped = true;
                 // Send message
