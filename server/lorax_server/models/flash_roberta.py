@@ -210,11 +210,11 @@ class FlashXlmRoberta(Model):
     @tracer.start_as_current_span("embed")
     def embed(self, batch: FlashEmbeddingClassificationBatch) -> Embedding:
         adapter_data = AdapterBatchData.from_meta(
-            meta=batch.adapter_meta, 
-            weights=self.layer_to_adapter_weights, 
+            meta=batch.adapter_meta,
+            weights=self.layer_to_adapter_weights,
             layer_to_lora_weights={},
             punica_wrapper=None,
-            prefill=False, 
+            prefill=False,
             prefill_head_indices=None,
         )
 
