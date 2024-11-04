@@ -78,7 +78,7 @@ class LoraLinear(nn.Module):
 
         # Triton Punica kernels
         if (
-            adapter_data.punica_wrapper.enabled
+            adapter_data.punica_wrapper is not None and adapter_data.punica_wrapper.enabled
             and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size
             and can_vectorize
         ):
