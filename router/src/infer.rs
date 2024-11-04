@@ -408,14 +408,9 @@ impl Infer {
         let mut result_start = None;
         let mut result_queued = None;
 
-        let mut id = None;
-
         // Iterate on stream
         while let Some(response) = stream.next().await {
             match response? {
-                InferStreamResponse::Register { id_val } => {
-                    id = Some(id_val);
-                }
                 // Add prefill tokens
                 InferStreamResponse::Prefill {
                     tokens,
@@ -569,9 +564,6 @@ impl Infer {
         let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
-                InferStreamResponse::Register { .. } => {
-                    tracing::error!("Received a Register message in embed. This is a bug.");
-                }
                 // Add prefill tokens
                 InferStreamResponse::Prefill { .. } => {
                     tracing::error!("Received a Prefill message in embed. This is a bug.");
@@ -675,9 +667,6 @@ impl Infer {
         let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
-                InferStreamResponse::Register { .. } => {
-                    tracing::error!("Received a Register message in classify. This is a bug.");
-                }
                 // Add prefill tokens
                 InferStreamResponse::Prefill { .. } => {
                     tracing::error!("Received a Prefill message in classify. This is a bug.");
@@ -1508,9 +1497,6 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
 #[derive(Debug)]
 pub(crate) enum InferStreamResponse {
     // Optional first message
-    Register {
-        id_val: u64,
-    },
     Prefill {
         tokens: Option<PrefillTokens>,
         tokens_length: u32,

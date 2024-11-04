@@ -74,11 +74,6 @@ impl QueueState {
         let queue_span = info_span!(parent: &entry.span, "queued");
         entry.temp_span = Some(queue_span);
 
-        entry
-            .response_tx
-            .send(Ok(InferStreamResponse::Register { id_val: entry_id }))
-            .unwrap();
-
         // Push entry in the queue
         self.entries.push_back((entry_id, entry));
     }
@@ -222,8 +217,6 @@ impl AdapterQueuesState {
         let id = self.next_id;
         queue.append(self.next_id, entry);
         self.next_id += 1;
-
-        tracing::info!("append entry id={:?} adapter={:?}", id, adapter.index());
 
         return download;
     }

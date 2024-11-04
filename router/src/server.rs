@@ -1062,11 +1062,6 @@ async fn generate_stream_with_callback(
                             match response {
                                 Ok(response) => {
                                     match response {
-                                        InferStreamResponse::Register {
-                                            ..
-                                        } => {
-                                            // Register is ignored
-                                        }
                                         // Prefill is ignored
                                         InferStreamResponse::Prefill {
                                             tokens_length,
