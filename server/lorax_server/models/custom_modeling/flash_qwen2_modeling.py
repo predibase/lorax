@@ -588,8 +588,18 @@ class FlashQwen2ForEmbeddings(torch.nn.Module):
             prefill_cache_indices,
             adapter_data,
         )
-        batch_size = hidden_states.shape[0] // max_s
-        hidden_states = hidden_states.reshape(batch_size, max_s, -1)
-        mean_hidden_states = hidden_states.mean(1)
-        embeddings = nn.functional.linear(mean_hidden_states, self.output_weight, self.output_bias)
+        # Get cumulative sequence lengths
+        seq_lens = seqlen.input_lengths
+
+        # Create index tensor for scatter operation
+        batch_indices = torch.arange(len(seq_lens), device=hidden_states.device)
+        batch_indices = batch_indices.repeat_interleave(seq_lens)
+        # Compute mean using scatter operation
+        embeddings = torch.zeros(
+            (len(seq_lens), hidden_states.shape[1]), dtype=hidden_states.dtype, device=hidden_states.device
+        )
+        embeddings.scatter_add_(0, batch_indices.unsqueeze(1).expand(-1, hidden_states.shape[1]), hidden_states)
+        embeddings = embeddings / seq_lens.unsqueeze(1)
+
+        embeddings = nn.functional.linear(embeddings, self.output_weight, self.output_bias)
         return embeddings, None

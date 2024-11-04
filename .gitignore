@@ -4,3 +4,4 @@ router/tokenizer.json
 *__pycache__*
 run.sh
 data/
+.vscode/

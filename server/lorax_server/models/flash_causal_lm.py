@@ -958,13 +958,13 @@ class FlashCausalLM(Model):
         config.quantize = quantize
 
         if is_fp8(config.quantize) and not is_fp8_supported():
-            raise ValueError('FP8 quantization is only supported on hardware that supports FP8')
+            raise ValueError("FP8 quantization is only supported on hardware that supports FP8")
 
         if is_fp8_kv(config.quantize):
             if not FLASH_INFER:
-                raise ValueError('FP8 KV cache requires FLASH_INFER backend')
+                raise ValueError("FP8 KV cache requires FLASH_INFER backend")
             self.kv_dtype = torch.float8_e4m3fn
-            logger.info('Enabling FP8 KV cache. Prefix caching will not work.')
+            logger.info("Enabling FP8 KV cache. Prefix caching will not work.")
         else:
             self.kv_dtype = dtype
 
@@ -1155,6 +1155,35 @@ class FlashCausalLM(Model):
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
+    def warmup_embedding_model(self, batch: FlashCausalLMBatch):
+        prefill = batch.prefilling
+        if prefill:
+            batch.prepare_for_prefill()
+        prefill_logprobs = batch.prefill_next_token_indices is not None
+        return_alternatives = any(req.parameters.return_k_alternatives > 0 for req in batch.requests)
+
+        # Update adapter indices for speculative tokens (if present)
+        adapter_meta = batch.adapter_meta
+        if batch.speculative_ids is not None:
+            B, speculative_length = batch.speculative_ids.shape
+            new_length = speculative_length + 1
+            adapter_indices = adapter_meta.adapter_indices.unsqueeze(-1).expand(B, new_length).reshape(-1)
+            adapter_segments = adapter_meta.adapter_segments * new_length
+            adapter_meta = AdapterBatchMetadata(
+                adapter_indices=adapter_indices,
+                adapter_set=adapter_meta.adapter_set,
+                adapter_segments=adapter_segments,
+                segment_indices=adapter_meta.segment_indices,
+            )
+
+        # Assign pointers to adapter weights
+        # TODO(travis): don't update this if indices haven't changed
+        adapter_data = AdapterBatchData.from_meta(
+            adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+        )
+
+        out, speculative_logits = self.forward(batch, adapter_data)
+
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
         # The warmup batch is the biggest batch we could ever receive
         max_total_tokens = batch.max_input_length + max_new_tokens + get_speculative_tokens()
@@ -1170,8 +1199,10 @@ class FlashCausalLM(Model):
                 self.device,
             )
 
-            if not embedding_model:
-                with warmup_mode():
+            with warmup_mode():
+                if embedding_model:
+                    self.warmup_embedding_model(batch)
+                else:
                     logger.info("Warming up to max_new_tokens: {}", max_new_tokens)
                     with tqdm(total=max_new_tokens, desc="Warmup to max_total_tokens") as pbar:
                         for _ in range(max_new_tokens):
@@ -1643,6 +1674,7 @@ class FlashCausalLM(Model):
                 device=batch.adapter_meta.adapter_segments.device,
             )
 
+        breakpoint()
         # GPU <-> CPU sync
         next_token_logprobs = next_token_logprobs.tolist()
         next_token_ids = next_input_ids.tolist()

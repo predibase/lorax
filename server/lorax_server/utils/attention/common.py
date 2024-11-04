@@ -21,6 +21,10 @@ class Seqlen:
         max_q=None,
         max_k=None,
     ):
+        breakpoint()
+        print("2")
+        print(input_lengths, cache_lengths)
+
         self.input_lengths = input_lengths
         self.cache_lengths = cache_lengths
         device = self.input_lengths.device
