@@ -596,9 +596,11 @@ class CausalLM(Model):
         # TODO(travis): don't update this if indices haven't changed
         # Use prefill=True in all cases to force use of SGMV, as the batch is heterogenous
         adapter_data = AdapterBatchData.from_meta(
-            batch.adapter_meta,
-            self.layer_to_adapter_weights,
-            prefill=True,
+            meta=batch.adapter_meta, 
+            weights=self.layer_to_adapter_weights, 
+            layer_to_lora_weights={},
+            punica_wrapper=None,
+            prefill=True, 
             prefill_head_indices=None,
         )
 
