@@ -81,7 +81,7 @@ def use_prefill_with_paged_kv_state(
             head_dim=head_size,
             q_data_type=dtype,
             page_size=page_size,
-            # window_left=window_left, # TODO
+            window_left=window_left,
         )
         yield
     finally:

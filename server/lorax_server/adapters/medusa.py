@@ -3,14 +3,15 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
 import torch
 import torch.distributed
+from loguru import logger
 
 from lorax_server.adapters.config import AdapterConfig, ModuleMap
 from lorax_server.adapters.types import MEDUSA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights
 from lorax_server.layers import FastLinear, TensorParallelColumnLinear
+from lorax_server.utils.punica import segmented_matmul
 from lorax_server.utils.segments import find_segments
-from lorax_server.utils.sgmv import segmented_matmul
-from lorax_server.utils.state import get_speculative_tokens
+from lorax_server.utils.state import LORAX_SPECULATION_MAX_BATCH_SIZE, get_speculative_tokens
 from lorax_server.utils.weights import AbstractWeights, InMemoryWeights
 
 if TYPE_CHECKING:
@@ -159,7 +160,8 @@ class MedusaV2(torch.nn.Module):
 
     def forward(self, x, lm_head, segments: Optional[MedusaSegments] = None):
         # If we have too many tokens, we skip speculative logits
-        if x.shape[0] > 128:
+        if x.shape[0] > LORAX_SPECULATION_MAX_BATCH_SIZE:
+            logger.info(f"Skipping speculation at batch size = {x.shape[0]}")
             logits = lm_head(x)
             return logits, None
 
@@ -311,11 +313,19 @@ class BatchMedusaWeights(BatchAdapterWeights):
             default_medusa=default_medusa,
             segments=MedusaSegments(
                 w=[
-                    (adapter_weights[idx].model.medusa.linear.linear.weight if idx in adapter_weights else EMPTY_TENSOR)
+                    (
+                        adapter_weights[idx].model.medusa.linear.linear.weight.data
+                        if idx in adapter_weights
+                        else EMPTY_TENSOR
+                    )
                     for idx in segment_indices
                 ],
                 b=[
-                    (adapter_weights[idx].model.medusa.linear.linear.bias if idx in adapter_weights else EMPTY_TENSOR)
+                    (
+                        adapter_weights[idx].model.medusa.linear.linear.bias.data
+                        if idx in adapter_weights
+                        else EMPTY_TENSOR
+                    )
                     for idx in segment_indices
                 ],
                 s_start=segments[indices],

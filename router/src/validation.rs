@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::iter;
 use thiserror::Error;
 use tokenizers::tokenizer::Tokenizer;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{instrument, Span};
 use {once_cell::sync::Lazy, regex::Regex};
 
@@ -25,7 +25,7 @@ pub struct Validation {
     max_input_length: usize,
     max_total_tokens: usize,
     /// Channel to communicate with the background tokenization task
-    sender: Option<flume::Sender<TokenizerRequest>>,
+    sender: Option<mpsc::UnboundedSender<TokenizerRequest>>,
 }
 
 impl Validation {
@@ -41,15 +41,17 @@ impl Validation {
     ) -> Self {
         // If we have a fast tokenizer
         let sender = if let Some(tokenizer) = tokenizer {
-            // Create channel
-            let (validation_sender, validation_receiver) = flume::unbounded();
+            // Create round robin channel
+            let (validation_sender, validation_round_robin_receiver) = mpsc::unbounded_channel();
+            let mut senders = Vec::with_capacity(workers);
 
             // Create workers
             for _ in 0..workers {
                 let tokenizer_clone = tokenizer.clone();
                 let config_clone = config.clone();
                 let preprocessor_config_clone = preprocessor_config.clone();
-                let receiver_clone = validation_receiver.clone();
+                let (tokenizer_sender, tokenizer_receiver) = mpsc::unbounded_channel();
+                senders.push(tokenizer_sender);
 
                 // Spawn worker
                 tokio::task::spawn_blocking(move || {
@@ -57,10 +59,14 @@ impl Validation {
                         tokenizer_clone,
                         config_clone,
                         preprocessor_config_clone,
-                        receiver_clone,
+                        tokenizer_receiver,
                     )
                 });
             }
+
+            // Create tokenization round robin task
+            tokio::spawn(round_robin_task(validation_round_robin_receiver, senders));
+
             Some(validation_sender)
         } else {
             None
@@ -390,15 +396,30 @@ impl Validation {
     }
 }
 
+/// Round robin tokenization task
+async fn round_robin_task(
+    mut receiver: mpsc::UnboundedReceiver<TokenizerRequest>,
+    senders: Vec<mpsc::UnboundedSender<TokenizerRequest>>,
+) {
+    loop {
+        for sender in &senders {
+            match receiver.recv().await {
+                None => return,
+                Some(request) => sender.send(request).unwrap(),
+            };
+        }
+    }
+}
+
 /// Start tokenization workers
 fn tokenizer_worker(
     tokenizer: Tokenizer,
     config: Option<Config>,
     preprocessor_config: Option<HubPreprocessorConfig>,
-    receiver: flume::Receiver<TokenizerRequest>,
+    mut receiver: mpsc::UnboundedReceiver<TokenizerRequest>,
 ) {
     // Loop over requests
-    while let Ok(((inputs, truncate), response_tx, parent_span)) = receiver.recv() {
+    while let Some(((inputs, truncate), response_tx, parent_span)) = receiver.blocking_recv() {
         parent_span.in_scope(|| {
             response_tx
                 .send(prepare_input(

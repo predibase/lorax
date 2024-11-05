@@ -209,7 +209,14 @@ class FlashXlmRoberta(Model):
 
     @tracer.start_as_current_span("embed")
     def embed(self, batch: FlashEmbeddingClassificationBatch) -> Embedding:
-        adapter_data = AdapterBatchData.from_meta(batch.adapter_meta, self.layer_to_adapter_weights, False, None)
+        adapter_data = AdapterBatchData.from_meta(
+            meta=batch.adapter_meta,
+            weights=self.layer_to_adapter_weights,
+            layer_to_lora_weights={},
+            punica_wrapper=None,
+            prefill=False,
+            prefill_head_indices=None,
+        )
 
         with self._forward_context(cu_seqlens=batch.cu_seqlens):
             embedding: torch.Tensor = self.model.forward(

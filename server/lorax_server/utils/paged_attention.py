@@ -48,7 +48,7 @@ def reshape_and_cache(
     elif SYSTEM == "xpu":
         ipex.llm.modules.PagedAttention.reshape_and_cache(key, value, key_cache, value_cache, slots)
     else:
-        torch.ops._C_cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, 'auto', 1.0, 1.0)
+        torch.ops._C_cache_ops.reshape_and_cache(key, value, key_cache, value_cache, slots, "auto", 1.0, 1.0)
 
 
 def attention(
@@ -138,7 +138,7 @@ def attention(
             block_size,
             max_s,
             None,
-            'auto',
+            "auto",
             1.0,
             1.0,
         )
@@ -172,7 +172,7 @@ def attention(
             block_size,
             max_s,
             None,
-            'auto',
+            "auto",
             1.0,
             1.0,
         )

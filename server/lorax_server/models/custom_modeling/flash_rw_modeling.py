@@ -592,6 +592,7 @@ class FlashRWForCausalLM(FlashRWPreTrainedModel):
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
+        skip_lm_head: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.transformer(
             input_ids,
@@ -605,5 +606,9 @@ class FlashRWForCausalLM(FlashRWPreTrainedModel):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
+
+        if skip_lm_head:
+            return hidden_states, None
+
         logits = self.lm_head(hidden_states)
         return logits, None

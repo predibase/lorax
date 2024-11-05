@@ -12,7 +12,7 @@ use lorax_client::{
     StoppingCriteriaParameters, TokenizedInputs,
 };
 use nohash_hasher::{BuildNoHashHasher, IntMap};
-use tokio::time::Instant;
+use tokio::{sync::mpsc, time::Instant};
 use tracing::{Instrument, Span};
 
 use crate::{
@@ -22,6 +22,7 @@ use crate::{
 };
 
 pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
+    fn decoder_input_details(&self) -> bool;
     fn input_length(&self) -> u32;
     fn input_ids(&self) -> Option<Arc<Vec<u32>>>;
     fn max_new_tokens(&self) -> u32;
@@ -31,6 +32,10 @@ pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
 }
 
 impl ValidRequest for ValidGenerateRequest {
+    fn decoder_input_details(&self) -> bool {
+        self.decoder_input_details
+    }
+
     fn input_length(&self) -> u32 {
         self.input_length
     }
@@ -69,6 +74,10 @@ pub(crate) struct ValidEmbedRequest {
 }
 
 impl ValidRequest for ValidEmbedRequest {
+    fn decoder_input_details(&self) -> bool {
+        false
+    }
+
     fn input_length(&self) -> u32 {
         self.input_length
     }
@@ -107,6 +116,10 @@ pub(crate) struct ValidClassifyRequest {
 }
 
 impl ValidRequest for ValidClassifyRequest {
+    fn decoder_input_details(&self) -> bool {
+        false
+    }
+
     fn input_length(&self) -> u32 {
         self.input_length
     }
@@ -154,7 +167,7 @@ pub(crate) struct Entry {
     /// Request
     pub request: Arc<dyn ValidRequest>,
     /// Response sender to communicate between the Infer struct and the batching_task
-    pub response_tx: flume::Sender<Result<InferStreamResponse, InferError>>,
+    pub response_tx: mpsc::UnboundedSender<Result<InferStreamResponse, InferError>>,
     /// Span that will live as long as entry
     pub span: Span,
     /// Temporary span used as a guard when logging inference, wait times...

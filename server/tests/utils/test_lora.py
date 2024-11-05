@@ -9,7 +9,7 @@ from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights, LayerAdapterWeights
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
+from lorax_server.utils.punica import MIN_RANK_CUSTOM
 
 
 class FakeAdapterWeights(AdapterWeights):
@@ -74,6 +74,7 @@ def test_batched_lora_weights(lora_ranks: List[int]):
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int64),
+        adapter_list=[0, 1, 0, 1],
         adapter_set={0, 1},
         adapter_segments=torch.tensor([0, 2, 4, 6, 8], dtype=torch.int64),
         segment_indices=[0, 1, 0, 1],
@@ -149,6 +150,7 @@ def test_batched_lora_weights_decode(
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor(adapter_indices, dtype=torch.int64),
+        adapter_list=adapter_indices,
         adapter_set=set(adapter_indices),
         adapter_segments=torch.tensor(segments, dtype=torch.int64),
         segment_indices=segment_indices,
@@ -193,7 +195,8 @@ def test_batched_lora_weights_no_segments():
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 0, 0], dtype=torch.int64),
-        adapter_set={0, 1},
+        adapter_list=[0],
+        adapter_set={0},
         adapter_segments=torch.tensor([0, 4], dtype=torch.int64),
         segment_indices=[0],
     )

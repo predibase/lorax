@@ -178,6 +178,7 @@ class LlavaNextForConditionalGeneration(nn.Module):
         pixel_attention_mask=None,
         image_sizes: Optional[torch.LongTensor] = None,
         adapter_data: Optional["AdapterBatchData"] = None,
+        skip_lm_head: bool = False,
     ):
         inputs_embeds = self.text_model.embed_tokens(input_ids)
         if pixel_values is not None and len(pixel_values) > 0:
@@ -264,5 +265,9 @@ class LlavaNextForConditionalGeneration(nn.Module):
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
+
+        if skip_lm_head:
+            return hidden_states, None
+
         logits, speculative_logits = self.text_model.lm_head(hidden_states, adapter_data)
         return logits, speculative_logits
