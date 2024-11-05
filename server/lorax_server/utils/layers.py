@@ -77,8 +77,10 @@ class LoraLinear(nn.Module):
         can_vectorize = data is not None and data.can_vectorize(self.process_group)
 
         # Triton Punica kernels
+        key = (layer_type, self.layer_id)
         if (
             adapter_data.punica_wrapper is not None and adapter_data.punica_wrapper.enabled
+            and key in adapter_data.layer_to_lora_weights
             and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size
             and can_vectorize
         ):
@@ -89,7 +91,7 @@ class LoraLinear(nn.Module):
                 y_offset = None
                 y_slice_size = None
 
-            lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[(layer_type, self.layer_id)]
+            lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[key]
             adapter_data.punica_wrapper.add_lora(
                 result,
                 input,
