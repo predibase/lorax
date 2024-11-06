@@ -49,5 +49,5 @@ class Seqlen:
         self.max_k = max_k
 
     def clamp(self, max):
-        self.input_lengths = torch.clamp(self.input_lengths, max=max)
+        self.input_lengths.data.clamp_(max=max)
         return self
