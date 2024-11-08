@@ -9,7 +9,7 @@ on:
 
 jobs:
   run-tests:
-    if: github.event.inputs.test_image_tag != ''
+    if: inputs.test_image_tag != ''
     runs-on: a100-40gb-runner
 
     steps:
@@ -36,7 +36,7 @@ jobs:
     - name: Set up environment variables
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
-        echo "TEST_IMAGE_TAG=${{ github.event.inputs.test_image_tag }}" >> $GITHUB_ENV
+        echo "TEST_IMAGE_TAG=${{ inputs.test_image_tag }}" >> $GITHUB_ENV
 
     - name: Run Embedding tests
       run: |
