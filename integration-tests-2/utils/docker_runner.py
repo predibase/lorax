@@ -1,5 +1,4 @@
 import docker
-import tempfile
 import time
 import os
 import requests
@@ -20,8 +19,7 @@ class DockerModelRunner:
             for key, value in model_config["docker_args"].items():
                 cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
-        data_temp_dir = tempfile.mkdtemp()
-        print("Using temporary directory for data: ", data_temp_dir)
+        data_dir = os.getenv("DATA_DIR", "/integration-test-data")
         # Start container
         self.container = self.client.containers.run(
             "ghcr.io/predibase/lorax:main",
@@ -31,7 +29,7 @@ class DockerModelRunner:
             },
             device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             ports={"80": 8080},
-            volumes={data_temp_dir: {"bind": "/data", "mode": "rw"}},
+            volumes={data_dir: {"bind": "/data", "mode": "rw"}},
             shm_size="1g",
             detach=True,
             name=f"lorax-test-{model_config['name']}-{time.time()}",

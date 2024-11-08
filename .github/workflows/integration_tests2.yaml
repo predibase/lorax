@@ -33,7 +33,12 @@ jobs:
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
 
-    - name: Run Mistral tests
+    - name: Run LLM tests
       run: |
         cd integration-tests-2
         pytest test_base_llms.py -v --capture=tee-sys
+
+    # - name: Run Embedding tests
+    #   run: |
+    #     cd integration-tests-2
+    #     pytest test_embeddings.py -v --capture=tee-sys
