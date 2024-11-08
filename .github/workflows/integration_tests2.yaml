@@ -40,7 +40,7 @@ jobs:
     - name: Run Mistral tests
       run: |
         cd integration-tests-2
-        pytest test_base_mistral.py -v
+        pytest test_base_mistral.py -v --capture=tee-sys
 
     # - name: Cleanup Docker containers
     #   if: always()
