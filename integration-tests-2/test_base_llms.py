@@ -7,11 +7,16 @@ import contextlib
 def run_lorax_container(config):
     runner = DockerModelRunner()
     runner.start_container(config)
-    runner.wait_for_healthy()
+    print("Started container")
     try:
+        print("Waiting for container to be healthy")
+        runner.wait_for_healthy()
+        print("Container is healthy")
         yield
     finally:
+        print("Stopping container")
         runner.stop_container()
+        print("Container stopped")
 
 
 def test_base_mistral():
