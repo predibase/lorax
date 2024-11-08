@@ -6,7 +6,7 @@ def test_stella_1_5b():
     config = {
         "name": "stella-1.5b",
         "model_id": "dunzhang/stella_en_1.5B_v5",
-        "docker_args": ["--embedding-dim", "256"],
+        "docker_args": {"embedding_dim": 256},
     }
     with run_lorax_container(config):
         response = requests.post("http://localhost:8080/embed", json={"inputs": ["Hello, world!"]})

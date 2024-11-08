@@ -1,4 +1,4 @@
-name: Mistral Integration Tests
+name: LoRAX Integration Tests
 
 on:
   push:
@@ -32,7 +32,6 @@ jobs:
     - name: Set up environment variables
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
-        echo "LORAX_IMAGE_TAG=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
 
     - name: Run Embedding tests
       run: |
