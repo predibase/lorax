@@ -26,6 +26,7 @@ jobs:
       tags: ${{ steps.meta.outputs.tags }}
       tag_hash: ${{ steps.vars.outputs.tag_hash }}
       image_path: ${{ steps.vars.outputs.image_path }}
+      test_image_path: ${{ steps.test_image_path.outputs.test_image_path }}
 
     steps:
       - name: Log in to GitHub Container Registry
@@ -90,6 +91,11 @@ jobs:
           echo "image_dir=/runner/build/images" >> $GITHUB_OUTPUT
           echo "image_path=/runner/build/images/lorax" >> $GITHUB_OUTPUT
 
+      - name: Create test image path
+        id: test_image_path
+        run: |
+          echo "test_image_path=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar.gz" >> $GITHUB_OUTPUT
+
       - name: Create and update image/cache directory
         env:
           image_dir: ${{ steps.vars.outputs.image_dir }}
@@ -143,12 +149,25 @@ jobs:
     with:
       test_image_tag: ${{ needs.build-image.outputs.tags }}
       use_local_image: true
-      test_image_path: ${{ needs.build-image.outputs.image_path }}-${{ needs.build-image.outputs.tag_hash }}.tar.gz
+      test_image_path: ${{ needs.build-image.outputs.test_image_path }}
 
   push-image:
     runs-on: a100-40gb-runner
     needs: [run-integration-tests, build-image]
     steps:
+      # If using local image, we need to export it from containerd to docker
+      - name: Download Artifact
+        if: needs.build-image.outputs.test_image_path != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: lorax-test-image
+          path: ${{ needs.build-image.outputs.test_image_path }}
+
+      - name: Load Docker Image
+        if: needs.build-image.outputs.test_image_path != ''
+        run: |
+          docker load -i ${{ needs.build-image.outputs.test_image_path }}
+
       - name: Create and push soci index
         env:
           tags: ${{ needs.build-image.outputs.tags }}
