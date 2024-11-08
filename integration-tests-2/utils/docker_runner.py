@@ -20,11 +20,11 @@ def _start_container(client, model_config: Dict[str, Any]) -> None:
             cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
     data_dir = os.getenv("DATA_DIR", "/integration-test-data")
-    image_tag = os.getenv("TEST_IMAGE_TAG", "main")
+    image_tag = os.getenv("TEST_IMAGE_TAG", "ghcr.io/predibase/lorax:main")
     print(f"Using image tag: {image_tag}")
     # Start container
     container = client.containers.run(
-        f"ghcr.io/predibase/lorax:{image_tag}",
+        image=image_tag,
         command=cmd,
         environment={
             "HUGGING_FACE_HUB_TOKEN": os.getenv("HUGGING_FACE_HUB_TOKEN"),
