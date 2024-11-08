@@ -4,9 +4,15 @@ on:
   push:
     branches: [ main, integration-tests-main]
   workflow_dispatch:
+    inputs:
+      test_image_tag:
+        description: 'LoRAX Docker image tag to test (e.g. ghcr.io/predibase/lorax:test-123)'
+        required: false
+        type: string
 
 jobs:
   build-test-image:
+    if: github.event.inputs.test_image_tag == ''
     runs-on: a100-40gb-runner
     permissions:
       contents: write
@@ -93,7 +99,8 @@ jobs:
         run: echo "TEST_IMAGE_TAG=${{ steps.test_tag.outputs.test_tag }}" >> $GITHUB_ENV
 
   run-tests:
-    needs: build-test-image
+    needs: [build-test-image]
+    if: always() && (github.event.inputs.test_image_tag != '' || needs.build-test-image.result == 'success')
     runs-on: a100-40gb-runner
 
     steps:
@@ -119,7 +126,11 @@ jobs:
     - name: Set up environment variables
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
-        echo "TEST_IMAGE_TAG=${{ needs.build-test-image.outputs.TEST_IMAGE_TAG }}" >> $GITHUB_ENV
+        if [ "${{ github.event.inputs.test_image_tag }}" != "" ]; then
+          echo "TEST_IMAGE_TAG=${{ github.event.inputs.test_image_tag }}" >> $GITHUB_ENV
+        else
+          echo "TEST_IMAGE_TAG=${{ needs.build-test-image.outputs.TEST_IMAGE_TAG }}" >> $GITHUB_ENV
+        fi
 
     - name: Run Embedding tests
       run: |
