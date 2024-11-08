@@ -120,6 +120,13 @@ jobs:
           echo "Importing $image_path-$tag_hash to Containerd"
           sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
 
+      - name: Export image from containerd to docker
+        run: |
+          # Get the first tag from the list
+          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          # Export from containerd and import to docker
+          sudo ctr --namespace=k8s.io image export - $FIRST_TAG | docker load
+
       - name: Print output tags
         run: |
           echo "Output tags: ${{ steps.meta.outputs.tags }}"
