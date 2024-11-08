@@ -11,7 +11,7 @@ use crate::{
     ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
     ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
     CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
-    CompletionStreamResponse, Details, EmbedParameters, EmbedRequest, EmbedResponse, Entity,
+    CompletionStreamResponse, Details, EmbedRequest, EmbedResponse, Entity,
     ErrorResponse, FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest,
     GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message,
     OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
