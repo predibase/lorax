@@ -550,8 +550,7 @@ example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 )]
 /// Health check method
 async fn health(
-    infer: Extension<Infer>,
-    health: Extension<Health>,
+    mut health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     match health.check().await {
       true => Ok(()),

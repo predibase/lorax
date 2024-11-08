@@ -1,7 +1,10 @@
 use lorax_client::{
     Batch, NextTokenChooserParameters, Request, ShardInfo, ShardedClient,
-    StoppingCriteriaParameters,
+    StoppingCriteriaParameters, Cl
 };
+use crate::{
+  ClassifyRequest, EmbedRequest
+}
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -123,6 +126,8 @@ impl Health {
               self.generation_health.store(value, Ordering::SeqCst);
               return value
             }
+            // Return false - need to implement that shard type.
+            return false
+          }
         }
-    }
 }
