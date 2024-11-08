@@ -6,7 +6,94 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  build-test-image:
+    runs-on: a100-40gb-runner
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      security-events: write
+    outputs:
+      TEST_IMAGE_TAG: ${{ steps.test_tag.outputs.test_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: true
+
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2.10.0
+
+      - name: Set up containerd
+        uses: crazy-max/ghaction-setup-containerd@v2.2.0
+        with:
+          config-inline: |
+            version = 2
+            root = "/runner/build/containerd"
+
+      # Create a test-specific tag
+      - name: Generate test tag
+        id: test_tag
+        run: |
+          echo "test_tag=ghcr.io/predibase/lorax:test-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "cache_dir=/runner/build/images/cache" >> $GITHUB_OUTPUT
+          echo "image_dir=/runner/build/images" >> $GITHUB_OUTPUT
+          echo "image_path=/runner/build/images/lorax" >> $GITHUB_OUTPUT
+
+      - name: Create directories
+        env:
+          image_dir: ${{ steps.test_tag.outputs.image_dir }}
+          cache_dir: ${{ steps.test_tag.outputs.cache_dir }}
+        run: |
+          sudo mkdir -p $image_dir
+          sudo chown ubuntu:ubuntu $image_dir
+          sudo mkdir -p $cache_dir
+          sudo chown ubuntu:ubuntu $cache_dir
+
+      - name: Build and export Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: ${{ steps.test_tag.outputs.test_tag }}
+          outputs: type=oci,compression=gzip,dest=${{ steps.test_tag.outputs.image_path }}-test.tar.gz
+          cache-from: type=local,src=${{ steps.test_tag.outputs.cache_dir }}
+          cache-to: type=local,mode=max,dest=${{ steps.test_tag.outputs.cache_dir }}
+
+      - name: Import and push test image
+        env:
+          test_tag: ${{ steps.test_tag.outputs.test_tag }}
+          image_path: ${{ steps.test_tag.outputs.image_path }}
+        run: |
+          sudo ctr i import --no-unpack --all-platforms --digests $image_path-test.tar.gz
+          sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $test_tag
+
+      # Pass the test tag to the next job
+      - name: Set test tag output
+        run: echo "TEST_IMAGE_TAG=${{ steps.test_tag.outputs.test_tag }}" >> $GITHUB_ENV
+
+  run-tests:
+    needs: build-test-image
     runs-on: a100-40gb-runner
 
     steps:
@@ -32,6 +119,7 @@ jobs:
     - name: Set up environment variables
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
+        echo "TEST_IMAGE_TAG=${{ needs.build-test-image.outputs.TEST_IMAGE_TAG }}" >> $GITHUB_ENV
 
     - name: Run Embedding tests
       run: |
