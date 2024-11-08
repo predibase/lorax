@@ -126,7 +126,7 @@ jobs:
           done <<< "$tags"
 
       - name: Run integration tests
-        uses: ./.github/workflows/integration_tests
+        uses: ./.github/workflows/integration-tests
         with:
           test_image_tag: ${{ steps.meta.outputs.tags }}
           use_local_image: true
