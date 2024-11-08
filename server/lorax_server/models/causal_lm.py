@@ -90,7 +90,7 @@ class CausalLMBatch(Batch):
         padding_right_offset = 0
         max_decode_tokens = 0
         adapter_indices_list = []
-        adapter_set = set()
+        adapter_list = []
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             req_inputs = tokenizers.get_inputs(r, tokenizer)
@@ -102,7 +102,7 @@ class CausalLMBatch(Batch):
             max_decode_tokens += stopping_criteria.max_new_tokens
             padding_right_offset = max(padding_right_offset, stopping_criteria.max_new_tokens)
             adapter_indices_list.append(r.adapter_index)
-            adapter_set.add(r.adapter_index)
+            adapter_list.append(r.adapter_index)
 
         adapter_indices = torch.tensor(adapter_indices_list, dtype=torch.int64, device=device)
 
@@ -156,7 +156,8 @@ class CausalLMBatch(Batch):
             max_tokens=max_tokens,
             adapter_meta=AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
-                adapter_set=adapter_set,
+                adapter_list=adapter_list,
+                adapter_set=set(adapter_list),
                 adapter_segments=adapter_segments,
                 segment_indices=adapter_segment_indices,
             ),
@@ -180,7 +181,7 @@ class CausalLMBatch(Batch):
         all_input_ids = []
         max_input_length = 0
 
-        adapter_set = set()
+        adapter_list = []
 
         next_token_choosers = []
         stopping_criterias = []
@@ -209,7 +210,7 @@ class CausalLMBatch(Batch):
             total_remaining_decode_tokens += remaining_decode_tokens
             new_padding_right_offset = max(new_padding_right_offset, remaining_decode_tokens)
 
-            adapter_set.add(self.requests[idx].adapter_index)
+            adapter_list.append(self.requests[idx].adapter_index)
 
         # Apply indices to input_ids, attention mask, past key values and other items that need to be cached
         input_ids = self.input_ids[keep_indices]
@@ -262,7 +263,8 @@ class CausalLMBatch(Batch):
         self.max_tokens = max_tokens
         self.adapter_meta = AdapterBatchMetadata(
             adapter_indices=adapter_indices,
-            adapter_set=adapter_set,
+            adapter_list=adapter_list,
+            adapter_set=set(adapter_list),
             adapter_segments=adapter_segments,
             segment_indices=adapter_segment_indices,
         )
@@ -301,7 +303,7 @@ class CausalLMBatch(Batch):
 
         total_indices_size = sum(b.adapter_meta.adapter_indices.shape[0] for b in batches)
         adapter_indices = batches[0].adapter_meta.adapter_indices.new_empty(total_indices_size)
-        adapter_set = set()
+        adapter_list = []
         adapter_segment_builder = SegmentConcatBuilder()
         cumulative_adapter_indices_size = 0
 
@@ -344,7 +346,7 @@ class CausalLMBatch(Batch):
             adapter_end_index = cumulative_adapter_indices_size + batch.adapter_meta.adapter_indices.shape[0]
             adapter_indices[adapter_start_index:adapter_end_index] = batch.adapter_meta.adapter_indices
             cumulative_adapter_indices_size = adapter_end_index
-            adapter_set.update(batch.adapter_meta.adapter_set)
+            adapter_list.extend(batch.adapter_meta.adapter_list)
 
             # Update adapter segments
             adapter_segment_builder.concat(batch.adapter_meta.adapter_segments, batch.adapter_meta.segment_indices)
@@ -476,7 +478,8 @@ class CausalLMBatch(Batch):
             max_tokens=max_tokens,
             adapter_meta=AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
-                adapter_set=adapter_set,
+                adapter_list=adapter_list,
+                adapter_set=set(adapter_list),
                 adapter_segments=adapter_segments,
                 segment_indices=adapter_segment_indices,
             ),
@@ -593,8 +596,10 @@ class CausalLM(Model):
         # TODO(travis): don't update this if indices haven't changed
         # Use prefill=True in all cases to force use of SGMV, as the batch is heterogenous
         adapter_data = AdapterBatchData.from_meta(
-            batch.adapter_meta,
-            self.layer_to_adapter_weights,
+            meta=batch.adapter_meta,
+            weights=self.layer_to_adapter_weights,
+            layer_to_lora_weights={},
+            punica_wrapper=None,
             prefill=True,
             prefill_head_indices=None,
         )

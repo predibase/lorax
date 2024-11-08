@@ -12,7 +12,7 @@ from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
 from lorax_server.utils.lora import LM_HEAD
-from lorax_server.utils.sgmv import (
+from lorax_server.utils.punica import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
     has_sgmv,
@@ -74,8 +74,37 @@ class LoraLinear(nn.Module):
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
+        can_vectorize = data is not None and data.can_vectorize(self.process_group)
 
-        if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
+        # Triton Punica kernels
+        key = (layer_type, self.layer_id)
+        if (
+            adapter_data.punica_wrapper is not None and adapter_data.punica_wrapper.enabled
+            and key in adapter_data.layer_to_lora_weights
+            and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size
+            and can_vectorize
+        ):
+            if end_idx - start_idx != result.shape[1]:
+                y_offset = start_idx
+                y_slice_size = end_idx - start_idx
+            else:
+                y_offset = None
+                y_slice_size = None
+
+            lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[key]
+            adapter_data.punica_wrapper.add_lora(
+                result,
+                input,
+                lora_a_weights,
+                lora_b_weights,
+                1.0,
+                y_offset,
+                y_slice_size,
+                callback=self.collect_lora_a if self.process_group.size() > 1 else None,
+            )
+
+        # Legacy Punica kernels
+        elif has_sgmv() and can_vectorize:
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
             else:
@@ -135,6 +164,8 @@ class LoraLinear(nn.Module):
 
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
+
+        # Vanilla PyTorch
         else:
             adapter_indices = adapter_data.meta.adapter_indices
             if data is not None and data.prefill_head_indices is not None and data.layer_name == LM_HEAD:

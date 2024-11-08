@@ -7,7 +7,7 @@ use crate::{
 };
 use lorax_client::{Batch, ShardedClient};
 use std::{cmp::max, collections::HashSet, sync::Arc};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{info_span, instrument, Instrument, Span};
 
 enum AdapterSchedulerCommand {
@@ -25,7 +25,7 @@ enum AdapterSchedulerCommand {
 
 #[derive(Clone)]
 pub(crate) struct AdapterScheduler {
-    sender: flume::Sender<AdapterSchedulerCommand>,
+    sender: mpsc::UnboundedSender<AdapterSchedulerCommand>,
 }
 
 impl AdapterScheduler {
@@ -43,7 +43,7 @@ impl AdapterScheduler {
         chunked_prefill: bool,
         is_causal_lm: bool,
     ) -> Self {
-        let (sender, receiver) = flume::unbounded();
+        let (sender, receiver) = mpsc::unbounded_channel();
 
         // receives requests from the infer struct and sends them to the appropriate adapter queue
         tokio::spawn(adapter_scheduler_task(
@@ -118,7 +118,7 @@ async fn adapter_scheduler_task(
     requires_padding: bool,
     block_size: u32,
     window_size: Option<u32>,
-    receiver: flume::Receiver<AdapterSchedulerCommand>,
+    mut receiver: mpsc::UnboundedReceiver<AdapterSchedulerCommand>,
     max_active_adapters: usize,
     adapter_cycle_time_s: u64,
     speculate: u32,
@@ -141,7 +141,7 @@ async fn adapter_scheduler_task(
         is_causal_lm,
     );
 
-    while let Ok(cmd) = receiver.recv_async().await {
+    while let Some(cmd) = receiver.recv().await {
         match cmd {
             AdapterSchedulerCommand::Append(adapter, entry) => {
                 state.append(adapter, adapter_event.clone(), entry).await;
@@ -330,7 +330,8 @@ impl AdapterSchedulerState {
         'entry_loop: while let Some((id, mut entry, adapter)) = self.next_entry().await {
             // Filter entries where the response receiver was dropped (== entries where the request
             // was dropped by the client)
-            if entry.response_tx.is_disconnected() {
+            if entry.response_tx.is_closed() {
+                tracing::error!("Entry response channel closed.");
                 metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                 continue;
             }
@@ -365,6 +366,14 @@ impl AdapterSchedulerState {
                     None
                 }
                 Some(block_allocator) => {
+                    // If users wants the prefill logprobs, we cannot reuse the cache.
+                    // So no input_ids for the radix tree.
+                    let input_ids = if entry.request.decoder_input_details() {
+                        None
+                    } else {
+                        entry.request.input_ids().clone()
+                    };
+
                     let tokens = entry.request.input_length()
                         + entry.request.max_new_tokens()
                         + self.speculate
@@ -379,7 +388,7 @@ impl AdapterSchedulerState {
                     );
 
                     let block_allocation = match block_allocator
-                        .allocate(adapter.index(), tokens, entry.request.input_ids())
+                        .allocate(adapter.index(), tokens, input_ids)
                         .await
                     {
                         None => {

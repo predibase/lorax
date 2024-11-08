@@ -181,7 +181,7 @@ class FlashEmbeddingClassificationBatch(ABC):
 
         max_s = 0
         cumulative_length = 0
-        adapter_set = set()
+        adapter_list = []
 
         for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             tokenized_input = tokenized_input[-r.truncate :]
@@ -199,7 +199,7 @@ class FlashEmbeddingClassificationBatch(ABC):
             position_ids.append(request_position_ids)
 
             adapter_indices_list.append(torch.full((input_length,), r.adapter_index))
-            adapter_set.add(r.adapter_index)
+            adapter_list.append(r.adapter_index)
 
             cumulative_length += input_length
 
@@ -232,7 +232,8 @@ class FlashEmbeddingClassificationBatch(ABC):
             size=len(batch_tokenized_inputs),
             adapter_meta=AdapterBatchMetadata(
                 adapter_indices=adapter_indices,
-                adapter_set=adapter_set,
+                adapter_list=adapter_list,
+                adapter_set=set(adapter_list),
                 adapter_segments=adapter_segments,
                 segment_indices=adapter_segment_indices,
             ),

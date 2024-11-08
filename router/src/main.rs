@@ -141,23 +141,11 @@ async fn main() -> Result<(), RouterError> {
             "`max_input_length` must be < `max_total_tokens`".to_string(),
         ));
     }
-    if max_input_length as u32 > max_batch_prefill_tokens {
-        return Err(RouterError::ArgumentValidation(format!("`max_batch_prefill_tokens` must be >= `max_input_length`. Given: {max_batch_prefill_tokens} and {max_input_length}")));
-    }
 
     if validation_workers == 0 {
         return Err(RouterError::ArgumentValidation(
             "`validation_workers` must be > 0".to_string(),
         ));
-    }
-
-    if let Some(ref max_batch_total_tokens) = max_batch_total_tokens {
-        if max_batch_prefill_tokens > *max_batch_total_tokens {
-            return Err(RouterError::ArgumentValidation(format!("`max_batch_prefill_tokens` must be <= `max_batch_total_tokens`. Given: {max_batch_prefill_tokens} and {max_batch_total_tokens}")));
-        }
-        if max_total_tokens as u32 > *max_batch_total_tokens {
-            return Err(RouterError::ArgumentValidation(format!("`max_total_tokens` must be <= `max_batch_total_tokens`. Given: {max_total_tokens} and {max_batch_total_tokens}")));
-        }
     }
 
     // CORS allowed origins
@@ -445,6 +433,18 @@ async fn main() -> Result<(), RouterError> {
     tracing::info!("Setting max batch total tokens to {max_supported_batch_total_tokens}");
     tracing::info!("Connected");
 
+    let supports_chunking = shard_info.chunked_prefill;
+    let max_batch_total_tokens = max_supported_batch_total_tokens;
+    if max_input_length as u32 > max_batch_prefill_tokens && !supports_chunking {
+        return Err(RouterError::ArgumentValidation(format!("`max_batch_prefill_tokens` must be >= `max_input_length`. Given: {max_batch_prefill_tokens} and {max_input_length}")));
+    }
+    if max_batch_prefill_tokens > max_batch_total_tokens {
+        return Err(RouterError::ArgumentValidation(format!("`max_batch_prefill_tokens` must be <= `max_batch_total_tokens`. Given: {max_batch_prefill_tokens} and {max_batch_total_tokens}")));
+    }
+    if max_total_tokens as u32 > max_batch_total_tokens {
+        return Err(RouterError::ArgumentValidation(format!("`max_total_tokens` must be <= `max_batch_total_tokens`. Given: {max_total_tokens} and {max_batch_total_tokens}")));
+    }
+
     let addr = match hostname.parse() {
         Ok(ip) => SocketAddr::new(ip, port),
         Err(_) => {
@@ -533,7 +533,7 @@ fn init_logging(otlp_endpoint: Option<String>, json_output: bool) {
 
         if let Ok(tracer) = tracer {
             layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
-            axum_tracing_opentelemetry::init_propagator().unwrap();
+            init_tracing_opentelemetry::init_propagator().unwrap();
         };
     }
 

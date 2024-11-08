@@ -3,20 +3,20 @@ use crate::infer::InferError;
 use crate::queue::{AdapterQueuesState, AdapterStatus};
 use lorax_client::ShardedClient;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::Span;
 
 /// Request AdapterLoader
 #[derive(Debug, Clone)]
 pub(crate) struct AdapterLoader {
     /// Channel to communicate with the background task
-    sender: flume::Sender<AdapterLoaderCommand>,
+    sender: mpsc::UnboundedSender<AdapterLoaderCommand>,
 }
 
 impl AdapterLoader {
     pub(crate) fn new(client: ShardedClient) -> Self {
         // Create channel
-        let (sender, receiver) = flume::unbounded();
+        let (sender, receiver) = mpsc::unbounded_channel();
 
         // Launch background queue task
         tokio::spawn(loader_task(client, receiver));
@@ -115,10 +115,13 @@ impl AdapterLoader {
 }
 
 // Background task responsible of the loader state
-async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<AdapterLoaderCommand>) {
+async fn loader_task(
+    mut client: ShardedClient,
+    mut receiver: mpsc::UnboundedReceiver<AdapterLoaderCommand>,
+) {
     let mut err_msgs: HashMap<Adapter, String> = HashMap::new();
 
-    while let Ok(cmd) = receiver.recv_async().await {
+    while let Some(cmd) = receiver.recv().await {
         match cmd {
             AdapterLoaderCommand::DownloadAdapter {
                 adapter,

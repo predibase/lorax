@@ -23,7 +23,7 @@ from lorax_server.utils.adapter import (
     enum_string_to_adapter_source,
     is_base_model,
 )
-from lorax_server.utils.sgmv import has_sgmv
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, has_sgmv
 from lorax_server.utils.state import set_max_prefill_tokens, set_speculative_tokens
 
 
@@ -62,6 +62,7 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
             self.cache.delete(request.id)
         else:
             self.cache.clear()
+
         return generate_pb2.ClearCacheResponse()
 
     async def FilterBatch(self, request, context):
@@ -109,6 +110,12 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
 
         generations, next_batch = self.model.generate_token(batch)
         self.cache.set(next_batch)
+
+        if self.model.profiler:
+            self.model.profiler_steps += 1
+            if self.model.profiler_steps == 10:
+                self.model.profiler.stop()
+                print(self.model.profiler.key_averages())
 
         return generate_pb2.PrefillResponse(
             generations=[generation.to_pb() for generation in generations],
@@ -319,6 +326,13 @@ def serve(
             except ImportError:
                 pass
 
+        # set speculative decoding tokens
+        speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
+        if speculative_tokens > 0:
+            # Only use ngram speculation if the model does not support speculative tokens itself
+            use_ngram = model.max_speculative_tokens == 0
+            set_speculative_tokens(speculative_tokens, use_ngram=use_ngram)
+
         if preloaded_adapter_ids:
             logger.info(f"Preloading {len(preloaded_adapter_ids)} adapters")
 
@@ -390,16 +404,15 @@ def serve(
             adapter_memory_fractions = [r.memory_fraction for r in download_responses]
             model.register_preloaded_adapters(preloaded_adapters, adapter_memory_fractions)
 
-        # set speculative decoding tokens
-        speculative_tokens = max(model.max_speculative_tokens, speculative_tokens)
-        if speculative_tokens > 0:
-            set_speculative_tokens(speculative_tokens)
-
         server = aio.server(
             interceptors=[
                 ExceptionInterceptor(),
                 UDSOpenTelemetryAioServerInterceptor(),
-            ]
+            ],
+            options=[
+                # Set the maximum possible message length: i32::MAX
+                ("grpc.max_receive_message_length", (1 << 31) - 1)
+            ],
         )
         generate_pb2_grpc.add_LoraxServiceServicer_to_server(LoraxService(model, Cache(), server_urls), server)
         SERVICE_NAMES = (
@@ -412,10 +425,12 @@ def serve(
         await server.start()
 
         # Log SGMV kernel status
+        if not LORAX_PUNICA_TRITON_DISABLED and not model.dynamic_adapter_loading_enabled:
+            logger.info("Trion kernel is enabled, multi-LoRA inference will be fast!")
         if has_sgmv():
             logger.info("SGMV kernel is enabled, multi-LoRA inference will be fast!")
         else:
-            logger.info("SGMV kernel is disabled, multi-LoRA inference may be slow")
+            logger.info("Punica kernels are disabled, multi-LoRA inference may be slow")
 
         logger.info("Server started at {}".format(local_url))
 

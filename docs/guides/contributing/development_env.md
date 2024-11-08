@@ -47,12 +47,12 @@ We'll be working out of three different terminals during development, each servi
 Install development dependencies:
 
 ```shell
-DEBIAN_FRONTEND=noninteractive apt install pkg-config rsync tmux rust-gdb git -y
+DEBIAN_FRONTEND=noninteractive apt install pkg-config rsync tmux rust-gdb git -y && \
 PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \
     curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP && \
     unzip -o $PROTOC_ZIP -d /usr/local bin/protoc && \
     unzip -o $PROTOC_ZIP -d /usr/local 'include/*' && \
-    rm -f $PROTOC_ZIP
+    rm -f $PROTOC_ZIP && \
 hash -r
 ```
 
@@ -71,8 +71,7 @@ tmux new -s server
 From within the `tmux` session, move into the LoRAX `server` directory within the repo (assumed to be in `/data/lorax`) and install dependencies:
 
 ```shell
-cd /data/lorax/server
-pip install -e .
+cd /data/lorax/server && pip install -e .
 make gen-server
 ```
 
@@ -95,9 +94,9 @@ tmux new -s router
 Now move into the `router` directory within the repo and install dependencies:
 
 ```shell
-cd /data/lorax/router
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-export PATH=$PATH:$HOME/.cargo/bin
+cd /data/lorax/router && \
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+export PATH=$PATH:$HOME/.cargo/bin && \
 touch ../proto/generate.proto
 ```
 

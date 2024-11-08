@@ -22,6 +22,7 @@ from lorax_server.utils.logits_process import (
     OutlinesLogitsProcessor,
     static_warper,
 )
+from lorax_server.utils.state import use_ngram
 from lorax_server.utils.watermark import WatermarkLogitsProcessor
 
 
@@ -419,7 +420,7 @@ class HeterogeneousNextTokenChooser:
             if speculative_scores is not None:
                 # Only use greedy sampling for speculative tokens
                 speculative_ids = Greedy()(speculative_scores)
-            else:
+            elif use_ngram():
                 speculative_ids = ngram_speculate(input_ids, next_ids, accepted_ids, speculate)
 
         return next_ids, next_logprobs, accepted_ids, speculative_ids

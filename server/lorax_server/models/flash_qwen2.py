@@ -122,7 +122,12 @@ class FlashQwen2(FlashCausalLM):
         batch.prepare_for_prefill()
         prefill = False
         adapter_data = AdapterBatchData.from_meta(
-            batch.adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+            meta=batch.adapter_meta,
+            weights=self.layer_to_adapter_weights,
+            layer_to_lora_weights={},
+            punica_wrapper=None,
+            prefill=prefill,
+            prefill_head_indices=batch.prefill_head_indices,
         )
         embedding, _ = self.forward(batch, adapter_data=adapter_data)
         return embedding.cpu().tolist()

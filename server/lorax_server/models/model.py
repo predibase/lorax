@@ -7,6 +7,8 @@ import torch
 from loguru import logger
 from transformers import PreTrainedTokenizerBase
 
+from lorax_server.adapters.lora import LoraWeights
+from lorax_server.adapters.medusa_lora import MedusaLoraWeights
 from lorax_server.adapters.utils import download_adapter_weights
 from lorax_server.adapters.weights import LayerAdapterWeights
 from lorax_server.models.types import Batch, GeneratedText
@@ -16,11 +18,13 @@ from lorax_server.utils.adapter import (
     BASE_MODEL_ADAPTER_ID,
     load_and_merge_adapters,
 )
+from lorax_server.utils.punica import LORAX_PUNICA_TRITON_DISABLED, pad_to_min_rank, use_cutlass_shrink
 from lorax_server.utils.sources import HUB
 from lorax_server.utils.state import (
     BLOCK_SIZE,
     CHUNKED_PREFILL,
     FLASH_INFER,
+    LORAX_PROFILER_DIR,
     get_speculative_tokens,
     set_supports_chunking,
 )
@@ -77,6 +81,7 @@ class Model(ABC):
         self.preloaded_adapter_indices = set()
         self.preloaded_adapter_memory_fractions = {}
         self.preloaded_adapters = []
+        self.layer_to_lora_weights = {}
 
         self.trust_remote_code = trust_remote_code
 
@@ -112,6 +117,18 @@ class Model(ABC):
             )
 
         self.check_initialized()
+
+        self.profiler = None
+        if LORAX_PROFILER_DIR is not None:
+            self.profiler = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                with_stack=True,
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(LORAX_PROFILER_DIR, use_gzip=True),
+            )
+            self.profiler_steps = 0
 
     @property
     def info(self) -> InfoResponse:
@@ -218,6 +235,12 @@ class Model(ABC):
         return []
 
     @property
+    def traced_adapter_layers(self) -> List[str]:
+        if self.layer_to_adapter_weights:
+            return list(self.layer_to_adapter_weights.keys())
+        return self.default_traced_adapter_layers
+
+    @property
     def default_traced_adapter_layers(self) -> List[str]:
         return []
 
@@ -237,6 +260,10 @@ class Model(ABC):
     def register_preloaded_adapters(
         self, preloaded_adapters: List[generate_pb2.PreloadedAdapter], adapter_memory_fractions: List[float]
     ):
+        if preloaded_adapters is None:
+            return
+
+        self.dynamic_adapter_loading_enabled = False
         self.preloaded_adapter_indices.update({adapter.adapter_index for adapter in preloaded_adapters})
         self.preloaded_adapter_memory_fractions.update(
             {
@@ -245,6 +272,57 @@ class Model(ABC):
             }
         )
         self.preloaded_adapters.extend(preloaded_adapters)
+
+        if LORAX_PUNICA_TRITON_DISABLED:
+            # Following code is only applicable to Triton kernels
+            return
+
+        # For Triton kernels: need weights into contiguous tensor
+        # dict of (layer_name, layer_id) -> (lora_a_weights, lora_b_weights)
+        # where:
+        #   lora_a_weights = [num_adapters, r, hidden_size]
+        #   lora_b_weights = [num_adapters, hidden_size, r]
+        for layer_name, layer_adapter_weights in self.layer_to_adapter_weights.items():
+            layer_id_to_lora_a_weights = defaultdict(list)
+            layer_id_to_lora_b_weights = defaultdict(list)
+            for adapter in preloaded_adapters:
+                adapter_index = adapter.adapter_index
+                adapter_weights = layer_adapter_weights.adapter_weights.get(adapter_index)
+                if not isinstance(adapter_weights, LoraWeights):
+                    if isinstance(adapter_weights, MedusaLoraWeights):
+                        # only use lora component
+                        adapter_weights = adapter_weights.lora_weights
+                    else:
+                        # only applicable to lora for now
+                        continue
+
+                if adapter_weights is None:
+                    # no weights for this layer
+                    continue
+
+                # transpose into col major
+                lora_b = adapter_weights.weights_b.transpose(1, 2)
+                lora_a = adapter_weights.weights_a
+                if use_cutlass_shrink(lora_b.size(2)):
+                    lora_a = lora_a.transpose(1, 2)
+
+                nlayers = lora_a.size(0)
+                for layer_id in range(nlayers):
+                    layer_id_to_lora_a_weights[layer_id].append(lora_a[layer_id])
+                    layer_id_to_lora_b_weights[layer_id].append(lora_b[layer_id])
+
+            for layer_id, lora_a_weights in layer_id_to_lora_a_weights.items():
+                lora_b_weights = layer_id_to_lora_b_weights[layer_id]
+
+                # right pad every adapter to the max rank
+                r = max([w.size(-1) for w in lora_b_weights])
+                lora_a_weights = [pad_to_min_rank(w, 0, r) for w in lora_a_weights]
+                lora_b_weights = [pad_to_min_rank(w, 1, r) for w in lora_b_weights]
+
+                # stack into [num_adapters, r, hidden_size] and [num_adapters, hidden_size, r]
+                lora_a_weights = torch.stack(lora_a_weights).to(self.device).contiguous()
+                lora_b_weights = torch.stack(lora_b_weights).to(self.device).contiguous()
+                self.layer_to_lora_weights[(layer_name, layer_id)] = (lora_a_weights, lora_b_weights)
 
     def load_adapter(
         self,
@@ -269,10 +347,9 @@ class Model(ABC):
 
         if dynamic and not self.dynamic_adapter_loading_enabled:
             raise ValueError(
-                f"This model was initialized with the adapter {self.static_adapter_id} "
-                f"and therefore does not support dynamic adapter loading. "
-                f"Please initialize a new model instance from the base model in "
-                f"order to use the dynamic adapter loading feature."
+                "This model does not support dynamic adapter loading. "
+                "Please initialize a new model instance from the base model and remove preloaded adapters "
+                "to use the dynamic adapter loading feature."
             )
 
         logger.info(f"Loading adapter weights into model: {','.join(adapter_parameters.adapter_ids)}")
@@ -351,10 +428,9 @@ class Model(ABC):
 
         if not self.dynamic_adapter_loading_enabled:
             raise ValueError(
-                f"This model was initialized with the adapter {self.static_adapter_id} "
-                f"and therefore does not support dynamic adapter loading. "
-                f"Please initialize a new model instance from the base model in "
-                f"order to use the dynamic adapter loading feature."
+                "This model does not support dynamic adapter loading. "
+                "Please initialize a new model instance from the base model and remove preloaded adapters "
+                "to use the dynamic adapter loading feature."
             )
 
         for layer_name in self.adapter_layers:

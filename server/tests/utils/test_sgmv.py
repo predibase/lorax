@@ -3,7 +3,7 @@ from typing import List, Tuple
 import pytest
 import torch
 
-from lorax_server.utils.sgmv import (
+from lorax_server.utils.punica import (
     get_tmp_tensors,
     has_sgmv,
     lora_a_sgmv_cutlass,
