@@ -104,6 +104,7 @@ jobs:
           file: ./Dockerfile  # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
+          load: true
           outputs: type=oci,compression=gzip,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar.gz
           cache-from: type=local,src=${{ steps.vars.outputs.cache_dir }}
           cache-to: type=local,mode=max,image-manifest=true,oci-mediatypes=true,dest=${{ steps.vars.outputs.cache_dir }}
