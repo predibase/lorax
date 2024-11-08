@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - 'main'
-      - 'integration-tests-main'
+      - 'integration-tests-main' # XXX: This is a temporary branch to run integration tests on the main branch
     tags:
       - 'v*'
 
