@@ -152,11 +152,19 @@ class LoraWeights(AdapterWeights):
         layer_type: str,
         unused_weight_names: Set[str],
     ) -> Optional[AdapterWeights]:
+        # for vlm models we need to return list of layers
+        # so nlayers is a list of ints in this case but in others its just an int
         nlayers = model.get_num_layers_for_type(layer_type)
-        lora_a_list = [None] * nlayers
-        lora_b_list = [None] * nlayers
+        if type(nlayers) == int:
+            lora_a_list = [None] * nlayers
+            lora_b_list = [None] * nlayers
+            layer_ids = list(range(nlayers))
+        else:
+            lora_a_list = [None] * len(nlayers)
+            lora_b_list = [None] * len(nlayers)
+            layer_ids = nlayers
 
-        for layer_id in range(nlayers):
+        for i, layer_id in enumerate(layer_ids):
             key = (layer_id, layer_type)
             weight_name, layer = model.target_to_layer[key]
 
@@ -184,8 +192,8 @@ class LoraWeights(AdapterWeights):
 
             # Merge scaling factor into lora_b due to associativity of matrix multiplication:
             # (A * B) * C = A * (B * C)
-            lora_a_list[layer_id] = lora_a.transpose(0, 1)
-            lora_b_list[layer_id] = lora_b.transpose(0, 1) * scale
+            lora_a_list[i] = lora_a.transpose(0, 1)
+            lora_b_list[i] = lora_b.transpose(0, 1) * scale
 
         # pad lora ranks to be compatible with sgmv
         lora_a_list = [pad_rank(w, dim=1, world_size=model.world_size) for w in lora_a_list]
