@@ -51,11 +51,6 @@ jobs:
           large-packages: false
           swap-storage: true
 
-      - name: Install soci
-        uses: lerentis/soci-installer@v1.0.1
-        with:
-          soci-release: 'v0.4.0'
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2.10.0
 
@@ -155,6 +150,11 @@ jobs:
     runs-on: a100-40gb-runner
     needs: [run-integration-tests, build-image]
     steps:
+      - name: Install soci
+        uses: lerentis/soci-installer@v1.0.1
+        with:
+          soci-release: 'v0.4.0'
+
       # If using local image, we need to export it from containerd to docker
       - name: Download Artifact
         if: needs.build-image.outputs.test_image_path != ''
