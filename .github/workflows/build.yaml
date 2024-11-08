@@ -119,7 +119,6 @@ jobs:
       - name: Run Integration Tests
         uses: ./.github/workflows/integration_tests.yaml
         with:
-          # test_image_tag: ${{ fromJSON(steps.meta.outputs.json).tags[2] }}
           test_image_tag: "ghcr.io/predibase/lorax:main"
 
       - name: Push image with containerd

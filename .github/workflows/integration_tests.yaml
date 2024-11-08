@@ -1,17 +1,10 @@
 name: LoRAX Integration Tests
-
 on:
   workflow_call:  # Add this to make it reusable
     inputs:
       test_image_tag:
         description: 'LoRAX Docker image tag to test'
         required: true
-        type: string
-  workflow_dispatch:
-    inputs:
-      test_image_tag:
-        description: 'LoRAX Docker image tag to test (e.g. ghcr.io/predibase/lorax:test-123)'
-        required: false
         type: string
 
 jobs:
@@ -20,7 +13,8 @@ jobs:
     runs-on: a100-40gb-runner
 
     steps:
-    # - uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
     - name: Set up Python
       uses: actions/setup-python@v4
