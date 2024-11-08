@@ -124,8 +124,7 @@ jobs:
     needs: build-image
     uses: ./.github/workflows/integration_tests.yaml
     with:
-      # test_image_tag: ${{ needs.build-image.outputs.tags }}
-      test_image_tag: "ghcr.io/predibase/lorax:main"
+      test_image_tag: ${{ needs.build-image.outputs.tags }}
 
   push-image:
     runs-on: a100-40gb-runner
