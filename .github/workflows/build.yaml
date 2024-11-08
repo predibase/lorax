@@ -112,6 +112,12 @@ jobs:
           cache-from: type=local,src=${{ steps.vars.outputs.cache_dir }}
           cache-to: type=local,mode=max,image-manifest=true,oci-mediatypes=true,dest=${{ steps.vars.outputs.cache_dir }}
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lorax-test-image
+          path: ${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar.gz
+
       - name: Import image in containerd
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
@@ -137,6 +143,7 @@ jobs:
     with:
       test_image_tag: ${{ needs.build-image.outputs.tags }}
       use_local_image: true
+      test_image_path: ${{ needs.build-image.outputs.image_path }}-${{ needs.build-image.outputs.tag_hash }}.tar.gz
 
   push-image:
     runs-on: a100-40gb-runner

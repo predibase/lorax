@@ -10,6 +10,10 @@ on:
         description: 'Use local image instead of GitHub Container Registry'
         required: false
         type: boolean
+      test_image_path:
+        description: 'Path to the test image'
+        required: false
+        type: string
 
 jobs:
   run-tests:
@@ -20,18 +24,26 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Print test image tag
+    - name: Print Test Image Tag
       run: |
         echo "Test image tag: ${{ inputs.test_image_tag }}"
 
-    # If using local image, we need to export it from containerd to docker
-    - name: Export image from containerd to docker
-      if: inputs.use_local_image
+    - name: Print Test Image Path
       run: |
-        # Get the first tag from the list
-        FIRST_TAG=$(echo "${{ inputs.test_image_tag }}" | head -n 1)
-        # Export from containerd and import to docker
-        sudo ctr --namespace=k8s.io image export - $FIRST_TAG | docker load
+        echo "Test image path: ${{ inputs.test_image_path }}"
+
+    # If using local image, we need to export it from containerd to docker
+    - name: Download Artifact
+      if: inputs.use_local_image && inputs.test_image_path != ''
+      uses: actions/download-artifact@v4
+      with:
+        name: lorax-test-image
+        path: ${{ inputs.test_image_path }}
+
+    - name: Load Docker Image
+      if: inputs.use_local_image && inputs.test_image_path != ''
+      run: |
+        docker load -i ${{ inputs.test_image_path }}
 
     - name: Set up Python
       uses: actions/setup-python@v4
