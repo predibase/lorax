@@ -117,7 +117,7 @@ jobs:
           sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
 
       - name: Run Integration Tests
-        uses: ./.github/workflows/integration_tests2.yaml
+        uses: ./.github/workflows/integration_tests.yaml
         with:
           test_image_tag: ${{ fromJSON(steps.meta.outputs.json).tags[2] }}
 
