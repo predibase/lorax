@@ -130,13 +130,24 @@ jobs:
       #     github_token: ${{ secrets.GHCR_PAT }}
       #     huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
+
       - name: Import image in containerd
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
           image_path: ${{ steps.vars.outputs.image_path }}
         run: |
           echo "Importing $image_path-$tag_hash to Containerd"
-          sudo ctr i import --no-unpack --all-platforms --digests $image_path
+          sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
+
+      - name: Push image with containerd
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $tags
+          do
+            echo "Pushing $tag to GHCR"
+            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
+          done
 
       - name: Create and push soci index
         env:
