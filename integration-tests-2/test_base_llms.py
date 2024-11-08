@@ -1,22 +1,5 @@
 import requests
-from utils.docker_runner import DockerModelRunner
-import contextlib
-
-
-@contextlib.contextmanager
-def run_lorax_container(config):
-    runner = DockerModelRunner()
-    runner.start_container(config)
-    print("Started container")
-    try:
-        print("Waiting for container to be healthy")
-        runner.wait_for_healthy()
-        print("Container is healthy")
-        yield
-    finally:
-        print("Stopping container")
-        runner.stop_container()
-        print("Container stopped")
+from utils.docker_runner import run_lorax_container
 
 
 def test_base_mistral():
