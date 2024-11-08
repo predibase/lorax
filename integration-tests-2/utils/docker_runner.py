@@ -1,5 +1,5 @@
 import docker
-import json
+import tempfile
 import time
 import os
 import requests
@@ -20,6 +20,8 @@ class DockerModelRunner:
             for key, value in model_config["docker_args"].items():
                 cmd.extend([f"--{key.replace('_', '-')}", str(value)])
 
+        data_temp_dir = tempfile.mkdtemp()
+        print("Using temporary directory for data: ", data_temp_dir)
         # Start container
         self.container = self.client.containers.run(
             "ghcr.io/predibase/lorax:main",
@@ -29,7 +31,7 @@ class DockerModelRunner:
             },
             device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])],
             ports={"80": 8080},
-            volumes={f"{os.getcwd()}/data": {"bind": "/data", "mode": "rw"}},
+            volumes={data_temp_dir: {"bind": "/data", "mode": "rw"}},
             shm_size="1g",
             detach=True,
             name=f"lorax-test-{model_config['name']}-{time.time()}",
@@ -55,19 +57,3 @@ class DockerModelRunner:
             self.container.stop()
             self.container.remove()
             self.container = None
-
-
-if __name__ == "__main__":
-    with open("configs.json", "r") as f:
-        model_configs = json.load(f)
-    runner = DockerModelRunner()
-    runner.start_container(model_configs[0])
-    runner.wait_for_healthy()
-    response = requests.post(
-        "http://localhost:8080/generate",
-        json={"inputs": model_configs[0]["test_prompt"], "parameters": {"max_new_tokens": 10}},
-    )
-    response.raise_for_status()
-    print(response.json())
-    runner.stop_container()
-    print("Done")
