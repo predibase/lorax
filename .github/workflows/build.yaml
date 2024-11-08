@@ -129,6 +129,7 @@ jobs:
     uses: ./.github/workflows/integration_tests.yaml
     with:
       test_image_tag: ${{ needs.build-image.outputs.tags }}
+      use_local_image: true
 
   push-image:
     runs-on: a100-40gb-runner

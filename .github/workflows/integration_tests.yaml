@@ -6,6 +6,10 @@ on:
         description: 'LoRAX Docker image tag to test'
         required: true
         type: string
+      use_local_image:
+        description: 'Use local image instead of GitHub Container Registry'
+        required: false
+        type: boolean
 
 jobs:
   run-tests:
@@ -20,6 +24,15 @@ jobs:
       run: |
         echo "Test image tag: ${{ inputs.test_image_tag }}"
 
+    # If using local image, we need to export it from containerd to docker
+    - name: Export image from containerd to docker
+      if: inputs.use_local_image
+      run: |
+        # Get the first tag from the list
+        FIRST_TAG=$(echo "${{ inputs.test_image_tag }}" | head -n 1)
+        # Export from containerd and import to docker
+        sudo ctr --namespace=k8s.io image export - $FIRST_TAG | docker load
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -31,6 +44,7 @@ jobs:
         pip install pytest docker requests
 
     - name: Login to GitHub Container Registry
+      if: ${{ !inputs.use_local_image }}
       uses: docker/login-action@v2
       with:
         registry: ghcr.io
