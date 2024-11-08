@@ -33,17 +33,7 @@ jobs:
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
 
-    - name: Create data directory
-      run: |
-        mkdir -p integration-tests-2/data
-
     - name: Run Mistral tests
       run: |
         cd integration-tests-2
-        pytest test_base_mistral.py -v --capture=tee-sys
-
-    # - name: Cleanup Docker containers
-    #   if: always()
-    #   run: |
-    #     docker ps -q | xargs -r docker stop
-    #     docker ps -aq | xargs -r docker rm
+        pytest test_base_llms.py -v --capture=tee-sys
