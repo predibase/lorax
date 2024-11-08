@@ -128,7 +128,7 @@ jobs:
     needs: build-image
     uses: ./.github/workflows/integration_tests.yaml
     with:
-      test_image_tag: ${{ fromJSON(needs.build-image.outputs.tags)[0] }}
+      test_image_tag: ${{ needs.build-image.outputs.tags }}
 
   push-image:
     runs-on: a100-40gb-runner

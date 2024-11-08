@@ -16,6 +16,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    - name: Print test image tag
+      run: |
+        echo "Test image tag: ${{ inputs.test_image_tag }}"
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
