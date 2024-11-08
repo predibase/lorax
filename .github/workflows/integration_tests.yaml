@@ -1,41 +1,51 @@
-name: integration-tests 
-on:
-  workflow_call:
-    inputs:
-      lorax_tag:
-        required: true
-        type: string
-    secrets:
-      RUNPOD_API_KEY:
-        required: true
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install runpod
-        run: |
-          wget -qO- cli.runpod.net | sudo bash
-      - name: Config runpod cli 
-        run: |
-          runpodctl config --apiKey ${{ secrets.RUNPOD_API_KEY }}
+name: LoRAX Integration Tests
 
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.x
-      
-      # Install the client 
-      - run: pip install -e clients/python
-      - name: create the pod and then delete the pod
-        run: |
-          bash tests/create-pod.sh ${{ inputs.lorax_tag }}
-      
-      - name: Run tests 
-        run: |
-          POD_ID=`cat pod_name.txt`
-          python3 tests/test.py $POD_ID
-      
-      - name: Delete the pod 
-        run: |
-          POD_ID=`cat pod_name.txt`
-          runpodctl remove pod $POD_ID
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      test_image_tag:
+        description: 'LoRAX Docker image tag to test (e.g. ghcr.io/predibase/lorax:test-123)'
+        required: false
+        type: string
+
+jobs:
+  run-tests:
+    if: github.event.inputs.test_image_tag != ''
+    runs-on: a100-40gb-runner
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.8'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest docker requests
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up environment variables
+      run: |
+        echo "HUGGING_FACE_HUB_TOKEN=${{ secrets.HUGGING_FACE_HUB_TOKEN }}" >> $GITHUB_ENV
+        echo "TEST_IMAGE_TAG=${{ github.event.inputs.test_image_tag }}" >> $GITHUB_ENV
+
+    - name: Run Embedding tests
+      run: |
+        cd integration-tests-2
+        pytest test_embeddings.py -v --capture=tee-sys
+
+    - name: Run LLM tests
+      run: |
+        cd integration-tests-2
+        pytest test_base_llms.py -v --capture=tee-sys
