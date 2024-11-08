@@ -119,10 +119,10 @@ class FlashQwen2(FlashCausalLM):
         return layer_type in ROW_PARALLEL
 
     def embed(self, batch) -> torch.Tensor:
-        adapter_meta = batch.adapter_meta
+        batch.prepare_for_prefill()
         prefill = False
         adapter_data = AdapterBatchData.from_meta(
-            adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
+            batch.adapter_meta, self.layer_to_adapter_weights, prefill, batch.prefill_head_indices
         )
         embedding, _ = self.forward(batch, adapter_data=adapter_data)
         return embedding.cpu().tolist()
