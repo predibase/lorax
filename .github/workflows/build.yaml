@@ -10,7 +10,7 @@ on:
       - 'v*'
 
 jobs:
-  build-image:
+  build-test-push-image:
     concurrency:
       group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.run_id }}
       cancel-in-progress: true
