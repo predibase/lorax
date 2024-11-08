@@ -16,5 +16,6 @@ def test_base_mistral():
         json={"inputs": test_prompt, "parameters": {"max_new_tokens": 10}},
     )
     response.raise_for_status()
+    print("RESPONSE FROM LLM: ", response.json())
     assert len(response.json()["generated_text"]) > 0
     runner.stop_container()
