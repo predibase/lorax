@@ -101,24 +101,25 @@ jobs:
           sudo mkdir -p $cache_dir
           sudo chown ubuntu:ubuntu $cache_dir
 
-      - name: Export Docker image as OCI
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile  # Path to your Dockerfile
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=oci,compression=gzip,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar.gz
-          cache-from: type=local,src=${{ steps.vars.outputs.cache_dir }}
-          cache-to: type=local,mode=max,image-manifest=true,oci-mediatypes=true,dest=${{ steps.vars.outputs.cache_dir }}
+      # - name: Export Docker image as OCI
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     file: ./Dockerfile  # Path to your Dockerfile
+      #     push: false
+      #     tags: ${{ steps.meta.outputs.tags }}
+      #     outputs: type=oci,compression=gzip,dest=${{ steps.vars.outputs.image_path }}-${{ steps.vars.outputs.tag_hash }}.tar.gz
+      #     cache-from: type=local,src=${{ steps.vars.outputs.cache_dir }}
+      #     cache-to: type=local,mode=max,image-manifest=true,oci-mediatypes=true,dest=${{ steps.vars.outputs.cache_dir }}
 
-      - name: Import image in containerd
-        env:
-          tag_hash: ${{ steps.vars.outputs.tag_hash }}
-          image_path: ${{ steps.vars.outputs.image_path }}
-        run: |
-          echo "Importing $image_path-$tag_hash to Containerd"
-          sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
+      # - name: Import image in containerd
+      #   env:
+      #     tag_hash: ${{ steps.vars.outputs.tag_hash }}
+      #     image_path: ${{ steps.vars.outputs.image_path }}
+      #   run: |
+      #     echo "Importing $image_path-$tag_hash to Containerd"
+      #     sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
+
       - name: Print output tags
         run: |
           echo "Output tags: ${{ steps.meta.outputs.tags }}"
