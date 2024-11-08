@@ -10,7 +10,7 @@ on:
       - 'v*'
 
 jobs:
-  build-and-push-image:
+  build-image:
     concurrency:
       group: ${{ github.workflow }}-${{ github.job }}-${{ github.head_ref || github.run_id }}
       cancel-in-progress: true
@@ -22,6 +22,10 @@ jobs:
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
       security-events: write
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      tag_hash: ${{ steps.vars.outputs.tag_hash }}
+      image_path: ${{ steps.vars.outputs.image_path }}
 
     steps:
       - name: Log in to GitHub Container Registry
@@ -116,26 +120,20 @@ jobs:
       #     echo "Importing $image_path-$tag_hash to Containerd"
       #     sudo ctr i import --no-unpack --all-platforms --digests $image_path-$tag_hash.tar.gz
 
-      - name: Run Integration Tests
-        uses: ./.github/workflows/integration_tests.yaml
-        with:
-          test_image_tag: "ghcr.io/predibase/lorax:main"
+  run-integration-tests:
+    needs: build-image
+    uses: ./.github/workflows/integration_tests.yaml
+    with:
+      # test_image_tag: ${{ needs.build-image.outputs.tags }}
+      test_image_tag: "ghcr.io/predibase/lorax:main"
 
-      - name: Push image with containerd
-        if: success()
-        env:
-          tags: ${{ steps.meta.outputs.tags }}
-        run: |
-          for tag in $tags
-          do
-            echo "Pushing $tag to GHCR"
-            sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
-          done
-
+  push-image:
+    runs-on: a100-40gb-runner
+    needs: [run-integration-tests, build-image]
+    steps:
       - name: Create and push soci index
-        if: success()
         env:
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ needs.build-image.outputs.tags }}
         run: |
           export SOCI_PATH=$HOME/.soci/soci
           for tag in $tags
@@ -148,8 +146,8 @@ jobs:
 
       - name: Prune older images
         env:
-          tag_hash: ${{ steps.vars.outputs.tag_hash }}
-          image_path: ${{ steps.vars.outputs.image_path }}
+          tag_hash: ${{ needs.build-image.outputs.tag_hash }}
+          image_path: ${{ needs.build-image.outputs.image_path }}
         run: |
           # Delete images older than a day from docker store
           docker image prune -a -f --filter "until=24h"
