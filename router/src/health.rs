@@ -1,4 +1,3 @@
-use crate::{ClassifyRequest, EmbedParameters, EmbedRequest};
 use lorax_client::{
     Batch, NextTokenChooserParameters, Request, ShardInfo, ShardedClient,
     StoppingCriteriaParameters,
@@ -39,6 +38,9 @@ impl Health {
 
     #[allow(dead_code)]
     pub(crate) async fn check(&mut self) -> bool {
+        // The server will put data into self.generation_health whenever we get something back from the model.
+        // We fail the health check if the if there were failures coming back from the model server.
+        // The "else" statement is only done before the router has recieved any traffic.
         if self.generation_health.load(Ordering::SeqCst) {
             // Generation is healthy, we only check that the shards are answering gRPC calls
             self.client.health().await.is_ok()
@@ -90,14 +92,20 @@ impl Health {
 
             // Create different requestas based on the type of model this is
             if self.shard_info().supports_embeddings {
-                let liveness_request = EmbedRequest {
+                let liveness_request = Request {
+                    id: LIVENESS_ID,
+                    prefill_logprobs: false,
                     inputs: "San Francisco".to_string(),
-                    parameters: EmbedParameters {
-                        adapter_id: None,
-                        adapter_source: None,
-                        adapter_parameters: None,
-                        api_token: None,
-                    },
+                    tokenized_inputs: None, // Tokenization happens on the model server instead
+                    truncate: 0,
+                    parameters: None,
+                    stopping_parameters: None,
+                    adapter_index: 0,
+                    // Block 0 is reserved for health checks
+                    blocks: vec![0],
+                    slots: (0..16).collect(),
+                    cache_len: 0,
+                    chunk_len: None,
                 };
                 let batch = Batch {
                     id: BATCH_ID,
@@ -112,8 +120,20 @@ impl Health {
             };
 
             if self.shard_info().supports_classification {
-                let liveness_request = ClassifyRequest {
+                let liveness_request = Request {
+                    id: LIVENESS_ID,
+                    prefill_logprobs: false,
                     inputs: "San Francisco".to_string(),
+                    tokenized_inputs: None, // Tokenization happens on the model server instead
+                    truncate: 0,
+                    parameters: None,
+                    stopping_parameters: None,
+                    adapter_index: 0,
+                    // Block 0 is reserved for health checks
+                    blocks: vec![0],
+                    slots: (0..16).collect(),
+                    cache_len: 0,
+                    chunk_len: None,
                 };
                 let batch = Batch {
                     id: BATCH_ID,
