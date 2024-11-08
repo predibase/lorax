@@ -22,11 +22,6 @@ jobs:
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
       security-events: write
-    outputs:
-      tags: ${{ steps.meta.outputs.tags }}
-      tag_hash: ${{ steps.vars.outputs.tag_hash }}
-      image_path: ${{ steps.vars.outputs.image_path }}
-      test_image_path: ${{ steps.test_image_path.outputs.test_image_path }}
 
     steps:
       - name: Log in to GitHub Container Registry
@@ -130,6 +125,8 @@ jobs:
         with:
           test_image_tag: ${{ steps.meta.outputs.tags }}
           use_local_image: true
+          github_token: ${{ secrets.GHCR_PAT }}
+          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
       - name: Import image in containerd
         env:
