@@ -155,7 +155,7 @@ class LoraWeights(AdapterWeights):
         # for vlm models we need to return list of layers
         # so nlayers is a list of ints in this case but in others its just an int
         nlayers = model.get_num_layers_for_type(layer_type)
-        if type(nlayers) == int:
+        if type(nlayers) is int:
             lora_a_list = [None] * nlayers
             lora_b_list = [None] * nlayers
             layer_ids = list(range(nlayers))

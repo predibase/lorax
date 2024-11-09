@@ -10,26 +10,14 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
+from lorax_server.models.custom_modeling.mllama import FlashLlamaCrossLayer
+from lorax_server.models.metadata_kernels import block_tables_to_ragged
 from lorax_server.models.vlm_causal_lm import VlmCausalLM, VlmCausalLMBatch
 from lorax_server.pb import generate_pb2
 from lorax_server.utils.attention.common import Seqlen
-from lorax_server.models.metadata_kernels import block_tables_to_ragged
+from lorax_server.utils.lora import DOWN_PROJ, FC1, FC2, GATE_PROJ, K_PROJ, LM_HEAD, O_PROJ, Q_PROJ, UP_PROJ, V_PROJ
 from lorax_server.utils.state import PREFIX_CACHING
 from lorax_server.utils.tokenizer import TokenizerManager
-from lorax_server.models.custom_modeling.mllama import FlashLlamaCrossLayer
-
-from lorax_server.utils.lora import (
-    DOWN_PROJ,
-    GATE_PROJ,
-    K_PROJ,
-    LM_HEAD,
-    O_PROJ,
-    Q_PROJ,
-    UP_PROJ,
-    V_PROJ,
-    FC1,
-    FC2
-)
 
 tracer = trace.get_tracer(__name__)
 
@@ -246,8 +234,6 @@ class MllamaCausalLM(VlmCausalLM):
             layer_weights[(i, f'TEXT_{DOWN_PROJ}')] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
         layer_weights[(0, f'TEXT_{LM_HEAD}')] = ("base_model.model.language_model.lm_head", self.model.text_model.lm_head)
 
-        # base_model.model.vision_model.transformer.layers.17.self_attn.v_proj.lora_A.weight
-        # vision_model.transformer.layers.17.self_attn.v_proj
         vision_layer_mappings = [
             ("vision_model.global_transformer.layers", self.model.vision_model.global_transformer.layers),
             ("vision_model.transformer.layers", self.model.vision_model.transformer.layers),
@@ -361,6 +347,7 @@ class MllamaCausalLM(VlmCausalLM):
                     pixel_values=batch.pixel_values,
                     aspect_ratio_ids=batch.aspect_ratio_ids,
                     aspect_ratio_mask=batch.aspect_ratio_mask,
+                    adapter_data=adapter_data,
                 )
                 batch.cross_attention_states = cross_attention_states
 
