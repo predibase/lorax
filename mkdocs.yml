@@ -50,6 +50,7 @@ nav:
           - lorax.client: reference/python_client/client.md
         # - lorax.types: reference/python_client/types.md
       - OpenAI Compatible API: reference/openai_api.md
+      - Metrics: reference/metrics.md
   - 🔬 Guides:
       - Quantization: guides/quantization.md
       - Structured Output (JSON): guides/structured_output.md

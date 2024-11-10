@@ -1,18 +1,24 @@
 from abc import ABC, abstractclassmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Type
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type
 
 import torch
 
 from lorax_server.adapters.types import LORA
 from lorax_server.utils.lora import LM_HEAD
 
+if TYPE_CHECKING:
+    from lorax_server.utils.punica import PunicaWrapper
+
 
 @dataclass
 class AdapterBatchMetadata:
-    # [batch_size]
+    # [num_tokens]
     adapter_indices: torch.Tensor
+
+    # [batch_size]
+    adapter_list: List[int]
 
     # [num_adapters]
     adapter_set: Set[int]
@@ -50,6 +56,7 @@ class BatchAdapterWeights(ABC):
         cls,
         adapter_weights: Dict[int, AdapterWeights],
         meta: "AdapterBatchMetadata",
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: torch.Tensor,
     ) -> Optional["BatchAdapterWeights"]:
@@ -80,6 +87,7 @@ class LayerAdapterWeights:
     def get_data(
         self,
         meta: AdapterBatchMetadata,
+        layer_name: str,
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> Dict[str, BatchAdapterWeights]:
@@ -91,7 +99,7 @@ class LayerAdapterWeights:
 
         batch_data = {}
         for batch_type, adapter_weights in adapter_batch_types.items():
-            batched_weights = batch_type.load(adapter_weights, meta, prefill, prefill_head_indices)
+            batched_weights = batch_type.load(adapter_weights, meta, layer_name, prefill, prefill_head_indices)
             if batched_weights is not None:
                 batch_data[batch_type.key()] = batched_weights
         return batch_data
@@ -104,12 +112,19 @@ class AdapterBatchData:
     # layer type -> adapter type -> batch weight data
     data: Dict[str, Dict[str, BatchAdapterWeights]]
 
+    # layer type -> fused lora weights
+    layer_to_lora_weights: Dict[Tuple[str, int], Tuple[torch.Tensor, torch.Tensor]]
+
+    punica_wrapper: "PunicaWrapper"
+
     prefill: bool
 
     @staticmethod
     def from_meta(
         meta: AdapterBatchMetadata,
         weights: Dict[str, LayerAdapterWeights],
+        layer_to_lora_weights: Dict[Tuple[str, int], Tuple[torch.Tensor, torch.Tensor]],
+        punica_wrapper: "PunicaWrapper",
         prefill: bool,
         prefill_head_indices: Optional[torch.Tensor],
     ) -> "AdapterBatchData":
@@ -117,10 +132,16 @@ class AdapterBatchData:
         for k, v in weights.items():
             if v.is_empty():
                 continue
-            layer_weights = v.get_data(meta, prefill, prefill_head_indices if k == LM_HEAD else None)
+            layer_weights = v.get_data(meta, k, prefill, prefill_head_indices if k == LM_HEAD else None)
             if layer_weights:
                 data[k] = layer_weights
-        return AdapterBatchData(meta=meta, data=data, prefill=prefill)
+        return AdapterBatchData(
+            meta=meta,
+            data=data,
+            layer_to_lora_weights=layer_to_lora_weights,
+            punica_wrapper=punica_wrapper,
+            prefill=prefill,
+        )
 
     def ranks(self) -> Set[int]:
         # TODO(travis): refactor to be less coupled to lora implementation

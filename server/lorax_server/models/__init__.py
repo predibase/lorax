@@ -52,6 +52,8 @@ def get_model(
     trust_remote_code: bool,
     source: str,
     adapter_source: str,
+    merge_adapter_weights: bool,
+    embedding_dim: Optional[int] = None,
 ) -> Model:
     config_dict = None
     if source == "s3":
@@ -105,6 +107,8 @@ def get_model(
     if model_type == "bert":
         from lorax_server.models.flash_bert import FlashBert
 
+        if config_dict["architectures"][0] == "BertForTokenClassification":
+            return FlashBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
         return FlashBert(model_id, revision=revision, dtype=dtype)
 
     if model_type == "distilbert":
@@ -116,16 +120,33 @@ def get_model(
         if config_dict["architectures"][0] == "DistilBertForTokenClassification":
             return FlashDistilBert(model_id, revision=revision, dtype=dtype, classifcation_head=True)
 
+    if model_type == "xlm-roberta":
+        from lorax_server.models.flash_roberta import FlashXlmRoberta
+
+        return FlashXlmRoberta(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision=revision,
+            dtype=dtype,
+            merge_adapter_weights=merge_adapter_weights,
+        )
+
+    flash_causal_lm_kwargs = dict(
+        quantize=quantize,
+        compile=compile,
+        dtype=dtype,
+        trust_remote_code=trust_remote_code,
+        merge_adapter_weights=merge_adapter_weights,
+    )
+
     if model_id.startswith("bigcode/") or model_type == "gpt_bigcode":
         from lorax_server.models.flash_santacoder import FlashSantacoderSharded
 
         return FlashSantacoderSharded(
             model_id,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "bloom":
@@ -167,10 +188,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "gpt2":
@@ -181,10 +199,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type in ["RefinedWeb", "RefinedWebModel", "falcon"]:
@@ -193,10 +208,7 @@ def get_model(
         return FlashRWSharded(
             model_id,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "mistral":
@@ -207,10 +219,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "mixtral":
@@ -221,10 +230,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "qwen":
@@ -235,10 +241,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "qwen2":
@@ -249,10 +252,8 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            embedding_dim=embedding_dim,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type in ["phi-msft", "phi"]:
@@ -263,10 +264,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "phi3":
@@ -277,10 +275,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "gemma":
@@ -291,10 +286,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "gemma2":
@@ -305,10 +297,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "cohere":
@@ -319,10 +308,7 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "dbrx":
@@ -333,10 +319,34 @@ def get_model(
             adapter_id,
             adapter_source,
             revision,
-            quantize=quantize,
-            compile=compile,
-            dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            **flash_causal_lm_kwargs,
+        )
+
+    if model_type == "llava_next" or model_type == "llava":
+        from lorax_server.models.custom_modeling.llava_next import LlavaNextForConditionalGeneration
+        from lorax_server.models.vlm_causal_lm import VlmCausalLM
+
+        return VlmCausalLM(
+            model_class=LlavaNextForConditionalGeneration,
+            model_id=model_id,
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
+            revision=revision,
+            **flash_causal_lm_kwargs,
+        )
+
+    if model_type == "mllama":
+        from lorax_server.models.custom_modeling.mllama import MllamaForConditionalGeneration
+        from lorax_server.models.mllama import MllamaCausalLM, MllamaCausalLMBatch
+
+        return MllamaCausalLM(
+            model_id=model_id,
+            model_class=MllamaForConditionalGeneration,
+            batch_class=MllamaCausalLMBatch,
+            adapter_id=adapter_id,
+            adapter_source=adapter_source,
+            revision=revision,
+            **flash_causal_lm_kwargs,
         )
 
     if model_type == "opt":

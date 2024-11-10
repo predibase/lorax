@@ -2,12 +2,15 @@
 mod adapter;
 mod batch;
 mod block_allocator;
+pub mod config;
 mod health;
 mod infer;
 mod loader;
 mod queue;
+mod radix;
 mod scheduler;
 pub mod server;
+mod tool_grammar;
 
 mod validation;
 use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as EntityMessage};
@@ -73,8 +76,6 @@ pub struct Info {
     pub docker_label: Option<&'static str>,
     #[schema(nullable = true, example = "http://localhost:8899")]
     pub request_logger_url: Option<String>,
-    #[schema(example = false)]
-    pub embedding_model: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema, Default)]
@@ -256,6 +257,7 @@ pub(crate) struct GenerateParameters {
     pub return_k_alternatives: Option<i32>,
     #[serde(default)]
     #[schema(default = "false")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     pub apply_chat_template: bool,
     #[serde(default)]
     #[schema(
@@ -385,7 +387,7 @@ pub struct SimpleToken {
     stop: usize,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, ToSchema, Clone)]
 #[serde(rename_all(serialize = "snake_case"))]
 pub(crate) enum FinishReason {
     #[schema(rename = "length")]
@@ -477,19 +479,67 @@ struct UsageInfo {
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 enum ResponseFormatType {
+    #[serde(alias = "text")]
+    Text,
     #[serde(alias = "json_object")]
     JsonObject,
+    #[serde(alias = "json_schema")]
+    JsonSchema,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ResponseFormat {
+    #[allow(dead_code)] // For now allow this field even though it is unused
     r#type: ResponseFormatType,
-    schema: serde_json::Value, // TODO: make this optional once arbitrary JSON object is supported in Outlines
+
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
+}
+
+// Default schema to be used when no value is provided
+fn default_json_schema() -> Option<serde_json::Value> {
+    Some(serde_json::json!({
+        "additionalProperties": {
+            "type": ["object", "string", "integer", "number", "boolean", "null"]
+        },
+        "title": "ArbitraryJsonModel",
+        "type": "object"
+    }))
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+struct JsonSchema {
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    description: Option<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    name: String,
+    schema: Option<serde_json::Value>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
+    strict: Option<bool>,
+}
+
+// TODO check if json_schema field is required if type is json_schema
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct OpenAiResponseFormat {
+    #[serde(rename(deserialize = "type"))]
+    response_format_type: ResponseFormatType,
+    json_schema: Option<JsonSchema>,
+
+    // For backwards compatibility
+    #[serde(default = "default_json_schema")]
+    schema: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
 pub struct Url {
     url: String,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Default, Debug, PartialEq)]
+pub(crate) struct ToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: FunctionDefinition,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
@@ -571,25 +621,159 @@ struct ChatCompletionRequest {
     #[serde(default)]
     stop: Vec<String>,
     stream: Option<bool>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
+    response_format: Option<OpenAiResponseFormat>,
+
+    /// A list of tools the model may call. Currently, only functions are supported as a tool. Use this to provide a list of
+    /// functions the model may generate JSON inputs for.
+    #[serde(default)]
+    #[schema(nullable = true, example = "null")]
+    pub tools: Option<Vec<Tool>>,
+
+    /// A specific tool to use. If not provided, the model will default to use any of the tools provided in the tools parameter.
+    /// A specific tool to use. If not provided, the model will default to use any of the tools provided in the tools parameter.
+    #[serde(default)]
+    #[schema(nullable = true, example = "null")]
+    pub tool_choice: ToolChoice,
     // Additional parameters
     // TODO(travis): add other LoRAX params here
-    response_format: Option<ResponseFormat>,
     repetition_penalty: Option<f32>,
     top_k: Option<i32>,
     ignore_eos_token: Option<bool>,
     adapter_source: Option<String>,
     api_token: Option<String>,
+
+    /// A prompt to be appended before the tools
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        example = "Given the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables."
+    )]
+    pub tool_prompt: Option<String>,
+
+    /// A guideline to be used in the chat_template
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "null")]
+    pub guideline: Option<String>,
+}
+
+pub fn default_tool_prompt() -> String {
+    "\nGiven the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables.\n".to_string()
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[schema(example = "auto")]
+/// Controls which (if any) tool is called by the model.
+pub enum ToolType {
+    /// Means the model can pick between generating a message or calling one or more tools.
+    #[schema(rename = "auto")]
+    OneOf,
+    /// Means the model will not call any tool and instead generates a message.
+    #[schema(rename = "none")]
+    NoTool,
+    /// Forces the model to call a specific tool.
+    #[schema(rename = "function")]
+    Function(FunctionName),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FunctionName {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
+#[serde(from = "ToolTypeDeserializer")]
+pub struct ToolChoice(pub Option<ToolType>);
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ToolTypeDeserializer {
+    Null,
+    String(String),
+    ToolType(ToolType),
+}
+
+impl From<ToolTypeDeserializer> for ToolChoice {
+    fn from(value: ToolTypeDeserializer) -> Self {
+        match value {
+            ToolTypeDeserializer::Null => ToolChoice(None),
+            ToolTypeDeserializer::String(s) => match s.as_str() {
+                "none" => ToolChoice(Some(ToolType::NoTool)),
+                "auto" => ToolChoice(Some(ToolType::OneOf)),
+                _ => ToolChoice(Some(ToolType::Function(FunctionName { name: s }))),
+            },
+            ToolTypeDeserializer::ToolType(tool_type) => ToolChoice(Some(tool_type)),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq)]
+pub struct JsonSchemaTool {
+    #[serde(flatten)]
+    functions_map: FunctionsMap,
+    properties: Properties,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct FunctionsMap {
+    #[serde(rename = "$functions")]
+    functions: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct FunctionRef {
+    #[serde(rename = "$ref")]
+    ref_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Properties {
+    #[serde(serialize_with = "serialize_function")]
+    function: Vec<FunctionRef>,
+}
+
+fn serialize_function<S>(functions: &Vec<FunctionRef>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeStruct;
+    let mut state = serializer.serialize_struct("Function", 1)?;
+    state.serialize_field("anyOf", functions)?;
+    state.end()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema, Default, PartialEq)]
+pub(crate) struct FunctionDefinition {
+    #[serde(default)]
+    pub description: Option<String>,
+    pub name: String,
+    #[serde(alias = "parameters")]
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(crate) struct Tool {
+    // The type of the tool. Currently, only 'function' is supported.
+    #[schema(example = "function")]
+    pub r#type: String,
+    // Grab the tool as generic JSON for debugging purposes.
+    pub function: FunctionDefinition,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct CompletionRequest {
     model: String,
     prompt: String,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     suffix: Option<String>,
     max_tokens: Option<i32>,
     temperature: Option<f32>,
@@ -600,10 +784,14 @@ struct CompletionRequest {
     echo: Option<bool>,
     #[serde(default)]
     stop: Vec<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     presence_penalty: Option<f32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     frequency_penalty: Option<f32>,
     best_of: Option<i32>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     logit_bias: Option<std::collections::HashMap<String, f32>>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     user: Option<String>,
     seed: Option<u64>,
     // Additional parameters
@@ -665,6 +853,22 @@ struct ChatMessage {
     role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
+pub(crate) struct DeltaToolCall {
+    pub index: u32,
+    pub id: String,
+    pub r#type: String,
+    pub function: Function,
+}
+
+#[derive(Clone, Deserialize, Serialize, ToSchema, Debug)]
+pub(crate) struct Function {
+    pub name: Option<String>,
+    pub arguments: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -682,6 +886,7 @@ struct ChatCompletionResponse {
     model: String,
     choices: Vec<ChatCompletionResponseChoice>,
     usage: UsageInfo,
+    system_fingerprint: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -712,12 +917,48 @@ pub(crate) enum CompletionFinishReason {
     #[schema(rename = "content_filter")]
     ContentFilter,
     #[schema(rename = "tool_calls")]
+    #[allow(dead_code)] // For now allow this field even though it is unused
     ToolCalls,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub(crate) struct EmbedParameters {
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "arnavgrg/codealpaca-qlora"
+    )]
+    pub adapter_id: Option<String>,
+    #[serde(default)]
+    #[schema(nullable = true, default = "null", example = "hub")]
+    pub adapter_source: Option<String>,
+    #[serde(rename(deserialize = "merged_adapters"))]
+    #[schema(nullable = true, default = "null")]
+    pub adapter_parameters: Option<AdapterParameters>,
+    #[serde(default)]
+    #[schema(
+        nullable = true,
+        default = "null",
+        example = "<token for private adapters>"
+    )]
+    pub api_token: Option<String>,
+}
+
+fn default_embed_parameters() -> EmbedParameters {
+    EmbedParameters {
+        adapter_id: None,
+        adapter_source: None,
+        adapter_parameters: None,
+        api_token: None,
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct EmbedRequest {
     inputs: String,
+    #[serde(default = "default_embed_parameters")]
+    pub parameters: EmbedParameters,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -730,16 +971,15 @@ struct ClassifyRequest {
     inputs: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ClassifyResponse {
-    entities: Vec<Entity>,
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct BatchClassifyRequest {
+    inputs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Entity {
-    entity: String,
+    entity_group: String,
     score: f32,
-    index: usize,
     word: String,
     start: usize,
     end: usize,
@@ -748,9 +988,8 @@ struct Entity {
 impl From<EntityMessage> for Entity {
     fn from(entity: EntityMessage) -> Self {
         Entity {
-            entity: entity.entity,
+            entity_group: entity.entity,
             score: entity.score,
-            index: entity.index as usize,
             word: entity.word,
             start: entity.start as usize,
             end: entity.end as usize,
@@ -866,8 +1105,55 @@ impl From<StreamResponse> for CompletionStreamResponse {
     }
 }
 
-impl From<GenerateResponse> for ChatCompletionResponse {
-    fn from(resp: GenerateResponse) -> Self {
+impl ChatCompletionResponse {
+    pub(crate) fn new(
+        resp: &GenerateResponse,
+        model: String,
+        system_fingerprint: String,
+        choice_content: Vec<(Option<Vec<ToolCall>>, Option<String>)>,
+        created: u64,
+        // return_logprobs: bool,  // TODO: Implement logprobs
+    ) -> Self {
+        let mut choices = vec![];
+        for (index, (tool_calls, output)) in choice_content.into_iter().enumerate() {
+            let message = match (output, tool_calls) {
+                (Some(content), None) => ChatMessage {
+                    role: Some("assistant".to_string()),
+                    content: Some(content),
+                    tool_calls: None,
+                },
+                (None, Some(tool_calls)) => ChatMessage {
+                    role: Some("assistant".to_string()),
+                    content: None,
+                    tool_calls: Some(tool_calls),
+                },
+                (Some(output), Some(_)) => {
+                    tracing::warn!("Received both chat and tool call");
+                    ChatMessage {
+                        role: Some("assistant".to_string()),
+                        content: Some(output),
+                        tool_calls: None,
+                    }
+                }
+                (None, None) => {
+                    tracing::warn!("Didn't receive an answer");
+                    ChatMessage {
+                        role: Some("assistant".to_string()),
+                        content: None,
+                        tool_calls: None,
+                    }
+                }
+            };
+
+            choices.push(ChatCompletionResponseChoice {
+                index: index as i32,
+                message,
+                finish_reason: Some(CompletionFinishReason::from(
+                    resp.details.as_ref().unwrap().finish_reason.clone(),
+                )),
+            });
+        }
+
         let prompt_tokens = resp.details.as_ref().map(|x| x.prompt_tokens).unwrap_or(0);
         let completion_tokens = resp
             .details
@@ -879,18 +1165,10 @@ impl From<GenerateResponse> for ChatCompletionResponse {
         ChatCompletionResponse {
             id: "null".to_string(),
             object: "text_completion".to_string(),
-            created: 0,
-            model: "null".to_string(),
-            choices: vec![ChatCompletionResponseChoice {
-                index: 0,
-                message: ChatMessage {
-                    role: Some("assistant".to_string()),
-                    content: Some(resp.generated_text),
-                },
-                finish_reason: resp
-                    .details
-                    .map(|x| CompletionFinishReason::from(x.finish_reason)),
-            }],
+            created: created as i64,
+            system_fingerprint: system_fingerprint,
+            model: model,
+            choices: choices,
             usage: UsageInfo {
                 prompt_tokens: prompt_tokens,
                 total_tokens: total_tokens,
@@ -938,6 +1216,7 @@ impl From<StreamResponse> for ChatCompletionStreamResponse {
                         Some("assistant".to_string())
                     },
                     content: if is_stop { None } else { Some(resp.token.text) },
+                    tool_calls: None, // TODO(travis): support tool_calls in stram response
                 },
                 finish_reason: finish_reason,
             }],
@@ -1003,6 +1282,40 @@ impl TokenizerConfigToken {
             TokenizerConfigToken::String(s) => s,
             TokenizerConfigToken::Object { content } => content,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "processor_class")]
+pub enum HubPreprocessorConfig {
+    Idefics2Processor(Idefics2Preprocessor),
+}
+
+impl HubPreprocessorConfig {
+    pub fn from_file<P: AsRef<std::path::Path>>(filename: P) -> Option<Self> {
+        let content = std::fs::read_to_string(filename).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Idefics2Preprocessor {
+    #[serde(default)]
+    do_image_splitting: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HubProcessorConfig {
+    pub chat_template: Option<ChatTemplateVersions>,
+    pub image_seq_len: usize,
+    pub processor_class: Option<String>,
+}
+
+impl HubProcessorConfig {
+    pub fn from_file<P: AsRef<Path>>(filename: P) -> Option<Self> {
+        std::fs::read_to_string(filename)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
     }
 }
 

@@ -705,7 +705,7 @@
             "example": 0.5,
             "nullable": false,
             "minimum": 0.0,
-            "maximim": 1.0
+            "maximum": 1.0
           },
           "majority_sign_method": {
             "type": "string",
@@ -727,7 +727,7 @@
             "example": 1,
             "nullable": true,
             "minimum": 0.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "decoder_input_details": {
             "type": "boolean",
@@ -748,7 +748,7 @@
             "default": "null",
             "nullable": true,
             "minimum": 0.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "ignore_eos_token": {
             "type": "boolean",
@@ -761,7 +761,8 @@
             "default": "null",
             "example": 1.03,
             "nullable": true,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": true
           },
           "return_full_text": {
             "type": "boolean",
@@ -776,7 +777,7 @@
             "example": "null",
             "nullable": true,
             "minimum": 0.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "stop": {
             "type": "array",
@@ -794,7 +795,8 @@
             "default": "null",
             "example": 0.5,
             "nullable": true,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": false
           },
           "top_k": {
             "type": "integer",
@@ -802,7 +804,8 @@
             "default": "null",
             "example": 10,
             "nullable": true,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": true
           },
           "top_p": {
             "type": "number",
@@ -811,7 +814,7 @@
             "example": 0.95,
             "nullable": true,
             "maximum": 1.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "truncate": {
             "type": "integer",
@@ -827,7 +830,7 @@
             "example": 0.95,
             "nullable": true,
             "maximum": 1.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "watermark": {
             "type": "boolean",
@@ -930,7 +933,8 @@
             "default": "null",
             "example": 0.5,
             "nullable": true,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": false
           },
           "top_p": {
             "type": "number",
@@ -939,22 +943,23 @@
             "example": 0.95,
             "nullable": true,
             "maximum": 1.0,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": true
           },
           "n": {
             "type": "integer",
             "default": "null",
             "example": 3,
             "nullable": true,
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "max_tokens": {
             "type": "integer",
             "format": "int32",
             "default": "20",
             "minimum": 0.0,
-            "exclusiveMaximum": 512.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "stop": {
             "type": "array",
@@ -997,7 +1002,8 @@
             "default": "null",
             "example": 0.5,
             "nullable": true,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": false
           },
           "top_p": {
             "type": "number",
@@ -1006,22 +1012,23 @@
             "example": 0.95,
             "nullable": true,
             "maximum": 1.0,
-            "exclusiveMinimum": 0.0
+            "minimum": 0.0,
+            "exclusiveMinimum": true
           },
           "n": {
             "type": "integer",
             "default": "null",
             "example": 3,
             "nullable": true,
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "max_tokens": {
             "type": "integer",
             "format": "int32",
             "default": "20",
             "minimum": 0.0,
-            "exclusiveMaximum": 512.0,
-            "exclusiveMinimum": 0.0
+            "exclusiveMinimum": true
           },
           "stop": {
             "type": "array",

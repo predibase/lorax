@@ -3,11 +3,14 @@ use crate::pb::generate::v1::lorax_service_client::LoraxServiceClient;
 use crate::pb::generate::v1::*;
 use crate::ClientError;
 use crate::Result;
+use crate::WARMUP_IMAGE_BASE64;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use grpc_metadata::InjectTelemetryContext;
 use std::cmp::min;
 use tonic::transport::{Channel, Uri};
-use tonic::Response;
 use tracing::instrument;
+
+use self::input_chunk::Chunk;
 
 /// LoRAX gRPC client
 #[derive(Debug, Clone)]
@@ -114,14 +117,34 @@ impl Client {
         while n_tokens < max_prefill_tokens {
             // We truncate the input on the server side to be sure that it has the correct size
             let truncate_length = min(max_input_length, max_prefill_tokens - n_tokens);
+
+            let mut input_chunks = Vec::new();
+            input_chunks
+                .push(Chunk::Text("_test ".to_string().repeat(max_input_length as usize)).into());
+            if n_tokens == 0 {
+                input_chunks.push(
+                    Chunk::Image(Image {
+                        // Safe unwrap, because we control the data.
+                        data: STANDARD.decode(WARMUP_IMAGE_BASE64).unwrap(),
+                        mimetype: "image/jpeg;base64".to_string(),
+                    })
+                    .into(),
+                );
+            }
+
             requests.push(Request {
                 id: 0,
                 inputs: "_test ".to_string().repeat(max_input_length as usize),
-                tokenized_inputs: None,
+                tokenized_inputs: Some(TokenizedInputs {
+                    ids: vec![],
+                    input_chunks: input_chunks,
+                }),
                 truncate: truncate_length,
                 // Blocks and slots will be set on the server side if we use paged attention
                 blocks: vec![],
                 slots: vec![],
+                cache_len: 0,
+                chunk_len: None,
                 // Set sampling parameters to also take these ops into account in the max memory
                 parameters: Some(NextTokenChooserParameters {
                     temperature: 0.9,
@@ -158,6 +181,8 @@ impl Client {
         let max_new_tokens = max_total_tokens - max_input_length;
         let request = tonic::Request::new(WarmupRequest {
             batch: Some(batch),
+            max_input_length,
+            max_prefill_tokens,
             max_new_tokens,
         })
         .inject_context();
@@ -173,8 +198,13 @@ impl Client {
     pub async fn prefill(
         &mut self,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
     ) -> Result<(Vec<Generation>, Option<CachedBatch>)> {
-        let request = tonic::Request::new(PrefillRequest { batch: Some(batch) }).inject_context();
+        let request = tonic::Request::new(PrefillRequest {
+            batch: Some(batch),
+            cached_batch,
+        })
+        .inject_context();
         let response = self.stub.prefill(request).await?.into_inner();
         Ok((response.generations, response.batch))
     }

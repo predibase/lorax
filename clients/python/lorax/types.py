@@ -64,7 +64,7 @@ class ResponseFormat(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     type: ResponseFormatType
-    schema_spec: Union[Dict[str, Any], OrderedDict] = Field(alias="schema")
+    schema_spec: Optional[Union[Dict[str, Any], OrderedDict]] = Field(None, alias="schema")
 
 
 class Parameters(BaseModel):
@@ -201,6 +201,28 @@ class Parameters(BaseModel):
 class Request(BaseModel):
     # Prompt
     inputs: str
+    # Generation parameters
+    parameters: Optional[Parameters] = None
+    # Whether to stream output tokens
+    stream: bool = False
+
+    @field_validator("inputs")
+    def valid_input(cls, v):
+        if not v:
+            raise ValidationError("`inputs` cannot be empty")
+        return v
+
+    @field_validator("stream")
+    def valid_best_of_stream(cls, field_value, values):
+        parameters = values.data["parameters"]
+        if parameters is not None and parameters.best_of is not None and parameters.best_of > 1 and field_value:
+            raise ValidationError("`best_of` != 1 is not supported when `stream` == True")
+        return field_value
+
+
+class BatchRequest(BaseModel):
+    # Prompt
+    inputs: List[str]
     # Generation parameters
     parameters: Optional[Parameters] = None
     # Whether to stream output tokens

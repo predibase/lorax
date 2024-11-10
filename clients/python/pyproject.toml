@@ -3,7 +3,7 @@ name = "lorax-client"
 packages = [
     {include = "lorax"}
 ]
-version = "0.6.1"
+version = "0.6.2"
 description = "LoRAX Python Client"
 license = "Apache-2.0"
 authors = ["Travis Addair <travis@predibase.com>", "Olivier Dehaene <olivier@huggingface.co>"]
@@ -16,11 +16,16 @@ repository = "https://github.com/predibase/lorax"
 [tool.poetry.dependencies]
 python = "^3.8"
 pydantic = "> 2, < 3"
-aiohttp = "^3.9"
+aiohttp = "3.10.2"
 huggingface-hub = ">= 0.12, < 1.0"
+certifi = "2024.7.4"
+urllib3 = "1.26.19"
+requests = "2.32.0"
+idna = "3.7"
+tqdm = "4.66.3"
 
 [tool.poetry.dev-dependencies]
-pytest = "^6.2.5"
+pytest = "^7.3.0"
 pytest-asyncio = "^0.17.2"
 pytest-cov = "^3.0.0"
 

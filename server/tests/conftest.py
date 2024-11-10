@@ -97,6 +97,8 @@ def default_causal_lm_batch(default_pb_batch, gpt2_tokenizer):
         default_pb_batch,
         gpt2_tokenizer,
         TokenizerManager(),
+        None,
+        None,
         torch.float32,
         torch.device("cpu"),
     )

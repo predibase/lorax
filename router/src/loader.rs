@@ -3,20 +3,20 @@ use crate::infer::InferError;
 use crate::queue::{AdapterQueuesState, AdapterStatus};
 use lorax_client::ShardedClient;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::Span;
 
 /// Request AdapterLoader
 #[derive(Debug, Clone)]
 pub(crate) struct AdapterLoader {
     /// Channel to communicate with the background task
-    sender: flume::Sender<AdapterLoaderCommand>,
+    sender: mpsc::UnboundedSender<AdapterLoaderCommand>,
 }
 
 impl AdapterLoader {
     pub(crate) fn new(client: ShardedClient) -> Self {
         // Create channel
-        let (sender, receiver) = flume::unbounded();
+        let (sender, receiver) = mpsc::unbounded_channel();
 
         // Launch background queue task
         tokio::spawn(loader_task(client, receiver));
@@ -83,6 +83,7 @@ impl AdapterLoader {
         // response_receiver.await.unwrap()
     }
 
+    #[allow(dead_code)] // cuurently unused
     pub(crate) async fn is_errored(&self, adapter: Adapter) -> bool {
         // Create response channel
         let (response_sender, response_receiver) = oneshot::channel();
@@ -114,15 +115,18 @@ impl AdapterLoader {
 }
 
 // Background task responsible of the loader state
-async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<AdapterLoaderCommand>) {
+async fn loader_task(
+    mut client: ShardedClient,
+    mut receiver: mpsc::UnboundedReceiver<AdapterLoaderCommand>,
+) {
     let mut err_msgs: HashMap<Adapter, String> = HashMap::new();
 
-    while let Ok(cmd) = receiver.recv_async().await {
+    while let Some(cmd) = receiver.recv().await {
         match cmd {
             AdapterLoaderCommand::DownloadAdapter {
                 adapter,
                 queues_state,
-                response_sender,
+                response_sender: _,
                 span: _, // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
@@ -133,7 +137,6 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
                         // time of request and the time of adapter download
                         locked_state.set_status(&adapter, AdapterStatus::Errored);
                     }
-                    // response_sender.send(()).unwrap();
                     continue;
                 }
 
@@ -172,7 +175,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
             AdapterLoaderCommand::LoadAdapter {
                 adapter,
                 queues_state,
-                response_sender,
+                response_sender: _,
                 span: _, // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
@@ -217,7 +220,7 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
             AdapterLoaderCommand::OffloadAdapter {
                 adapter,
                 queues_state,
-                response_sender,
+                response_sender: _,
                 span: _, // TODO(geoffrey): not sure how to use 'span' with async fn
             } => {
                 if err_msgs.contains_key(&adapter) {
@@ -270,8 +273,8 @@ async fn loader_task(mut client: ShardedClient, receiver: flume::Receiver<Adapte
             AdapterLoaderCommand::Terminate {
                 adapter,
                 queues_state,
-                response_sender,
-                span,
+                response_sender: _,
+                span: _,
             } => {
                 tracing::info!("terminating adapter {} loader", adapter.as_string());
 
@@ -302,21 +305,28 @@ enum AdapterLoaderCommand {
     DownloadAdapter {
         adapter: Adapter,
         queues_state: Arc<Mutex<AdapterQueuesState>>,
+        #[allow(dead_code)] // currently unused
         response_sender: oneshot::Sender<()>,
+        #[allow(dead_code)] // currently unused
         span: Span,
     },
     LoadAdapter {
         adapter: Adapter,
         queues_state: Arc<Mutex<AdapterQueuesState>>,
+        #[allow(dead_code)] // currently unused
         response_sender: oneshot::Sender<()>,
+        #[allow(dead_code)] // currently unused
         span: Span,
     },
     OffloadAdapter {
         adapter: Adapter,
         queues_state: Arc<Mutex<AdapterQueuesState>>,
+        #[allow(dead_code)] // currently unused
         response_sender: oneshot::Sender<()>,
+        #[allow(dead_code)] // currently unused
         span: Span,
     },
+    #[allow(dead_code)]
     IsErrored {
         adapter: Adapter,
         response_sender: oneshot::Sender<bool>,
@@ -325,7 +335,9 @@ enum AdapterLoaderCommand {
     Terminate {
         adapter: Adapter,
         queues_state: Arc<Mutex<AdapterQueuesState>>,
+        #[allow(dead_code)] // currently unused
         response_sender: oneshot::Sender<()>,
+        #[allow(dead_code)] // currently unused
         span: Span,
     },
 }

@@ -11,6 +11,9 @@ from huggingface_hub.utils import EntryNotFoundError, LocalEntryNotFoundError
 from loguru import logger
 from safetensors import safe_open
 
+from lorax_server.utils.sources import PBASE, S3, map_pbase_model_id_to_s3
+from lorax_server.utils.torch_utils import is_fp8
+
 
 class AbstractWeights(ABC):
     @abstractmethod
@@ -117,7 +120,7 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, False)
         else:
             weight_list = self.get_sharded_list("weight", prefixes, dim=0)
-            if quantize == "fp8" and weight_list[0].dtype == torch.float8_e4m3fn:
+            if is_fp8(quantize) and weight_list[0].dtype == torch.float8_e4m3fn:
                 # Since there is no kernel for concatenating two tensors in PyTorch
                 # for fp8 datatypes, we have to cast to fp16, concat, cast back to fp8
                 fp16_weight_list = [w.to(torch.float16) for w in weight_list]
@@ -220,7 +223,7 @@ class AbstractWeights(ABC):
             weight = (qweight, qzeros, scales, g_idx, bits, groupsize, use_exllama)
         else:
             weight = self.get_sharded(f"{prefix}.weight", dim=1)
-            if quantize == "fp8" and weight.dtype == torch.float8_e4m3fn:
+            if is_fp8(quantize) and weight.dtype == torch.float8_e4m3fn:
                 # weight_scale could be a tensor but if we're sharding row-wise then no
                 # need to shard the weight_scale as its row dimension would be 1
                 weight_scale = self.get_tensor(f"{prefix}.weight_scale", use_self_dtype=False)
@@ -267,9 +270,7 @@ class InMemoryWeights(AbstractWeights):
 
     def get_tensor(self, tensor_name: str) -> torch.Tensor:
         tensor = self.weights[tensor_name]
-        tensor = tensor.to(dtype=self.dtype)
-        tensor = tensor.to(device=self.device)
-        return tensor
+        return load_module_weight(tensor_name, tensor, self.device, self.dtype)
 
     def get_slice_shape(self, slice) -> torch.Size:
         return slice.shape
@@ -463,12 +464,19 @@ def download_weights(
     auto_convert: bool = True,
     source: str = "hub",
     api_token: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ):
     # Import here after the logger is added to log potential import exceptions
     from lorax_server import utils
     from lorax_server.utils import sources
 
-    model_source = sources.get_model_source(source, model_id, revision, extension, api_token)
+    if source == PBASE:
+        # TODO(travis): move this into `model_source` to handle behind the abstraction
+        api_token = api_token or os.environ.get("PREDIBASE_API_TOKEN")
+        model_id = map_pbase_model_id_to_s3(model_id, api_token)
+        source = S3
+
+    model_source = sources.get_model_source(source, model_id, revision, extension, api_token, embedding_dim)
 
     # Test if files were already download
     try:
@@ -542,3 +550,18 @@ def download_weights(
             discard_names = []
         # Convert pytorch weights to safetensors
         utils.convert_files(local_pt_files, local_st_files, discard_names)
+
+
+def load_module_weight(name: str, module: Union[torch.Tensor, str], device, dtype):
+    if isinstance(module, torch.Tensor):
+        return module.to(device, dtype)
+
+    if isinstance(device, torch.device):
+        if device.type == "cuda":
+            device = device.index
+        elif device.type == "cpu":
+            device = "cpu"
+
+    # module would be just the filename if lazy loading happened before
+    with safe_open(module, framework="pt", device=device) as f:
+        return f.get_tensor(name).to(dtype)

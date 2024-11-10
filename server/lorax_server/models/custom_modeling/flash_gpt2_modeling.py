@@ -28,7 +28,9 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.models.gpt2 import GPT2Config
 
 from lorax_server.adapters import AdapterBatchData
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
     FastLayerNorm,
     TensorParallelAdapterRowLinear,
@@ -148,7 +150,7 @@ class FlashGPT2Attention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
     ):
@@ -157,17 +159,15 @@ class FlashGPT2Attention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(qkv[:, 1], qkv[:, 2], kv_cache[0], kv_cache[1], slots)
 
-        # output tensor
-        attn_output = torch.empty_like(qkv[:, 0])
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 qkv[:, 0],
                 qkv[:, 1],
                 qkv[:, 2],
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -175,15 +175,15 @@ class FlashGPT2Attention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, num_heads, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 qkv[:, 0],
                 kv_cache[0],
                 kv_cache[1],
                 self.num_key_value_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -256,7 +256,7 @@ class GPT2Block(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
         adapter_data,
     ):
@@ -268,7 +268,7 @@ class GPT2Block(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
         )
@@ -293,18 +293,18 @@ class FlashGPT2PreTrainedModel(PreTrainedModel):
 
 
 class FlashGPT2Model(FlashGPT2PreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
         self.config = config
 
         self.embed_dim = config.hidden_size
 
-        self.wte = TensorParallelEmbedding(prefix="wte", weights=weights)
-        self.wpe = TensorParallelEmbedding(prefix="wpe", weights=weights)
+        self.wte = TensorParallelEmbedding(prefix=prepend(prefix, "wte"), weights=weights)
+        self.wpe = TensorParallelEmbedding(prefix=prepend(prefix, "wpe"), weights=weights)
 
         self.h = nn.ModuleList([GPT2Block(layer_id, config, weights) for layer_id in range(config.num_hidden_layers)])
         self.ln_f = FastLayerNorm.load(
-            prefix="ln_f",
+            prefix=prepend(prefix, "ln_f"),
             weights=weights,
             eps=config.layer_norm_epsilon,
         )
@@ -323,7 +323,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
     ) -> torch.Tensor:
@@ -338,7 +338,7 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
                 adapter_data,
             )
@@ -348,9 +348,10 @@ class FlashGPT2Model(FlashGPT2PreTrainedModel):
 
 
 class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__(config)
-        self.transformer = FlashGPT2Model(config, weights)
+        self.config = config
+        self.transformer = FlashGPT2Model(prefix, config, weights)
         self.wte_t = self.transformer.wte.weight.T.contiguous()
 
     def forward(
@@ -361,11 +362,12 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
+        skip_lm_head: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.transformer(
             input_ids,
@@ -374,7 +376,7 @@ class FlashGPT2ForCausalLM(FlashGPT2PreTrainedModel):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
             adapter_data,
         )

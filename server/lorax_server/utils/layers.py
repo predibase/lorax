@@ -11,7 +11,8 @@ from torch.nn import functional as F
 from lorax_server.adapters.types import LORA, MEDUSA
 from lorax_server.layers.linear import FastLinear, get_linear  # noqa: F401
 from lorax_server.layers.tensor_parallel import SuperLayer, TensorParallelColumnLinear, TensorParallelHead  # noqa: F401
-from lorax_server.utils.sgmv import (
+from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.punica import (
     add_lora_a_bgmv,
     add_lora_b_bgmv,
     has_sgmv,
@@ -19,7 +20,7 @@ from lorax_server.utils.sgmv import (
     lora_b_sgmv_cutlass,
     orient_for_rank,
 )
-from lorax_server.utils.state import is_warmup
+from lorax_server.utils.state import get_speculative_tokens, is_warmup
 
 if TYPE_CHECKING:
     from lorax_server.adapters import AdapterBatchData
@@ -73,8 +74,37 @@ class LoraLinear(nn.Module):
     ) -> torch.Tensor:
         data = adapter_data.data.get(layer_type)
         data: Optional["BatchLoraWeights"] = data.get(LORA) if data is not None else None
+        can_vectorize = data is not None and data.can_vectorize(self.process_group)
 
-        if has_sgmv() and data is not None and data.can_vectorize(self.process_group):
+        # Triton Punica kernels
+        key = (layer_type, self.layer_id)
+        if (
+            adapter_data.punica_wrapper is not None and adapter_data.punica_wrapper.enabled
+            and key in adapter_data.layer_to_lora_weights
+            and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size
+            and can_vectorize
+        ):
+            if end_idx - start_idx != result.shape[1]:
+                y_offset = start_idx
+                y_slice_size = end_idx - start_idx
+            else:
+                y_offset = None
+                y_slice_size = None
+
+            lora_a_weights, lora_b_weights = adapter_data.layer_to_lora_weights[key]
+            adapter_data.punica_wrapper.add_lora(
+                result,
+                input,
+                lora_a_weights,
+                lora_b_weights,
+                1.0,
+                y_offset,
+                y_slice_size,
+                callback=self.collect_lora_a if self.process_group.size() > 1 else None,
+            )
+
+        # Legacy Punica kernels
+        elif has_sgmv() and can_vectorize:
             if end_idx - start_idx != result.shape[1]:
                 proj = torch.zeros_like(result[:, start_idx:end_idx])
             else:
@@ -134,10 +164,27 @@ class LoraLinear(nn.Module):
 
             if end_idx - start_idx != result.shape[1]:
                 result[:, start_idx:end_idx] += proj
+
+        # Vanilla PyTorch
         else:
+            adapter_indices = adapter_data.meta.adapter_indices
+            if data is not None and data.prefill_head_indices is not None and data.layer_name == LM_HEAD:
+                # LM_HEAD inputs have different shape during prefill than other layers
+                adapter_indices = adapter_indices[data.prefill_head_indices]
+
+            speculative_tokens = get_speculative_tokens()
             for adapter_index in adapter_data.meta.adapter_set:
                 if data is not None and data.has_adapter(adapter_index):
-                    adapter_mask = (adapter_data.meta.adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+                    adapter_mask = (adapter_indices == adapter_index).to(input.dtype).view(-1, 1)
+
+                    # If we're doing speculative decoding, then the input will have 3D shape:
+                    # (batch_size, seq_len, hidden_size)
+                    # If the input shape is not 3D though, then this means we skipped speculation because the
+                    # batch size was too large
+                    if speculative_tokens > 0 and len(input.shape) == 3:
+                        # Expand adapter mask to cover the speculative tokens
+                        adapter_mask = adapter_mask.repeat_interleave(speculative_tokens + 1, dim=1).unsqueeze(dim=2)
+
                     layer_result = self.forward_lora(input, data, adapter_index, adapter_mask)
                     result[:, start_idx:end_idx] += layer_result
 
@@ -478,7 +525,7 @@ try:
                         dtype=dtype,
                         **rope_scaling,
                     )
-                elif rope_type == "su":
+                elif rope_type in ["su", "longrope"]:
                     short_factor = torch.tensor(rope_scaling["short_factor"], dtype=torch.float32, device=device)
                     short_inv_freq = 1.0 / (
                         short_factor * base ** (torch.arange(0, dim, 2, device=device, dtype=torch.float32) / dim)

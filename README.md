@@ -74,6 +74,12 @@ The minimum system requirements need to run LoRAX include:
 
 ### Launch LoRAX Server
 
+#### Prerequisites
+Install [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+Then 
+ - `sudo systemctl daemon-reload`
+ - `sudo systemctl restart docker`
+
 ```shell
 model=mistralai/Mistral-7B-Instruct-v0.1
 volume=$PWD/data

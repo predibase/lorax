@@ -1,39 +1,38 @@
-/// Batching and inference logic
 use crate::adapter::{extract_adapter_params, Adapter, BASE_MODEL_ADAPTER_ID};
 use crate::batch::{ValidClassifyRequest, ValidEmbedRequest};
 use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{
-    AdapterParameters, AlternativeToken, ChatTemplate, ChatTemplateVersions, ClassifyRequest,
-    ClassifyResponse, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
-    TextMessage, Token, TokenizerConfigToken,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, ChatTemplateVersions,
+    ClassifyRequest, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
+    MessageChunk, TextMessage, Token, TokenizerConfigToken, Tool,
 };
 use crate::{GenerateRequest, PrefillToken};
-use flume::r#async::RecvStream;
-use flume::SendTimeoutError;
 use futures::future::try_join_all;
 use futures::stream::StreamExt;
+/// Batching and inference logic
+use itertools::izip;
 use itertools::multizip;
 use lorax_client::{
-    Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, EntityList, GeneratedText,
-    Generation, PrefillTokens, PreloadedAdapter, ShardedClient,
+    Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, GeneratedText, Generation,
+    PrefillTokens, PreloadedAdapter, ShardedClient,
 };
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
 use nohash_hasher::IntMap;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
 use thiserror::Error;
 use tokenizers::Tokenizer;
-use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::{mpsc, Mutex, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio::time::Instant;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{info_span, instrument, Span};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -42,8 +41,8 @@ pub(crate) struct ChatTemplateInputs<'a> {
     bos_token: Option<&'a str>,
     eos_token: Option<&'a str>,
     add_generation_prompt: bool,
-    tools: Option<&'a str>,
-    tools_prompt: Option<&'a str>,
+    tools: Option<Vec<Tool>>,
+    guideline: Option<&'a str>,
 }
 
 /// Raise a exception (custom function) used in the chat templates
@@ -56,7 +55,9 @@ struct ChatTemplateRenderer {
     template: Template<'static, 'static>,
     bos_token: Option<String>,
     eos_token: Option<String>,
+    #[allow(dead_code)] // For now allow this field even though it is unused
     use_default_tool_template: bool,
+    variables: HashSet<String>,
 }
 
 impl ChatTemplateRenderer {
@@ -70,52 +71,71 @@ impl ChatTemplateRenderer {
         env.set_unknown_method_callback(pycompat::unknown_method_callback);
         let template_str = template.into_boxed_str();
         env.add_function("raise_exception", raise_exception);
-
-        // TODO(travis): revisit when we add tool usage
-        // check if contains the tools variable within the template
-        // let use_default_tool_template =
-        //     !template_str.as_ref().replace(' ', "").contains("{{tools}}");
-        let use_default_tool_template = false;
+        tracing::debug!("Loading template: {}", template_str);
 
         // leaking env and template_str as read-only, static resources for performance.
         let template = Box::leak(env)
             .template_from_str(Box::leak(template_str))
             .unwrap();
 
+        // get the list of variables that are used in the template
+        let variables = template.undeclared_variables(true);
+
+        // check if the `tools` variable is used in the template
+        let use_default_tool_template = !variables.contains("tools");
+        tracing::debug!("Use default tool template: {}", use_default_tool_template);
+
         Self {
             template,
             bos_token: bos_token.map(|token| token.as_str().to_string()),
             eos_token: eos_token.map(|token| token.as_str().to_string()),
             use_default_tool_template,
+            variables,
         }
     }
 
     fn apply(
         &self,
+        guideline: Option<&str>,
         mut messages: Vec<Message>,
-        // grammar_with_prompt: Option<(GrammarType, String)>,
+        tools_and_prompt: Option<(Vec<Tool>, String)>,
     ) -> Result<String, InferError> {
-        // TODO(travis): revisit when we add tool usage
-        // if self.use_default_tool_template {
-        //     if let Some(last_message) = messages.last_mut() {
-        //         if let Some((GrammarType::Json(tools), tool_prompt)) = grammar_with_prompt {
-        //             last_message.content.push(MessageChunk::Text {
-        //                 text: format!("\n---\n{}\n{}", tool_prompt, tools),
-        //             });
-        //         }
-        //     }
-        // }
+        // check if guideline is expected but not provided
+        if self.variables.contains("guideline") && guideline.is_none() {
+            return Err(InferError::MissingTemplateVariable("guideline".to_string()));
+        }
+
+        let tools = match tools_and_prompt {
+            Some((tools, tool_prompt)) => {
+                // check if the `tools` variable is used in the template
+                // if not, we need to append the tools to the last message
+                let text = if self.use_default_tool_template {
+                    match serde_json::to_string(&tools) {
+                        Ok(tools_str) => format!("\n---\n{}\n{}", tools_str, tool_prompt),
+                        Err(e) => return Err(InferError::ToolError(e.to_string())),
+                    }
+                } else {
+                    // if the `tools` variable is used in the template, we just append the tool_prompt
+                    format!("\n---\n{}", tool_prompt)
+                };
+                if let Some(last_message) = messages.last_mut() {
+                    last_message.content.push(MessageChunk::Text { text });
+                }
+                Some(tools)
+            }
+            None => None,
+        };
 
         let messages: Vec<TextMessage> = messages.into_iter().map(|c| c.into()).collect();
 
         self.template
             .render(ChatTemplateInputs {
+                guideline,
                 messages,
                 bos_token: self.bos_token.as_deref(),
                 eos_token: self.eos_token.as_deref(),
                 add_generation_prompt: true,
-                tools: None,
-                tools_prompt: None,
+                tools,
             })
             .map_err(InferError::TemplateError)
     }
@@ -159,6 +179,9 @@ impl Infer {
         block_size: u32,
         speculate: u32,
         preloaded_adapters: Vec<PreloadedAdapter>,
+        prefix_caching: bool,
+        chunked_prefill: bool,
+        is_causal_lm: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -175,6 +198,9 @@ impl Infer {
             adapter_cycle_time_s,
             speculate,
             max_batch_total_tokens,
+            prefix_caching,
+            chunked_prefill,
+            is_causal_lm,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
@@ -225,6 +251,7 @@ impl Infer {
             generation_health,
             adapter_scheduler.clone(),
             eager_prefill,
+            chunked_prefill,
         ));
 
         // Inference limit with a semaphore
@@ -248,7 +275,7 @@ impl Infer {
     ) -> Result<
         (
             OwnedSemaphorePermit,
-            RecvStream<Result<InferStreamResponse, InferError>>,
+            UnboundedReceiverStream<Result<InferStreamResponse, InferError>>,
         ),
         InferError,
     > {
@@ -302,7 +329,7 @@ impl Infer {
             })?;
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         // Process the request by sending it to the queue associated with `adapter`
         self.adapter_scheduler.process(
@@ -315,11 +342,12 @@ impl Infer {
                 queue_time: Instant::now(),
                 batch_time: None,
                 block_allocation: None,
+                id: None,
             },
         );
 
         // Return stream
-        Ok((permit, response_rx.into_stream()))
+        Ok((permit, UnboundedReceiverStream::new(response_rx)))
     }
 
     /// Tokenizer the input
@@ -348,13 +376,14 @@ impl Infer {
     #[instrument(skip_all)]
     pub(crate) fn apply_chat_template(
         &self,
+        guideline: Option<String>,
         messages: Vec<Message>,
-        // grammar_with_prompt: Option<(GrammarType, String)>,
+        tools_and_prompt: Option<(Vec<Tool>, String)>,
     ) -> Result<String, InferError> {
         self.chat_template
             .as_ref()
             .ok_or_else(|| InferError::TemplateError(ErrorKind::TemplateNotFound.into()))?
-            .apply(messages)
+            .apply(guideline.as_deref(), messages, tools_and_prompt)
             .map_err(|e| {
                 metrics::increment_counter!("lorax_request_failure", "err" => "template");
                 tracing::error!("{e}");
@@ -449,7 +478,7 @@ impl Infer {
     #[instrument(skip(self))]
     pub(crate) async fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
-        let permit = self
+        let _permit = self
             .clone()
             .limit_concurrent_requests
             .try_acquire_owned()
@@ -459,34 +488,31 @@ impl Infer {
                 err
             })?;
 
-        // TODO(travis): support adapters
-        // let (adapter_source, adapter_parameters) = extract_adapter_params(
-        //     request.parameters.adapter_id.clone(),
-        //     request.parameters.adapter_source.clone(),
-        //     request.parameters.adapter_parameters.clone(),
-        // );
+        let (adapter_source, adapter_parameters) = extract_adapter_params(
+            request.parameters.adapter_id.clone(),
+            request.parameters.adapter_source.clone(),
+            request.parameters.adapter_parameters.clone(),
+        );
 
-        // let adapter_idx;
-        // {
-        //     // TODO(travis): can optimize concurrency here using RWLock
-        //     let mut adapter_to_index = self.adapter_to_index.lock().await;
-        //     let adapter_key = adapter_parameters.clone();
-        //     if adapter_to_index.contains_key(&adapter_key) {
-        //         adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
-        //     } else {
-        //         adapter_idx = adapter_to_index.len() as u32;
-        //         adapter_to_index.insert(adapter_key, adapter_idx);
-        //     }
-        // }
+        let adapter_idx;
+        {
+            // TODO(travis): can optimize concurrency here using RWLock
+            let mut adapter_to_index = self.adapter_to_index.lock().await;
+            let adapter_key = adapter_parameters.clone();
+            if adapter_to_index.contains_key(&adapter_key) {
+                adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
+            } else {
+                adapter_idx = adapter_to_index.len() as u32;
+                adapter_to_index.insert(adapter_key, adapter_idx);
+            }
+        }
 
+        let api_token = request.parameters.api_token.clone();
         let adapter = Adapter::new(
-            AdapterParameters {
-                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
-                ..Default::default()
-            },
-            "hub".to_string(),
-            0,
-            None,
+            adapter_parameters,
+            adapter_source.unwrap(),
+            adapter_idx,
+            api_token,
         );
 
         // TODO(travis): robust validation
@@ -501,7 +527,8 @@ impl Infer {
         //         err
         //     })?;
 
-        let (inputs, tokenized_inputs, input_length) = self
+        let inputs = request.inputs.clone();
+        let (tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
@@ -514,7 +541,7 @@ impl Infer {
         };
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         // Process the request by sending it to the queue associated with `adapter`
         self.adapter_scheduler.process(
@@ -527,13 +554,14 @@ impl Infer {
                 queue_time: Instant::now(),
                 batch_time: None,
                 block_allocation: None,
+                id: None,
             },
         );
 
         // Return values
         let mut return_embeddings = None;
 
-        let mut stream = response_rx.into_stream();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
@@ -554,8 +582,8 @@ impl Infer {
                 }
                 InferStreamResponse::Embed {
                     embedding,
-                    start,
-                    queued,
+                    start: _,
+                    queued: _,
                 } => {
                     return_embeddings = Some(embedding.values);
                 }
@@ -578,9 +606,9 @@ impl Infer {
     pub(crate) async fn classify(
         &self,
         request: ClassifyRequest,
-    ) -> Result<ClassifyResponse, InferError> {
+    ) -> Result<InferClassifyResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
-        let permit = self
+        let _permit = self
             .clone()
             .limit_concurrent_requests
             .try_acquire_owned()
@@ -600,20 +628,21 @@ impl Infer {
             None,
         );
 
-        let (inputs, tokenized_inputs, input_length) = self
+        let inputs = request.inputs.clone();
+        let (tokenized_inputs, input_length) = self
             .validation
             .validate_input(request.inputs, None, Some(1))
             .await?;
 
         let valid_request = ValidClassifyRequest {
-            inputs,
+            inputs: inputs.clone(),
             tokenized_inputs,
             input_length: input_length as u32,
             adapter: adapter.clone(),
         };
 
         // MPSC channel to communicate with the background batching task
-        let (response_tx, response_rx) = flume::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
 
         // Process the request by sending it to the queue associated with `adapter`
         self.adapter_scheduler.process(
@@ -626,13 +655,16 @@ impl Infer {
                 queue_time: Instant::now(),
                 batch_time: None,
                 block_allocation: None,
+                id: None,
             },
         );
 
         // Return values
         let mut return_entities = None;
+        let mut result_start = None;
+        let mut result_queued = None;
 
-        let mut stream = response_rx.into_stream();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
         while let Some(response) = stream.next().await {
             match response? {
                 // Add prefill tokens
@@ -655,22 +687,158 @@ impl Infer {
                     predictions,
                     start,
                     queued,
+                    id: _,
                 } => {
-                    let entities = format_ner_output(predictions, self.tokenizer.clone().unwrap());
+                    let entities = aggregate_ner_output_simple(
+                        inputs.clone(),
+                        predictions,
+                        self.tokenizer.clone().unwrap(),
+                    );
                     return_entities = Some(entities);
+                    result_start = Some(start);
+                    result_queued = Some(queued);
                 }
             }
         }
 
         if let Some(return_entities) = return_entities {
-            Ok(ClassifyResponse {
-                entities: return_entities.into_iter().map(Entity::from).collect(),
+            Ok(InferClassifyResponse {
+                predictions: return_entities,
+                queued: result_queued.unwrap(),
+                start: result_start.unwrap(),
             })
         } else {
             let err = InferError::ClassificationFailure;
             metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
             tracing::error!("{err}");
             Err(err)
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn classify_batch(
+        &self,
+        request: BatchClassifyRequest,
+    ) -> Result<Vec<InferClassifyResponse>, InferError> {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let _permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        let adapter = Adapter::new(
+            AdapterParameters {
+                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
+                ..Default::default()
+            },
+            "hub".to_string(),
+            0,
+            None,
+        );
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
+
+        let request_id_map: HashMap<u64, String> = request
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(id, input)| (id as u64, input.clone()))
+            .collect();
+
+        // Call validate_input on every input in the request and await the results
+        let futures: Vec<_> = request
+            .inputs
+            .iter()
+            .map(|input| self.validation.validate_input(input.clone(), None, Some(1)))
+            .collect();
+
+        let all_tokenized_inputs = try_join_all(futures).await?;
+
+        for ((id, r_inputs), (tokenized_inputs, input_length)) in
+            request.inputs.iter().enumerate().zip(all_tokenized_inputs)
+        {
+            let inputs = r_inputs.to_string().clone();
+            let valid_request = ValidClassifyRequest {
+                inputs,
+                tokenized_inputs,
+                input_length: input_length as u32,
+                adapter: adapter.clone(),
+            };
+
+            // Process the request by sending it to the queue associated with `adapter`
+            self.adapter_scheduler.process(
+                adapter.clone(),
+                Entry {
+                    request: Arc::new(valid_request),
+                    response_tx: response_tx.clone(),
+                    span: Span::current(),
+                    temp_span: None,
+                    queue_time: Instant::now(),
+                    batch_time: None,
+                    block_allocation: None,
+                    id: Some(id as u64),
+                },
+            );
+        }
+
+        drop(response_tx); // Close the sending end
+
+        // Return values
+
+        let mut all_entities = HashMap::new();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
+        while let Some(response) = stream.next().await {
+            match response? {
+                // Add prefill tokens
+                InferStreamResponse::Classify {
+                    predictions,
+                    start,
+                    queued,
+                    id,
+                } => {
+                    let request_inputs = request_id_map.get(&id.unwrap()).unwrap().clone();
+                    let entities = aggregate_ner_output_simple(
+                        request_inputs,
+                        predictions.clone(),
+                        self.tokenizer.clone().unwrap(),
+                    );
+                    all_entities.insert(
+                        id.unwrap(),
+                        InferClassifyResponse {
+                            predictions: entities,
+                            queued,
+                            start,
+                        },
+                    );
+                }
+                _ => {
+                    tracing::error!(
+                        "Received unexpected message type in classify_batch. This is a bug."
+                    );
+                }
+            }
+        }
+        if all_entities.is_empty() {
+            let err = InferError::ClassificationFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "classification_failure");
+            tracing::error!("{err}");
+            Err(err)
+        } else {
+            let mut sorted_responses: Vec<_> = all_entities.into_iter().collect();
+            sorted_responses.sort_by_key(|&(id, _)| id);
+
+            let sorted_responses: Vec<InferClassifyResponse> = sorted_responses
+                .into_iter()
+                .map(|(_, response)| response)
+                .collect();
+
+            Ok(sorted_responses)
         }
     }
 
@@ -729,6 +897,7 @@ async fn batching_task(
     generation_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
     eager_prefill: bool,
+    chunked_prefill: bool,
 ) {
     // Infinite loop
     loop {
@@ -748,7 +917,7 @@ async fn batching_task(
             .await
         {
             let mut cached_batch = batch_entries
-                .process_first(&mut client, batch, span, &generation_health)
+                .process_first(&mut client, batch, None, span, &generation_health)
                 .await;
             let mut waiting_tokens = 1;
 
@@ -758,6 +927,7 @@ async fn batching_task(
                 // Get current batch info
                 let mut batch_size = batch.size;
                 let batch_max_tokens = batch.max_tokens;
+                let current_tokens = batch.current_tokens;
                 let mut batches = vec![batch];
                 metrics::gauge!("lorax_batch_current_size", batch_size as f64);
                 metrics::gauge!("lorax_batch_current_max_tokens", batch_max_tokens as f64);
@@ -766,24 +936,53 @@ async fn batching_task(
                 // TODO(travis): can execute this more efficiently by making it event-driven
                 adapter_scheduler.remove_errored_adapters().await;
 
-                let min_size = if waiting_tokens >= max_waiting_tokens || eager_prefill {
-                    // If we didn't onboard any new requests since >= max_waiting_tokens, we try
-                    // to add a new batch even though its size might be small
-                    None
+                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                let (min_size, _max_size, prefill_token_budget) = if chunked_prefill {
+                    // Since the next batch will be concatenated with the current batch,
+                    // the current batch tokens must be subtracted to the prefill budget
+                    let prefill_token_budget =
+                        max_batch_prefill_tokens.saturating_sub(current_tokens);
+                    // We can ignore min_size and max_size
+                    // Models than rely on max_size cannot support chunking
+                    // Regarding min_size, chunking allow us to consistently run at the compute
+                    // bound, making min_size useless.
+                    (None, None, prefill_token_budget)
                 } else {
-                    // Minimum batch size
-                    Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                    let min_size = if waiting_tokens >= max_waiting_tokens {
+                        // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                        // to add a new batch even though its size might be small
+                        None
+                    } else {
+                        // Minimum batch size
+                        // TODO: temporarily disable to avoid incorrect deallocation +
+                        //       reallocation when using prefix caching.
+                        Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                    };
+
+                    let max_batch_size: Option<usize> = None; // TODO(travis)
+                    let max_size =
+                        max_batch_size.map(|max_size| max_size.saturating_sub(batch_size as usize));
+
+                    (min_size, max_size, max_batch_prefill_tokens)
                 };
 
-                let mut token_budget = max_batch_total_tokens.saturating_sub(batch_max_tokens);
+                // let min_size = if waiting_tokens >= max_waiting_tokens || eager_prefill {
+                //     // If we didn't onboard any new requests since >= max_waiting_tokens, we try
+                //     // to add a new batch even though its size might be small
+                //     None
+                // } else {
+                //     // Minimum batch size
+                //     Some((batch_size as f32 * waiting_served_ratio).floor() as usize)
+                // };
+
                 let mut adapters_in_use = batch_entries.adapters_in_use();
 
                 // Try to get a new batch
-                while let Some((mut new_entries, new_batch, span)) = adapter_scheduler
+                while let Some((new_entries, new_batch, span)) = adapter_scheduler
                     .next_batch(
                         adapters_in_use.clone(),
                         min_size,
-                        max_batch_prefill_tokens,
+                        prefill_token_budget,
                         token_budget,
                     )
                     .await
@@ -798,37 +997,57 @@ async fn batching_task(
                     if min_size.is_some() {
                         metrics::increment_counter!("lorax_batch_concat", "reason" => "backpressure");
                     } else {
-                        metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded");
+                        if chunked_prefill {
+                            metrics::increment_counter!("lorax_batch_concat", "reason" => "chunking")
+                        } else {
+                            metrics::increment_counter!("lorax_batch_concat", "reason" => "wait_exceeded")
+                        };
                     }
 
-                    batch_entries
-                        .mut_state()
-                        .batch_entries
-                        .iter_mut()
-                        .for_each(|(_, entry)| {
-                            // Create a new span to add the info that this entry is waiting
-                            // because a new batch is being computed
-                            let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
-                            // Add relationships
-                            span.follows_from(&entry_waiting_span);
-                            entry_waiting_span.follows_from(&span);
-                            // Update entry
-                            entry.temp_span = Some(entry_waiting_span);
-                        });
+                    let cached_batch = if chunked_prefill {
+                        // Concat current batch to the new one
+                        batches.pop()
+                    } else {
+                        // Request are waiting only if we don't support chunking
+                        batch_entries.mut_state().batch_entries.iter_mut().for_each(
+                            |(_, entry)| {
+                                // Create a new span to add the info that this entry is waiting
+                                // because a new batch is being computed
+                                let entry_waiting_span = info_span!(parent: &entry.span, "waiting");
+                                // Add relationships
+                                span.follows_from(&entry_waiting_span);
+                                entry_waiting_span.follows_from(&span);
+                                // Update entry
+                                entry.temp_span = Some(entry_waiting_span);
+                            },
+                        );
+                        None
+                    };
+
+                    let new_adapters_in_use = new_entries.adapters_in_use();
+                    batch_entries.extend(new_entries);
 
                     // Generate one token for this new batch to have the attention past in cache
-                    let new_cached_batch = new_entries
-                        .process_first(&mut client, new_batch, span, &generation_health)
+                    let new_cached_batch = batch_entries
+                        .process_first(
+                            &mut client,
+                            new_batch,
+                            cached_batch,
+                            span,
+                            &generation_health,
+                        )
                         .await;
 
-                    adapters_in_use.extend(new_entries.adapters_in_use());
+                    adapters_in_use.extend(new_adapters_in_use);
 
                     // Reset waiting counter
                     waiting_tokens = 1;
                     // Extend current batch with the new batch
                     if let Some(new_cached_batch) = new_cached_batch {
-                        batch_entries.extend(new_entries);
                         batches.push(new_cached_batch);
+                    } else if chunked_prefill {
+                        // New cached batch is empty, no work left
+                        break;
                     }
 
                     if !eager_prefill {
@@ -871,6 +1090,7 @@ async fn batching_task(
 pub(crate) async fn prefill(
     client: &mut ShardedClient,
     batch: Batch,
+    cached_batch: Option<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
     generation_health: &Arc<AtomicBool>,
 ) -> Option<CachedBatch> {
@@ -878,15 +1098,21 @@ pub(crate) async fn prefill(
     let batch_id = batch.id;
     metrics::increment_counter!("lorax_batch_inference_count", "method" => "prefill");
 
-    match client.prefill(batch).await {
+    match client.prefill(batch, cached_batch).await {
         Ok((generations, next_batch)) => {
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries);
+            let removed = filter_send_generations(generations, entries);
 
             // Filter next batch and remove requests that were stopped
-            let next_batch = filter_batch(client, next_batch, entries).await;
+            let next_batch = filter_batch(client, next_batch, entries, removed).await;
+
+            // TODO(travis)
+            // if let Some(concat_duration) = timings.concat {
+            //     metrics::histogram!("lorax_batch_concat_duration", "method" => "decode")
+            //         .record(concat_duration.as_secs_f64());
+            // }
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "prefill");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "prefill");
@@ -920,10 +1146,10 @@ pub(crate) async fn decode(
             // Update health
             generation_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
-            filter_send_generations(generations, entries);
+            let removed = filter_send_generations(generations, entries);
 
             // Filter next batch and remove requests that were stopped
-            let next_batch = filter_batch(client, next_batch, entries).await;
+            let next_batch = filter_batch(client, next_batch, entries, removed).await;
 
             metrics::histogram!("lorax_batch_inference_duration", start_time.elapsed().as_secs_f64(), "method" => "decode");
             metrics::increment_counter!("lorax_batch_inference_success", "method" => "decode");
@@ -971,10 +1197,7 @@ pub(crate) async fn embed(
                 // request and we need to stop generating hence why we unwrap_or(true)
                 let stopped = send_embeddings(embedding, entry)
                     .map_err(|err| {
-                        if let SendTimeoutError::Timeout(_) = *err {
-                            tracing::error!("Entry response channel timed out.")
-                        }
-
+                        tracing::error!("Entry response channel error.");
                         metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                         err
                     })
@@ -1031,10 +1254,7 @@ pub(crate) async fn classify(
                 // request and we need to stop generating hence why we unwrap_or(true)
                 let stopped = send_classifications(predictions, entry)
                     .map_err(|err| {
-                        if let SendTimeoutError::Timeout(_) = *err {
-                            tracing::error!("Entry response channel timed out.")
-                        }
-
+                        tracing::error!("Entry response channel error.");
                         metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
                         err
                     })
@@ -1067,11 +1287,12 @@ async fn filter_batch(
     client: &mut ShardedClient,
     next_batch: Option<CachedBatch>,
     entries: &IntMap<u64, Entry>,
+    removed: bool,
 ) -> Option<CachedBatch> {
     let mut batch = next_batch?;
 
-    // No need to filter
-    if batch.size as usize == entries.len() {
+    // No need to filter is we haven't removed any entries
+    if !removed {
         return Some(batch);
     }
 
@@ -1097,7 +1318,8 @@ async fn filter_batch(
 /// Send one or multiple `InferStreamResponse` to Infer for all `entries`
 /// and filter entries
 #[instrument(skip_all)]
-fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) {
+fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u64, Entry>) -> bool {
+    let mut removed = false;
     generations.into_iter().for_each(|generation| {
         let id = generation.request_id;
         // Get entry
@@ -1111,27 +1333,28 @@ fn filter_send_generations(generations: Vec<Generation>, entries: &mut IntMap<u6
         // Send generation responses back to the infer task
         // If the receive an error from the Flume channel, it means that the client dropped the
         // request and we need to stop generating hence why we unwrap_or(true)
-        let stopped = send_responses(generation, entry).map_err(|err| {
-            if let SendTimeoutError::Timeout(_) = *err {
-                tracing::error!("Entry response channel timed out.")
-            }
-
+        let stopped = send_responses(generation, entry).inspect_err(|_err| {
+            tracing::error!("Entry response channel error.");
             metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
-            err
         }).unwrap_or(true);
         if stopped {
             entries.remove(&id).expect("ID not found in entries. This is a bug.");
+            removed = true;
         }
     });
+    removed
 }
 
 /// Send responses through the `entry` response channel
 fn send_responses(
     generation: Generation,
     entry: &Entry,
-) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
-    // Return directly if the channel is disconnected
-    if entry.response_tx.is_disconnected() {
+) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
+    // Return directly if the channel is closed
+    let request_id = generation.request_id;
+    if entry.response_tx.is_closed() {
+        tracing::error!("Entry id={request_id:?} response channel closed.");
+        metrics::increment_counter!("lorax_request_failure", "err" => "dropped");
         return Ok(true);
     }
 
@@ -1139,13 +1362,10 @@ fn send_responses(
 
     if generation.prefill_tokens_length > 0 {
         // Send message
-        entry.response_tx.send_timeout(
-            Ok(InferStreamResponse::Prefill {
-                tokens: generation.prefill_tokens,
-                tokens_length: generation.prefill_tokens_length,
-            }),
-            Duration::from_millis(10),
-        )?;
+        entry.response_tx.send(Ok(InferStreamResponse::Prefill {
+            tokens: generation.prefill_tokens,
+            tokens_length: generation.prefill_tokens_length,
+        }))?;
     }
 
     // Create last Token
@@ -1196,22 +1416,18 @@ fn send_responses(
                 // Generation has ended
                 stopped = true;
                 // Send message
-                entry.response_tx.send_timeout(
-                    Ok(InferStreamResponse::End {
-                        token,
-                        generated_text: generated_text.clone(),
-                        queued: entry.queue_time,
-                        start: entry.batch_time.unwrap(),
-                    }),
-                    Duration::from_millis(10),
-                )?;
+                entry.response_tx.send(Ok(InferStreamResponse::End {
+                    token,
+                    generated_text: generated_text.clone(),
+                    queued: entry.queue_time,
+                    start: entry.batch_time.unwrap(),
+                }))?;
             }
             _ => {
                 // Send message
-                entry.response_tx.send_timeout(
-                    Ok(InferStreamResponse::Token(token)),
-                    Duration::from_millis(10),
-                )?;
+                entry
+                    .response_tx
+                    .send(Ok(InferStreamResponse::Token(token)))?;
             }
         }
     }
@@ -1223,20 +1439,17 @@ fn send_responses(
 fn send_embeddings(
     embedding: Embedding,
     entry: &Entry,
-) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
-    if entry.response_tx.is_disconnected() {
+    if entry.response_tx.is_closed() {
         return Ok(true);
     }
 
-    entry.response_tx.send_timeout(
-        Ok(InferStreamResponse::Embed {
-            embedding: embedding.clone(),
-            queued: entry.queue_time,
-            start: entry.batch_time.unwrap(),
-        }),
-        Duration::from_millis(10),
-    )?;
+    entry.response_tx.send(Ok(InferStreamResponse::Embed {
+        embedding: embedding.clone(),
+        queued: entry.queue_time,
+        start: entry.batch_time.unwrap(),
+    }))?;
 
     // TODO(travis): redundant as we always return true, just make it return nothing
     Ok(true)
@@ -1246,20 +1459,18 @@ fn send_embeddings(
 fn send_classifications(
     predictions: ClassifyPredictionList,
     entry: &Entry,
-) -> Result<bool, Box<SendTimeoutError<Result<InferStreamResponse, InferError>>>> {
+) -> Result<bool, Box<SendError<Result<InferStreamResponse, InferError>>>> {
     // Return directly if the channel is disconnected
-    if entry.response_tx.is_disconnected() {
+    if entry.response_tx.is_closed() {
         return Ok(true);
     }
 
-    entry.response_tx.send_timeout(
-        Ok(InferStreamResponse::Classify {
-            predictions: predictions.clone(),
-            queued: entry.queue_time,
-            start: entry.batch_time.unwrap(),
-        }),
-        Duration::from_millis(10),
-    )?;
+    entry.response_tx.send(Ok(InferStreamResponse::Classify {
+        predictions: predictions.clone(),
+        queued: entry.queue_time,
+        start: entry.batch_time.unwrap(),
+        id: entry.id,
+    }))?;
 
     // TODO(travis): redundant as we always return true, just make it return nothing
     Ok(true)
@@ -1278,7 +1489,7 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
         // unwrap_or is valid here as we don't care if the receiver is gone.
         entry
             .response_tx
-            .send_timeout(Err(err), Duration::from_millis(10))
+            .send(Err(err))
             .unwrap_or(());
     });
 }
@@ -1295,13 +1506,22 @@ pub(crate) enum InferStreamResponse {
     // Embeddings
     Embed {
         embedding: Embedding,
+        // For now allow this field even though it is unused.
+        // TODO:(magdy) enable tracing for these requests
+        #[allow(dead_code)]
         start: Instant,
+        #[allow(dead_code)]
         queued: Instant,
     },
     Classify {
         predictions: ClassifyPredictionList,
+        // For now allow this field even though it is unused.
+        // TODO:(magdy) enable tracing for these requests
+        #[allow(dead_code)]
         start: Instant,
+        #[allow(dead_code)]
         queued: Instant,
+        id: Option<u64>, // to support batching
     },
     // Last message
     End {
@@ -1338,6 +1558,10 @@ pub enum InferError {
     EmbeddingFailure,
     #[error("Classification Failure")]
     ClassificationFailure,
+    #[error("Tool error: {0}")]
+    ToolError(String),
+    #[error("Missing template vatiable: {0}")]
+    MissingTemplateVariable(String),
 }
 
 impl InferError {
@@ -1350,71 +1574,81 @@ impl InferError {
             InferError::TemplateError(_) => "template_error",
             InferError::EmbeddingFailure => "embedding_failure",
             InferError::ClassificationFailure => "classification_failure",
+            InferError::ToolError(_) => "tool_error",
+            InferError::MissingTemplateVariable(_) => "missing_template_variable",
         }
     }
 }
 
-fn format_ner_output(
-    classify_prediction_list: ClassifyPredictionList,
-    tokenizer: Arc<Tokenizer>,
-) -> Vec<Entity> {
-    let input_ids =
-        &classify_prediction_list.input_ids[1..classify_prediction_list.input_ids.len() - 1];
-    let predicted_token_class =
-        &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
-    let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
-
-    let tokens: Vec<String> = {
-        let re = Regex::new(r"\b\w+\b|\S").unwrap();
-        re.find_iter(&tokenizer.decode(input_ids, true).unwrap())
-            .map(|m| m.as_str().to_string())
-            .collect()
-    };
-
-    let mut ner_results = Vec::new();
-    let mut current_entity: Option<Entity> = None;
-    for (i, ((token, token_class), score)) in tokens
-        .iter()
-        .zip(predicted_token_class.iter())
-        .zip(scores.iter())
-        .enumerate()
-    {
-        if token_class != "O" {
-            let (bi, tag) = get_tag(token_class);
-            if bi == "B"
-                || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity)
-            {
-                if let Some(entity) = current_entity {
-                    ner_results.push(entity);
-                }
-                current_entity = Some(Entity {
-                    entity: tag,
-                    score: *score,
-                    index: i,
-                    word: token.to_string(),
-                    start: tokenizer.decode(&input_ids[..i], false).unwrap().len(),
-                    end: tokenizer.decode(&input_ids[..=i], false).unwrap().len(),
-                });
-            } else if bi == "I" && current_entity.is_some() {
-                let entity = current_entity.as_mut().unwrap();
-                entity.word += &token.replace("##", "");
-                entity.end = tokenizer.decode(&input_ids[..=i], false).unwrap().len();
-            }
-        } else if let Some(entity) = current_entity.take() {
-            ner_results.push(entity);
-        }
-    }
-    if let Some(entity) = current_entity {
-        ner_results.push(entity);
-    }
-    ner_results
+#[derive(Debug)]
+pub(crate) struct InferClassifyResponse {
+    pub(crate) predictions: Vec<Entity>,
+    pub(crate) queued: Instant,
+    pub(crate) start: Instant,
 }
 
 fn get_tag(token_class: &str) -> (String, String) {
+    // TODO: don't make the null tag hardcoded
     let parts: Vec<&str> = token_class.split('-').collect();
     if parts.len() == 2 {
         (parts[0].to_string(), parts[1].to_string())
     } else {
-        ("O".to_string(), "O".to_string())
+        ("0".to_string(), "0".to_string())
     }
+}
+
+fn aggregate_ner_output_simple(
+    input: String,
+    classify_prediction_list: ClassifyPredictionList,
+    tokenizer: Arc<Tokenizer>,
+) -> Vec<Entity> {
+    // Encode the input
+    let encoded = tokenizer.encode(input.clone(), false).unwrap();
+
+    let predicted_token_classes =
+        &classify_prediction_list.predictions[1..classify_prediction_list.predictions.len() - 1];
+    let scores = &classify_prediction_list.scores[1..classify_prediction_list.scores.len() - 1];
+
+    // Initialize result and tracking variables
+    let mut ner_results = Vec::new();
+    let mut current_entity: Option<Entity> = None;
+    let mut entity_scores = Vec::new();
+
+    for (offset, token_class, score) in
+        izip!(encoded.get_offsets(), predicted_token_classes, scores)
+    {
+        let (bi, tag) = get_tag(token_class);
+        if bi == "B"
+            || (current_entity.is_some() && tag != current_entity.as_ref().unwrap().entity_group)
+        {
+            if let Some(entity) = current_entity.take() {
+                ner_results.push(entity);
+                entity_scores.clear();
+                entity_scores.push(*score);
+            }
+            current_entity = Some(Entity {
+                entity_group: tag,
+                score: *score,
+                word: "".to_string(), // stub for now. set later in second pass
+                start: offset.0,
+                end: offset.1,
+            });
+        } else if current_entity.is_some() {
+            entity_scores.push(*score);
+            let entity = current_entity.as_mut().unwrap();
+            entity.score = entity_scores.iter().sum::<f32>() / entity_scores.len() as f32;
+            entity.end = offset.1;
+        }
+    }
+    if let Some(entity) = current_entity.take() {
+        ner_results.push(entity);
+    }
+    let mut new_ner_results = Vec::with_capacity(ner_results.len());
+    for mut entity in ner_results {
+        entity.word = input[entity.start..entity.end]
+            .to_string()
+            .to_ascii_lowercase(); // Needed to match the huggingface NER format
+        new_ner_results.push(entity);
+    }
+    new_ner_results
 }

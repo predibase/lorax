@@ -51,6 +51,8 @@ def test_santacoder_generate_token_completion(default_santacoder, default_pb_bat
         default_pb_batch,
         default_santacoder.tokenizer,
         TokenizerManager(),
+        None, 
+        None, 
         default_santacoder.dtype,
         default_santacoder.device,
     )
@@ -80,6 +82,8 @@ def test_fim_santacoder_generate_token_completion(
         default_fim_pb_batch,
         default_santacoder.tokenizer,
         TokenizerManager(),
+        None, 
+        None, 
         default_santacoder.dtype,
         default_santacoder.device,
     )

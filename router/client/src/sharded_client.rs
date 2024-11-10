@@ -1,6 +1,4 @@
-use crate::pb::generate::v1::{
-    ClassifyPredictionList, EmbedResponse, Embedding, Entity, EntityList,
-};
+use crate::pb::generate::v1::{ClassifyPredictionList, Embedding};
 /// Multi shard Client
 use crate::{
     AdapterParameters, Batch, CachedBatch, Client, DownloadAdapterResponse, Generation,
@@ -8,9 +6,6 @@ use crate::{
 };
 use crate::{ClientError, Result};
 use futures::future::join_all;
-use regex::Regex;
-use std::sync::Arc;
-use tokio::task;
 use tonic::transport::Uri;
 use tracing::instrument;
 
@@ -129,11 +124,12 @@ impl ShardedClient {
     pub async fn prefill(
         &mut self,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
     ) -> Result<(Vec<Generation>, Option<CachedBatch>)> {
         let futures: Vec<_> = self
             .clients
             .iter_mut()
-            .map(|client| Box::pin(client.prefill(batch.clone())))
+            .map(|client| Box::pin(client.prefill(batch.clone(), cached_batch.clone())))
             .collect();
         let results: Result<Vec<(Vec<Generation>, Option<CachedBatch>)>> =
             join_all(futures).await.into_iter().collect();

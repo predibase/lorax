@@ -5,7 +5,9 @@ import torch.distributed
 from torch import nn
 from transformers.activations import ACT2FN
 
+from lorax_server.models.custom_modeling.utils import prepend
 from lorax_server.utils import flash_attn, paged_attention
+from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
     FastLayerNorm,
     TensorParallelColumnLinear,
@@ -219,7 +221,7 @@ class FlashMQAttention(torch.nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         qkv = self.c_attn(hidden_states)
@@ -233,17 +235,15 @@ class FlashMQAttention(torch.nn.Module):
 
         paged_attention.reshape_and_cache(key_value[:, 0], key_value[:, 1], kv_cache[0], kv_cache[1], slots)
 
-        # output
-        attn_output = torch.empty_like(query)
-
         # Prefill
         if cu_seqlen_prefill is not None:
             # flash attention
-            flash_attn.attention(
+            attn_output = flash_attn.attention(
                 query,
                 torch.select(key_value, dim=1, index=0),
                 torch.select(key_value, dim=1, index=1),
-                attn_output,
+                kv_cache[0],
+                kv_cache[1],
                 cu_seqlen_prefill,
                 max_s,
                 self.softmax_scale,
@@ -251,15 +251,15 @@ class FlashMQAttention(torch.nn.Module):
         # Decode
         else:
             # kv_cache[1] => [num_blocks, 1, head_size, block_size]
-            paged_attention.attention(
-                attn_output,
+            attn_output = paged_attention.attention(
                 query,
                 kv_cache[0],
                 kv_cache[1],
                 self.num_heads,
+                self.kv_head_mapping,
                 self.softmax_scale,
                 block_tables,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -290,9 +290,9 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, layer_id, config, weights):
+    def __init__(self, prefix: str, layer_id, config, weights):
         super().__init__()
-        prefix = f"transformer.h.{layer_id}"
+        prefix = prepend(prefix, f"transformer.h.{layer_id}")
         self.ln_1 = FastLayerNorm.load(prefix=f"{prefix}.ln_1", weights=weights, eps=config.layer_norm_epsilon)
         self.ln_2 = FastLayerNorm.load(prefix=f"{prefix}.ln_2", weights=weights, eps=config.layer_norm_epsilon)
         self.attn = FlashMQAttention(
@@ -314,7 +314,7 @@ class Block(nn.Module):
         kv_cache,
         block_tables,
         slots,
-        input_lengths,
+        seqlen,
         max_s,
     ):
         hidden_states, residual = self.ln_1(hidden_states, residual)
@@ -324,7 +324,7 @@ class Block(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
         )
 
@@ -336,18 +336,18 @@ class Block(nn.Module):
 
 
 class FlashSantacoderModel(nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
         self.config = config
 
         self.process_group = weights.process_group
         self.wte = TensorParallelEmbedding(
-            prefix="transformer.wte",
+            prefix=prepend(prefix, "transformer.wte"),
             weights=weights,
             reduce=False,
         )
         self.wpe = TensorParallelEmbedding(
-            prefix="transformer.wpe",
+            prefix=prepend(prefix, "transformer.wpe"),
             weights=weights,
             reduce=False,
         )
@@ -355,6 +355,7 @@ class FlashSantacoderModel(nn.Module):
         self.h = nn.ModuleList(
             [
                 Block(
+                    prefix,
                     layer_id,
                     config,
                     weights,
@@ -362,7 +363,9 @@ class FlashSantacoderModel(nn.Module):
                 for layer_id in range(config.num_hidden_layers)
             ]
         )
-        self.ln_f = FastLayerNorm.load(prefix="transformer.ln_f", weights=weights, eps=config.layer_norm_epsilon)
+        self.ln_f = FastLayerNorm.load(
+            prefix=prepend(prefix, "transformer.ln_f"), weights=weights, eps=config.layer_norm_epsilon
+        )
 
         self.head_size = self.h[0].attn.head_size
         self.num_heads = self.h[0].attn.num_heads
@@ -375,7 +378,7 @@ class FlashSantacoderModel(nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
     ) -> torch.Tensor:
         hidden_states = self.wte(input_ids) + self.wpe(position_ids)
@@ -392,7 +395,7 @@ class FlashSantacoderModel(nn.Module):
                 kv_cache[i],
                 block_tables,
                 slots,
-                input_lengths,
+                seqlen,
                 max_s,
             )
 
@@ -402,10 +405,11 @@ class FlashSantacoderModel(nn.Module):
 
 
 class FlashSantacoderForCausalLM(nn.Module):
-    def __init__(self, config, weights):
+    def __init__(self, prefix: str, config, weights):
         super().__init__()
-        self.transformer = FlashSantacoderModel(config, weights)
-        self.lm_head = TensorParallelHead.load(config, prefix="transformer.wte", weights=weights)
+        self.config = config
+        self.transformer = FlashSantacoderModel(prefix, config, weights)
+        self.lm_head = TensorParallelHead.load(config, prefix=prepend(prefix, "transformer.wte"), weights=weights)
 
     def forward(
         self,
@@ -415,10 +419,11 @@ class FlashSantacoderForCausalLM(nn.Module):
         kv_cache: List[Tuple[torch.Tensor, torch.Tensor]],
         block_tables: torch.Tensor,
         slots: torch.Tensor,
-        input_lengths: torch.Tensor,
+        seqlen: Seqlen,
         max_s: int,
         prefill_cache_indices: Optional[torch.Tensor] = None,
         lm_head_indices: Optional[torch.Tensor] = None,
+        skip_lm_head: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         hidden_states = self.transformer(
             input_ids,
@@ -427,10 +432,14 @@ class FlashSantacoderForCausalLM(nn.Module):
             kv_cache,
             block_tables,
             slots,
-            input_lengths,
+            seqlen,
             max_s,
         )
         if lm_head_indices is not None:
             hidden_states = hidden_states[lm_head_indices]
+
+        if skip_lm_head:
+            return hidden_states, None
+
         logits = self.lm_head(hidden_states)
         return logits, None

@@ -1,4 +1,5 @@
 import json
+import logging
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
@@ -7,6 +8,7 @@ from pydantic import ValidationError
 from typing import Any, Dict, Optional, List, AsyncIterator, Iterator, Union
 
 from lorax.types import (
+    BatchRequest,
     StreamResponse,
     Response,
     Request,
@@ -19,7 +21,22 @@ from lorax.types import (
 from lorax.errors import parse_error
 import os 
 
-LORAX_DEBUG_MODE = os.getenv("LORAD_DEBUG_MODE", None) is not None
+LORAX_DEBUG_MODE = os.getenv("LORAX_DEBUG_MODE", None) is not None
+if LORAX_DEBUG_MODE:
+    # https://stackoverflow.com/a/16630836/1869739
+    # These two lines enable debugging at httplib level (requests->urllib3->http.client)
+    # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
+    # The only thing missing will be the response.body which is not logged.
+    import http.client as http_client
+    http_client.HTTPConnection.debuglevel = 1
+
+    # You must initialize logging, otherwise you'll not see debug output.
+    logging.basicConfig()
+    logging.getLogger().setLevel(logging.DEBUG)
+    requests_log = logging.getLogger("requests.packages.urllib3")
+    requests_log.setLevel(logging.DEBUG)
+    requests_log.propagate = True
+
 
 class Client:
     """Client to make calls to a LoRAX instance
@@ -69,6 +86,7 @@ class Client:
         self.base_url = base_url
         self.embed_endpoint = f"{base_url}/embed"
         self.classify_endpoint = f"{base_url}/classify"
+        self.classify_batch_endpoint = f"{base_url}/classify_batch"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
@@ -174,7 +192,7 @@ class Client:
             adapter_id (`Optional[str]`):
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
-                Source of the adapter (hub, local, s3)
+                Source of the adapter ("hub", "local", "s3", "pbase")
             merged_adapters (`Optional[MergedAdapters]`):
                 Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
@@ -310,7 +328,7 @@ class Client:
             adapter_id (`Optional[str]`):
                 Adapter ID to apply to the base model for the request
             adapter_source (`Optional[str]`):
-                Source of the adapter (hub, local, s3)
+                Source of the adapter ("hub", "local", "s3", "pbase")
             merged_adapters (`Optional[MergedAdapters]`):
                 Merged adapters to apply to the base model for the request
             api_token (`Optional[str]`):
@@ -470,8 +488,34 @@ class Client:
         if resp.status_code != 200:
             raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
         
-        print(payload)
-        return ClassifyResponse(**payload)
+        return ClassifyResponse(entities=payload)
+    
+    def classify_batch(self, inputs: List[str]) -> List[ClassifyResponse]:
+        """
+        Given a list of inputs, run token classification on the text using the model
+
+        Args:
+            inputs (`List[str]`):
+                List of input texts
+        
+        Returns: 
+            List[Entities]: Entities found in the input text
+        """
+        request = BatchRequest(inputs=inputs)
+
+        resp = requests.post(
+            self.classify_batch_endpoint,
+            json=request.dict(by_alias=True),
+            headers=self.headers,
+            cookies=self.cookies,
+            timeout=self.timeout,
+        )
+
+        payload = resp.json()
+        if resp.status_code != 200:
+            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
+        
+        return [ClassifyResponse(entities=e) for e in payload]
 
 
 class AsyncClient:

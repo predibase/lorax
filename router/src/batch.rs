@@ -12,9 +12,8 @@ use lorax_client::{
     StoppingCriteriaParameters, TokenizedInputs,
 };
 use nohash_hasher::{BuildNoHashHasher, IntMap};
-use tokenizers::Token;
-use tokio::time::Instant;
-use tracing::{info_span, span, Instrument, Span};
+use tokio::{sync::mpsc, time::Instant};
+use tracing::{Instrument, Span};
 
 use crate::{
     adapter::Adapter,
@@ -23,7 +22,9 @@ use crate::{
 };
 
 pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
+    fn decoder_input_details(&self) -> bool;
     fn input_length(&self) -> u32;
+    fn input_ids(&self) -> Option<Arc<Vec<u32>>>;
     fn max_new_tokens(&self) -> u32;
     fn adapter(&self) -> Adapter;
     fn to_batch(&self, num_entries: usize, queue_len: usize) -> Box<dyn BatchEntries>;
@@ -31,8 +32,20 @@ pub(crate) trait ValidRequest: Sync + Send + Debug + Any {
 }
 
 impl ValidRequest for ValidGenerateRequest {
+    fn decoder_input_details(&self) -> bool {
+        self.decoder_input_details
+    }
+
     fn input_length(&self) -> u32 {
         self.input_length
+    }
+
+    fn input_ids(&self) -> Option<Arc<Vec<u32>>> {
+        if let Some(tokenized_inputs) = &self.tokenized_inputs {
+            Some(Arc::new(tokenized_inputs.ids.clone()))
+        } else {
+            None
+        }
     }
 
     fn max_new_tokens(&self) -> u32 {
@@ -61,8 +74,20 @@ pub(crate) struct ValidEmbedRequest {
 }
 
 impl ValidRequest for ValidEmbedRequest {
+    fn decoder_input_details(&self) -> bool {
+        false
+    }
+
     fn input_length(&self) -> u32 {
         self.input_length
+    }
+
+    fn input_ids(&self) -> Option<Arc<Vec<u32>>> {
+        if let Some(tokenized_inputs) = &self.tokenized_inputs {
+            Some(Arc::new(tokenized_inputs.ids.clone()))
+        } else {
+            None
+        }
     }
 
     fn max_new_tokens(&self) -> u32 {
@@ -91,8 +116,20 @@ pub(crate) struct ValidClassifyRequest {
 }
 
 impl ValidRequest for ValidClassifyRequest {
+    fn decoder_input_details(&self) -> bool {
+        false
+    }
+
     fn input_length(&self) -> u32 {
         self.input_length
+    }
+
+    fn input_ids(&self) -> Option<Arc<Vec<u32>>> {
+        if let Some(tokenized_inputs) = &self.tokenized_inputs {
+            Some(Arc::new(tokenized_inputs.ids.clone()))
+        } else {
+            None
+        }
     }
 
     fn max_new_tokens(&self) -> u32 {
@@ -130,7 +167,7 @@ pub(crate) struct Entry {
     /// Request
     pub request: Arc<dyn ValidRequest>,
     /// Response sender to communicate between the Infer struct and the batching_task
-    pub response_tx: flume::Sender<Result<InferStreamResponse, InferError>>,
+    pub response_tx: mpsc::UnboundedSender<Result<InferStreamResponse, InferError>>,
     /// Span that will live as long as entry
     pub span: Span,
     /// Temporary span used as a guard when logging inference, wait times...
@@ -141,6 +178,8 @@ pub(crate) struct Entry {
     pub batch_time: Option<Instant>,
     /// Block Allocation
     pub block_allocation: Option<BlockAllocation>,
+    /// Optional entry id
+    pub id: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -225,13 +264,23 @@ impl BatchEntriesState {
 #[async_trait]
 pub(crate) trait BatchEntries: Sync + Send + Debug {
     fn can_add(&self, entry: &Entry) -> bool;
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>);
+    fn add(
+        &mut self,
+        id: u64,
+        entry: Entry,
+        adapter: Adapter,
+        blocks: Vec<u32>,
+        slots: Vec<u32>,
+        prefix_len: u32,
+        chunk_len: Option<u32>,
+    );
     fn extend(&mut self, entries: Box<dyn BatchEntries>);
     fn drain(&mut self) -> Vec<(Adapter, u64, Entry)>;
     fn create_batch_data(&self, batch_id: u64, max_tokens: u32, max_blocks: u32) -> Batch;
     fn adapters_in_use(&self) -> HashSet<Adapter>;
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+    #[allow(dead_code)]
     fn state(&self) -> &BatchEntriesState;
     fn mut_state(&mut self) -> &mut BatchEntriesState;
 
@@ -239,6 +288,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
@@ -279,7 +329,16 @@ impl BatchEntries for GenerateBatchEntries {
         result
     }
 
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>) {
+    fn add(
+        &mut self,
+        id: u64,
+        entry: Entry,
+        adapter: Adapter,
+        blocks: Vec<u32>,
+        slots: Vec<u32>,
+        prefix_len: u32,
+        chunk_len: Option<u32>,
+    ) {
         let valid_request = entry
             .request
             .as_ref()
@@ -298,6 +357,8 @@ impl BatchEntries for GenerateBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
+            cache_len: prefix_len,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -341,12 +402,14 @@ impl BatchEntries for GenerateBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         prefill(
             client,
             batch,
+            cached_batch,
             &mut self.state.batch_entries,
             &generation_health,
         )
@@ -399,7 +462,16 @@ impl BatchEntries for EmbedBatchEntries {
         result
     }
 
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>) {
+    fn add(
+        &mut self,
+        id: u64,
+        entry: Entry,
+        adapter: Adapter,
+        blocks: Vec<u32>,
+        slots: Vec<u32>,
+        prefix_len: u32,
+        chunk_len: Option<u32>,
+    ) {
         let valid_request = entry
             .request
             .as_ref()
@@ -418,6 +490,8 @@ impl BatchEntries for EmbedBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
+            cache_len: prefix_len,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -461,6 +535,7 @@ impl BatchEntries for EmbedBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
@@ -476,10 +551,10 @@ impl BatchEntries for EmbedBatchEntries {
 
     async fn process_next(
         &mut self,
-        client: &mut ShardedClient,
-        batches: Vec<CachedBatch>,
-        span: Span,
-        generation_health: &Arc<AtomicBool>,
+        _client: &mut ShardedClient,
+        _batches: Vec<CachedBatch>,
+        _span: Span,
+        _generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(travis): send error (programming eroor) if we get here
         None
@@ -513,7 +588,16 @@ impl BatchEntries for ClassifyBatchEntries {
         result
     }
 
-    fn add(&mut self, id: u64, entry: Entry, adapter: Adapter, blocks: Vec<u32>, slots: Vec<u32>) {
+    fn add(
+        &mut self,
+        id: u64,
+        entry: Entry,
+        adapter: Adapter,
+        blocks: Vec<u32>,
+        slots: Vec<u32>,
+        prefix_len: u32,
+        chunk_len: Option<u32>,
+    ) {
         let valid_request = entry
             .request
             .as_ref()
@@ -532,6 +616,8 @@ impl BatchEntries for ClassifyBatchEntries {
             adapter_index: adapter.index(),
             blocks,
             slots,
+            cache_len: prefix_len,
+            chunk_len: chunk_len,
         };
 
         self.state.add(id, entry, adapter, request_proto);
@@ -575,6 +661,7 @@ impl BatchEntries for ClassifyBatchEntries {
         &mut self,
         client: &mut ShardedClient,
         batch: Batch,
+        _cached_batch: Option<CachedBatch>,
         span: Span,
         generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
@@ -590,10 +677,10 @@ impl BatchEntries for ClassifyBatchEntries {
 
     async fn process_next(
         &mut self,
-        client: &mut ShardedClient,
-        batches: Vec<CachedBatch>,
-        span: Span,
-        generation_health: &Arc<AtomicBool>,
+        _client: &mut ShardedClient,
+        _batches: Vec<CachedBatch>,
+        _span: Span,
+        _generation_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(magdy): send error (programming eroor) if we get here
         None

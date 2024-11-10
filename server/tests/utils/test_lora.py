@@ -8,7 +8,8 @@ from peft import LoraConfig
 from lorax_server.adapters.lora import LoraWeights
 from lorax_server.adapters.types import LORA
 from lorax_server.adapters.weights import AdapterBatchMetadata, AdapterWeights, BatchAdapterWeights, LayerAdapterWeights
-from lorax_server.utils.sgmv import MIN_RANK_CUSTOM
+from lorax_server.utils.lora import LM_HEAD
+from lorax_server.utils.punica import MIN_RANK_CUSTOM
 
 
 class FakeAdapterWeights(AdapterWeights):
@@ -34,6 +35,7 @@ class FakeBatchAdapterWeights(BatchAdapterWeights):
     def load(
         cls,
         adapter_weights: Dict[int, AdapterWeights],
+        layer_name: str,
         meta: "AdapterBatchMetadata",
         prefill: bool,
         prefill_head_indices: torch.Tensor,
@@ -72,13 +74,14 @@ def test_batched_lora_weights(lora_ranks: List[int]):
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int64),
+        adapter_list=[0, 1, 0, 1],
         adapter_set={0, 1},
         adapter_segments=torch.tensor([0, 2, 4, 6, 8], dtype=torch.int64),
         segment_indices=[0, 1, 0, 1],
     )
 
     with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
-        data = batched_weights.get_data(meta, prefill=True, prefill_head_indices=None).get(LORA)
+        data = batched_weights.get_data(meta, LM_HEAD, prefill=True, prefill_head_indices=None).get(LORA)
 
     assert len(data.lora_a) == 2
     assert data.lora_a.keys() == meta.adapter_set
@@ -147,13 +150,14 @@ def test_batched_lora_weights_decode(
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor(adapter_indices, dtype=torch.int64),
+        adapter_list=adapter_indices,
         adapter_set=set(adapter_indices),
         adapter_segments=torch.tensor(segments, dtype=torch.int64),
         segment_indices=segment_indices,
     )
 
     with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
-        data = batched_weights.get_data(meta, prefill=False, prefill_head_indices=None).get(LORA)
+        data = batched_weights.get_data(meta, LM_HEAD, prefill=False, prefill_head_indices=None).get(LORA)
 
     for lora_rank, rd in data.rank_data.items():
         expected_indices = torch.tensor(expected[lora_rank][1], dtype=rd.indices.dtype, device=rd.indices.device)
@@ -191,12 +195,13 @@ def test_batched_lora_weights_no_segments():
 
     meta = AdapterBatchMetadata(
         adapter_indices=torch.tensor([0, 0, 0, 0], dtype=torch.int64),
-        adapter_set={0, 1},
+        adapter_list=[0],
+        adapter_set={0},
         adapter_segments=torch.tensor([0, 4], dtype=torch.int64),
         segment_indices=[0],
     )
 
     with mock.patch("lorax_server.adapters.lora.get_tmp_tensors", return_value=(torch.empty(0), torch.empty(0))):
-        data = batched_weights.get_data(meta, prefill=True, prefill_head_indices=None).get(LORA)
+        data = batched_weights.get_data(meta, LM_HEAD, prefill=True, prefill_head_indices=None).get(LORA)
 
     print(data)

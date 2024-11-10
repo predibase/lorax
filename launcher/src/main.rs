@@ -1,4 +1,8 @@
 use clap::{Parser, ValueEnum};
+use hf_hub::{
+    api::sync::{Api, ApiBuilder},
+    Repo, RepoType,
+};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::Deserialize;
@@ -19,32 +23,178 @@ use tracing_subscriber::EnvFilter;
 
 mod env_runtime;
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+fn get_config(
+    model_id: &str,
+    revision: &Option<String>,
+) -> Result<Config, Box<dyn std::error::Error>> {
+    let mut path = std::path::Path::new(model_id).to_path_buf();
+    let model_id = model_id.to_string();
+    let filename = if !path.exists() {
+        // Assume it's a hub id
+
+        let api = if let Ok(token) = std::env::var("HF_TOKEN") {
+            // env variable has precedence over on file token.
+            ApiBuilder::new().with_token(Some(token)).build()?
+        } else {
+            Api::new()?
+        };
+        let repo = if let Some(ref revision) = revision {
+            api.repo(Repo::with_revision(
+                model_id,
+                RepoType::Model,
+                revision.to_string(),
+            ))
+        } else {
+            api.model(model_id)
+        };
+        repo.get("config.json")?
+    } else {
+        path.push("config.json");
+        path
+    };
+
+    let content = std::fs::read_to_string(filename)?;
+    let config: RawConfig = serde_json::from_str(&content)?;
+
+    let config: Config = config.into();
+    Ok(config)
+}
+
+#[derive(Deserialize)]
+struct RawConfig {
+    max_position_embeddings: Option<usize>,
+    n_positions: Option<usize>,
+    model_type: Option<String>,
+    max_seq_len: Option<usize>,
+    quantization_config: Option<QuantizationConfig>,
+    n_embd: Option<usize>,
+    hidden_size: Option<usize>,
+    num_attention_heads: Option<usize>,
+    head_dim: Option<usize>,
+    vision_config: Option<VisionConfig>,
+    is_encoder_decoder: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct QuantizationConfig {
+    quant_method: Option<Quantization>,
+}
+
+#[derive(Deserialize)]
+struct VisionConfig {}
+
+#[derive(Deserialize)]
+struct Config {
+    max_position_embeddings: Option<usize>,
+    quantize: Option<Quantization>,
+    head_dim: Option<usize>,
+    model_type: Option<String>,
+    vision_config: Option<VisionConfig>,
+    is_encoder_decoder: bool,
+}
+
+impl From<RawConfig> for Config {
+    fn from(other: RawConfig) -> Self {
+        let max_position_embeddings = other
+            .max_position_embeddings
+            .or(other.max_seq_len)
+            .or(other.n_positions);
+        let quantize = other.quantization_config.and_then(|q| q.quant_method);
+        let head_dim = other.head_dim.or_else(|| {
+            match (other.hidden_size, other.n_embd, other.num_attention_heads) {
+                (Some(hidden_size), _, Some(num_attention_heads))
+                    if hidden_size % num_attention_heads == 0 =>
+                {
+                    Some(hidden_size / num_attention_heads)
+                }
+                // Legacy
+                (_, Some(hidden_size), Some(num_attention_heads))
+                    if hidden_size % num_attention_heads == 0 =>
+                {
+                    Some(hidden_size / num_attention_heads)
+                }
+                _ => None,
+            }
+        });
+        let model_type = other.model_type;
+        let vision_config = other.vision_config;
+        let is_encoder_decoder = other.is_encoder_decoder.unwrap_or(false);
+        Config {
+            max_position_embeddings,
+            quantize,
+            head_dim,
+            model_type,
+            vision_config,
+            is_encoder_decoder,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 enum Quantization {
-    Bitsandbytes,
-    BitsandbytesNF4,
-    BitsandbytesFP4,
-    Gptq,
+    /// 4 bit quantization. Requires a specific AWQ quantized model:
+    ///   <https://hf.co/models?search=awq>.
+    /// Should replace GPTQ models wherever possible because of the better latency
     Awq,
+    /// 8 bit quantization, doesn't require specific model.
+    /// Should be a drop-in replacement to bitsandbytes with much better performance.
+    /// Kernels are from <https://github.com/NetEase-FuXi/EETQ.git>
     Eetq,
-    Hqq_4bit,
-    Hqq_3bit,
-    Hqq_2bit,
+    /// Variable bit quantization. Requires a specific EXL2 quantized model:
+    /// <https://hf.co/models?search=exl2>. Requires exllama2 kernels and does
+    /// not support tensor parallelism (num_shard > 1).
+    Exl2,
+    /// 4 bit quantization. Requires a specific GTPQ quantized model: <https://hf.co/models?search=gptq>.
+    /// text-generation-inference will use exllama (faster) kernels wherever possible, and use
+    /// triton kernel (wider support) when it's not.
+    /// AWQ has faster kernels.
+    Gptq,
+    /// Bitsandbytes 8bit. Can be applied on any model, will cut the memory requirement in half,
+    /// but it is known that the model will be much slower to run than the native f16.
+    // #[deprecated(
+    //     since = "1.1.0",
+    //     note = "Use `eetq` instead, which provides better latencies overall and is drop-in in most cases"
+    // )]
+    Bitsandbytes,
+    /// Bitsandbytes 4bit. Can be applied on any model, will cut the memory requirement by 4x,
+    /// but it is known that the model will be much slower to run than the native f16.
+    BitsandbytesNf4,
+    /// Bitsandbytes 4bit. nf4 should be preferred in most cases but maybe this one has better
+    /// perplexity performance for you model
+    BitsandbytesFp4,
+    /// [FP8](https://developer.nvidia.com/blog/nvidia-arm-and-intel-publish-fp8-specification-for-standardization-as-an-interchange-format-for-ai/) (e4m3) works on H100 and above
+    /// This dtype has native ops should be the fastest if available.
+    /// This is currently not the fastest because of local unpacking + padding to satisfy matrix
+    /// multiplication limitations.
     Fp8,
+    /// FP8 with statically quantized KV cache
+    Fp8_KV,
+    /// 4 bit quantization. Requires a specific HQQ quantized model.
+    Hqq_4bit,
+    /// 3 bit quantization. Requires a specific HQQ quantized model.
+    Hqq_3bit,
+    /// 2 bit quantization. Requires a specific HQQ quantized model.
+    Hqq_2bit,
 }
 
 impl std::fmt::Display for Quantization {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // To keep in track with `server`.
         match self {
+            #[allow(deprecated)]
+            // Use `eetq` instead, which provides better latencies overall and is drop-in in most cases
             Quantization::Bitsandbytes => {
                 write!(f, "bitsandbytes")
             }
-            Quantization::BitsandbytesNF4 => {
+            Quantization::BitsandbytesNf4 => {
                 write!(f, "bitsandbytes-nf4")
             }
-            Quantization::BitsandbytesFP4 => {
+            Quantization::BitsandbytesFp4 => {
                 write!(f, "bitsandbytes-fp4")
+            }
+            Quantization::Exl2 => {
+                write!(f, "exl2")
             }
             Quantization::Gptq => {
                 write!(f, "gptq")
@@ -55,6 +205,12 @@ impl std::fmt::Display for Quantization {
             Quantization::Eetq => {
                 write!(f, "eetq")
             }
+            Quantization::Fp8 => {
+                write!(f, "fp8")
+            }
+            Quantization::Fp8_KV => {
+                write!(f, "fp8-kv")
+            }
             Quantization::Hqq_4bit => {
                 write!(f, "hqq-4bit")
             }
@@ -63,9 +219,6 @@ impl std::fmt::Display for Quantization {
             }
             Quantization::Hqq_2bit => {
                 write!(f, "hqq-2bit")
-            }
-            Quantization::Fp8 => {
-                write!(f, "fp8")
             }
         }
     }
@@ -88,6 +241,28 @@ impl std::fmt::Display for Dtype {
             }
             Dtype::BFloat16 => {
                 write!(f, "bfloat16")
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+enum Backend {
+    #[clap(name = "fa2")]
+    FA2,
+    #[clap(name = "flashinfer")]
+    FlashInfer,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // To keep in sync with `server`.
+        match self {
+            Backend::FA2 => {
+                write!(f, "fa2")
+            }
+            Backend::FlashInfer => {
+                write!(f, "flashinfer")
             }
         }
     }
@@ -153,12 +328,6 @@ struct Args {
     #[clap(long, env)]
     sharded: Option<bool>,
 
-    /// Whether this model is mean for embeddings or text generation.
-    /// By default models are for text generation.
-    /// Setting it to `true` will enable the embedding endpoints and disable the generation ones.
-    #[clap(long, env)]
-    embedding_model: Option<bool>,
-
     /// The number of shards to use if you don't want to use all GPUs on a given machine.
     /// You can use `CUDA_VISIBLE_DEVICES=0,1 lorax-launcher... --num_shard 2`
     /// and `CUDA_VISIBLE_DEVICES=2,3 lorax-launcher... --num_shard 2` to
@@ -184,6 +353,20 @@ struct Args {
     /// The list of adapter ids to preload during initialization (to avoid cold start times).
     #[clap(long, env)]
     preloaded_adapter_ids: Vec<String>,
+
+    /// The source to use for the preloaded adapters.
+    /// If unset, will default to using the `adapter_source` value.
+    /// Can be `hub` or `s3` or `pbase`
+    /// `hub` will load the model from the huggingface hub.
+    /// `s3` will load the model from the predibase S3 bucket.
+    /// `pbase` will load an s3 model but resolve the metadata from a predibase server
+    #[clap(long, env)]
+    preloaded_adapter_source: Option<String>,
+
+    /// The API token to use when fetching adapters from pbase.
+    /// If specified, will set the environment variable PREDIBASE_API_TOKEN.
+    #[clap(long, env)]
+    predibase_api_token: Option<String>,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -219,8 +402,9 @@ struct Args {
     /// for users. The larger this value, the longer prompt users can send which
     /// can impact the overall memory required to handle the load.
     /// Please note that some models have a finite range of sequence they can handle.
-    #[clap(default_value = "1024", long, env)]
-    max_input_length: usize,
+    /// Default to min(max_position_embeddings - 1, 4095)
+    #[clap(long, env)]
+    max_input_length: Option<usize>,
 
     /// This is the most important value to set as it defines the "memory budget"
     /// of running clients requests.
@@ -230,8 +414,9 @@ struct Args {
     /// `1511` max_new_tokens.
     /// The larger this value, the larger amount each request will be in your RAM
     /// and the less effective batching can be.
-    #[clap(default_value = "2048", long, env)]
-    max_total_tokens: usize,
+    /// Default to min(max_position_embeddings, 4096)
+    #[clap(long, env)]
+    max_total_tokens: Option<usize>,
 
     /// This represents the ratio of waiting queries vs running queries where
     /// you want to start considering pausing the running queries to include the waiting
@@ -249,8 +434,9 @@ struct Args {
     /// Limits the number of tokens for the prefill operation.
     /// Since this operation take the most memory and is compute bound, it is interesting
     /// to limit the number of requests that can be sent.
-    #[clap(default_value = "4096", long, env)]
-    max_batch_prefill_tokens: u32,
+    /// Default to `max_input_tokens + 50` to give a bit of room.
+    #[clap(long, env)]
+    max_batch_prefill_tokens: Option<u32>,
 
     /// **IMPORTANT** This is one critical control to allow maximum usage
     /// of the available hardware.
@@ -297,6 +483,22 @@ struct Args {
     /// to true.
     #[clap(long, env)]
     eager_prefill: Option<bool>,
+
+    /// Split prefill requests into multiple chunks and batch them with decode requests. For high QPS scenarios, this
+    /// can greatly improve throughput by overlapping request types. See: https://arxiv.org/pdf/2308.16369.
+    #[clap(long, env)]
+    chunked_prefill: Option<bool>,
+
+    /// Whether to use the prefix caching mechanism. This will skip computing attention on previously cached prefixes
+    /// in the prompt. Useful in cases where many queries need to be run over a shared context, or for long multi-turn
+    /// chats conversations.
+    #[clap(long, env)]
+    prefix_caching: Option<bool>,
+
+    /// Whether to merge the weights of the adapter with the base model weights. This will disable dynamic adapter
+    /// loading.
+    #[clap(long, env, value_enum)]
+    merge_adapter_weights: bool,
 
     /// Maximum number of adapters that can be placed on the GPU and accept requests at a time.
     #[clap(default_value = "1024", long, env)]
@@ -407,6 +609,17 @@ struct Args {
     /// include a `chat_template`. If not provided, the default config will be used from the model hub.
     #[clap(long, env)]
     tokenizer_config_path: Option<String>,
+
+    /// The backend to use for the model. Can be `fa2` or `flashinfer`.
+    #[clap(default_value = "fa2", long, env, value_enum)]
+    backend: Backend,
+
+    /// The embedding dimension to use for the model.
+    #[clap(long, env)]
+    embedding_dim: Option<usize>,
+
+    #[clap(long, env)]
+    disable_sgmv: bool,
 }
 
 #[derive(Debug)]
@@ -426,6 +639,8 @@ fn shard_manager(
     compile: bool,
     speculative_tokens: Option<usize>,
     preloaded_adapter_ids: Vec<String>,
+    preloaded_adapter_source: Option<String>,
+    predibase_api_token: Option<String>,
     dtype: Option<Dtype>,
     trust_remote_code: bool,
     uds_path: String,
@@ -440,10 +655,16 @@ fn shard_manager(
     watermark_delta: Option<f32>,
     cuda_memory_fraction: f32,
     adapter_memory_fraction: f32,
+    prefix_caching: Option<bool>,
+    chunked_prefill: Option<bool>,
+    merge_adapter_weights: bool,
+    backend: Backend,
     otlp_endpoint: Option<String>,
     status_sender: mpsc::Sender<ShardStatus>,
     shutdown: Arc<AtomicBool>,
     _shutdown_sender: mpsc::Sender<()>,
+    embedding_dim: Option<usize>,
+    disable_sgmv: bool,
 ) {
     // Enter shard-manager tracing span
     let _span = tracing::span!(tracing::Level::INFO, "shard-manager", rank = rank).entered();
@@ -509,6 +730,16 @@ fn shard_manager(
         shard_args.push(adapter_id);
     }
 
+    // Merge adapter weights
+    if merge_adapter_weights {
+        shard_args.push("--merge-adapter-weights".to_string());
+    }
+    // Preloaded adapter source
+    if let Some(preloaded_adapter_source) = preloaded_adapter_source {
+        shard_args.push("--preloaded-adapter-source".to_string());
+        shard_args.push(preloaded_adapter_source);
+    }
+
     if let Some(dtype) = dtype {
         shard_args.push("--dtype".to_string());
         shard_args.push(dtype.to_string())
@@ -526,8 +757,21 @@ fn shard_manager(
         shard_args.push(otlp_endpoint);
     }
 
+    // Embedding dimension
+    if let Some(embedding_dim) = embedding_dim {
+        shard_args.push("--embedding-dim".to_string());
+        shard_args.push(embedding_dim.to_string())
+    }
+
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
+
+    if let Some(predibase_api_token) = predibase_api_token {
+        envs.push((
+            "PREDIBASE_API_TOKEN".into(),
+            predibase_api_token.to_string().into(),
+        ));
+    }
 
     // Torch Distributed Env vars
     envs.push(("RANK".into(), rank.to_string().into()));
@@ -547,6 +791,25 @@ fn shard_manager(
         "ADAPTER_MEMORY_FRACTION".into(),
         adapter_memory_fraction.to_string().into(),
     ));
+
+    // Prefix caching
+    if let Some(prefix_caching) = prefix_caching {
+        envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+    }
+
+    // Chunked prefill
+    if let Some(chunked_prefill) = chunked_prefill {
+        envs.push(("CHUNKED_PREFILL".into(), chunked_prefill.to_string().into()));
+    }
+
+    // Backend
+    if backend == Backend::FlashInfer {
+        envs.push(("FLASH_INFER".into(), "1".into()));
+    }
+
+    if disable_sgmv {
+        envs.push(("DISABLE_SGMV".into(), "1".into()))
+    }
 
     // Safetensors load fast
     envs.push(("SAFETENSORS_FAST_GPU".into(), "1".into()));
@@ -844,6 +1107,12 @@ fn download_convert_model(
         download_args.push(adapter_id.to_string());
     }
 
+    // Embedding dimension
+    if let Some(embedding_dim) = args.embedding_dim {
+        download_args.push("--embedding-dim".to_string());
+        download_args.push(embedding_dim.to_string())
+    }
+
     // Copy current process env
     let mut envs: Vec<(OsString, OsString)> = env::vars_os().collect();
 
@@ -976,6 +1245,8 @@ fn spawn_shards(
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
+        let preloaded_adapter_source = args.preloaded_adapter_source.clone();
+        let predibase_api_token = args.predibase_api_token.clone();
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -984,6 +1255,12 @@ fn spawn_shards(
         let watermark_delta = args.watermark_delta;
         let cuda_memory_fraction = args.cuda_memory_fraction;
         let adapter_memory_fraction = args.adapter_memory_fraction;
+        let prefix_caching = args.prefix_caching;
+        let chunked_prefill = args.chunked_prefill;
+        let merge_adapter_weights = args.merge_adapter_weights;
+        let backend = args.backend;
+        let embedding_dim = args.embedding_dim;
+        let disable_sgmv = args.disable_sgmv;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -995,6 +1272,8 @@ fn spawn_shards(
                 compile,
                 speculative_tokens,
                 preloaded_adapter_ids,
+                preloaded_adapter_source,
+                predibase_api_token,
                 dtype,
                 trust_remote_code,
                 uds_path,
@@ -1009,10 +1288,16 @@ fn spawn_shards(
                 watermark_delta,
                 cuda_memory_fraction,
                 adapter_memory_fraction,
+                prefix_caching,
+                chunked_prefill,
+                merge_adapter_weights,
+                backend,
                 otlp_endpoint,
                 status_sender,
                 shutdown,
                 shutdown_sender,
+                embedding_dim,
+                disable_sgmv,
             )
         });
     }
@@ -1048,6 +1333,9 @@ fn spawn_shards(
 
 fn spawn_webserver(
     args: Args,
+    max_input_tokens: usize,
+    max_total_tokens: usize,
+    max_batch_prefill_tokens: u32,
     shutdown: Arc<AtomicBool>,
     shutdown_receiver: &mpsc::Receiver<()>,
 ) -> Result<Child, LauncherError> {
@@ -1062,11 +1350,11 @@ fn spawn_webserver(
         "--max-stop-sequences".to_string(),
         args.max_stop_sequences.to_string(),
         "--max-input-length".to_string(),
-        args.max_input_length.to_string(),
+        max_input_tokens.to_string(),
         "--max-total-tokens".to_string(),
-        args.max_total_tokens.to_string(),
+        max_total_tokens.to_string(),
         "--max-batch-prefill-tokens".to_string(),
-        args.max_batch_prefill_tokens.to_string(),
+        max_batch_prefill_tokens.to_string(),
         "--max-active-adapters".to_string(),
         args.max_active_adapters.to_string(),
         "--adapter-cycle-time-s".to_string(),
@@ -1156,12 +1444,12 @@ fn spawn_webserver(
         router_args.push(origin.to_string());
     }
 
-    if args.embedding_model.unwrap_or(false) {
-        router_args.push("--embedding-model".to_string());
-    }
-
     if args.eager_prefill.unwrap_or(false) {
         router_args.push("--eager-prefill".to_string());
+    }
+
+    if args.prefix_caching.unwrap_or(false) {
+        router_args.push("--prefix-caching".to_string());
     }
 
     // Ngrok
@@ -1273,17 +1561,68 @@ fn main() -> Result<(), LauncherError> {
 
     tracing::info!("{:?}", args);
 
+    let config: Option<Config> = get_config(&args.model_id, &args.revision).ok();
+    let max_default = 4096;
+    let max_position_embeddings = if let Some(config) = &config {
+        if let Some(max_position_embeddings) = config.max_position_embeddings {
+            if max_position_embeddings > max_default {
+                let max = max_position_embeddings;
+                if args.max_input_length.is_none()
+                    && args.max_total_tokens.is_none()
+                    && args.max_batch_prefill_tokens.is_none()
+                {
+                    tracing::info!("Model supports up to {max} but tgi will now set its default to {max_default} instead. This is to save VRAM by refusing large prompts in order to allow more users on the same hardware. You can increase that size using `--max-batch-prefill-tokens={} --max-total-tokens={max} --max-input-tokens={}`.", max + 50, max - 1);
+                }
+                max_default
+            } else {
+                max_position_embeddings
+            }
+        } else {
+            max_default
+        }
+    } else {
+        max_default
+    };
+
+    // Defaults
+    let max_input_tokens = {
+        match args.max_input_length {
+            Some(max_input_tokens) => max_input_tokens,
+            None => {
+                let value = max_position_embeddings - 1;
+                tracing::info!("Default `max_input_tokens` to {value}");
+                value
+            }
+        }
+    };
+    let max_total_tokens = {
+        match args.max_total_tokens {
+            Some(max_total_tokens) => max_total_tokens,
+            None => {
+                let value = max_position_embeddings;
+                tracing::info!("Default `max_total_tokens` to {value}");
+                value
+            }
+        }
+    };
+    let max_batch_prefill_tokens = {
+        match args.max_batch_prefill_tokens {
+            Some(max_batch_prefill_tokens) => max_batch_prefill_tokens,
+            None => {
+                // Adding some edge in order to account for potential block_size alignement
+                // issue.
+                let value: u32 = (max_input_tokens + 50) as u32;
+                tracing::info!("Default `max_batch_prefill_tokens` to {value}");
+                value
+            }
+        }
+    };
+
     // Validate args
-    if args.max_input_length >= args.max_total_tokens {
+    if max_input_tokens >= max_total_tokens {
         return Err(LauncherError::ArgumentValidation(
             "`max_input_length` must be < `max_total_tokens`".to_string(),
         ));
-    }
-    if args.max_input_length as u32 > args.max_batch_prefill_tokens {
-        return Err(LauncherError::ArgumentValidation(format!(
-            "`max_batch_prefill_tokens` must be >= `max_input_length`. Given: {} and {}",
-            args.max_batch_prefill_tokens, args.max_input_length
-        )));
     }
 
     if args.validation_workers == 0 {
@@ -1304,16 +1643,16 @@ fn main() -> Result<(), LauncherError> {
     }
 
     if let Some(ref max_batch_total_tokens) = args.max_batch_total_tokens {
-        if args.max_batch_prefill_tokens > *max_batch_total_tokens {
+        if max_batch_prefill_tokens > *max_batch_total_tokens {
             return Err(LauncherError::ArgumentValidation(format!(
                 "`max_batch_prefill_tokens` must be <= `max_batch_total_tokens`. Given: {} and {}",
-                args.max_batch_prefill_tokens, max_batch_total_tokens
+                max_batch_prefill_tokens, max_batch_total_tokens
             )));
         }
-        if args.max_total_tokens as u32 > *max_batch_total_tokens {
+        if max_total_tokens as u32 > *max_batch_total_tokens {
             return Err(LauncherError::ArgumentValidation(format!(
                 "`max_total_tokens` must be <= `max_batch_total_tokens`. Given: {} and {}",
-                args.max_total_tokens, max_batch_total_tokens
+                max_total_tokens, max_batch_total_tokens
             )));
         }
     }
@@ -1379,11 +1718,18 @@ fn main() -> Result<(), LauncherError> {
         return Ok(());
     }
 
-    let mut webserver =
-        spawn_webserver(args, shutdown.clone(), &shutdown_receiver).map_err(|err| {
-            shutdown_shards(shutdown.clone(), &shutdown_receiver);
-            err
-        })?;
+    let mut webserver = spawn_webserver(
+        args,
+        max_input_tokens,
+        max_total_tokens,
+        max_batch_prefill_tokens,
+        shutdown.clone(),
+        &shutdown_receiver,
+    )
+    .map_err(|err| {
+        shutdown_shards(shutdown.clone(), &shutdown_receiver);
+        err
+    })?;
 
     // Default exit code
     let mut exit_code = Ok(());
