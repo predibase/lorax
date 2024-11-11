@@ -698,6 +698,7 @@ impl ChatCompletionRequest {
             temperature,
             response_format,
             guideline,
+            repetition_penalty,
             presence_penalty,
             // frequency_penalty,
             top_p,
@@ -762,7 +763,14 @@ impl ChatCompletionRequest {
             }
         };
 
-        let repetition_penalty = presence_penalty.map(|x| x + 2.0);
+        // Repetition penalty is deprecated, favor presence_penalty if provided
+        let repetition_penalty = match (presence_penalty, repetition_penalty) {
+            (Some(presence_penalty), Some(_repetition_penalty)) => Some(presence_penalty),
+            (Some(presence_penalty), None) => Some(presence_penalty + 2.0),
+            (None, Some(repetition_penalty)) => Some(repetition_penalty),
+            (None, None) => None,
+        };
+
         let tool_prompt = tool_prompt
             .filter(|s| !s.is_empty())
             .unwrap_or_else(default_tool_prompt);
@@ -796,7 +804,6 @@ impl ChatCompletionRequest {
                     temperature,
                     repetition_penalty,
                     // frequency_penalty,
-                    // presence_penalty,
                     top_k,
                     top_p,
                     typical_p: None,
@@ -1157,6 +1164,7 @@ impl From<CompletionRequest> for CompatGenerateRequest {
     fn from(req: CompletionRequest) -> Self {
         CompatGenerateRequest {
             inputs: req.prompt,
+            add_special_tokens: true,
             parameters: GenerateParameters {
                 adapter_id: req.model.parse().ok(),
                 adapter_source: req.adapter_source,
