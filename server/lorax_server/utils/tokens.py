@@ -380,7 +380,8 @@ class HeterogeneousNextTokenChooser:
                         self.schema_processor.next_state(batch_idx, next_ids_j[batch_idx].item())
 
         next_ids = next_ids.view(B * S)
-        scores = scores.view(B * S, -1)
+        allscores = scores.view(B * S, -1)
+        alllogprobs = torch.log_softmax(allscores, -1)
 
         if speculated_ids is not None:
             accepted_ids = []
@@ -406,14 +407,15 @@ class HeterogeneousNextTokenChooser:
 
             accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
             next_ids = next_ids[indices]
-            scores = scores[indices]
+            logprobs = alllogprobs[indices]
             indices = torch.arange(B, device=input_ids.device) * S
             if speculative_scores is not None:
                 speculative_scores = speculative_scores[indices + accepted_ids - 1]
         else:
             accepted_ids = torch.ones_like(next_ids)
+            logprobs = alllogprobs
 
-        next_logprobs = torch.gather(torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)).view(-1)
+        next_logprobs = torch.gather(logprobs, 1, next_ids.view(-1, 1)).view(-1)
 
         speculative_ids = None
         if speculate > 0:
