@@ -5,20 +5,19 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::tool_grammar::ToolGrammar;
 use crate::validation::ValidationError;
-use crate::{
-    default_json_schema, default_tool_prompt, AdapterParameters, AlternativeToken,
-    BatchClassifyRequest, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
-    ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
-    ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
-    CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
-    CompletionStreamResponse, Details, EmbedParameters, EmbedRequest, EmbedResponse, Entity,
-    ErrorResponse, FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest,
-    GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message,
-    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
-    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, Tool, ToolCall,
-    ToolChoice, UsageInfo, Validation,
-};
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
+use crate::{
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
+    ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
+    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
+    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
+    EmbedParameters, EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason,
+    FunctionDefinition, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer,
+    Info, JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken, ResponseFormat,
+    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
+    TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
+};
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -518,6 +517,8 @@ async fn health(
                 do_sample: false,
                 seed: None,
                 repetition_penalty: None,
+                frequency_penalty: None,
+                presence_penalty: None,
                 watermark: false,
                 return_full_text: None,
                 stop: vec![],

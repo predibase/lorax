@@ -205,6 +205,27 @@ pub(crate) struct GenerateParameters {
         example = 1.03
     )]
     pub repetition_penalty: Option<f32>,
+
+    #[serde(default)]
+    #[schema(
+        exclusive_minimum = -2.0,
+        exclusive_maximum = 2.0,
+        nullable = true,
+        default = "null",
+        example = 0.1
+    )]
+    pub frequency_penalty: Option<f32>,
+
+    #[serde(default)]
+    #[schema(
+        exclusive_minimum = -2.0,
+        exclusive_maximum = 2.0,
+        nullable = true,
+        default = "null",
+        example = 0.1
+    )]
+    pub presence_penalty: Option<f32>,
+
     #[serde(default)]
     #[schema(exclusive_minimum = 0, nullable = true, default = "null", example = 10)]
     pub top_k: Option<i32>,
@@ -286,6 +307,8 @@ fn default_parameters() -> GenerateParameters {
         best_of: None,
         temperature: None,
         repetition_penalty: None,
+        frequency_penalty: None,
+        presence_penalty: None,
         top_k: None,
         top_p: None,
         typical_p: None,
@@ -700,7 +723,7 @@ impl ChatCompletionRequest {
             guideline,
             repetition_penalty,
             presence_penalty,
-            // frequency_penalty,
+            frequency_penalty,
             top_p,
             top_k,
             n,
@@ -763,14 +786,6 @@ impl ChatCompletionRequest {
             }
         };
 
-        // Repetition penalty is deprecated, favor presence_penalty if provided
-        let repetition_penalty = match (presence_penalty, repetition_penalty) {
-            (Some(presence_penalty), Some(_repetition_penalty)) => Some(presence_penalty),
-            (Some(presence_penalty), None) => Some(presence_penalty + 2.0),
-            (None, Some(repetition_penalty)) => Some(repetition_penalty),
-            (None, None) => None,
-        };
-
         let tool_prompt = tool_prompt
             .filter(|s| !s.is_empty())
             .unwrap_or_else(default_tool_prompt);
@@ -803,7 +818,8 @@ impl ChatCompletionRequest {
                     best_of: n.map(|x| x as usize),
                     temperature,
                     repetition_penalty,
-                    // frequency_penalty,
+                    frequency_penalty,
+                    presence_penalty,
                     top_k,
                     top_p,
                     typical_p: None,
@@ -1173,6 +1189,8 @@ impl From<CompletionRequest> for CompatGenerateRequest {
                 best_of: req.best_of.map(|x| x as usize),
                 temperature: req.temperature,
                 repetition_penalty: req.repetition_penalty,
+                frequency_penalty: req.frequency_penalty,
+                presence_penalty: req.presence_penalty,
                 top_k: req.top_k,
                 top_p: req.top_p,
                 typical_p: None,

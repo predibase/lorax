@@ -154,6 +154,8 @@ impl Client {
                     do_sample: false,
                     seed: 0,
                     repetition_penalty: 1.2,
+                    frequency_penalty: 0.5,
+                    presence_penalty: 0.5,
                     watermark: true,
                     adapter_id: "".to_string(),
                     schema: None,
