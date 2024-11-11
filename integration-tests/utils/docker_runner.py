@@ -4,6 +4,10 @@ import os
 import requests
 from typing import Dict, Any
 import contextlib
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def _init_client():
@@ -21,7 +25,7 @@ def _start_container(client, model_config: Dict[str, Any]) -> None:
 
     data_dir = os.getenv("DATA_DIR", "/integration-test-data")
     image_tag = os.getenv("TEST_IMAGE_TAG", "ghcr.io/predibase/lorax:main")
-    print(f"Using image tag: {image_tag}")
+    logger.info(f"Using image tag: {image_tag}")
     # Start container
     container = client.containers.run(
         image=image_tag,
@@ -64,13 +68,13 @@ def _stop_container(container) -> None:
 def run_lorax_container(config):
     client = _init_client()
     container = _start_container(client, config)
-    print("Started container")
+    logger.info("Started container")
     try:
-        print("Waiting for container to be healthy")
+        logger.info("Waiting for container to be healthy")
         _wait_for_healthy(container)
-        print("Container is healthy")
+        logger.info("Container is healthy")
         yield
     finally:
-        print("Stopping container")
+        logger.info("Stopping container")
         _stop_container(container)
-        print("Container stopped")
+        logger.info("Container stopped")

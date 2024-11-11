@@ -55,11 +55,11 @@ runs:
     - name: Run Embedding tests
       shell: bash
       run: |
-        cd integration-tests-2
-        pytest test_embeddings.py -v --capture=tee-sys
+        cd integration-tests
+        pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
 
     - name: Run LLM tests
       shell: bash
       run: |
-        cd integration-tests-2
-        pytest test_base_llms.py -v --capture=tee-sys
+        cd integration-tests
+        pytest test_base_llms.py -vv --capture=tee-sys --log-cli-level=INFO
