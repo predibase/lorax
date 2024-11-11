@@ -86,6 +86,28 @@ def static_warper(
     return StaticWarper(temperature=temperature, top_k=top_k, top_p=top_p, typical_p=typical_p)
 
 
+class FrequencyPenaltyLogitsProcessor(LogitsProcessor):
+    r"""
+    Frequency penalty as defined by OpenAI
+
+    Args:
+        penalty (`float`):
+            The parameter for frequency penalty. 0.0 means no penalty.
+    """
+
+    def __init__(self, penalty: float):
+        self.penalty = penalty
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        score = torch.gather(scores, 1, input_ids)
+        # if score < 0 then penalty has to be multiplied to reduce the previous token probability
+        score = -torch.where(score < 0, score * self.penalty, score / self.penalty)
+        # set score to 0 where input_ids is a padding token
+        score *= input_ids.ne(0)
+
+        return scores.scatter_add_(1, input_ids, score)
+
+
 class HeterogeneousRepetitionPenaltyLogitsProcessor(LogitsProcessor):
     r"""
     [`LogitsProcessor`] enforcing an exponential penalty on repeated sequences.
@@ -115,6 +137,53 @@ class HeterogeneousRepetitionPenaltyLogitsProcessor(LogitsProcessor):
         self.penalty = [self.penalty[i] for i in indices]
         if any([x != 1.0 for x in self.penalty]):
             self.penalty_tensor = self.penalty_tensor[indices]
+            return self
+        return None
+
+
+class HeterogeneousFrequencyPenaltyLogitsProcessor(LogitsProcessor):
+    r"""
+    Frequency penalty as defined by OpenAI in
+    https://platform.openai.com/docs/guides/text-generation/parameter-details
+
+    Args:
+        frequency_penalty (`List[float]`):
+            The parameter for frequency penalty. 0.0 means no penalty.
+        presence_penalty (`List[float]`):
+            The parameter for presence penalty. 0.0 means no penalty.
+    """
+
+    def __init__(
+        self, frequency_penalty: List[float], presence_penalty: List[float], dtype: torch.dtype, device: torch.device
+    ):
+        self.frequency_penalty = frequency_penalty
+        self.frequency_penalty_tensor = torch.tensor(frequency_penalty, dtype=dtype, device=device).unsqueeze(1)
+
+        self.presence_penalty = presence_penalty
+        self.presence_penalty_tensor = torch.tensor(presence_penalty, dtype=dtype, device=device).unsqueeze(1)
+
+    def __call__(self, input_ids: torch.Tensor, scores: torch.Tensor) -> torch.Tensor:
+        batch_size, input_size = input_ids.size()
+        vocab_size = scores.size(1)
+
+        # Calculate the frequency for each token so far
+        token_freq = torch.zeros(batch_size, vocab_size, device=input_ids.device)
+        token_freq.scatter_add_(1, input_ids, torch.ones_like(input_ids, dtype=torch.float))
+        mask = token_freq > 0
+        token_freq /= input_size
+
+        # Apply the frequency and presence penalties to logits
+        scores -= token_freq * self.frequency_penalty_tensor
+        scores -= mask * self.presence_penalty_tensor
+
+        return scores
+
+    def filter(self, indices):
+        self.frequency_penalty = [self.frequency_penalty[i] for i in indices]
+        self.presence_penalty = [self.presence_penalty[i] for i in indices]
+        if any([x != 0.0 for x in self.frequency_penalty]) or any([x != 0.0 for x in self.presence_penalty]):
+            self.frequency_penalty_tensor = self.frequency_penalty_tensor[indices]
+            self.presence_penalty_tensor = self.presence_penalty_tensor[indices]
             return self
         return None
 

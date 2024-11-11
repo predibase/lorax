@@ -361,7 +361,7 @@ impl Infer {
         let truncate = request.parameters.truncate;
         let encoding = self
             .validation
-            .tokenize(inputs, truncate)
+            .tokenize(inputs, request.add_special_tokens, truncate)
             .await
             .map_err(|err| {
                 tracing::error!("Error occurred during tokenization. {err}");
@@ -530,7 +530,7 @@ impl Infer {
         let inputs = request.inputs.clone();
         let (tokenized_inputs, input_length) = self
             .validation
-            .validate_input(request.inputs, None, Some(1))
+            .validate_input(request.inputs, true, None, Some(1))
             .await?;
 
         let valid_request = ValidEmbedRequest {
@@ -631,7 +631,7 @@ impl Infer {
         let inputs = request.inputs.clone();
         let (tokenized_inputs, input_length) = self
             .validation
-            .validate_input(request.inputs, None, Some(1))
+            .validate_input(request.inputs, true, None, Some(1))
             .await?;
 
         let valid_request = ValidClassifyRequest {
@@ -755,7 +755,10 @@ impl Infer {
         let futures: Vec<_> = request
             .inputs
             .iter()
-            .map(|input| self.validation.validate_input(input.clone(), None, Some(1)))
+            .map(|input| {
+                self.validation
+                    .validate_input(input.clone(), true, None, Some(1))
+            })
             .collect();
 
         let all_tokenized_inputs = try_join_all(futures).await?;

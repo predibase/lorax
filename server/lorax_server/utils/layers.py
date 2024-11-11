@@ -79,7 +79,8 @@ class LoraLinear(nn.Module):
         # Triton Punica kernels
         key = (layer_type, self.layer_id)
         if (
-            adapter_data.punica_wrapper is not None and adapter_data.punica_wrapper.enabled
+            adapter_data.punica_wrapper is not None
+            and adapter_data.punica_wrapper.enabled
             and key in adapter_data.layer_to_lora_weights
             and input.shape[0] <= adapter_data.punica_wrapper.max_batch_size
             and can_vectorize
