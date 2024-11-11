@@ -149,6 +149,8 @@ class HeterogeneousFrequencyPenaltyLogitsProcessor(LogitsProcessor):
     Args:
         frequency_penalty (`List[float]`):
             The parameter for frequency penalty. 0.0 means no penalty.
+        presence_penalty (`List[float]`):
+            The parameter for presence penalty. 0.0 means no penalty.
     """
 
     def __init__(
