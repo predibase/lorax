@@ -372,9 +372,6 @@ class HeterogeneousNextTokenChooser:
             for j in range(S):
                 scores_j = scores[:, j]
 
-                if j > 0:
-                    scores_j = torch.rand_like(scores_j)
-
                 if self.watermark_processor is not None:
                     scores_j = self.watermark_processor(input_ids, scores_j)
                 if self.repetition_processor is not None:
