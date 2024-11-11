@@ -4,7 +4,6 @@ from functools import lru_cache
 from typing import Dict, List, Optional, Union
 
 import torch
-from loguru import logger
 from transformers import (
     LogitsProcessor,
     LogitsWarper,
@@ -174,8 +173,6 @@ class HeterogeneousFrequencyPenaltyLogitsProcessor(LogitsProcessor):
         # Apply the frequency and presence penalties to logits
         scores -= token_freq * self.frequency_penalty_tensor
         scores -= mask * self.presence_penalty_tensor
-
-        logger.info(f"!!! Presence penalty: {self.presence_penalty_tensor} {mask}")
 
         return scores
 
