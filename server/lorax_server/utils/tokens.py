@@ -291,9 +291,7 @@ class HeterogeneousNextTokenChooser:
         )
 
         self.frequency_processor = (
-            HeterogeneousFrequencyPenaltyLogitsProcessor(
-                frequency_penalty, presence_penalty, dtype, device
-            )
+            HeterogeneousFrequencyPenaltyLogitsProcessor(frequency_penalty, presence_penalty, dtype, device)
             if any([x != 0.0 for x in frequency_penalty]) or any([x != 0.0 for x in presence_penalty])
             else None
         )
@@ -462,7 +460,7 @@ class HeterogeneousNextTokenChooser:
 
         if self.repetition_processor is not None:
             self.repetition_processor = self.repetition_processor.filter(indices)
-        
+
         if self.frequency_processor is not None:
             self.frequency_processor = self.frequency_processor.filter(indices)
 
