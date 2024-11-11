@@ -699,7 +699,7 @@ impl ChatCompletionRequest {
             response_format,
             guideline,
             presence_penalty,
-            frequency_penalty,
+            // frequency_penalty,
             top_p,
             top_k,
             n,
@@ -763,29 +763,24 @@ impl ChatCompletionRequest {
         };
 
         let repetition_penalty = presence_penalty.map(|x| x + 2.0);
-        let max_new_tokens = max_tokens.or(Some(100));
         let tool_prompt = tool_prompt
             .filter(|s| !s.is_empty())
             .unwrap_or_else(default_tool_prompt);
+
         // enable greedy only when temperature is 0
         let (do_sample, temperature) = match temperature {
             Some(temperature) if temperature == 0.0 => (false, None),
             other => (true, other),
         };
 
-        let tool_prompt = self
-            .tool_prompt
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(default_tool_prompt);
-
         let (inputs, response_format, using_tools) = prepare_chat_input(
             &infer,
             response_format,
-            self.tools,
-            self.tool_choice,
+            tools,
+            tool_choice,
             &tool_prompt,
-            self.guideline,
-            self.messages,
+            guideline,
+            messages,
         )?;
 
         Ok((
