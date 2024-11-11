@@ -1,5 +1,5 @@
 import requests
-from ..utils.docker_runner import run_lorax_container
+from .utils.docker_runner import run_lorax_container
 
 
 def test_stella_1_5b():
