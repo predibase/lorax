@@ -56,10 +56,10 @@ runs:
       shell: bash
       run: |
         cd integration-tests
-        pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
+        pytest tests/test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
 
     - name: Run LLM tests
       shell: bash
       run: |
         cd integration-tests
-        pytest test_base_llms.py -vv --capture=tee-sys --log-cli-level=INFO
+        pytest tests/test_base_llms.py -vv --capture=tee-sys --log-cli-level=INFO
