@@ -85,6 +85,7 @@ impl Validation {
     pub async fn tokenize(
         &self,
         inputs: String,
+        add_special_tokens: bool,
         truncate: Option<usize>,
     ) -> Result<Option<(tokenizers::Encoding, Vec<Chunk>)>, ValidationError> {
         // If we have a fast tokenizer
@@ -94,7 +95,11 @@ impl Validation {
             // Send request to the background validation task
             // Unwrap is safe here
             sender
-                .send(((inputs, truncate), response_sender, Span::current()))
+                .send((
+                    (inputs, add_special_tokens, truncate),
+                    response_sender,
+                    Span::current(),
+                ))
                 .unwrap();
 
             // Await on response channel
@@ -110,11 +115,15 @@ impl Validation {
     pub(crate) async fn validate_input(
         &self,
         inputs: String,
+        add_special_tokens: bool,
         truncate: Option<usize>,
         max_new_tokens: Option<u32>,
     ) -> Result<(Option<TokenizedInputs>, usize), ValidationError> {
         // If we have a fast tokenizer
-        if let Some((encoding, chunks)) = self.tokenize(inputs.clone(), truncate).await? {
+        if let Some((encoding, chunks)) = self
+            .tokenize(inputs.clone(), add_special_tokens, truncate)
+            .await?
+        {
             // Create response channel
             let input_length = encoding.len();
 
@@ -339,7 +348,12 @@ impl Validation {
         // Validate inputs
         let inputs = request.inputs.clone();
         let (tokenized_inputs, input_length) = self
-            .validate_input(request.inputs, truncate, max_new_tokens)
+            .validate_input(
+                request.inputs,
+                request.add_special_tokens,
+                truncate,
+                max_new_tokens,
+            )
             .await?;
 
         let parameters = NextTokenChooserParameters {
@@ -419,12 +433,15 @@ fn tokenizer_worker(
     mut receiver: mpsc::UnboundedReceiver<TokenizerRequest>,
 ) {
     // Loop over requests
-    while let Some(((inputs, truncate), response_tx, parent_span)) = receiver.blocking_recv() {
+    while let Some(((inputs, add_special_tokens, truncate), response_tx, parent_span)) =
+        receiver.blocking_recv()
+    {
         parent_span.in_scope(|| {
             response_tx
                 .send(prepare_input(
                     inputs,
                     truncate,
+                    add_special_tokens,
                     &tokenizer,
                     config.as_ref(),
                     preprocessor_config.as_ref(),
@@ -561,6 +578,7 @@ fn image_tokens_fixup(config: &Config, text: String) -> String {
 fn prepare_input(
     inputs: String,
     _truncate: Option<usize>,
+    add_special_tokens: bool,
     tokenizer: &Tokenizer,
     config: Option<&Config>,
     preprocessor_config: Option<&HubPreprocessorConfig>,
@@ -599,14 +617,14 @@ fn prepare_input(
 
     // Get the number of tokens in the input
     let encoding = tokenizer
-        .encode(tokenizer_query, true)
+        .encode(tokenizer_query, add_special_tokens)
         .map_err(|err| ValidationError::Tokenizer(err.to_string()))?;
 
     Ok((encoding, input_chunks))
 }
 
 type TokenizerRequest = (
-    (String, Option<usize>),
+    (String, bool, Option<usize>),
     oneshot::Sender<Result<(tokenizers::Encoding, Vec<Chunk>), ValidationError>>,
     Span,
 );
@@ -739,7 +757,7 @@ mod tests {
 
         let max_new_tokens = Some(10);
         match validation
-            .validate_input("Hello".to_string(), None, max_new_tokens)
+            .validate_input("Hello".to_string(), true, None, max_new_tokens)
             .await
         {
             Err(ValidationError::MaxNewTokens(1, 10)) => (),
@@ -769,7 +787,7 @@ mod tests {
 
         let max_new_tokens = Some(10);
         match validation
-            .validate_input("Hello".to_string(), None, max_new_tokens)
+            .validate_input("Hello".to_string(), true, None, max_new_tokens)
             .await
         {
             Err(ValidationError::MaxTotalTokens(5, 1, 10)) => (),
@@ -805,6 +823,7 @@ mod tests {
                         do_sample: false,
                         ..default_parameters()
                     },
+                    add_special_tokens: true,
                 },
                 Adapter::new(
                     AdapterParameters {
@@ -850,6 +869,7 @@ mod tests {
                         top_p: Some(1.0),
                         ..default_parameters()
                     },
+                    add_special_tokens: true,
                 },
                 Adapter::new(
                     AdapterParameters {
@@ -876,6 +896,7 @@ mod tests {
                         max_new_tokens: Some(1),
                         ..default_parameters()
                     },
+                    add_special_tokens: true,
                 },
                 Adapter::new(
                     AdapterParameters {
@@ -902,6 +923,7 @@ mod tests {
                         max_new_tokens: Some(1),
                         ..default_parameters()
                     },
+                    add_special_tokens: true,
                 },
                 Adapter::new(
                     AdapterParameters {

@@ -17,10 +17,11 @@ use lorax_client::{AdapterParameters as AdapterParametersMessage, Entity as Enti
 use lorax_client::{MajoritySignMethod, MergeStrategy};
 
 use batch::Entry;
-use infer::Infer;
+use infer::{Infer, InferError};
 use loader::AdapterLoader;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use server::prepare_chat_input;
 use utoipa::ToSchema;
 use validation::Validation;
 
@@ -310,6 +311,16 @@ pub(crate) struct GenerateRequest {
     pub inputs: String,
     #[serde(default = "default_parameters")]
     pub parameters: GenerateParameters,
+
+    /// This is used internally because some requests
+    /// already contain the templated input therefore
+    /// we shouldn't add the special tokens.
+    #[serde(default = "default_true", skip)]
+    pub add_special_tokens: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -321,6 +332,12 @@ pub(crate) struct CompatGenerateRequest {
     #[serde(default)]
     #[schema(default = "false")]
     pub stream: bool,
+
+    /// This is used internally because some requests
+    /// already contain the templated input therefore
+    /// we shouldn't add the special tokens.
+    #[serde(default = "default_true", skip)]
+    pub add_special_tokens: bool,
 }
 
 impl From<CompatGenerateRequest> for GenerateRequest {
@@ -328,6 +345,7 @@ impl From<CompatGenerateRequest> for GenerateRequest {
         Self {
             inputs: req.inputs,
             parameters: req.parameters,
+            add_special_tokens: req.add_special_tokens,
         }
     }
 }
@@ -663,6 +681,149 @@ struct ChatCompletionRequest {
     #[serde(default)]
     #[schema(nullable = true, default = "null", example = "null")]
     pub guideline: Option<String>,
+}
+
+impl ChatCompletionRequest {
+    fn try_into_generate(self, infer: &Infer) -> Result<(CompatGenerateRequest, bool), InferError> {
+        let ChatCompletionRequest {
+            model,
+            max_tokens,
+            messages,
+            seed,
+            stop,
+            stream,
+            tools,
+            tool_choice,
+            tool_prompt,
+            temperature,
+            response_format,
+            guideline,
+            presence_penalty,
+            frequency_penalty,
+            top_p,
+            top_k,
+            n,
+            adapter_source,
+            api_token,
+            ignore_eos_token,
+            ..
+        } = self;
+
+        let mut adapter_id = Some(model.clone());
+        if model == "" {
+            adapter_id = None;
+        }
+
+        // Modify input values to ResponseFormat to be OpenAI API compatible
+        let response_format: Option<ResponseFormat> = match response_format {
+            None => None,
+            Some(openai_format) => {
+                let response_format_type = openai_format.response_format_type.clone();
+                match response_format_type {
+                    // Ignore when type is text
+                    ResponseFormatType::Text => None,
+
+                    // For json_object, use the fixed schema.
+                    // For backwards compatibility, also support non-standard `schema` field
+                    ResponseFormatType::JsonObject => openai_format.schema.map_or_else(
+                        || {
+                            Some(ResponseFormat {
+                                r#type: response_format_type.clone(),
+                                schema: default_json_schema(),
+                            })
+                        },
+                        |schema_value: serde_json::Value| {
+                            Some(ResponseFormat {
+                                r#type: response_format_type.clone(),
+                                schema: Some(schema_value),
+                            })
+                        },
+                    ),
+
+                    // For json_schema, use schema_value if available, otherwise fallback to the fixed schema
+                    ResponseFormatType::JsonSchema => openai_format
+                        .json_schema
+                        .and_then(|schema| schema.schema)
+                        .map_or_else(
+                            || {
+                                Some(ResponseFormat {
+                                    r#type: response_format_type.clone(),
+                                    schema: default_json_schema(),
+                                })
+                            },
+                            |schema_value: serde_json::Value| {
+                                Some(ResponseFormat {
+                                    r#type: response_format_type.clone(),
+                                    schema: Some(schema_value),
+                                })
+                            },
+                        ),
+                }
+            }
+        };
+
+        let repetition_penalty = presence_penalty.map(|x| x + 2.0);
+        let max_new_tokens = max_tokens.or(Some(100));
+        let tool_prompt = tool_prompt
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(default_tool_prompt);
+        // enable greedy only when temperature is 0
+        let (do_sample, temperature) = match temperature {
+            Some(temperature) if temperature == 0.0 => (false, None),
+            other => (true, other),
+        };
+
+        let tool_prompt = self
+            .tool_prompt
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(default_tool_prompt);
+
+        let (inputs, response_format, using_tools) = prepare_chat_input(
+            &infer,
+            response_format,
+            self.tools,
+            self.tool_choice,
+            &tool_prompt,
+            self.guideline,
+            self.messages,
+        )?;
+
+        Ok((
+            CompatGenerateRequest {
+                inputs: inputs.to_string(),
+                add_special_tokens: false,
+                parameters: GenerateParameters {
+                    adapter_id,
+                    adapter_source,
+                    adapter_parameters: None,
+                    api_token,
+                    best_of: n.map(|x| x as usize),
+                    temperature,
+                    repetition_penalty,
+                    // frequency_penalty,
+                    // presence_penalty,
+                    top_k,
+                    top_p,
+                    typical_p: None,
+                    do_sample,
+                    max_new_tokens: max_tokens.map(|x| x as u32),
+                    return_full_text: None,
+                    stop,
+                    truncate: None,
+                    watermark: false,
+                    details: true,
+                    decoder_input_details: false,
+                    seed,
+                    ignore_eos_token: ignore_eos_token.unwrap_or(false),
+                    return_k_alternatives: None,
+                    apply_chat_template: false,
+                    response_format,
+                },
+                stream: stream.unwrap_or(false),
+            },
+            using_tools,
+        ))
+    }
 }
 
 pub fn default_tool_prompt() -> String {
