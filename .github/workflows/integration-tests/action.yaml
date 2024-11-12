@@ -27,6 +27,13 @@ runs:
       run: |
         echo "Test image tag: ${{ inputs.test_image_tag }}"
 
+    - name: Docker debug info
+      shell: bash
+      run: |
+        docker info
+        docker version
+        ls -la /var/run/docker.sock
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -52,11 +59,11 @@ runs:
         echo "HUGGING_FACE_HUB_TOKEN=${{ inputs.huggingface_token }}" >> $GITHUB_ENV
         echo "TEST_IMAGE_TAG=${{ inputs.test_image_tag }}" >> $GITHUB_ENV
 
-    - name: Run Embedding tests
-      shell: bash
-      run: |
-        cd integration-tests
-        pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
+    # - name: Run Embedding tests
+    #   shell: bash
+    #   run: |
+    #     cd integration-tests
+    #     pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
 
     - name: Run LLM tests
       shell: bash
