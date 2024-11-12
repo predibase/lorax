@@ -126,10 +126,17 @@ jobs:
             docker tag ghcr.io/predibase/lorax:main "$tag"
           done <<< "$tags"
 
+      - name: Grab first tag
+        env:
+          tags: ${{ steps.meta.outputs.tags }}
+        run: |
+          echo "Tags: $tags"
+          echo "TEST_IMAGE_TAG=${{ steps.meta.outputs.tags[0] }}" >> $GITHUB_OUTPUT
+
       - name: Run integration tests
         uses: ./.github/workflows/integration-tests
         with:
-          test_image_tag: ${{ steps.meta.outputs.tags[0] }}
+          test_image_tag: ${{ steps.vars.outputs.test_image_tag }}
           use_local_image: true
           github_token: ${{ secrets.GHCR_PAT }}
           huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
