@@ -59,11 +59,11 @@ runs:
         echo "HUGGING_FACE_HUB_TOKEN=${{ inputs.huggingface_token }}" >> $GITHUB_ENV
         echo "TEST_IMAGE_TAG=${{ inputs.test_image_tag }}" >> $GITHUB_ENV
 
-    # - name: Run Embedding tests
-    #   shell: bash
-    #   run: |
-    #     cd integration-tests
-    #     pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
+    - name: Run Embedding tests
+      shell: bash
+      run: |
+        cd integration-tests
+        pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
 
     - name: Run LLM tests
       shell: bash
