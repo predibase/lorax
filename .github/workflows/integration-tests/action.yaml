@@ -57,7 +57,8 @@ runs:
       shell: bash
       run: |
         echo "HUGGING_FACE_HUB_TOKEN=${{ inputs.huggingface_token }}" >> $GITHUB_ENV
-        echo "TEST_IMAGE_TAG=${{ inputs.test_image_tag }}" >> $GITHUB_ENV
+        first_tag=$(echo "${{ inputs.test_image_tag }}" | head -n 1)
+        echo "TEST_IMAGE_TAG=$first_tag" >> $GITHUB_ENV
 
     - name: Run Embedding tests
       shell: bash
