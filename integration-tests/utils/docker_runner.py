@@ -10,8 +10,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# def _init_client():
+#     return docker.from_env()
+
+
 def _init_client():
-    return docker.from_env()
+    try:
+        client = docker.DockerClient(base_url="unix://var/run/docker.sock", version="auto")
+        # Test the connection
+        client.ping()
+        logger.info("Successfully connected to Docker daemon")
+        return client
+    except Exception as e:
+        logger.error(f"Failed to connect to Docker daemon: {str(e)}")
+        logger.error(f"Docker socket exists: {os.path.exists('/var/run/docker.sock')}")
+        logger.error(f"Docker socket permissions: {oct(os.stat('/var/run/docker.sock').st_mode)}")
+        raise
 
 
 def _start_container(client, model_config: Dict[str, Any]) -> None:
