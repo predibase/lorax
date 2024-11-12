@@ -126,8 +126,9 @@ jobs:
 
       - name: Run integration tests
         uses: ./.github/workflows/integration-tests
+        if: ${{ github.ref == 'refs/heads/main' }}
         with:
-          test_image_tag: ${{ steps.meta.outputs.tags }}
+          test_image_tag: ${{ steps.meta.outputs.tags[0] }}
           use_local_image: true
           github_token: ${{ secrets.GHCR_PAT }}
           huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
