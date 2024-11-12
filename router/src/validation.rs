@@ -884,7 +884,7 @@ mod tests {
                 GenerateRequest {
                     inputs: "Hello".to_string(),
                     parameters: GenerateParameters {
-                        top_p: Some(1.0),
+                        top_p: Some(1.1),
                         ..default_parameters()
                     },
                     add_special_tokens: true,
