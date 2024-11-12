@@ -1,0 +1,33 @@
+name: Run Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_image_tag:
+        description: 'LoRAX Docker image tag to test'
+        required: true
+        type: string
+      use_local_image:
+        description: 'Use local image instead of GitHub Container Registry'
+        required: false
+        type: boolean
+        default: false
+      huggingface_token:
+        description: 'HuggingFace Hub token for authentication'
+        required: true
+        type: string
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Integration Tests
+        uses: ./.github/workflows/integration-tests
+        with:
+          test_image_tag: ${{ inputs.test_image_tag }}
+          use_local_image: false
+          github_token: ${{ secrets.GHCR_PAT }}
+          huggingface_token: ${{ inputs.huggingface_token }}

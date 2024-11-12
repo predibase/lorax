@@ -1,0 +1,72 @@
+name: LoRAX Integration Tests
+description: Run integration tests for LoRAX
+inputs:
+  test_image_tag:
+    description: 'LoRAX Docker image tag to test'
+    required: true
+    type: string
+  use_local_image:
+    description: 'Use local image instead of GitHub Container Registry'
+    required: true
+    type: boolean
+  github_token:
+    description: 'GitHub token for authentication'
+    required: true
+    type: string
+  huggingface_token:
+    description: 'HuggingFace Hub token for authentication'
+    required: true
+    type: string
+
+runs:
+  using: 'composite'
+  steps:
+
+    - name: Print Test Image Tag
+      shell: bash
+      run: |
+        echo "Test image tag: ${{ inputs.test_image_tag }}"
+
+    - name: Docker debug info
+      shell: bash
+      run: |
+        docker info
+        docker version
+        ls -la /var/run/docker.sock
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.8'
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r ./integration-tests/requirements.txt
+
+    - name: Login to GitHub Container Registry
+      if: ${{ !inputs.use_local_image }}
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ inputs.github_token }}
+
+    - name: Set up environment variables
+      shell: bash
+      run: |
+        echo "HUGGING_FACE_HUB_TOKEN=${{ inputs.huggingface_token }}" >> $GITHUB_ENV
+        echo "TEST_IMAGE_TAG=${{ inputs.test_image_tag }}" >> $GITHUB_ENV
+
+    - name: Run Embedding tests
+      shell: bash
+      run: |
+        cd integration-tests
+        pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
+
+    - name: Run LLM tests
+      shell: bash
+      run: |
+        cd integration-tests
+        pytest test_base_llms.py -vv --capture=tee-sys --log-cli-level=INFO
