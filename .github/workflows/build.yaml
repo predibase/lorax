@@ -130,8 +130,8 @@ jobs:
         env:
           tags: ${{ steps.meta.outputs.tags }}
         run: |
-          echo "Tags: $tags"
-          echo "TEST_IMAGE_TAG=${{ steps.meta.outputs.tags[0] }}" >> $GITHUB_OUTPUT
+          first_tag=$(echo "$tags" | head -n 1)
+          echo "TEST_IMAGE_TAG=$first_tag" >> $GITHUB_OUTPUT
 
       - name: Run integration tests
         uses: ./.github/workflows/integration-tests
