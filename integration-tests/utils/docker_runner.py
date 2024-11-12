@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def _init_client():
     try:
-        client = docker.DockerClient(base_url="unix://var/run/docker.sock", version="auto")
+        client = docker.DockerClient(base_url="unix:///var/run/docker.sock", version="auto")
         # Test the connection
         client.ping()
         logger.info("Successfully connected to Docker daemon")
