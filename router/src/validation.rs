@@ -277,7 +277,7 @@ impl Validation {
         // for the user
         let top_p = top_p
             .map(|value| {
-                if value <= 0.0 || value >= 1.0 {
+                if value <= 0.0 || value > 1.0 {
                     return Err(ValidationError::TopP);
                 }
                 Ok(value)
@@ -884,7 +884,7 @@ mod tests {
                 GenerateRequest {
                     inputs: "Hello".to_string(),
                     parameters: GenerateParameters {
-                        top_p: Some(1.0),
+                        top_p: Some(1.1),
                         ..default_parameters()
                     },
                     add_special_tokens: true,
