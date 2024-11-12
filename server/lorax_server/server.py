@@ -108,7 +108,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
                     raise ValueError(f"Batch ID {request.cached_batch.id} not found in cache.")
                 batch = self.model.batch_type.concatenate([cached_batch, batch])
 
+        t0 = time.time()
         generations, next_batch = self.model.generate_token(batch)
+        logger.info(f"!!! GENERATE Prefill {len(batch)} {time.time() - t0:.3f}")
         self.cache.set(next_batch)
 
         if self.model.profiler:
@@ -175,7 +177,9 @@ class LoraxService(generate_pb2_grpc.LoraxServiceServicer):
         else:
             batch = batches[0]
 
+        t0 = time.time()
         generations, next_batch = self.model.generate_token(batch)
+        logger.info(f"!!! GENERATE Decode {len(batch)} {time.time() - t0:.3f}")
         self.cache.set(next_batch)
 
         return generate_pb2.DecodeResponse(

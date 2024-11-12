@@ -1,3 +1,4 @@
+from collections import defaultdict
 import math
 import os
 from contextlib import nullcontext
@@ -67,7 +68,9 @@ class FlashCausalLMBatch(Batch):
     batch_id: int
     requests: List[generate_pb2.Request]
     # request id -> idx in list mapping
-    requests_idx_mapping: Dict[int, int]
+    requests_idx_mapping: Dict[int, List[int]]
+
+    num_sequences: List[int]
 
     # Decoder values
     # Can be a list for easy filtering
@@ -206,7 +209,7 @@ class FlashCausalLMBatch(Batch):
         read_offsets = []
         all_input_ids = []
         all_postfix_ids = []
-        requests_idx_mapping = {}
+        requests_idx_mapping = defaultdict(list)
         slots = []
         cu_slots = [0]
 
@@ -226,7 +229,7 @@ class FlashCausalLMBatch(Batch):
         # Parse batch
         for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             # request id -> idx in list mapping
-            requests_idx_mapping[r.id] = i
+            requests_idx_mapping[r.id] = [i]
 
             tokenized_input = tokenized_input[-r.truncate :]
 
@@ -347,6 +350,7 @@ class FlashCausalLMBatch(Batch):
             batch_id=pb.id,
             requests=pb.requests,
             requests_idx_mapping=requests_idx_mapping,
+            num_sequences=[r.num_sequences for r in pb.requests],
             input_ids=all_postfix_ids,
             block_tables=block_tables,
             block_tables_tensor=block_tables_tensor,
@@ -392,7 +396,7 @@ class FlashCausalLMBatch(Batch):
         device = self.block_tables_tensor.device
 
         # New values after filtering
-        requests_idx_mapping = {}
+        requests_idx_mapping = defaultdict(list)
 
         # Used to index into tensors
         indices = []
@@ -430,63 +434,66 @@ class FlashCausalLMBatch(Batch):
         max_slots = 0
         cumulative_slot_tokens = 0
 
+        offset = 0
         for i, request_id in enumerate(request_ids):
-            idx = self.requests_idx_mapping[request_id]
-            indices.append(idx)
-            requests_idx_mapping[request_id] = i
+            request_indices = self.requests_idx_mapping[request_id]
+            indices.extend(request_indices)
+            requests_idx_mapping[request_id] = offset
+            offset += len(request_indices)
 
-            requests.append(self.requests[idx])
+            for idx in request_indices:
+                requests.append(self.requests[idx])
 
-            # Prefilling
-            request_prefilling = self.prefilling_mask[idx]
-            prefilling_mask.append(request_prefilling)
+                # Prefilling
+                request_prefilling = self.prefilling_mask[idx]
+                prefilling_mask.append(request_prefilling)
 
-            # Get length
-            request_input_length = self.input_lengths[idx]
-            request_cache_length = self.cache_lengths[idx]
-            max_input_length = max(max_input_length, request_input_length)
-            max_current_length = max(max_current_length, request_cache_length + request_input_length)
+                # Get length
+                request_input_length = self.input_lengths[idx]
+                request_cache_length = self.cache_lengths[idx]
+                max_input_length = max(max_input_length, request_input_length)
+                max_current_length = max(max_current_length, request_cache_length + request_input_length)
 
-            all_input_ids.append(self.all_input_ids[idx])
+                all_input_ids.append(self.all_input_ids[idx])
 
-            prompt_lengths.append(self.prompt_lengths[idx])
-            input_lengths.append(request_input_length)
-            cache_lengths.append(request_cache_length)
-            prefix_offsets.append(self.prefix_offsets[idx])
-            read_offsets.append(self.read_offsets[idx])
+                prompt_lengths.append(self.prompt_lengths[idx])
+                input_lengths.append(request_input_length)
+                cache_lengths.append(request_cache_length)
+                prefix_offsets.append(self.prefix_offsets[idx])
+                read_offsets.append(self.read_offsets[idx])
 
-            stopping_criteria = self.stopping_criterias[idx]
-            stopping_criterias.append(stopping_criteria)
+                stopping_criteria = self.stopping_criterias[idx]
+                stopping_criterias.append(stopping_criteria)
 
-            prefill_logprob_tokens.append(self.prefill_logprob_tokens[idx])
+                prefill_logprob_tokens.append(self.prefill_logprob_tokens[idx])
 
-            adapter_list.append(self.requests[idx].adapter_index)
+                adapter_list.append(self.requests[idx].adapter_index)
 
-            request_block_table = self.block_tables[idx]
-            num_blocks += len(request_block_table)
-            block_tables.append(request_block_table)
+                request_block_table = self.block_tables[idx]
+                num_blocks += len(request_block_table)
+                block_tables.append(request_block_table)
 
-            start_slot = self.cu_slots[idx]
-            end_slot = self.cu_slots[idx + 1]
-            slot_length = end_slot - start_slot
+                start_slot = self.cu_slots[idx]
+                end_slot = self.cu_slots[idx + 1]
+                slot_length = end_slot - start_slot
 
-            if not has_triton():
-                # Set slice
-                slot_filtering_indices[start_slot:end_slot] = True
+                if not has_triton():
+                    # Set slice
+                    slot_filtering_indices[start_slot:end_slot] = True
 
-            cu_slots.append(cumulative_slot_tokens + slot_length)
+                cu_slots.append(cumulative_slot_tokens + slot_length)
 
-            # Input ids if the request was part of a prefilling batch
-            # If the batch was decoding we can index into the tensor directly later
-            if self.prefilling:
-                input_ids.append(self.input_ids[idx])
-            else:
-                # Copy to tensor (CPU)
-                slot_indices[i] = cumulative_slot_tokens + request_cache_length
+                # Input ids if the request was part of a prefilling batch
+                # If the batch was decoding we can index into the tensor directly later
+                if self.prefilling:
+                    input_ids.append(self.input_ids[idx])
+                else:
+                    # Copy to tensor (CPU)
+                    slot_indices[i] = cumulative_slot_tokens + request_cache_length
 
-            cumulative_slot_tokens += slot_length
-            max_blocks = max(max_blocks, len(request_block_table))
-            max_slots = max(max_slots, slot_length)
+                cumulative_slot_tokens += slot_length
+                max_blocks = max(max_blocks, len(request_block_table))
+                max_slots = max(max_slots, slot_length)
 
         all_input_ids_tensor = self.all_input_ids_tensor[indices]
 
@@ -538,6 +545,7 @@ class FlashCausalLMBatch(Batch):
             batch_id=self.batch_id,
             requests=requests,
             requests_idx_mapping=requests_idx_mapping,
+            num_sequences=[r.num_sequences for r in requests],
             input_ids=input_ids,
             position_ids=position_ids,
             speculative_ids=speculative_ids,
@@ -766,6 +774,7 @@ class FlashCausalLMBatch(Batch):
             batch_id=batches[0].batch_id,
             requests=requests,
             requests_idx_mapping=requests_idx_mapping,
+            num_sequences=[r.num_sequences for r in requests],
             input_ids=input_ids,
             position_ids=position_ids,
             speculative_ids=speculative_ids,
@@ -799,6 +808,82 @@ class FlashCausalLMBatch(Batch):
             stopping_criterias=stopping_criterias,
             num_blocks=num_blocks,
             max_blocks=max_blocks,
+            adapter_meta=adapter_meta,
+        )
+    
+    def repeat_interleave(self, repeat_list: List[int], repeats: torch.Tensor) -> "FlashCausalLMBatch":
+        input_ids = self.input_ids.repeat_interleave(repeats, dim=0)
+        position_ids = self.position_ids.repeat_interleave(repeats, dim=0)
+        
+        adapter_meta = self.adapter_meta
+        adapter_meta.adapter_indices.repeat_interleave(repeats, dim=0)
+
+        input_lengths_tensor = self.input_lengths_tensor.repeat_interleave(repeats, dim=0)
+        input_lengths = np.repeat(self.input_lengths, repeat_list).tolist()
+        cache_lengths_tensor = self.cache_lengths_tensor.repeat_interleave(repeats, dim=0)
+        cache_lengths = np.repeat(self.cache_lengths, repeat_list).tolist()
+        
+        speculative_ids = None
+        if self.speculative_ids is not None:
+            speculative_ids = self.speculative_ids.repeat_interleave(repeats, dim=0)
+        
+        prefilling_mask = np.repeat(self.prefilling_mask, repeat_list).tolist()
+        prefilling_mask_tensor = self.prefilling_mask_tensor.repeat_interleave(repeats, dim=0).tolist()
+        prompt_lengths = np.repeat(self.prompt_lengths, repeat_list).tolist()
+        prompt_lengths_tensor = self.prompt_lengths_tensor.repeat_interleave(repeats, dim=0)
+        block_tables_tensor = self.block_tables_tensor.repeat_interleave(repeats, dim=0)
+        all_input_ids_tensor = self.all_input_ids_tensor.repeat_interleave(repeats, dim=0)
+        
+        prefix_offsets = np.repeat(self.prefix_offsets, repeat_list).tolist()
+        read_offsets = np.repeat(self.read_offsets, repeat_list).tolist()
+        block_tables = np.repeat(self.block_tables, repeat_list).tolist()
+        all_input_ids = np.repeat(self.all_input_ids, repeat_list).tolist()
+        prefill_logprob_tokens = np.repeat(self.prefill_logprob_tokens, repeat_list).tolist()
+        
+        # needs to be recomputed
+        # cu_seqlen_prefill = self.cu_seqlen_prefill.repeat_interleave(repeats, dim=0)
+        # slots = self.slots.repeat_interleave(repeats, dim=0)
+        # cu_slots = self.cu_slots.repeat_interleave(repeats, dim=0)
+        # slot_indices = self.slot_indices.repeat_interleave(repeats, dim=0)
+
+        return type(self)(
+            batch_id=self.batch_id,
+            requests=self.requests,
+            requests_idx_mapping=self.requests_idx_mapping,
+            num_sequences=[r.num_sequences for r in self.requests],
+            input_ids=input_ids,
+            position_ids=position_ids,
+            speculative_ids=speculative_ids,
+            cu_seqlen_prefill=cu_seqlen_prefill,
+            prefill_cache_indices=prefill_cache_indices,
+            slot_indices=slot_indices,
+            block_tables=block_tables,
+            block_tables_tensor=block_tables_tensor,
+            slots=slots,
+            cu_slots=cu_slots,
+            max_input_length=self.max_input_length,
+            max_current_length=self.max_current_length,
+            prefilling=self.prefilling,
+            prefilling_mask=prefilling_mask,
+            prefilling_mask_tensor=prefilling_mask_tensor,
+            prefill_head_indices=prefill_head_indices,
+            prefill_next_token_indices=prefill_next_token_indices,
+            prefill_cu_outlens=prefill_cu_outlens,
+            prefill_logprob_tokens=prefill_logprob_tokens,
+            prompt_lengths=prompt_lengths,
+            prompt_lengths_tensor=prompt_lengths_tensor,
+            input_lengths=input_lengths,
+            input_lengths_tensor=input_lengths_tensor,
+            cache_lengths=cache_lengths,
+            cache_lengths_tensor=cache_lengths_tensor,
+            prefix_offsets=prefix_offsets,
+            read_offsets=read_offsets,
+            all_input_ids=all_input_ids,
+            all_input_ids_tensor=all_input_ids_tensor,
+            next_token_chooser=self.next_token_chooser,
+            stopping_criterias=self.stopping_criterias,
+            num_blocks=self.num_blocks,
+            max_blocks=self.max_blocks,
             adapter_meta=adapter_meta,
         )
 
@@ -1614,6 +1699,15 @@ class FlashCausalLM(Model):
         )
 
         out, speculative_logits = self.forward(batch, adapter_data)
+
+        if prefill and any(n > 1 for n in batch.num_sequences):
+            repeats = torch.tensor(batch.num_sequences, device=out.device, dtype=out.dtype)
+
+            # repeat interleave everything
+            batch = batch.repeat_interleave(batch.num_sequences, repeats)
+            out = torch.repeat_interleave(out, repeats, dim=0)
+            if speculative_logits is not None:
+                speculative_logits = torch.repeat_interleave(speculative_logits, repeats, dim=0)
 
         if prefill:
             next_token_logits = out[batch.prefill_next_token_indices] if prefill_logprobs else out

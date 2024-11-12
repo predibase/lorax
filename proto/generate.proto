@@ -167,6 +167,8 @@ message Request {
     /// Chunk of tokens that must be computed for the first prefill
     /// This value is set for the first prefill and never reset
     optional uint32 chunk_len = 12;
+    /// number of sequences to generate
+    uint32 num_sequences = 13;
 }
 
 message Batch {
