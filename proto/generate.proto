@@ -91,14 +91,18 @@ message NextTokenChooserParameters {
     uint64 seed = 6;
     /// repetition penalty
     float repetition_penalty = 7;
+    /// frequency penalty
+    float frequency_penalty = 8;
+    /// presence penalty
+    float presence_penalty = 9;
     /// token watermarking using "A Watermark for Large Language Models"
-    bool watermark = 8;
+    bool watermark = 10;
     /// adapter to use with lora exchange
-    string adapter_id = 9;
+    string adapter_id = 11;
     /// JSON schema used for constrained decoding (Outlines)
-    optional string schema = 10;
+    optional string schema = 12;
     /// returning the k highest probability alternatives
-    uint32 return_k_alternatives = 11;
+    uint32 return_k_alternatives = 13;
 }
 
 message StoppingCriteriaParameters {

@@ -5,20 +5,19 @@ use crate::health::Health;
 use crate::infer::{InferError, InferResponse, InferStreamResponse};
 use crate::tool_grammar::ToolGrammar;
 use crate::validation::ValidationError;
-use crate::{
-    default_json_schema, default_tool_prompt, AdapterParameters, AlternativeToken,
-    BatchClassifyRequest, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
-    ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
-    ChatMessage, ClassifyRequest, CompatGenerateRequest, CompletionFinishReason, CompletionRequest,
-    CompletionResponse, CompletionResponseChoice, CompletionResponseStreamChoice,
-    CompletionStreamResponse, Details, EmbedParameters, EmbedRequest, EmbedResponse, Entity,
-    ErrorResponse, FinishReason, FunctionDefinition, GenerateParameters, GenerateRequest,
-    GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message,
-    OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType, SimpleToken,
-    StreamDetails, StreamResponse, Token, TokenizeRequest, TokenizeResponse, Tool, ToolCall,
-    ToolChoice, UsageInfo, Validation,
-};
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
+use crate::{
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
+    ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
+    CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
+    CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
+    EmbedParameters, EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason,
+    FunctionDefinition, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer,
+    Info, JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken, ResponseFormat,
+    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
+    TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
+};
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -246,107 +245,9 @@ async fn chat_completions_v1(
         req.model = "".to_string();
     }
 
-    let mut adapter_id = Some(req.model.clone());
-    if req.model == info.model_id.as_str() {
-        // Allow user to specify the base model, but treat it as an empty adapter_id
-        tracing::debug!("Replacing base model {0} with empty adapter_id", req.model);
-        adapter_id = None;
-    }
-
     let system_fingerprint = format!("{}-{}", info.version, info.docker_label.unwrap_or("native"));
-
-    // Modify input values to ResponseFormat to be OpenAI API compatible
-    let response_format: Option<ResponseFormat> = match req.response_format {
-        None => None,
-        Some(openai_format) => {
-            let response_format_type = openai_format.response_format_type.clone();
-            match response_format_type {
-                // Ignore when type is text
-                ResponseFormatType::Text => None,
-
-                // For json_object, use the fixed schema.
-                // For backwards compatibility, also support non-standard `schema` field
-                ResponseFormatType::JsonObject => openai_format.schema.map_or_else(
-                    || {
-                        Some(ResponseFormat {
-                            r#type: response_format_type.clone(),
-                            schema: default_json_schema(),
-                        })
-                    },
-                    |schema_value: serde_json::Value| {
-                        Some(ResponseFormat {
-                            r#type: response_format_type.clone(),
-                            schema: Some(schema_value),
-                        })
-                    },
-                ),
-
-                // For json_schema, use schema_value if available, otherwise fallback to the fixed schema
-                ResponseFormatType::JsonSchema => openai_format
-                    .json_schema
-                    .and_then(|schema| schema.schema)
-                    .map_or_else(
-                        || {
-                            Some(ResponseFormat {
-                                r#type: response_format_type.clone(),
-                                schema: default_json_schema(),
-                            })
-                        },
-                        |schema_value: serde_json::Value| {
-                            Some(ResponseFormat {
-                                r#type: response_format_type.clone(),
-                                schema: Some(schema_value),
-                            })
-                        },
-                    ),
-            }
-        }
-    };
-
-    let tool_prompt = req
-        .tool_prompt
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(default_tool_prompt);
-
-    let (inputs, response_format, using_tools) = prepare_chat_input(
-        &infer,
-        response_format,
-        req.tools,
-        req.tool_choice,
-        &tool_prompt,
-        req.guideline,
-        req.messages,
-    )?;
-
-    let mut gen_req = CompatGenerateRequest {
-        inputs: inputs.to_string(),
-        parameters: GenerateParameters {
-            adapter_id: adapter_id,
-            adapter_source: req.adapter_source,
-            adapter_parameters: None,
-            api_token: req.api_token,
-            best_of: req.n.map(|x| x as usize),
-            temperature: req.temperature,
-            repetition_penalty: req.repetition_penalty,
-            top_k: req.top_k,
-            top_p: req.top_p,
-            typical_p: None,
-            do_sample: !req.n.is_none(),
-            max_new_tokens: req.max_tokens.map(|x| x as u32),
-            ignore_eos_token: req.ignore_eos_token.unwrap_or(false),
-            return_full_text: None,
-            stop: req.stop,
-            truncate: None,
-            watermark: false,
-            details: true,
-            decoder_input_details: false,
-            return_k_alternatives: None,
-            apply_chat_template: false,
-            seed: req.seed,
-            response_format: response_format,
-        },
-        stream: req.stream.unwrap_or(false),
-    };
+    let (mut gen_req, using_tools): (CompatGenerateRequest, bool) =
+        req.try_into_generate(&infer)?;
 
     // default return_full_text given the pipeline_tag
     if gen_req.parameters.return_full_text.is_none() {
@@ -616,6 +517,8 @@ async fn health(
                 do_sample: false,
                 seed: None,
                 repetition_penalty: None,
+                frequency_penalty: None,
+                presence_penalty: None,
                 watermark: false,
                 return_full_text: None,
                 stop: vec![],
@@ -628,6 +531,7 @@ async fn health(
                 max_new_tokens: Some(1),
                 ignore_eos_token: false,
             },
+            add_special_tokens: true,
         };
         match infer.generate(generate_request).await {
             Ok(response) => {

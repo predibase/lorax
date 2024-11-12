@@ -12,6 +12,7 @@ from transformers import (
 from lorax_server.pb import generate_pb2
 from lorax_server.pb.generate_pb2 import FinishReason
 from lorax_server.utils.logits_process import (
+    HeterogeneousFrequencyPenaltyLogitsProcessor,
     HeterogeneousProcessorWrapper,
     HeterogeneousRepetitionPenaltyLogitsProcessor,
     HeterogeneousSchemaLogitsProcessor,
@@ -232,6 +233,8 @@ class HeterogeneousNextTokenChooser:
         watermark (List[bool]): A list of booleans indicating whether watermark processing should be applied for each token.
         temperature (List[float]): A list of temperature values for temperature-based logits warping.
         repetition_penalty (List[float]): A list of repetition penalty values for repetition penalty-based logits warping.
+        frequency_penalty (List[float]): A list of frequency penalty values for frequency penalty-based logits warping.
+        presence_penalty (List[float]): A list of presence penalty values for presence penalty-based logits warping.
         schemas (List[str]): A list of JSON schema strings for Outlines logits warping.
         top_k (List[int]): A list of top-k values for top-k-based logits warping.
         top_p (List[float]): A list of top-p values for top-p-based logits warping.
@@ -243,6 +246,7 @@ class HeterogeneousNextTokenChooser:
     Attributes:
         watermark_processor (HeterogeneousProcessorWrapper): The watermark logits processor.
         repetition_processor (HeterogeneousRepetitionPenaltyLogitsProcessor): The repetition penalty logits processor.
+        frequency_processor (HeterogeneousFrequencyPenaltyLogitsProcessor): The frequency penalty logits processor.
         schema_processor (HeterogeneousSchemaLogitsProcessor): The JSON schema logits processor.
         warpers (List[HeterogeneousLogitsWarper]): The list of logits warpers.
         choice (HeterogeneousSampling or Greedy): The token choice strategy.
@@ -259,6 +263,8 @@ class HeterogeneousNextTokenChooser:
         watermark: List[bool],
         temperature: List[float],
         repetition_penalty: List[float],
+        frequency_penalty: List[float],
+        presence_penalty: List[float],
         schemas: List[str],
         top_k: List[int],
         top_p: List[float],
@@ -281,6 +287,12 @@ class HeterogeneousNextTokenChooser:
         self.repetition_processor = (
             HeterogeneousRepetitionPenaltyLogitsProcessor(repetition_penalty, dtype, device)
             if any([x != 1.0 for x in repetition_penalty])
+            else None
+        )
+
+        self.frequency_processor = (
+            HeterogeneousFrequencyPenaltyLogitsProcessor(frequency_penalty, presence_penalty, dtype, device)
+            if any([x != 0.0 for x in frequency_penalty]) or any([x != 0.0 for x in presence_penalty])
             else None
         )
 
@@ -359,10 +371,13 @@ class HeterogeneousNextTokenChooser:
         with self.schema_processor.restore_state() if self.schema_processor is not None else nullcontext():
             for j in range(S):
                 scores_j = scores[:, j]
+
                 if self.watermark_processor is not None:
                     scores_j = self.watermark_processor(input_ids, scores_j)
                 if self.repetition_processor is not None:
                     scores_j = self.repetition_processor(input_ids, scores_j)
+                if self.frequency_processor is not None:
+                    scores_j = self.frequency_processor(input_ids, scores_j)
                 if self.schema_processor is not None:
                     scores_j = self.schema_processor(input_ids, scores_j)
 
@@ -380,7 +395,8 @@ class HeterogeneousNextTokenChooser:
                         self.schema_processor.next_state(batch_idx, next_ids_j[batch_idx].item())
 
         next_ids = next_ids.view(B * S)
-        scores = scores.view(B * S, -1)
+        allscores = scores.view(B * S, -1)
+        alllogprobs = torch.log_softmax(allscores, -1)
 
         if speculated_ids is not None:
             accepted_ids = []
@@ -406,14 +422,15 @@ class HeterogeneousNextTokenChooser:
 
             accepted_ids = torch.tensor(accepted_ids, device=input_ids.device, dtype=input_ids.dtype)
             next_ids = next_ids[indices]
-            scores = scores[indices]
+            logprobs = alllogprobs[indices]
             indices = torch.arange(B, device=input_ids.device) * S
             if speculative_scores is not None:
                 speculative_scores = speculative_scores[indices + accepted_ids - 1]
         else:
             accepted_ids = torch.ones_like(next_ids)
+            logprobs = alllogprobs
 
-        next_logprobs = torch.gather(torch.log_softmax(scores, -1), 1, next_ids.view(-1, 1)).view(-1)
+        next_logprobs = torch.gather(logprobs, 1, next_ids.view(-1, 1)).view(-1)
 
         speculative_ids = None
         if speculate > 0:
@@ -440,6 +457,9 @@ class HeterogeneousNextTokenChooser:
 
         if self.repetition_processor is not None:
             self.repetition_processor = self.repetition_processor.filter(indices)
+
+        if self.frequency_processor is not None:
+            self.frequency_processor = self.frequency_processor.filter(indices)
 
         if self.schema_processor is not None:
             self.schema_processor = self.schema_processor.filter(indices)
@@ -491,6 +511,8 @@ class HeterogeneousNextTokenChooser:
             watermark=[pb_.watermark for pb_ in pb],
             temperature=[pb_.temperature for pb_ in pb],
             repetition_penalty=[pb_.repetition_penalty for pb_ in pb],
+            frequency_penalty=[pb_.frequency_penalty for pb_ in pb],
+            presence_penalty=[pb_.presence_penalty for pb_ in pb],
             schemas=[pb_.schema for pb_ in pb],
             top_k=[pb_.top_k for pb_ in pb],
             top_p=[pb_.top_p for pb_ in pb],
