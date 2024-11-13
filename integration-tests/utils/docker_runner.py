@@ -80,6 +80,7 @@ def _stop_container(container) -> None:
 
 @contextlib.contextmanager
 def run_lorax_container(config):
+    assert False
     client = _init_client()
     container = _start_container(client, config)
     logger.info("Started container")

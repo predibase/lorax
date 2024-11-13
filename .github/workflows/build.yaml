@@ -73,6 +73,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Create a hash from tags
         env:
@@ -134,22 +135,6 @@ jobs:
           github_token: ${{ secrets.GHCR_PAT }}
           huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
-      - name: Update tags
-        id: final_tags
-        env:
-          tags: ${{ steps.meta.outputs.tags }}
-        run: |
-          # Start with original tags
-          echo "$tags" > tags.tx
-          # Add main tag only if integration tests succeeded
-          # if [ "${{ steps.integration_tests.outcome }}" = "success" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-          if [ "${{ steps.integration_tests.outcome }}" = "success" ]; then
-            echo "Adding main tag"
-            echo "ghcr.io/predibase/lorax:test-gha" >> tags.txt
-          fi
-          cat tags.txt | tr '\n' ' ' > final_tags.txt
-          echo "tags=$(cat final_tags.txt)" >> $GITHUB_OUTPUT
-
       - name: Import image in containerd
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
@@ -160,11 +145,15 @@ jobs:
 
       - name: Push image with containerd
         env:
-          tags: ${{ steps.final_tags.outputs.tags }}
+          tags: ${{ steps.meta.outputs.tags }}
         run: |
           for tag in $tags
           do
             echo "Pushing $tag to GHCR"
+            if [ "$tag" = "main" ] && [ "${{ steps.integration_tests.outcome }}" != "success" ]; then
+              echo "Skipping push of $tag because integration tests failed"
+              continue
+            fi
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
 
