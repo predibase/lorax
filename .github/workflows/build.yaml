@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'push-image-always'
     tags:
       - 'v*'
 
@@ -127,7 +128,6 @@ jobs:
       - name: Run integration tests
         id: integration_tests
         uses: ./.github/workflows/integration-tests
-        if: ${{ github.ref == 'refs/heads/main' }}
         continue-on-error: true
         with:
           test_image_tag: ${{ steps.meta.outputs.tags }}
@@ -135,15 +135,19 @@ jobs:
           github_token: ${{ secrets.GHCR_PAT }}
           huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
-      - name: Update tags if integration tests succeed
-        if: steps.integration_tests.outcome == 'success'
+      - name: Update tags
         id: final_tags
         env:
           tags: ${{ steps.meta.outputs.tags }}
         run: |
-          # Add main tag to the list of tags
-          echo "$tags" > tags.txt
-          echo "ghcr.io/predibase/lorax:main" >> tags.txt
+          # Start with original tags
+          echo "$tags" > tags.tx
+          # Add main tag only if integration tests succeeded
+          # if [ "${{ steps.integration_tests.outcome }}" = "success" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "${{ steps.integration_tests.outcome }}" = "success" ]; then
+            echo "Adding main tag"
+            echo "ghcr.io/predibase/lorax:test-gha" >> tags.txt
+          fi
           cat tags.txt | tr '\n' ' ' > final_tags.txt
           echo "tags=$(cat final_tags.txt)" >> $GITHUB_OUTPUT
 
