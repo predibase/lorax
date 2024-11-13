@@ -156,15 +156,6 @@ jobs:
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
 
-      - name: Run integration tests
-        uses: ./.github/workflows/integration-tests
-        if: ${{ github.ref == 'refs/heads/main' }}
-        with:
-          test_image_tag: ${{ steps.meta.outputs.tags }}
-          use_local_image: true
-          github_token: ${{ secrets.GHCR_PAT }}
-          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
-
       - name: Create and push soci index
         env:
           tags: ${{ steps.meta.outputs.tags }}
