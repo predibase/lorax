@@ -350,13 +350,19 @@ async fn chat_completions_v1(
                         (None, Some(content_message))
                     }
                     _ => {
+                        let arguments_str = serde_json::to_string(&arguments).map_err(|e| {
+                            InferError::ToolError(format!("Failed to serialize arguments: {}", e))
+                        })?;
                         let tool_calls = vec![ToolCall {
                             id: "0".to_string(),
                             r#type: "function".to_string(),
                             function: FunctionDefinition {
                                 description: None,
                                 name,
-                                arguments,
+                                arguments: arguments_str,
+                                        e
+                                    ))
+                                })?,
                             },
                         }];
                         (Some(tool_calls), None)
