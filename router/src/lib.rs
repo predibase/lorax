@@ -935,7 +935,7 @@ pub(crate) struct FunctionDefinition {
     pub description: Option<String>,
     pub name: String,
     #[serde(alias = "parameters")]
-    pub arguments: String,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
