@@ -6,7 +6,7 @@ use crate::validation::{Validation, ValidationError};
 use crate::{
     AdapterParameters, AlternativeToken, BatchClassifyRequest, ChatTemplateVersions,
     ClassifyRequest, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
-    MessageChunk, TextMessage, Token, TokenizerConfigToken, Tool,
+    MessageChunk, MessageContent, TextMessage, Token, TokenizerConfigToken, Tool,
 };
 use crate::{GenerateRequest, PrefillToken};
 use futures::future::try_join_all;
@@ -119,7 +119,11 @@ impl ChatTemplateRenderer {
                     format!("\n---\n{}", tool_prompt)
                 };
                 if let Some(last_message) = messages.last_mut() {
-                    last_message.content.push(MessageChunk::Text { text });
+                    if let Some(content) = &mut last_message.content {
+                        content.push(MessageChunk::Text { text });
+                    } else {
+                        last_message.content = Some(MessageContent::SingleText(text));
+                    }
                 }
                 Some(tools)
             }

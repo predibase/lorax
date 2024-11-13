@@ -580,7 +580,7 @@ pub struct Url {
 pub(crate) struct ToolCall {
     pub id: String,
     pub r#type: String,
-    pub function: FunctionDefinition,
+    pub function: ReturnFunctionDefinition,
 }
 
 #[derive(Clone, Deserialize, ToSchema, Serialize, Debug, PartialEq)]
@@ -595,8 +595,9 @@ pub enum MessageChunk {
 pub struct Message {
     #[schema(example = "user")]
     role: String,
+    #[serde(default)]
     #[schema(example = "My name is David and I")]
-    pub content: MessageContent,
+    pub content: Option<MessageContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "\"David\"")]
     name: Option<String>,
@@ -607,6 +608,13 @@ pub struct Message {
 pub enum MessageContent {
     SingleText(String),
     MultipleChunks(Vec<MessageChunk>),
+}
+
+// Manual implementation of Default instead of using #[default] attribute
+impl Default for MessageContent {
+    fn default() -> Self {
+        MessageContent::SingleText(String::new())
+    }
 }
 
 // Pushing a chunk to a single text message will convert it to a multiple chunks message
@@ -637,8 +645,8 @@ impl From<Message> for TextMessage {
         TextMessage {
             role: value.role,
             content: match value.content {
-                MessageContent::SingleText(text) => text,
-                MessageContent::MultipleChunks(chunks) => chunks
+                Some(MessageContent::SingleText(text)) => text,
+                Some(MessageContent::MultipleChunks(chunks)) => chunks
                     .into_iter()
                     .map(|chunk| match chunk {
                         MessageChunk::Text { text } => text,
@@ -646,6 +654,7 @@ impl From<Message> for TextMessage {
                     })
                     .collect::<Vec<_>>()
                     .join(""),
+                None => String::new(),
             },
         }
     }
@@ -934,8 +943,15 @@ pub(crate) struct FunctionDefinition {
     #[serde(default)]
     pub description: Option<String>,
     pub name: String,
-    #[serde(alias = "parameters")]
-    pub arguments: serde_json::Value,
+    pub parameters: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema, Default, PartialEq)]
+pub(crate) struct ReturnFunctionDefinition {
+    #[serde(default)]
+    pub description: Option<String>,
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]

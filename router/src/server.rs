@@ -13,9 +13,9 @@ use crate::{
     CompatGenerateRequest, CompletionFinishReason, CompletionRequest, CompletionResponse,
     CompletionResponseChoice, CompletionResponseStreamChoice, CompletionStreamResponse, Details,
     EmbedParameters, EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason,
-    FunctionDefinition, GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer,
-    Info, JsonSchema, LogProbs, Message, OpenAiResponseFormat, PrefillToken, ResponseFormat,
-    ResponseFormatType, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
+    GenerateParameters, GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema,
+    LogProbs, Message, OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType,
+    ReturnFunctionDefinition, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
     TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
 };
 use axum::extract::Extension;
@@ -350,10 +350,13 @@ async fn chat_completions_v1(
                         (None, Some(content_message))
                     }
                     _ => {
+                        let arguments = serde_json::to_string(&arguments).map_err(|e| {
+                            InferError::ToolError(format!("Failed to serialize arguments: {}", e))
+                        })?;
                         let tool_calls = vec![ToolCall {
                             id: "0".to_string(),
                             r#type: "function".to_string(),
-                            function: FunctionDefinition {
+                            function: ReturnFunctionDefinition {
                                 description: None,
                                 name,
                                 arguments,
