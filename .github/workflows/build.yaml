@@ -7,7 +7,7 @@ on:
       - 'main'
       - 'push-image-always'
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-test-push-image:
@@ -49,7 +49,7 @@ jobs:
       - name: Install soci
         uses: lerentis/soci-installer@v1.0.1
         with:
-          soci-release: 'v0.4.0'
+          soci-release: "v0.4.0"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2.10.0
@@ -100,7 +100,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile  # Path to your Dockerfile
+          file: ./Dockerfile # Path to your Dockerfile
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           load: true
@@ -167,6 +167,15 @@ jobs:
             echo "Pushing $tag to GHCR"
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
+
+      - name: Run integration tests
+        uses: ./.github/workflows/integration-tests
+        if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          test_image_tag: ${{ steps.meta.outputs.tags }}
+          use_local_image: true
+          github_token: ${{ secrets.GHCR_PAT }}
+          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
       - name: Create and push soci index
         env:
