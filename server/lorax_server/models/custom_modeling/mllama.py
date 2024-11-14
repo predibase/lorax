@@ -225,11 +225,7 @@ class MllamaVisionMLP(nn.Module):
 
         out_size = fc1.linear.weight.shape[-1] * weights.process_group.size()
         self.fc1 = TensorParallelMultiAdapterLinear.load(
-            fc1,
-            layer_id,
-            [f'{model_type}_{FC1}'],
-            sizes=[out_size],
-            process_group=weights.process_group
+            fc1, layer_id, [f"{model_type}_{FC1}"], sizes=[out_size], process_group=weights.process_group
         )
         self.fc2 = TensorParallelAdapterRowLinear.load(
             TensorParallelRowLinear.load(
@@ -239,7 +235,7 @@ class MllamaVisionMLP(nn.Module):
                 bias=True,
             ),
             layer_id,
-            f'{model_type}_{FC2}',
+            f"{model_type}_{FC2}",
             process_group=weights.process_group,
         )
 
@@ -261,7 +257,7 @@ def load_attention(config, prefix, weights, layer_id, model_type, head_dim, n_he
     return TensorParallelMultiAdapterLinear.load(
         base_layer,
         layer_id,
-        [f'{model_type}_{Q_PROJ}', f'{model_type}_{K_PROJ}', f'{model_type}_{V_PROJ}'],
+        [f"{model_type}_{Q_PROJ}", f"{model_type}_{K_PROJ}", f"{model_type}_{V_PROJ}"],
         sizes=[
             head_dim * n_head,
             head_dim * n_head_kv,
@@ -306,7 +302,7 @@ class MllamaVisionSdpaAttention(nn.Module):
                 bias=False,
             ),
             layer_id,
-            f'{model_type}_{O_PROJ}',
+            f"{model_type}_{O_PROJ}",
             process_group=weights.process_group,
         )
 
@@ -557,7 +553,7 @@ class MllamaVisionModel(nn.Module):
             weights=weights,
             is_gated=False,
             num_layers=config.num_hidden_layers,
-            model_type='VISION_TRANSFORMER',
+            model_type="VISION_TRANSFORMER",
         )
         self.global_transformer = MllamaVisionEncoder(
             prefix=f"{prefix}.global_transformer",
@@ -565,7 +561,7 @@ class MllamaVisionModel(nn.Module):
             weights=weights,
             is_gated=True,
             num_layers=config.num_global_layers,
-            model_type='VISION_GLOBAL_TRANSFORMER',
+            model_type="VISION_GLOBAL_TRANSFORMER",
         )
 
     def apply_class_embedding(self, hidden_state: torch.Tensor) -> torch.Tensor:

@@ -276,6 +276,8 @@ class Token(BaseModel):
     special: bool
     # Alternative tokens
     alternative_tokens: Optional[List[AlternativeToken]] = None
+    # If token was skipped due to speculative decoding
+    skipped: bool
 
 
 # Generation finish reason
@@ -312,6 +314,8 @@ class Details(BaseModel):
     prompt_tokens: int
     # Number of generated tokens
     generated_tokens: int
+    # Number of skipped tokens
+    skipped_tokens: int
     # Sampling seed if sampling was activated
     seed: Optional[int] = None
     # Decoder input tokens, empty if decoder_input_details is False

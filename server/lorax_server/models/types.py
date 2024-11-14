@@ -50,6 +50,7 @@ class Batch(ABC):
 class GeneratedText:
     text: str
     generated_tokens: int
+    skipped_tokens: int
     finish_reason: FinishReason
     seed: Optional[int]
 
@@ -57,6 +58,7 @@ class GeneratedText:
         return generate_pb2.GeneratedText(
             text=self.text,
             generated_tokens=self.generated_tokens,
+            skipped_tokens=self.skipped_tokens,
             finish_reason=self.finish_reason,
             seed=self.seed,
         )

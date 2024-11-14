@@ -185,9 +185,13 @@ class StoppingCriteria:
         self.max_new_tokens = max_new_tokens
         self.current_tokens = 0
         self.current_output = ""
+        self.current_skipped = 0
         self.ignore_eos_token = ignore_eos_token
 
-    def __call__(self, last_token: int, last_output: str) -> Tuple[bool, Optional[str]]:
+    def __call__(self, last_token: int, last_output: str, skipped: bool = False) -> Tuple[bool, Optional[str]]:
+        if skipped:
+            self.current_skipped += 1
+
         self.current_tokens += 1
         if self.current_tokens >= self.max_new_tokens:
             return True, FinishReason.FINISH_REASON_LENGTH
