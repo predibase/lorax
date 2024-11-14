@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'push-image-always'
     tags:
       - "v*"
 
@@ -69,10 +70,7 @@ jobs:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Create a hash from tags
         env:
@@ -124,16 +122,6 @@ jobs:
       #       docker tag ghcr.io/predibase/lorax:main "$tag"
       #     done <<< "$tags"
 
-      - name: Run integration tests
-        id: integration_tests
-        uses: ./.github/workflows/integration-tests
-        continue-on-error: true
-        with:
-          test_image_tag: ${{ steps.meta.outputs.tags }}
-          use_local_image: true
-          github_token: ${{ secrets.GHCR_PAT }}
-          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
-
       - name: Import image in containerd
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
@@ -149,10 +137,6 @@ jobs:
           for tag in $tags
           do
             echo "Pushing $tag to GHCR"
-            if [ "$tag" = "main" ] && [ "${{ steps.integration_tests.outcome }}" != "success" ]; then
-              echo "Skipping push of $tag because integration tests failed"
-              continue
-            fi
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
 
@@ -168,6 +152,42 @@ jobs:
             echo "Pushing soci index for $tag"
             sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
+
+      - name: Run integration tests
+        id: integration_tests
+        uses: ./.github/workflows/integration-tests
+        with:
+          test_image_tag: ${{ steps.meta.outputs.tags }}
+          use_local_image: true
+          github_token: ${{ secrets.GHCR_PAT }}
+          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+
+      - name: Docker meta
+        id: final_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/predibase/lorax
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=tomato
+
+      - name: Pull and retag an old image for testing with meta output tags
+        env:
+          sha_tag: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.final_meta.outputs.tags }}
+        run: |
+          # Read the first tag from meta output
+          docker pull ghcr.io/predibase/lorax:$sha_tag
+          # Tag with all the meta output tags
+          while IFS= read -r tag; do
+            echo "Tagging $tag and pushing"
+            docker tag ghcr.io/predibase/lorax:$sha_tag "$tag"
+            docker push "$tag"
+            echo "Pushed $tag"
+          done <<< "$tags"
 
       - name: Prune older images
         env:
