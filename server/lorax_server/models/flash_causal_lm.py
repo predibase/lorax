@@ -1980,6 +1980,8 @@ class FlashCausalLM(Model):
                 if n_accepted_ids > 1:
                     logger.debug(f"speculated ids {n_accepted_ids - 1}")
 
+                # First token is not skipped, next tokens are
+                skipped = False
                 current_stopped = False
                 for j in range(index, index + n_accepted_ids):
                     # Generated token
@@ -1995,8 +1997,11 @@ class FlashCausalLM(Model):
                     stop, reason = stopping_criteria(
                         next_token_id,
                         next_token_text,
+                        skipped=skipped,
                     )
 
+                    # All subsequent tokens are skipped
+                    skipped = True
                     if stop:
                         left = index + n_accepted_ids - j - 1
                         current_stopped = True
@@ -2022,6 +2027,7 @@ class FlashCausalLM(Model):
                         generated_text = GeneratedText(
                             output_text,
                             stopping_criteria.current_tokens,
+                            stopping_criteria.current_skipped,
                             reason,
                             seed if do_sample else None,
                         )

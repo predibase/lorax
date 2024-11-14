@@ -414,6 +414,8 @@ pub struct Token {
     #[schema(nullable = true)]
     #[serde(skip_serializing_if = "Option::is_none")]
     alternative_tokens: Option<Vec<AlternativeToken>>,
+    #[schema(example = "false")]
+    skipped: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -462,6 +464,8 @@ pub(crate) struct Details {
     pub prompt_tokens: u32,
     #[schema(example = 1)]
     pub generated_tokens: u32,
+    #[schema(example = 1)]
+    pub skipped_tokens: u32,
     #[schema(nullable = true, example = 42)]
     pub seed: Option<u64>,
     pub prefill: Vec<PrefillToken>,

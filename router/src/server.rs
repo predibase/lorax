@@ -645,6 +645,7 @@ async fn generate(
     };
 
     let generated_tokens = response.generated_text.generated_tokens;
+    let skipped_tokens = response.generated_text.skipped_tokens;
     let prompt_tokens = response.prompt_tokens;
     let total_tokens = prompt_tokens + generated_tokens;
 
@@ -680,6 +681,7 @@ async fn generate(
                 finish_reason: FinishReason::from(response.generated_text.finish_reason),
                 prompt_tokens: prompt_tokens,
                 generated_tokens: generated_tokens,
+                skipped_tokens: skipped_tokens,
                 prefill: response.prefill,
                 tokens: response.tokens,
                 seed: response.generated_text.seed,
@@ -705,6 +707,7 @@ async fn generate(
     span.record("seed", format!("{:?}", response.generated_text.seed));
     span.record("prompt_tokens", format!("{prompt_tokens:?}"));
     span.record("generated_tokens", format!("{generated_tokens:?}"));
+    span.record("skipped_tokens", format!("{skipped_tokens:?}"));
 
     // Headers
     let mut headers = HeaderMap::new();
@@ -728,6 +731,10 @@ async fn generate(
     headers.insert(
         "x-generated-tokens",
         generated_tokens.to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-skipped-tokens",
+        skipped_tokens.to_string().parse().unwrap(),
     );
     headers.insert("x-total-tokens", total_tokens.to_string().parse().unwrap());
     headers.insert(

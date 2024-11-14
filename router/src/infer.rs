@@ -1398,9 +1398,11 @@ fn send_responses(
         next_tokens.is_special,
         alternative_tokens,
     ))
+    .enumerate()
     .peekable();
 
-    while let Some((id, logprob, text, special, alternative_tokens)) = iterator.next() {
+    while let Some((idx, (id, logprob, text, special, alternative_tokens))) = iterator.next() {
+        let skipped = idx > 0;
         let token = Token {
             id,
             text,
@@ -1416,6 +1418,7 @@ fn send_responses(
                         .collect(),
                 )
             }),
+            skipped,
         };
 
         match (&generation.generated_text, iterator.peek()) {

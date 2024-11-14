@@ -206,10 +206,12 @@ message GeneratedText {
     string text = 1;
     /// Number of generated tokens
     uint32 generated_tokens = 2;
+    /// Number of skipped tokens due to speculative decoding hits
+    uint32 skipped_tokens = 3;
     /// Finish reason
-    FinishReason finish_reason = 3;
+    FinishReason finish_reason = 4;
     /// Seed
-    optional uint64 seed = 4;
+    optional uint64 seed = 5;
 }
 
 message PrefillTokens {
