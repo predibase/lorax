@@ -679,7 +679,9 @@ class CausalLM(Model):
                     else:
                         seed = None
 
-                    generated_text = GeneratedText(output_text, stopping_criteria.current_tokens, reason, seed)
+                    generated_text = GeneratedText(
+                        output_text, stopping_criteria.current_tokens, stopping_criteria.current_skipped, reason, seed
+                    )
                 else:
                     generated_text = None
 
