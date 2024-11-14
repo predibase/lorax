@@ -180,11 +180,11 @@ jobs:
           tags: ${{ steps.final_meta.outputs.tags }}
         run: |
           # Read the first tag from meta output
-          docker pull ghcr.io/predibase/lorax:$sha_tag
+          docker pull $sha_tag
           # Tag with all the meta output tags
           while IFS= read -r tag; do
             echo "Tagging $tag and pushing"
-            docker tag ghcr.io/predibase/lorax:$sha_tag "$tag"
+            docker tag $sha_tag "$tag"
             docker push "$tag"
             echo "Pushed $tag"
           done <<< "$tags"
