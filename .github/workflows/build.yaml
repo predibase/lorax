@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - 'main'
-      - 'push-image-always'
     tags:
       - "v*"
 
@@ -63,7 +62,7 @@ jobs:
             # persistent data location
             root = "/runner/build/containerd"
 
-      - name: Docker meta
+      - name: Generate SHA tag
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -162,7 +161,7 @@ jobs:
           github_token: ${{ secrets.GHCR_PAT }}
           huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
-      - name: Docker meta
+      - name: Final Tags
         id: final_meta
         uses: docker/metadata-action@v5
         with:
@@ -172,9 +171,9 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
-            type=raw,value=tomato
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Pull and retag an old image for testing with meta output tags
+      - name: Tag the image with rest of the tags and push
         env:
           sha_tag: ${{ steps.meta.outputs.tags }}
           tags: ${{ steps.final_meta.outputs.tags }}
