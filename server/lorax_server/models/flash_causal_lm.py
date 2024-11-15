@@ -1114,15 +1114,6 @@ class FlashCausalLM(Model):
         weights._set_config(model_id, config)
 
         self._supports_embeddings = embedding_dim is not None
-        if (
-            not (weights.has_tensor("lm_head.weight") or weights.has_tensor("language_model.lm_head.weight"))
-            and not self._supports_embeddings
-        ):
-            raise ValueError(
-                "Model does not have lm head so it is presumed to be for embeddings."
-                "No embedding_dim was provided so we cannot load the model."
-                "Please pass in an embedding_dim to the model."
-            )
 
         prefix = ""
         model = model_cls(prefix, config, weights)
@@ -1750,7 +1741,8 @@ class FlashCausalLM(Model):
                 # Only save tokens if we are done prefilling for this request
                 batch.all_input_ids_tensor[
                     i,
-                    batch.cache_lengths_tensor[i] + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
+                    batch.cache_lengths_tensor[i]
+                    + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
                     + batch.input_lengths[i]
                     + accepted_ids[i],
                 ] = next_input_ids[cu_accepted_ids[i] : cu_accepted_ids[i + 1]]
