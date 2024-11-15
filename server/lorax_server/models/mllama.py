@@ -186,11 +186,9 @@ class MllamaCausalLM(VlmCausalLM):
 
     @property
     def adapter_layers(self) -> List[str]:
-        return (
-            [f"TEXT_{layer_type}" for layer_type in TEXT_ADAPTER_LAYERS]
-            + [f"VISION_GLOBAL_TRANSFORMER_{layer_type}" for layer_type in VISION_ADAPTER_LAYERS]
-            + [f"VISION_TRANSFORMER_{layer_type}" for layer_type in VISION_ADAPTER_LAYERS]
-        )
+        return TEXT_ADAPTER_LAYERS \
+            + [f'VISION_GLOBAL_TRANSFORMER_{layer_type}' for layer_type in VISION_ADAPTER_LAYERS] \
+            + [f'VISION_TRANSFORMER_{layer_type}' for layer_type in VISION_ADAPTER_LAYERS]
 
     @property
     def default_traced_adapter_layers(self) -> List[str]:
@@ -199,16 +197,15 @@ class MllamaCausalLM(VlmCausalLM):
     def get_num_layers_for_type(self, layer_type: str) -> int:
         if "LM_HEAD" in layer_type:
             return 1
-        if "TEXT_" in layer_type:
-            return [
-                layer_id
-                for layer_id, layer in enumerate(self.model.text_model.model.layers)
-                if not isinstance(layer, FlashLlamaCrossLayer)
-            ]
-        if "VISION_GLOBAL_TRANSFORMER_" in layer_type:
+        if 'VISION_GLOBAL_TRANSFORMER_' in layer_type:
             return len(self.model.vision_model.global_transformer.layers)
         if "VISION_TRANSFORMER_" in layer_type:
             return len(self.model.vision_model.transformer.layers)
+        return [
+            layer_id
+            for layer_id, layer in enumerate(self.model.text_model.model.layers)
+                if not isinstance(layer, FlashLlamaCrossLayer)
+        ]
 
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
@@ -217,27 +214,15 @@ class MllamaCausalLM(VlmCausalLM):
         for i, layer in enumerate(self.model.text_model.model.layers):
             if isinstance(layer, FlashLlamaCrossLayer):
                 continue
-            layer_weights[(i, f"TEXT_{Q_PROJ}")] = (
-                f"{prefix}.{i}.self_attn.q_proj",
-                layer.self_attn.query_key_value,
-            )
-            layer_weights[(i, f"TEXT_{K_PROJ}")] = (
-                f"{prefix}.{i}.self_attn.k_proj",
-                layer.self_attn.query_key_value,
-            )
-            layer_weights[(i, f"TEXT_{V_PROJ}")] = (
-                f"{prefix}.{i}.self_attn.v_proj",
-                layer.self_attn.query_key_value,
-            )
-            layer_weights[(i, f"TEXT_{O_PROJ}")] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
-            layer_weights[(i, f"TEXT_{GATE_PROJ}")] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, f"TEXT_{UP_PROJ}")] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
-            layer_weights[(i, f"TEXT_{DOWN_PROJ}")] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
-        layer_weights[(0, f"TEXT_{LM_HEAD}")] = (
-            "base_model.model.language_model.lm_head",
-            self.model.text_model.lm_head,
-        )
+            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
+        layer_weights[(0, LM_HEAD)] = ("base_model.model.language_model.lm_head", self.model.text_model.lm_head)
 
         vision_layer_mappings = [
             ("vision_model.global_transformer.layers", self.model.vision_model.global_transformer.layers),

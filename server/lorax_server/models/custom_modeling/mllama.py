@@ -277,13 +277,6 @@ class MllamaVisionSdpaAttention(nn.Module):
         self.head_size = config.hidden_size // self.num_heads
         self.num_key_value_heads = getattr(config, "n_head_kv", None) or self.num_heads
 
-        self.qkv_proj = TensorParallelColumnLinear.load_multi(
-            config,
-            prefixes=[f"{prefix}.q_proj", f"{prefix}.k_proj", f"{prefix}.v_proj"],
-            dim=0,
-            weights=weights,
-            bias=False,
-        )
         self.qkv_proj = load_attention(
             config,
             prefix,
@@ -929,11 +922,29 @@ class MllamaForConditionalGeneration(nn.Module):
         config.text_config._attn_implementation = "sdpa"
         self.hidden_size = config.text_config.hidden_size
         cross_attention_layers = getattr(config.text_config, "cross_attention_layers", [])
+        # note(ajinkya): Since cross attention layers are not currently targeted, we need to handle
+        # the case of some layers not having lora adapters which lorax doesn't currently support.
+        # Hence, this hack where we a dict that goes from actual layer index to index if the layers
+        # were filtered according to their types. For exmaple:
+        # all layers = [0, 1, 2, 3, 4]
+        # cross attention layers = [1, 3]
+        # layer wise layer ids = [0, 0, 1, 1, 2]
+        # since layers 1 and 3 are of different type they are indexed as if they are sequential
+        # this prevents illegal memory access errors from running the punica kernels
+        layer_wise_layer_id = [0] * config.text_config.num_hidden_layers
+        i = j = 0
+        for k in range(config.text_config.num_hidden_layers):
+            if j == len(cross_attention_layers) or k < cross_attention_layers[j]:
+                layer_wise_layer_id[k] = i
+                i += 1
+            else:
+                layer_wise_layer_id[k] = j
+                j += 1
 
         def create_layer(layer_id, prefix, config, weights):
             layer_cls = FlashLlamaCrossLayer if layer_id in cross_attention_layers else FlashLlamaLayer
             return layer_cls(
-                layer_id,
+                layer_wise_layer_id[layer_id],
                 prefix=prefix,
                 config=config,
                 weights=weights,
