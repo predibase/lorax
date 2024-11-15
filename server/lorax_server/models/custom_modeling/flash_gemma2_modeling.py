@@ -501,7 +501,7 @@ class FlashGemma2Model(torch.nn.Module):
 
 
 class FlashGemma2ForCausalLM(torch.nn.Module):
-    def __init__(self, prefix, config, weights, causal: bool):
+    def __init__(self, prefix, config, weights, causal=True):
         super().__init__()
         self.config = config
 

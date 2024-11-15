@@ -1116,7 +1116,7 @@ class FlashCausalLM(Model):
         self._supports_embeddings = embedding_dim is not None
 
         prefix = ""
-        model = model_cls(prefix, config, weights, causal=not self._supports_embeddings)
+        model = model_cls(prefix, config, weights)
 
         torch.distributed.barrier(group=self.process_group)
 
