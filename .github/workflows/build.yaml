@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "main"
+      - 'main'
     tags:
       - "v*"
 
@@ -62,17 +62,14 @@ jobs:
             # persistent data location
             root = "/runner/build/containerd"
 
-      - name: Docker meta
+      - name: Generate SHA tag
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
             ghcr.io/predibase/lorax
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,suffix=,format=short
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Create a hash from tags
         env:
@@ -142,15 +139,6 @@ jobs:
             sudo ctr i push --user "${{ github.repository_owner }}:${{ secrets.GHCR_PAT }}" $tag
           done
 
-      - name: Run integration tests
-        uses: ./.github/workflows/integration-tests
-        if: ${{ github.ref == 'refs/heads/main' }}
-        with:
-          test_image_tag: ${{ steps.meta.outputs.tags }}
-          use_local_image: true
-          github_token: ${{ secrets.GHCR_PAT }}
-          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
-
       - name: Create and push soci index
         env:
           tags: ${{ steps.meta.outputs.tags }}
@@ -163,6 +151,42 @@ jobs:
             echo "Pushing soci index for $tag"
             sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
+
+      - name: Run integration tests
+        id: integration_tests
+        uses: ./.github/workflows/integration-tests
+        with:
+          test_image_tag: ${{ steps.meta.outputs.tags }}
+          use_local_image: true
+          github_token: ${{ secrets.GHCR_PAT }}
+          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+
+      - name: Final Tags
+        id: final_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/predibase/lorax
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Tag the image with rest of the tags and push
+        env:
+          sha_tag: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.final_meta.outputs.tags }}
+        run: |
+          # Read the first tag from meta output
+          docker pull $sha_tag
+          # Tag with all the meta output tags
+          while IFS= read -r tag; do
+            echo "Tagging $tag and pushing"
+            docker tag $sha_tag "$tag"
+            docker push "$tag"
+            echo "Pushed $tag"
+          done <<< "$tags"
 
       - name: Prune older images
         env:
