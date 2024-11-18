@@ -411,6 +411,7 @@ impl Infer {
         let mut result_generated_text = None;
         let mut result_start = None;
         let mut result_queued = None;
+        let mut result_prefill_time = None;
 
         // Iterate on stream
         while let Some(response) = stream.next().await {
@@ -419,6 +420,7 @@ impl Infer {
                 InferStreamResponse::Prefill {
                     tokens,
                     tokens_length,
+                    prefill_time,
                 } => {
                     // Create Token objects
                     // We do that here instead of in the Python code as Rust for loops are faster
@@ -432,6 +434,7 @@ impl Infer {
                             .collect();
                     }
                     result_prefill_length = tokens_length;
+                    result_prefill_time = Some(prefill_time);
                 }
                 // Push last token
                 InferStreamResponse::Token(token) => result_tokens.push(token),
@@ -463,6 +466,7 @@ impl Infer {
         if let (Some(generated_text), Some(queued), Some(start)) =
             (result_generated_text, result_queued, result_start)
         {
+            let prefill_time = result_prefill_time.unwrap_or(Instant::now());
             Ok(InferResponse {
                 prefill: result_prefill,
                 tokens: result_tokens,
@@ -470,6 +474,7 @@ impl Infer {
                 generated_text,
                 queued,
                 start,
+                prefill_time,
             })
         } else {
             let err = InferError::IncompleteGeneration;
@@ -1369,9 +1374,11 @@ fn send_responses(
 
     if generation.prefill_tokens_length > 0 {
         // Send message
+        let prefill_time = Instant::now();
         entry.response_tx.send(Ok(InferStreamResponse::Prefill {
             tokens: generation.prefill_tokens,
             tokens_length: generation.prefill_tokens_length,
+            prefill_time,
         }))?;
     }
 
@@ -1510,6 +1517,7 @@ pub(crate) enum InferStreamResponse {
     Prefill {
         tokens: Option<PrefillTokens>,
         tokens_length: u32,
+        prefill_time: Instant,
     },
     // Intermediate messages
     Token(Token),
@@ -1550,6 +1558,7 @@ pub(crate) struct InferResponse {
     pub(crate) generated_text: GeneratedText,
     pub(crate) queued: Instant,
     pub(crate) start: Instant,
+    pub(crate) prefill_time: Instant,
 }
 
 #[derive(Debug, Error)]
