@@ -33,6 +33,7 @@ use once_cell::sync::OnceCell;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde_json::Value;
+use std::cmp;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -697,6 +698,9 @@ async fn generate(
     let queue_time = response.start - response.queued;
     let inference_time = Instant::now() - response.start;
     let time_per_token = inference_time / response.generated_text.generated_tokens;
+    let time_to_first_token = response.prefill_time - response.start;
+    let time_per_output_token = (inference_time - time_to_first_token)
+        / cmp::max(response.generated_text.generated_tokens - 1, 1);
 
     // Rust Tracing metadata
     span.record("total_time", format!("{total_time:?}"));
@@ -704,6 +708,11 @@ async fn generate(
     span.record("queue_time", format!("{queue_time:?}"));
     span.record("inference_time", format!("{inference_time:?}"));
     span.record("time_per_token", format!("{time_per_token:?}"));
+    span.record("time_to_first_token", format!("{time_to_first_token:?}"));
+    span.record(
+        "time_per_output_token",
+        format!("{time_per_output_token:?}"),
+    );
     span.record("seed", format!("{:?}", response.generated_text.seed));
     span.record("prompt_tokens", format!("{prompt_tokens:?}"));
     span.record("generated_tokens", format!("{generated_tokens:?}"));
@@ -752,6 +761,18 @@ async fn generate(
     headers.insert(
         "x-time-per-token",
         time_per_token.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-time-to-first-token",
+        time_to_first_token.as_millis().to_string().parse().unwrap(),
+    );
+    headers.insert(
+        "x-time-per-output-token",
+        time_per_output_token
+            .as_millis()
+            .to_string()
+            .parse()
+            .unwrap(),
     );
 
     headers.insert("x-model-id", info.model_id.parse().unwrap());
