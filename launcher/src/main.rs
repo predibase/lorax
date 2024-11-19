@@ -350,6 +350,10 @@ struct Args {
     #[clap(long, env)]
     speculative_tokens: Option<usize>,
 
+    // The maximum batch size past which speculative decoding is disabled.
+    #[clap(default_value = "32", long, env)]
+    speculation_max_batch_size: usize,
+
     /// The list of adapter ids to preload during initialization (to avoid cold start times).
     #[clap(long, env)]
     preloaded_adapter_ids: Vec<String>,
@@ -638,6 +642,7 @@ fn shard_manager(
     quantize: Option<Quantization>,
     compile: bool,
     speculative_tokens: Option<usize>,
+    speculation_max_batch_size: usize,
     preloaded_adapter_ids: Vec<String>,
     preloaded_adapter_source: Option<String>,
     predibase_api_token: Option<String>,
@@ -801,6 +806,12 @@ fn shard_manager(
     if let Some(chunked_prefill) = chunked_prefill {
         envs.push(("CHUNKED_PREFILL".into(), chunked_prefill.to_string().into()));
     }
+
+    // Speculative decoding max batch size
+    envs.push((
+        "LORAX_SPECULATION_MAX_BATCH_SIZE".into(),
+        speculation_max_batch_size.to_string().into(),
+    ));
 
     // Backend
     if backend == Backend::FlashInfer {
@@ -1244,6 +1255,7 @@ fn spawn_shards(
         let quantize = args.quantize;
         let compile = args.compile;
         let speculative_tokens = args.speculative_tokens;
+        let speculation_max_batch_size = args.speculation_max_batch_size;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
         let preloaded_adapter_source = args.preloaded_adapter_source.clone();
         let predibase_api_token = args.predibase_api_token.clone();
@@ -1271,6 +1283,7 @@ fn spawn_shards(
                 quantize,
                 compile,
                 speculative_tokens,
+                speculation_max_batch_size,
                 preloaded_adapter_ids,
                 preloaded_adapter_source,
                 predibase_api_token,
