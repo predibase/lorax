@@ -1148,7 +1148,7 @@ fn download_convert_model(
         envs.push(("HUGGING_FACE_HUB_TOKEN".into(), api_token.into()))
     };
 
-    if let Ok(predibase_api_token) = &args.predibase_api_token {
+    if let Some(predibase_api_token) = &args.predibase_api_token {
         envs.push((
             "PREDIBASE_API_TOKEN".into(),
             predibase_api_token.to_string().into(),
