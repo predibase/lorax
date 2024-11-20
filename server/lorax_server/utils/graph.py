@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from lorax_server.models.model import Model
 
 
-MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 96))
+MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 128))
 MAX_RANK = int(os.environ.get("LORAX_COMPILE_MAX_RANK", 64))
 
 SLOT_PAD_VALUE = -1
