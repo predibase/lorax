@@ -267,7 +267,6 @@ def serve(
     merge_adapter_weights: bool,
     preloaded_adapter_source: str,
     embedding_dim: Optional[int] = None,
-    api_token: Optional[str] = None,
 ):
     async def serve_inner(
         model_id: str,
@@ -284,7 +283,6 @@ def serve(
         merge_adapter_weights: bool,
         preloaded_adapter_source: str,
         embedding_dim: Optional[int] = None,
-        api_token: Optional[str] = None,
     ):
         unix_socket_template = "unix://{}-{}"
         if sharded:
@@ -296,6 +294,7 @@ def serve(
 
         if adapter_source == PBASE:
             logger.info("Got a PBASE adapter source, mapping model ID to S3")
+            api_token = os.getenv("PREDIBASE_API_TOKEN")
             adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
             adapter_source = S3
 
@@ -463,6 +462,5 @@ def serve(
             merge_adapter_weights,
             preloaded_adapter_source,
             embedding_dim,
-            api_token,
         )
     )

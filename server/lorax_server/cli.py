@@ -52,7 +52,6 @@ def serve(
     merge_adapter_weights: bool = False,
     preloaded_adapter_source: Optional[str] = None,
     embedding_dim: Optional[int] = None,
-    api_token: Optional[str] = None,
 ):
     preloaded_adapter_ids = preloaded_adapter_ids or []
     preloaded_adapter_source = preloaded_adapter_source or adapter_source
@@ -107,7 +106,6 @@ def serve(
         merge_adapter_weights,
         preloaded_adapter_source,
         embedding_dim,
-        api_token,
     )
 
 
