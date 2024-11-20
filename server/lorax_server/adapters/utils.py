@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 from lorax_server.utils.sources import HUB, PBASE, S3, get_model_source, map_pbase_model_id_to_s3
@@ -11,6 +12,7 @@ def download_adapter_weights(
     api_token: Optional[str] = None,
 ) -> int:
     if adapter_source == PBASE:
+        api_token = api_token or os.environ.get("PREDIBASE_API_TOKEN")
         adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
         adapter_source = S3
 
