@@ -59,10 +59,16 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
         except requests.RequestException:
             # Not found in new path, fall back to legacy endpoint.
             return fetch_legacy_url()
+        
+        if resp.status_code == 202:
+            raise RuntimeError(
+                f"Adapter {model_id} is still being trained, try re-submitting once training is complete"
+            )
 
         path = resp.json().get("adapterPath", None)
-        if path is None:
+        if not path:
             raise RuntimeError(f"Adapter {model_id} is not yet available")
+        
         return path
     else:
         # Use legacy path only since new endpoint requires both name and version number.
