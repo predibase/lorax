@@ -245,7 +245,7 @@ class MllamaVisionMLP(nn.Module):
     def forward(self, hidden_states: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         hidden_states = self.fc1(hidden_states, adapter_data)
         hidden_states = self.activation_fn(hidden_states)
-        hidden_states = self.fc2(hidden_states, adapter_data)
+        hidden_states = self.fc2(hidden_states.view(-1, hidden_states.shape[-1]), adapter_data)
         return hidden_states
 
 
@@ -332,7 +332,7 @@ class MllamaVisionSdpaAttention(nn.Module):
         attn_output = F.scaled_dot_product_attention(query, key, value, attn_mask=attention_mask)
 
         attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(batch_size, q_seq_len, -1)
+        attn_output = attn_output.view(batch_size * q_seq_len, -1)
 
         output = self.o_proj(attn_output, adapter_data)
         return output
@@ -695,10 +695,11 @@ class MllamaTextCrossAttention(nn.Module):
         self.num_key_value_heads = self.num_key_value_heads // weights.process_group.size()
 
         self.q_proj = TensorParallelMultiAdapterLinear.load(
-            TensorParallelColumnLinear.load(
+            TensorParallelColumnLinear.load_multi(
                 config,
-                prefix=f"{prefix}.q_proj",
+                prefixes=[f"{prefix}.q_proj"],
                 weights=weights,
+                dim=0,
                 bias=False,
             ),
             layer_idx,
@@ -707,10 +708,11 @@ class MllamaTextCrossAttention(nn.Module):
             process_group=weights.process_group,
         )
         self.k_proj = TensorParallelMultiAdapterLinear.load(
-            TensorParallelColumnLinear.load(
+            TensorParallelColumnLinear.load_multi(
                 config,
-                prefix=f"{prefix}.k_proj",
+                prefixes=[f"{prefix}.k_proj"],
                 weights=weights,
+                dim=0,
                 bias=False,
             ),
             layer_idx,
@@ -719,10 +721,11 @@ class MllamaTextCrossAttention(nn.Module):
             process_group=weights.process_group,
         )
         self.v_proj = TensorParallelMultiAdapterLinear.load(
-            TensorParallelColumnLinear.load(
+            TensorParallelColumnLinear.load_multi(
                 config,
-                prefix=f"{prefix}.v_proj",
+                prefixes=[f"{prefix}.v_proj"],
                 weights=weights,
+                dim=0,
                 bias=False,
             ),
             layer_idx,
