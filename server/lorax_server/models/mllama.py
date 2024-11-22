@@ -201,11 +201,8 @@ class MllamaCausalLM(VlmCausalLM):
             return len(self.model.vision_model.global_transformer.layers)
         if "VISION_TRANSFORMER_" in layer_type:
             return len(self.model.vision_model.transformer.layers)
-        return [
-            layer_id
-            for layer_id, layer in enumerate(self.model.text_model.model.layers)
-                if not isinstance(layer, FlashLlamaCrossLayer)
-        ]
+
+        return len(self.model.text_model.model.layers)
 
     def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
         layer_weights = {}
@@ -213,11 +210,15 @@ class MllamaCausalLM(VlmCausalLM):
         prefix = "language_model.model.layers"
         for i, layer in enumerate(self.model.text_model.model.layers):
             if isinstance(layer, FlashLlamaCrossLayer):
-                continue
-            layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
-            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+                layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.cross_attn.q_proj", layer.cross_attn.q_proj)
+                layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.cross_attn.k_proj", layer.cross_attn.k_proj)
+                layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.cross_attn.v_proj", layer.cross_attn.v_proj)
+                layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.cross_attn.o_proj", layer.cross_attn.o_proj)
+            else:
+                layer_weights[(i, Q_PROJ)] = (f"{prefix}.{i}.self_attn.q_proj", layer.self_attn.query_key_value)
+                layer_weights[(i, K_PROJ)] = (f"{prefix}.{i}.self_attn.k_proj", layer.self_attn.query_key_value)
+                layer_weights[(i, V_PROJ)] = (f"{prefix}.{i}.self_attn.v_proj", layer.self_attn.query_key_value)
+                layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
 
             layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
             layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
