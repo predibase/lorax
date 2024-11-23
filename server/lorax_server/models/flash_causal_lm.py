@@ -1567,6 +1567,11 @@ class FlashCausalLM(Model):
 
         return out
 
+    # note(ajinkya): hack needed to make sure that we can target cross_attn layers in mllama
+    # default behavior is to just return prefill state, but mllama always returns True
+    def adapter_prefill_state(self, prefill: bool) -> bool:
+        return prefill
+
     @tracer.start_as_current_span("generate_token")
     def generate_token(
         self, batch: FlashCausalLMBatch, is_warmup: bool = False
@@ -1594,13 +1599,14 @@ class FlashCausalLM(Model):
 
         # Assign pointers to adapter weights
         # TODO(travis): don't update this if indices haven't changed
-        self.punica_wrapper.update_metadata(adapter_meta, prefill)
+        adapter_prefill_state = self.adapter_prefill_state(prefill)
+        self.punica_wrapper.update_metadata(adapter_meta, adapter_prefill_state)
         adapter_data = AdapterBatchData.from_meta(
             adapter_meta,
             self.layer_to_adapter_weights,
             self.layer_to_lora_weights,
             self.punica_wrapper,
-            prefill,
+            adapter_prefill_state,
             batch.prefill_head_indices,
         )
 

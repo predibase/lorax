@@ -254,6 +254,12 @@ class MllamaCausalLM(VlmCausalLM):
 
         return layer_weights
 
+    # note(ajinkya): for cross_attn in mllama we need to disable bgmv kernels
+    # during decode, but doing this selectively for cross_attn is tricky so
+    # simply resorting to sgmv kernels by always passing prefill=True
+    def adapter_prefill_state(self, prefill: bool) -> bool:
+        return True
+
     def forward(
         self,
         batch: VlmCausalLMBatch,
