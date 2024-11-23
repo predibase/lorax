@@ -717,7 +717,7 @@ class MllamaTextCrossAttention(nn.Module):
             ),
             layer_idx,
             [K_PROJ],
-            sizes=[self.head_size * self.num_heads],
+            sizes=[self.head_size * self.num_key_value_heads],
             process_group=weights.process_group,
         )
         self.v_proj = TensorParallelMultiAdapterLinear.load(
@@ -730,7 +730,7 @@ class MllamaTextCrossAttention(nn.Module):
             ),
             layer_idx,
             [V_PROJ],
-            sizes=[self.head_size * self.num_heads],
+            sizes=[self.head_size * self.num_key_value_heads],
             process_group=weights.process_group,
         )
         self.o_proj = TensorParallelAdapterRowLinear.load(
