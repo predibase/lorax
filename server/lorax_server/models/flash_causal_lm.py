@@ -1741,8 +1741,7 @@ class FlashCausalLM(Model):
                 # Only save tokens if we are done prefilling for this request
                 batch.all_input_ids_tensor[
                     i,
-                    batch.cache_lengths_tensor[i]
-                    + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
+                    batch.cache_lengths_tensor[i] + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
                     + batch.input_lengths[i]
                     + accepted_ids[i],
                 ] = next_input_ids[cu_accepted_ids[i] : cu_accepted_ids[i + 1]]

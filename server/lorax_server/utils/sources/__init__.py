@@ -2,8 +2,8 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from loguru import logger
 import requests
+from loguru import logger
 
 from .hub import (
     HubModelSource,
@@ -72,7 +72,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
         except requests.RequestException:
             # Not found in new path, fall back to legacy endpoint.
             return fetch_legacy_url()
-        
+
         resp_json = resp.json()
 
         status = resp_json.get("status")
@@ -86,7 +86,7 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
         path = resp_json.get("adapterPath")
         if not path:
             raise RuntimeError(f"Adapter {model_id} is not yet available")
-        
+
         return path
     else:
         # Use legacy path only since new endpoint requires both name and version number.
