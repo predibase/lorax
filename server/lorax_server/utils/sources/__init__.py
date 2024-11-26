@@ -2,6 +2,7 @@ import os
 from functools import lru_cache
 from typing import Optional
 
+from loguru import logger
 import requests
 
 from .hub import (
@@ -23,6 +24,18 @@ LEGACY_PREDIBASE_MODEL_URL_ENDPOINT = "/v1/models/version/name/{}"
 LEGACY_PREDIBASE_MODEL_VERSION_URL_ENDPOINT = "/v1/models/version/name/{}?version={}"
 PREDIBASE_ADAPTER_VERSION_URL_ENDPOINT = "/v2/repos/{}/version/{}"
 PREDIBASE_GATEWAY_ENDPOINT = os.getenv("PREDIBASE_GATEWAY_ENDPOINT", "https://api.app.predibase.com")
+
+# Predibase status codes
+PENDING = "pending"
+QUEUED = "queued"
+TRAINING = "training"
+STOPPING = "stopping"
+STOPPED = "stopped"
+CANCELED = "canceled"
+COMPLETED = "completed"
+ERRORED = "errored"
+STATUSES = {PENDING, QUEUED, TRAINING, STOPPING, STOPPED, CANCELED, COMPLETED, ERRORED}
+FINAL_STATUSES = {COMPLETED, ERRORED, CANCELED, STOPPED}
 
 
 @lru_cache(maxsize=256)
@@ -60,12 +73,17 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
             # Not found in new path, fall back to legacy endpoint.
             return fetch_legacy_url()
         
-        if resp.status_code == 202:
-            raise RuntimeError(
-                f"Adapter {model_id} is still being trained, try re-submitting once training is complete"
-            )
+        resp_json = resp.json()
 
-        path = resp.json().get("adapterPath", None)
+        status = resp_json.get("status")
+        if status not in STATUSES:
+            # Status is unknown to us, so skip status validation
+            logger.warning(f"Unknown status {status} for adapter {model_id}")
+        elif status not in FINAL_STATUSES:
+            # Status is known to us, but not a final status, so raise a user error
+            raise RuntimeError(f"Adapter {model_id} has not completed training (status: {status})")
+
+        path = resp_json.get("adapterPath")
         if not path:
             raise RuntimeError(f"Adapter {model_id} is not yet available")
         
