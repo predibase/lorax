@@ -639,7 +639,9 @@ async fn generate(
     // Inference
     let (response, best_of_responses) = match req.0.parameters.best_of {
         Some(best_of) if best_of > 1 => {
-            let (response, best_of_responses) = infer.generate_best_of(req.0, best_of).await?;
+            let (response, best_of_responses) = infer
+                .generate_best_of(req.0, best_of, infer.prefix_caching)
+                .await?;
             (response, Some(best_of_responses))
         }
         _ => (infer.generate(req.0).await?, None),
