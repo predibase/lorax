@@ -38,11 +38,14 @@ from lorax_server.utils.layers import (
     TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import (
+    DOWN_PROJ,
     FC1,
     FC2,
+    GATE_PROJ,
     K_PROJ,
     O_PROJ,
     Q_PROJ,
+    UP_PROJ,
     V_PROJ,
 )
 
@@ -242,7 +245,7 @@ class MllamaVisionMLP(nn.Module):
     def forward(self, hidden_states: torch.Tensor, adapter_data: AdapterBatchData) -> torch.Tensor:
         hidden_states = self.fc1(hidden_states, adapter_data)
         hidden_states = self.activation_fn(hidden_states)
-        hidden_states = self.fc2(hidden_states, adapter_data)
+        hidden_states = self.fc2(hidden_states.view(-1, hidden_states.shape[-1]), adapter_data)
         return hidden_states
 
 
@@ -329,7 +332,7 @@ class MllamaVisionSdpaAttention(nn.Module):
         attn_output = F.scaled_dot_product_attention(query, key, value, attn_mask=attention_mask)
 
         attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(batch_size, q_seq_len, -1)
+        attn_output = attn_output.view(batch_size * q_seq_len, -1)
 
         output = self.o_proj(attn_output, adapter_data)
         return output
@@ -691,29 +694,55 @@ class MllamaTextCrossAttention(nn.Module):
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = self.num_key_value_heads // weights.process_group.size()
 
-        self.q_proj = TensorParallelColumnLinear.load(
-            config,
-            prefix=f"{prefix}.q_proj",
-            weights=weights,
-            bias=False,
+        self.q_proj = TensorParallelMultiAdapterLinear.load(
+            TensorParallelColumnLinear.load_multi(
+                config,
+                prefixes=[f"{prefix}.q_proj"],
+                weights=weights,
+                dim=0,
+                bias=False,
+            ),
+            layer_idx,
+            [Q_PROJ],
+            sizes=[self.head_size * self.num_heads],
+            process_group=weights.process_group,
         )
-        self.k_proj = TensorParallelColumnLinear.load(
-            config,
-            prefix=f"{prefix}.k_proj",
-            weights=weights,
-            bias=False,
+        self.k_proj = TensorParallelMultiAdapterLinear.load(
+            TensorParallelColumnLinear.load_multi(
+                config,
+                prefixes=[f"{prefix}.k_proj"],
+                weights=weights,
+                dim=0,
+                bias=False,
+            ),
+            layer_idx,
+            [K_PROJ],
+            sizes=[self.head_size * self.num_key_value_heads],
+            process_group=weights.process_group,
         )
-        self.v_proj = TensorParallelColumnLinear.load(
-            config,
-            prefix=f"{prefix}.v_proj",
-            weights=weights,
-            bias=False,
+        self.v_proj = TensorParallelMultiAdapterLinear.load(
+            TensorParallelColumnLinear.load_multi(
+                config,
+                prefixes=[f"{prefix}.v_proj"],
+                weights=weights,
+                dim=0,
+                bias=False,
+            ),
+            layer_idx,
+            [V_PROJ],
+            sizes=[self.head_size * self.num_key_value_heads],
+            process_group=weights.process_group,
         )
-        self.o_proj = TensorParallelRowLinear.load(
-            config,
-            prefix=f"{prefix}.o_proj",
-            weights=weights,
-            bias=False,
+        self.o_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.o_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_idx,
+            O_PROJ,
+            process_group=weights.process_group,
         )
 
         self.q_norm = MllamaTextRMSNorm.load(prefix=f"{prefix}.q_norm", weights=weights, eps=config.rms_norm_eps)
@@ -727,11 +756,12 @@ class MllamaTextCrossAttention(nn.Module):
         # past_key_value=None,
         # attention_mask: Optional[torch.Tensor] = None,
         # cache_position: Optional[torch.LongTensor] = None,
+        adapter_data: Optional[AdapterBatchData] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         """Input shape: Batch x Time x Channel"""
         # hidden_states = hidden_states.unsqueeze(0)
         # bsz, q_len, _ = hidden_states.size()
-        query_states = self.q_proj(hidden_states)
+        query_states = self.q_proj(hidden_states, adapter_data)
         query_states = query_states.view(-1, self.num_heads, self.head_size)
         query_states = self.q_norm(query_states)
 
@@ -744,8 +774,8 @@ class MllamaTextCrossAttention(nn.Module):
             indices,
         ) = cross_attention_states
 
-        key_states = self.k_proj(cross_attention_states)
-        value_states = self.v_proj(cross_attention_states)
+        key_states = self.k_proj(cross_attention_states, adapter_data)
+        value_states = self.v_proj(cross_attention_states, adapter_data)
         key_states = key_states.view(-1, self.num_key_value_heads, self.head_size)
         value_states = value_states.view(-1, self.num_key_value_heads, self.head_size)
         key_states = self.k_norm(key_states)
@@ -779,38 +809,54 @@ class MllamaTextCrossAttention(nn.Module):
             False,
             None,
         )[0]
-        attn_output = self.o_proj(attn_output.view(-1, self.num_heads * self.head_size))
+        attn_output = self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
         return attn_output
 
 
 # Copied from transformers.models.gemma2.modeling_gemma2.Gemma2MLP with Gemma2->MllamaText
 class MllamaTextMLP(nn.Module):
-    def __init__(self, *, prefix, config, weights):
+    def __init__(self, *, prefix, config, weights, layer_idx):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size // weights.process_group.size()
-        self.gate_up_proj = TensorParallelColumnLinear.load_multi(
+        gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
             prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
             weights=weights,
             dim=0,
             bias=False,
         )
-        self.down_proj = TensorParallelRowLinear.load(
+        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
+            gate_up_proj,
+            layer_idx,
+            [GATE_PROJ, UP_PROJ],
+            sizes=[
+                config.intermediate_size,
+                config.intermediate_size,
+            ],
+            process_group=weights.process_group,
+        )
+        down_proj = TensorParallelRowLinear.load(
             config,
             prefix=f"{prefix}.down_proj",
             weights=weights,
             bias=False,
         )
+        self.down_proj = TensorParallelAdapterRowLinear.load(
+            down_proj,
+            layer_idx,
+            DOWN_PROJ,
+            process_group=weights.process_group,
+        )
         self.act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, x):
+    def forward(self, x, adapter_data):
         shape = x.shape
-        gate_up_states = self.gate_up_proj(x)
+        gate_up_states = self.gate_up_proj(x, adapter_data)
         gate_up_states = gate_up_states.view(*shape[:-1], 2, self.intermediate_size)
-        result = self.down_proj(self.act_fn(gate_up_states[:, 0]) * gate_up_states[:, 1])
+        result = self.down_proj(self.act_fn(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
         return result
 
 
@@ -834,7 +880,7 @@ class FlashLlamaCrossLayer(torch.nn.Module):
             weights.get_tensor(f"{prefix}.cross_attn_attn_gate"), requires_grad=False
         )
 
-        self.mlp = MllamaTextMLP(prefix=f"{prefix}.mlp", config=config, weights=weights)
+        self.mlp = MllamaTextMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_idx=layer_idx)
         self.post_attention_layernorm = MllamaTextRMSNorm.load(
             prefix=f"{prefix}.post_attention_layernorm",
             weights=weights,
@@ -877,12 +923,13 @@ class FlashLlamaCrossLayer(torch.nn.Module):
             hidden_states=hidden_states,
             # attention_mask=cross_attention_mask,
             cross_attention_states=cross_attention_states,
+            adapter_data=adapter_data,
         )
         hidden_states = residual + self.cross_attn_attn_gate.tanh() * hidden_states
 
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
+        hidden_states = self.mlp(hidden_states, adapter_data)
         hidden_states = residual + self.cross_attn_mlp_gate.tanh() * hidden_states
 
         out_hidden_states[indices] = hidden_states
@@ -922,29 +969,10 @@ class MllamaForConditionalGeneration(nn.Module):
         config.text_config._attn_implementation = "sdpa"
         self.hidden_size = config.text_config.hidden_size
         cross_attention_layers = getattr(config.text_config, "cross_attention_layers", [])
-        # note(ajinkya): Since cross attention layers are not currently targeted, we need to handle
-        # the case of some layers not having lora adapters which lorax doesn't currently support.
-        # Hence, this hack where we a dict that goes from actual layer index to index if the layers
-        # were filtered according to their types. For exmaple:
-        # all layers = [0, 1, 2, 3, 4]
-        # cross attention layers = [1, 3]
-        # layer wise layer ids = [0, 0, 1, 1, 2]
-        # since layers 1 and 3 are of different type they are indexed as if they are sequential
-        # this prevents illegal memory access errors from running the punica kernels
-        layer_wise_layer_id = [0] * config.text_config.num_hidden_layers
-        i = j = 0
-        for k in range(config.text_config.num_hidden_layers):
-            if j == len(cross_attention_layers) or k < cross_attention_layers[j]:
-                layer_wise_layer_id[k] = i
-                i += 1
-            else:
-                layer_wise_layer_id[k] = j
-                j += 1
-
         def create_layer(layer_id, prefix, config, weights):
             layer_cls = FlashLlamaCrossLayer if layer_id in cross_attention_layers else FlashLlamaLayer
             return layer_cls(
-                layer_wise_layer_id[layer_id],
+                layer_id,
                 prefix=prefix,
                 config=config,
                 weights=weights,
