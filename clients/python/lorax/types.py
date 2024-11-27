@@ -270,7 +270,7 @@ class Token(BaseModel):
     # Token text
     text: str
     # Logprob
-    logprob: float
+    logprob: Optional[float]
     # Is the token a special token
     # Can be used to ignore tokens when concatenating
     special: bool

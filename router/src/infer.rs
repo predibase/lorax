@@ -160,6 +160,8 @@ pub struct Infer {
     limit_concurrent_requests: Arc<Semaphore>,
     /// tokenizer for NER processing
     tokenizer: Option<Arc<Tokenizer>>,
+    /// Whether prefix caching is enabled
+    pub prefix_caching: bool,
 }
 
 impl Infer {
@@ -268,6 +270,7 @@ impl Infer {
             chat_template,
             limit_concurrent_requests: semaphore,
             tokenizer: tokenizer,
+            prefix_caching,
         }
     }
 
@@ -861,9 +864,18 @@ impl Infer {
         &self,
         request: GenerateRequest,
         best_of: usize,
+        prefix_caching: bool,
     ) -> Result<(InferResponse, Vec<InferResponse>), InferError> {
         // validate  best_of parameter separately
         let best_of = self.validation.validate_best_of(best_of)?;
+
+        // If prefix caching is enabled, first generate a single token to cache the prefix, then generate
+        // subsequent responses.
+        if prefix_caching {
+            let mut prefix_request = request.clone();
+            prefix_request.parameters.max_new_tokens = Some(1);
+            self.generate(prefix_request).await?;
+        }
 
         // create multiple generate requests
         let mut infer_responses: Vec<InferResponse> =

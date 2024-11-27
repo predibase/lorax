@@ -186,9 +186,11 @@ class MllamaCausalLM(VlmCausalLM):
 
     @property
     def adapter_layers(self) -> List[str]:
-        return TEXT_ADAPTER_LAYERS \
-            + [f'VISION_GLOBAL_TRANSFORMER_{layer_type}' for layer_type in VISION_ADAPTER_LAYERS] \
-            + [f'VISION_TRANSFORMER_{layer_type}' for layer_type in VISION_ADAPTER_LAYERS]
+        return (
+            TEXT_ADAPTER_LAYERS
+            + [f"VISION_GLOBAL_TRANSFORMER_{layer_type}" for layer_type in VISION_ADAPTER_LAYERS]
+            + [f"VISION_TRANSFORMER_{layer_type}" for layer_type in VISION_ADAPTER_LAYERS]
+        )
 
     @property
     def default_traced_adapter_layers(self) -> List[str]:
@@ -197,7 +199,7 @@ class MllamaCausalLM(VlmCausalLM):
     def get_num_layers_for_type(self, layer_type: str) -> int:
         if "LM_HEAD" in layer_type:
             return 1
-        if 'VISION_GLOBAL_TRANSFORMER_' in layer_type:
+        if "VISION_GLOBAL_TRANSFORMER_" in layer_type:
             return len(self.model.vision_model.global_transformer.layers)
         if "VISION_TRANSFORMER_" in layer_type:
             return len(self.model.vision_model.transformer.layers)

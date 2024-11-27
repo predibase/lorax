@@ -293,6 +293,9 @@ class Client:
 
         if resp.status_code != 200:
             raise parse_error(resp.status_code, payload, resp.headers if LORAX_DEBUG_MODE else None)
+        
+        if LORAX_DEBUG_MODE:
+            print(resp.headers)
 
         return Response(**payload[0])
 
