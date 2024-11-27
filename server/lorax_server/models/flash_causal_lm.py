@@ -24,6 +24,7 @@ from lorax_server.models.metadata_kernels import (
 )
 from lorax_server.models.model import Model
 from lorax_server.models.types import (
+    AlternativeTokens,
     Batch,
     GeneratedText,
     Generation,
@@ -1877,36 +1878,6 @@ class FlashCausalLM(Model):
         ) in enumerate(iterator):
             all_alternative_tokens = [] if request.parameters.return_k_alternatives > 0 else None
 
-            # TODO(travis): return_k_alternatives
-            # if request.parameters.return_k_alternatives > 0:
-            #         # Limit the number of alternatives to the vocabulary size
-            #         num_alternatives = min(
-            #             request.parameters.return_k_alternatives,
-            #             len(alternative_token_ids[token_idx]),
-            #         )
-
-            #         # Select top-k logprobs
-            #         request_alternative_token_ids = alternative_token_ids[token_idx][:num_alternatives]
-            #         request_alternative_token_logprobs = alternative_token_logprobs[token_idx][:num_alternatives]
-
-            #         # Decode tokens
-            #         request_alternative_token_texts = []
-            #         for alternative_token_id in request_alternative_token_ids:
-            #             all_input_ids.append(alternative_token_id)
-            #             alternative_token_text, _, _ = self.decode_token(
-            #                 all_input_ids,
-            #                 prefix_offset,
-            #                 read_offset,
-            #             )
-            #             request_alternative_token_texts.append(alternative_token_text)
-            #             all_input_ids.pop()
-            #         alternative_tokens = AlternativeTokens(
-            #             request_alternative_token_ids,
-            #             request_alternative_token_logprobs,
-            #             request_alternative_token_texts,
-            #         )
-            #         all_alternative_tokens.append(alternative_tokens)
-
             # Compute logprobs first as, even though we might skip the token,
             # it can still be required to compute the logprobs
             # modulo on request.id as it is robust to batch.filter whereas the index in the batch is not and we need
@@ -1984,6 +1955,36 @@ class FlashCausalLM(Model):
                         read_offset,
                     )
                     next_token_texts.append(next_token_text)
+
+                    if request.parameters.return_k_alternatives > 0:
+                        # Limit the number of alternatives to the vocabulary size
+                        num_alternatives = min(
+                            request.parameters.return_k_alternatives,
+                            len(alternative_token_ids[j]),
+                        )
+
+                        # Select top-k logprobs
+                        request_alternative_token_ids = alternative_token_ids[j][:num_alternatives]
+                        request_alternative_token_logprobs = alternative_token_logprobs[j][:num_alternatives]
+
+                        # Decode tokens
+                        request_alternative_token_texts = []
+                        for alternative_token_id in request_alternative_token_ids:
+                            all_input_ids.append(alternative_token_id)
+                            alternative_token_text, _, _ = self.decode_token(
+                                all_input_ids,
+                                prefix_offset,
+                                read_offset,
+                            )
+                            request_alternative_token_texts.append(alternative_token_text)
+                            all_input_ids.pop()
+                        alternative_tokens = AlternativeTokens(
+                            request_alternative_token_ids,
+                            request_alternative_token_logprobs,
+                            request_alternative_token_texts,
+                        )
+                        all_alternative_tokens.append(alternative_tokens)
+
 
                     stop, reason = stopping_criteria(
                         next_token_id,
