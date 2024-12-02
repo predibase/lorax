@@ -632,6 +632,9 @@ struct Args {
 
     #[clap(long, env)]
     disable_sgmv: bool,
+
+    #[clap(default_value = "0.8", long, env)]
+    memory_wiggle_room: f32,
 }
 
 #[derive(Debug)]
@@ -680,6 +683,7 @@ fn shard_manager(
     _shutdown_sender: mpsc::Sender<()>,
     embedding_dim: Option<usize>,
     disable_sgmv: bool,
+    memory_wiggle_room: f32,
 ) {
     // Enter shard-manager tracing span
     let _span = tracing::span!(tracing::Level::INFO, "shard-manager", rank = rank).entered();
@@ -842,6 +846,12 @@ fn shard_manager(
     if disable_sgmv {
         envs.push(("DISABLE_SGMV".into(), "1".into()))
     }
+
+    // Memory wiggle room
+    envs.push((
+        "MEMORY_WIGGLE_ROOM".into(),
+        memory_wiggle_room.to_string().into(),
+    ));
 
     // Safetensors load fast
     envs.push(("SAFETENSORS_FAST_GPU".into(), "1".into()));
@@ -1303,6 +1313,7 @@ fn spawn_shards(
         let backend = args.backend;
         let embedding_dim = args.embedding_dim;
         let disable_sgmv = args.disable_sgmv;
+        let memory_wiggle_room = args.memory_wiggle_room;
         thread::spawn(move || {
             shard_manager(
                 model_id,
@@ -1343,6 +1354,7 @@ fn spawn_shards(
                 shutdown_sender,
                 embedding_dim,
                 disable_sgmv,
+                memory_wiggle_room,
             )
         });
     }
