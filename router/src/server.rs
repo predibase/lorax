@@ -1484,6 +1484,7 @@ pub async fn run(
         .route("/generate_stream", post(generate_stream))
         .route("/v1/completions", post(completions_v1))
         .route("/v1/chat/completions", post(chat_completions_v1))
+        .route("/v1/embeddings", post(embed))
         // AWS Sagemaker route
         .route("/invocations", post(compat_generate));
 

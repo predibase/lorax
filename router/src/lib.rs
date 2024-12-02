@@ -664,6 +664,20 @@ impl From<Message> for TextMessage {
     }
 }
 
+// #[derive(Clone, Debug, Deserialize, ToSchema)]
+// pub struct OpenAIEmbedRequest {
+//     pub input: String,
+//     pub model: String,
+//     pub encoding_format: Option<String>,
+// }
+
+// #[derive(Clone, Debug, Deserialize, ToSchema)]
+// pub struct OpenAIEmbedResponse {
+//     pub index: i32,
+//     pub embedding: Vec<f32>,
+//     pub object: String,
+// }
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ChatCompletionRequest {
     model: String,
