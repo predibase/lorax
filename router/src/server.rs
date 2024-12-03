@@ -7,17 +7,17 @@ use crate::tool_grammar::ToolGrammar;
 use crate::validation::ValidationError;
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BestOfSequence,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchEmbedRequest, BestOfSequence,
     ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
     ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
-    CompatEmbedRequest, CompatEmbedResponse, CompatGenerateRequest, CompletionFinishReason,
-    CompletionRequest, CompletionResponse, CompletionResponseChoice,
+    CompatEmbedRequest, CompatEmbedResponse, CompatEmbedding, CompatGenerateRequest,
+    CompletionFinishReason, CompletionRequest, CompletionResponse, CompletionResponseChoice,
     CompletionResponseStreamChoice, CompletionStreamResponse, Details, EmbedParameters,
     EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
     GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message,
     OpenAiResponseFormat, PrefillToken, ResponseFormat, ResponseFormatType,
-    ReturnFunctionDefinition, SimpleToken, StreamDetails, StreamResponse, Token, TokenizeRequest,
-    TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
+    ReturnFunctionDefinition, SimpleToken, StreamDetails, StreamResponse, StringOrVec, Token,
+    TokenizeRequest, TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
 };
 use axum::extract::Extension;
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -1648,8 +1648,8 @@ async fn embed(
 /// Embed inputs
 #[utoipa::path(
     post,
-    tag = "Embedding",
-    path = "/embed",
+    tag = "OpenAI Compatible",
+    path = "/v1/embeddings",
     request_body = CompatEmbedRequest,
     responses(
     (status = 200, description = "Embeddings ids", body = CompatEmbedResponse),
@@ -1663,17 +1663,49 @@ async fn compat_embed(
     Json(req): Json<CompatEmbedRequest>,
 ) -> Result<Json<CompatEmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
     metrics::increment_counter!("lorax_request_count");
-    tracing::debug!("Input: {}", req.inputs);
-    // Inference
-    let embed_req = EmbedRequest {
-        inputs: req.inputs,
-        parameters: req.parameters,
-    };
-    let response = infer.embed(embed_req).await?;
-    let compat_response = CompatEmbedResponse {
-        embeddings: response.embeddings,
-    };
-    Ok(Json(compat_response))
+    tracing::debug!("Input: {}", req.input);
+    if let StringOrVec::Vec(inputs) = req.input {
+        let batch_embed_req = BatchEmbedRequest {
+            inputs,
+            parameters: req.parameters,
+        };
+        let response = infer.embed_batch(batch_embed_req).await?;
+        let compat_embeddings = response
+            .into_iter()
+            .enumerate()
+            .map(|(i, e)| -> CompatEmbedding {
+                CompatEmbedding {
+                    index: i as i32,
+                    embedding: e.embeddings,
+                    object: "embedding".to_string(),
+                }
+            })
+            .collect();
+        Ok(Json(CompatEmbedResponse {
+            embeddings: compat_embeddings,
+        }))
+    } else if let StringOrVec::String(input) = req.input {
+        let embed_req = EmbedRequest {
+            inputs: input.to_string(),
+            parameters: req.parameters,
+        };
+        let response = infer.embed(embed_req).await?;
+        Ok(Json(CompatEmbedResponse {
+            embeddings: vec![CompatEmbedding {
+                index: 0,
+                embedding: response.embeddings,
+                object: "embedding".to_string(),
+            }],
+        }))
+    } else {
+        Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid input".to_string(),
+                error_type: "invalid_input".to_string(),
+            }),
+        ))
+    }
 }
 
 #[utoipa::path(
@@ -1749,7 +1781,7 @@ async fn classify(
     post,
     tag = "ClassifyBatch",
     path = "/classify_batch",
-    request_body = TokenizeRequest,
+    request_body = BatchClassifyRequest,
     responses(
     (status = 200, description = "Classifications", body = BatchClassifyResponse),
     (status = 500, description = "Incomplete classification", body = ErrorResponse),
