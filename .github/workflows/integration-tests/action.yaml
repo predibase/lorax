@@ -66,6 +66,12 @@ runs:
         cd integration-tests
         pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
 
+    - name: Run Classification tests
+      shell: bash
+      run: |
+        cd integration-tests
+        pytest test_classifications.py -vv --capture=tee-sys --log-cli-level=INFO
+
     - name: Run LLM tests
       shell: bash
       run: |
