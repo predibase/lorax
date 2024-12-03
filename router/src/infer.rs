@@ -875,25 +875,35 @@ impl Infer {
                 err
             })?;
 
+        let (adapter_source, adapter_parameters) = extract_adapter_params(
+            request.parameters.adapter_id.clone(),
+            request.parameters.adapter_source.clone(),
+            request.parameters.adapter_parameters.clone(),
+        );
+
+        let adapter_idx;
+        {
+            // TODO(travis): can optimize concurrency here using RWLock
+            let mut adapter_to_index = self.adapter_to_index.lock().await;
+            let adapter_key = adapter_parameters.clone();
+            if adapter_to_index.contains_key(&adapter_key) {
+                adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
+            } else {
+                adapter_idx = adapter_to_index.len() as u32;
+                adapter_to_index.insert(adapter_key, adapter_idx);
+            }
+        }
+
+        let api_token = request.parameters.api_token.clone();
         let adapter = Adapter::new(
-            AdapterParameters {
-                adapter_ids: vec![BASE_MODEL_ADAPTER_ID.to_string()],
-                ..Default::default()
-            },
-            "hub".to_string(),
-            0,
-            None,
+            adapter_parameters,
+            adapter_source.unwrap(),
+            adapter_idx,
+            api_token,
         );
 
         // MPSC channel to communicate with the background batching task
         let (response_tx, response_rx) = mpsc::unbounded_channel();
-
-        let request_id_map: HashMap<u64, String> = request
-            .inputs
-            .iter()
-            .enumerate()
-            .map(|(id, input)| (id as u64, input.clone()))
-            .collect();
 
         // Call validate_input on every input in the request and await the results
         let futures: Vec<_> = request
@@ -1658,9 +1668,12 @@ pub(crate) enum InferStreamResponse {
     // Intermediate messages
     Token(Token),
     // Embeddings
+    // TODO: add tracing for embedding
     Embed {
         embedding: Embedding,
+        #[allow(dead_code)]
         start: Instant,
+        #[allow(dead_code)]
         queued: Instant,
         id: Option<u64>, // to support batching
     },
