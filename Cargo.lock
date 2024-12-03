@@ -1915,6 +1915,8 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "vergen",
+ "wasm-bindgen",
+ "wasm-bindgen-macro",
  "webpki",
 ]
 
