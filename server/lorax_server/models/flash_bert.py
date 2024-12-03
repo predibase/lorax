@@ -150,8 +150,6 @@ class FlashBert(Model):
     def warmup(self, batch: FlashEmbeddingClassificationBatch, max_new_tokens: int) -> int | None:
         # Note: This is meant to 1) preallocate the memory by doing a forward pass
         # and then just returning the max seqlen since for embeddings we are never generating
-        # print(batch)
-        breakpoint()
         _ = self.embed(batch)
         return batch.max_s
 

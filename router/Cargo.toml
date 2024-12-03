@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 async-stream = "0.3.3"
-axum = { version = "0.7", features = ["json"] }
+axum = { version = "0.7", features = ["json", "macros"] }
 axum-tracing-opentelemetry = "0.16"
 clap = { version = "4.1.4", features = ["derive", "env"] }
 futures = "0.3.26"
