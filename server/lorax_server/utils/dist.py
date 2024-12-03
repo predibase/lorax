@@ -11,7 +11,7 @@ WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
 # CUDA memory fraction
 MEMORY_FRACTION = float(os.getenv("CUDA_MEMORY_FRACTION", "1.0"))
 
-MEMORY_WIGGLE_ROOM = float(os.getenv("MEMORY_WIGGLE_ROOM", "0.95"))
+MEMORY_WIGGLE_ROOM = float(os.getenv("MEMORY_WIGGLE_ROOM", "0.8"))
 
 
 class FakeBarrier:
