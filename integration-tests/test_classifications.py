@@ -6,7 +6,12 @@ def test_distilbert_ner():
     config = {
         "name": "distilbert-ner",
         "model_id": "dslim/distilbert-NER",
-        "docker_args": {"max_input_length": 512},
+        "docker_args": {
+            "max_input_length": 512,
+            "max_batch_prefill_tokens": 512,
+            "max_batch_total_tokens": 512,
+            "max_total_tokens": 512,
+        },
     }
     with run_lorax_container(config):
         response = requests.post(
