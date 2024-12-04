@@ -1165,6 +1165,49 @@ struct EmbedResponse {
     embeddings: Vec<f32>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum StringOrVec {
+    String(String),
+    Vec(Vec<String>),
+}
+
+impl std::fmt::Display for StringOrVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            StringOrVec::String(s) => write!(f, "{}", s),
+            StringOrVec::Vec(v) => write!(f, "{}", v.join(", ")),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct CompatEmbedRequest {
+    input: StringOrVec,
+    #[allow(dead_code)]
+    model: String,
+    #[allow(dead_code)]
+    encoding_format: Option<String>,
+    #[allow(dead_code)]
+    dimensions: Option<i32>,
+    #[allow(dead_code)]
+    user: Option<String>,
+    #[serde(default = "default_embed_parameters")]
+    parameters: EmbedParameters,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompatEmbedResponse {
+    embeddings: Vec<CompatEmbedding>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CompatEmbedding {
+    index: i32,
+    embedding: Vec<f32>,
+    object: String,
+}
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ClassifyRequest {
     inputs: String,
@@ -1173,6 +1216,13 @@ struct ClassifyRequest {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchClassifyRequest {
     inputs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct BatchEmbedRequest {
+    inputs: Vec<String>,
+    #[serde(default = "default_embed_parameters")]
+    parameters: EmbedParameters,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

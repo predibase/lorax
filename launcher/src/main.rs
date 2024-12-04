@@ -1675,13 +1675,6 @@ fn main() -> Result<(), LauncherError> {
         }
     };
 
-    // Validate args
-    if max_input_tokens >= max_total_tokens {
-        return Err(LauncherError::ArgumentValidation(
-            "`max_input_length` must be < `max_total_tokens`".to_string(),
-        ));
-    }
-
     if args.validation_workers == 0 {
         return Err(LauncherError::ArgumentValidation(
             "`validation_workers` must be > 0".to_string(),

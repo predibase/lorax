@@ -4,9 +4,10 @@ use crate::queue::AdapterEvent;
 use crate::scheduler::AdapterScheduler;
 use crate::validation::{Validation, ValidationError};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, ChatTemplateVersions,
-    ClassifyRequest, EmbedRequest, EmbedResponse, Entity, Entry, HubTokenizerConfig, Message,
-    MessageChunk, MessageContent, TextMessage, Token, TokenizerConfigToken, Tool,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchEmbedRequest,
+    ChatTemplateVersions, ClassifyRequest, EmbedRequest, EmbedResponse, Entity, Entry,
+    HubTokenizerConfig, Message, MessageChunk, MessageContent, TextMessage, Token,
+    TokenizerConfigToken, Tool,
 };
 use crate::{GenerateRequest, PrefillToken};
 use futures::future::try_join_all;
@@ -596,6 +597,7 @@ impl Infer {
                     embedding,
                     start: _,
                     queued: _,
+                    id: _,
                 } => {
                     return_embeddings = Some(embedding.values);
                 }
@@ -849,6 +851,137 @@ impl Infer {
             sorted_responses.sort_by_key(|&(id, _)| id);
 
             let sorted_responses: Vec<InferClassifyResponse> = sorted_responses
+                .into_iter()
+                .map(|(_, response)| response)
+                .collect();
+
+            Ok(sorted_responses)
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn embed_batch(
+        &self,
+        request: BatchEmbedRequest,
+    ) -> Result<Vec<EmbedResponse>, InferError> {
+        // Limit concurrent requests by acquiring a permit from the semaphore
+        let _permit = self
+            .clone()
+            .limit_concurrent_requests
+            .try_acquire_owned()
+            .map_err(|err| {
+                metrics::increment_counter!("lorax_request_failure", "err" => "overloaded");
+                tracing::error!("{err}");
+                err
+            })?;
+
+        let (adapter_source, adapter_parameters) = extract_adapter_params(
+            request.parameters.adapter_id.clone(),
+            request.parameters.adapter_source.clone(),
+            request.parameters.adapter_parameters.clone(),
+        );
+
+        let adapter_idx;
+        {
+            // TODO(travis): can optimize concurrency here using RWLock
+            let mut adapter_to_index = self.adapter_to_index.lock().await;
+            let adapter_key = adapter_parameters.clone();
+            if adapter_to_index.contains_key(&adapter_key) {
+                adapter_idx = *adapter_to_index.get(&adapter_key).unwrap();
+            } else {
+                adapter_idx = adapter_to_index.len() as u32;
+                adapter_to_index.insert(adapter_key, adapter_idx);
+            }
+        }
+
+        let api_token = request.parameters.api_token.clone();
+        let adapter = Adapter::new(
+            adapter_parameters,
+            adapter_source.unwrap(),
+            adapter_idx,
+            api_token,
+        );
+
+        // MPSC channel to communicate with the background batching task
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
+
+        // Call validate_input on every input in the request and await the results
+        let futures: Vec<_> = request
+            .inputs
+            .iter()
+            .map(|input| {
+                self.validation
+                    .validate_input(input.clone(), true, None, Some(1))
+            })
+            .collect();
+
+        let all_tokenized_inputs = try_join_all(futures).await?;
+
+        for ((id, r_inputs), (tokenized_inputs, input_length)) in
+            request.inputs.iter().enumerate().zip(all_tokenized_inputs)
+        {
+            let inputs = r_inputs.to_string().clone();
+            let valid_request = ValidEmbedRequest {
+                inputs,
+                tokenized_inputs,
+                input_length: input_length as u32,
+                adapter: adapter.clone(),
+            };
+
+            // Process the request by sending it to the queue associated with `adapter`
+            self.adapter_scheduler.process(
+                adapter.clone(),
+                Entry {
+                    request: Arc::new(valid_request),
+                    response_tx: response_tx.clone(),
+                    span: Span::current(),
+                    temp_span: None,
+                    queue_time: Instant::now(),
+                    batch_time: None,
+                    block_allocation: None,
+                    id: Some(id as u64),
+                },
+            );
+        }
+
+        drop(response_tx); // Close the sending end
+
+        // Return values
+
+        let mut all_embeddings = HashMap::new();
+        let mut stream = UnboundedReceiverStream::new(response_rx);
+        while let Some(response) = stream.next().await {
+            match response? {
+                InferStreamResponse::Embed {
+                    embedding,
+                    start: _,
+                    queued: _,
+                    id,
+                } => {
+                    all_embeddings.insert(
+                        id.unwrap(),
+                        EmbedResponse {
+                            embeddings: embedding.values,
+                        },
+                    );
+                }
+                _ => {
+                    tracing::error!(
+                        "Received unexpected message type in classify_batch. This is a bug."
+                    );
+                }
+            }
+        }
+        if all_embeddings.is_empty() {
+            let err = InferError::EmbeddingFailure;
+            metrics::increment_counter!("lorax_request_failure", "err" => "embedding_failure");
+            tracing::error!("{err}");
+            Err(err)
+        } else {
+            let mut sorted_responses: Vec<_> = all_embeddings.into_iter().collect();
+            sorted_responses.sort_by_key(|&(id, _)| id);
+
+            let sorted_responses: Vec<EmbedResponse> = sorted_responses
                 .into_iter()
                 .map(|(_, response)| response)
                 .collect();
@@ -1478,6 +1611,7 @@ fn send_embeddings(
         embedding: embedding.clone(),
         queued: entry.queue_time,
         start: entry.batch_time.unwrap(),
+        id: entry.id,
     }))?;
 
     // TODO(travis): redundant as we always return true, just make it return nothing
@@ -1534,22 +1668,18 @@ pub(crate) enum InferStreamResponse {
     // Intermediate messages
     Token(Token),
     // Embeddings
+    // TODO: add tracing for embedding
     Embed {
         embedding: Embedding,
-        // For now allow this field even though it is unused.
-        // TODO:(magdy) enable tracing for these requests
         #[allow(dead_code)]
         start: Instant,
         #[allow(dead_code)]
         queued: Instant,
+        id: Option<u64>, // to support batching
     },
     Classify {
         predictions: ClassifyPredictionList,
-        // For now allow this field even though it is unused.
-        // TODO:(magdy) enable tracing for these requests
-        #[allow(dead_code)]
         start: Instant,
-        #[allow(dead_code)]
         queued: Instant,
         id: Option<u64>, // to support batching
     },

@@ -135,13 +135,6 @@ async fn main() -> Result<(), RouterError> {
 
     init_logging(otlp_endpoint, json_output);
 
-    // Validate args
-    if max_input_length >= max_total_tokens {
-        return Err(RouterError::ArgumentValidation(
-            "`max_input_length` must be < `max_total_tokens`".to_string(),
-        ));
-    }
-
     if validation_workers == 0 {
         return Err(RouterError::ArgumentValidation(
             "`validation_workers` must be > 0".to_string(),
