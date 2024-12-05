@@ -98,7 +98,7 @@ class NextTokens:
     is_special: List[bool]
     alternative_tokens: Optional[List[AlternativeTokens]]
 
-    def to_pb(self) -> generate_pb2.PrefillTokens:
+    def to_pb(self) -> generate_pb2.NextTokens:
         return generate_pb2.NextTokens(
             ids=self.token_ids,
             logprobs=self.logprobs,
@@ -118,7 +118,7 @@ class NextTokens:
 @dataclass
 class Generation:
     request_id: int
-    prefill_tokens: Optional[PrefillTokens]
+    prefill_tokens: Optional[NextTokens]
     prefill_tokens_length: int
     next_tokens: NextTokens
     generated_text: Optional[GeneratedText]
