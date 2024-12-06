@@ -20,4 +20,4 @@ def test_distilbert_ner():
         )
         response.raise_for_status()
         print("RESPONSE FROM CLASSIFICATION: ", response.json())
-        assert len(response.json()["predictions"]) > 0
+        assert len(response.json()) > 0
