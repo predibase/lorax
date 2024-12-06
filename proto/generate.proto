@@ -249,7 +249,7 @@ message Generation {
     /// Request ID
     uint64 request_id = 1;
     /// Prefill tokens (optional)
-    PrefillTokens prefill_tokens = 2;
+    NextTokens prefill_tokens = 2;
     /// Next tokens
     NextTokens next_tokens = 3;
     /// Complete generated text
