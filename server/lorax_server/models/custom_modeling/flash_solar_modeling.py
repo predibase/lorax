@@ -31,6 +31,7 @@ from transformers.configuration_utils import PretrainedConfig
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.utils import flash_attn, paged_attention
 from lorax_server.utils.attention.common import Seqlen
+from lorax_server.utils.flash_attn import HAS_FLASH_ATTN_V2_CUDA
 from lorax_server.utils.layers import (
     MultiAdapterHead,
     PositionRotaryEmbedding,
@@ -52,6 +53,11 @@ from lorax_server.utils.lora import (
     UP_PROJ,
     V_PROJ,
 )
+from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
+
+
+if not HAS_FLASH_ATTN_V2_CUDA:
+    raise ImportError("Solar model requires flash attn v2")
 
 
 class SolarConfig(PretrainedConfig):
@@ -225,9 +231,8 @@ class SolarMLP(nn.Module):
         return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
 
 
-def load_attention(config, prefix, weights, layer_id):
-    base_layer = load_attention_multi(config, prefix, weights)
-    head_size = config.hidden_size // config.num_attention_heads
+def load_attention(config, prefix, weights, layer_id, head_size):
+    base_layer = load_attention_multi(config, prefix, weights, head_size)
     return TensorParallelMultiAdapterLinear.load(
         base_layer,
         layer_id,
@@ -241,9 +246,9 @@ def load_attention(config, prefix, weights, layer_id):
     )
 
 
-def load_attention_multi(config, prefix, weights):
+def load_attention_multi(config, prefix, weights, head_size):
     if config.num_attention_heads != config.num_key_value_heads:
-        return _load_gqa(config, prefix, weights)
+        return _load_gqa(config, prefix, weights, head_size)
     else:
         return TensorParallelColumnLinear.load_multi(
             config,
@@ -254,7 +259,7 @@ def load_attention_multi(config, prefix, weights):
         )
 
 
-def _load_gqa(config, prefix: str, weights):
+def _load_gqa(config, prefix: str, weights, head_size):
     assert config.hidden_size % config.num_attention_heads == 0
     assert config.num_attention_heads % weights.process_group.size() == 0
 
@@ -268,16 +273,15 @@ def _load_gqa(config, prefix: str, weights):
     if isinstance(weight, tuple):
         weight, input_scale, weight_scale = weight
 
-    # convert to the same dtype and device as the weights
-    weight = weight.to(dtype=weights.dtype).to(device=weights.device)
+    if not is_quantized(config.quantize):
+        weight = weight.to(dtype=weights.dtype).to(device=weights.device)
 
-    head_size = config.hidden_size // config.num_attention_heads
-    num_heads = config.num_attention_heads // weights.process_group.size()
-    num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-    assert list(weight.shape) == [
-        (num_heads + 2 * num_key_value_heads) * head_size,
-        config.hidden_size,
-    ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
+        num_heads = config.num_attention_heads // weights.process_group.size()
+        num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
+        assert list(weight.shape) == [
+            (num_heads + 2 * num_key_value_heads) * head_size,
+            config.hidden_size,
+        ], f"{list(weight.shape)} != {[(num_heads + 2 * num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(
         get_linear(
@@ -302,8 +306,12 @@ class SolarAttention(torch.nn.Module):
 
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
-        self.head_size = self.hidden_size // self.num_heads
         self.max_past = config.sliding_window if config.sliding_window is not None else -1
+
+        if hasattr(config, "head_dim"):
+            self.head_size = config.head_dim
+        else:
+            self.head_size = self.hidden_size // self.num_heads
 
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
@@ -324,11 +332,16 @@ class SolarAttention(torch.nn.Module):
         self.num_heads = self.num_heads // weights.process_group.size()
         self.num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
 
-        self.k_scale = 1.0
-        self.v_scale = 1.0
-        self.fp8_kv = False
+        if is_fp8_kv(config.quantize):
+            self.k_scale = weights.get_tensor(f"{prefix}.k_scale", use_self_dtype=False).item()
+            self.v_scale = weights.get_tensor(f"{prefix}.v_scale", use_self_dtype=False).item()
+            self.fp8_kv = True
+        else:
+            self.k_scale = 1.0
+            self.v_scale = 1.0
+            self.fp8_kv = False
 
-        self.query_key_value = load_attention(config, prefix, weights, layer_id)
+        self.query_key_value = load_attention(config, prefix, weights, layer_id, self.head_size)
 
         self.o_proj = TensorParallelAdapterRowLinear.load(
             TensorParallelRowLinear.load(
@@ -509,6 +522,7 @@ class SolarLayer(nn.Module):
 class SolarModel(nn.Module):
     def __init__(self, prefix: str, config, weights):
         super().__init__()
+        self.config = config
 
         process_group = weights.process_group
         self.tp_rank = process_group.rank()
@@ -558,14 +572,28 @@ class SolarModel(nn.Module):
         cos, sin = self.layers[0].self_attn.rotary_emb.get_cos_sin(position_ids, max_s, hidden_states.dtype)
 
         residual = None
-        for i, layer in enumerate(self.layers):
-            hidden_states, residual = layer(
+
+        bskcn_1 = None
+        bskcn_2 = None
+        # Note, we use index 1 instead of index 0 since index 0 is used when training is enabled
+        bskcn_tv = self.config.bskcn_tv[1]
+        for layer_idx, decoder_layer in enumerate(self.layers):
+            if layer_idx in self.config.bskcn_1:
+                bskcn_1 = hidden_states
+            if layer_idx in self.config.bskcn_2:
+                bskcn_2 = hidden_states
+            if layer_idx in self.config.bskcn_3:
+                hidden_states = (bskcn_1 * bskcn_tv).to(hidden_states.device) + hidden_states * (1 - bskcn_tv)
+            if layer_idx in self.config.bskcn_4:
+                hidden_states = (bskcn_2 * bskcn_tv).to(hidden_states.device) + hidden_states * (1 - bskcn_tv)
+
+            hidden_states, residual = decoder_layer(
                 hidden_states,
                 residual,
                 cos,
                 sin,
                 cu_seqlen_prefill,
-                kv_cache[i],
+                kv_cache[layer_idx],
                 block_tables,
                 slots,
                 seqlen,
