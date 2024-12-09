@@ -13,6 +13,7 @@ from lorax_server.utils.lora import (
     DOWN_PROJ,
     GATE_PROJ,
     K_PROJ,
+    LM_HEAD,
     O_PROJ,
     Q_PROJ,
     UP_PROJ,
@@ -47,13 +48,35 @@ class FlashSolar(FlashCausalLM):
             **kwargs,
         )
 
-    # TODO: Implement adapter_target_to_layer
-    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
-        pass
-
     @property
     def supports_adapter_loading(self) -> bool:
         return True
+
+    def adapter_target_to_layer(self) -> Dict[str, Tuple[str, torch.Tensor]]:
+        layer_weights = {}
+
+        prefix = "model.layers"
+        for i, layer in enumerate(self.model.model.layers):
+            layer_weights[(i, Q_PROJ)] = (
+                f"{prefix}.{i}.self_attn.q_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, K_PROJ)] = (
+                f"{prefix}.{i}.self_attn.k_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, V_PROJ)] = (
+                f"{prefix}.{i}.self_attn.v_proj",
+                layer.self_attn.query_key_value,
+            )
+            layer_weights[(i, O_PROJ)] = (f"{prefix}.{i}.self_attn.o_proj", layer.self_attn.o_proj)
+
+            layer_weights[(i, GATE_PROJ)] = (f"{prefix}.{i}.mlp.gate_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, UP_PROJ)] = (f"{prefix}.{i}.mlp.up_proj", layer.mlp.gate_up_proj)
+            layer_weights[(i, DOWN_PROJ)] = (f"{prefix}.{i}.mlp.down_proj", layer.mlp.down_proj)
+
+        layer_weights[(0, LM_HEAD)] = ("lm_head", self.model.lm_head)
+        return layer_weights
 
     @property
     def adapter_layers(self) -> List[str]:
@@ -64,7 +87,7 @@ class FlashSolar(FlashCausalLM):
         return [Q_PROJ, V_PROJ]
 
     def get_num_layers_for_type(self, layer_type: str) -> int:
-        return len(self.model.model.layers)
+        return 1 if layer_type == LM_HEAD else len(self.model.model.layers)
 
     def is_row_parallel(self, layer_type: str) -> bool:
         return layer_type in ROW_PARALLEL
