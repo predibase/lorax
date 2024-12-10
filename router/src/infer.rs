@@ -17,7 +17,7 @@ use itertools::izip;
 use itertools::multizip;
 use lorax_client::{
     Batch, CachedBatch, ClassifyPredictionList, ClientError, Embedding, GeneratedText, Generation,
-    PrefillTokens, PreloadedAdapter, ShardedClient,
+    NextTokens, PreloadedAdapter, ShardedClient,
 };
 use minijinja::{Environment, ErrorKind, Template};
 use minijinja_contrib::pycompat;
@@ -1661,7 +1661,7 @@ fn send_errors(error: ClientError, entries: &mut IntMap<u64, Entry>) {
 pub(crate) enum InferStreamResponse {
     // Optional first message
     Prefill {
-        tokens: Option<PrefillTokens>,
+        tokens: Option<NextTokens>,
         tokens_length: u32,
         prefill_time: Instant,
     },

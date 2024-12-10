@@ -15,8 +15,7 @@ pub use pb::generate::v1::{
     input_chunk, AdapterParameters, AlternativeTokens, Batch, CachedBatch, ClassifyPredictionList,
     DownloadAdapterResponse, Embedding, Entity, EntityList, FinishReason, GeneratedText,
     Generation, Image, InputChunk, MajoritySignMethod, MergeStrategy, NextTokenChooserParameters,
-    NextTokens, PrefillTokens, PreloadedAdapter, Request, StoppingCriteriaParameters,
-    TokenizedInputs,
+    NextTokens, PreloadedAdapter, Request, StoppingCriteriaParameters, TokenizedInputs,
 };
 pub use sharded_client::ShardedClient;
 use thiserror::Error;
