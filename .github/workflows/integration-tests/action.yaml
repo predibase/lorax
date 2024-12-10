@@ -60,20 +60,20 @@ runs:
         first_tag=$(echo "${{ inputs.test_image_tag }}" | head -n 1)
         echo "TEST_IMAGE_TAG=$first_tag" >> $GITHUB_ENV
 
+    - name: Run Embedding tests
+      shell: bash
+      run: |
+        cd integration-tests
+        pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
+
+    - name: Run Classification tests
+      shell: bash
+      run: |
+        cd integration-tests
+        pytest test_classifications.py -vv --capture=tee-sys --log-cli-level=INFO
+
     - name: Run LLM tests
       shell: bash
       run: |
         cd integration-tests
         pytest test_base_llms.py -vv --capture=tee-sys --log-cli-level=INFO
-
-    # - name: Run Embedding tests
-    #   shell: bash
-    #   run: |
-    #     cd integration-tests
-    #     pytest test_embeddings.py -vv --capture=tee-sys --log-cli-level=INFO
-
-    # - name: Run Classification tests
-    #   shell: bash
-    #   run: |
-    #     cd integration-tests
-    #     pytest test_classifications.py -vv --capture=tee-sys --log-cli-level=INFO

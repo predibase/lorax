@@ -3,7 +3,6 @@ from utils.docker_runner import run_lorax_container
 
 
 def test_stella_1_5b():
-    return True
     config = {
         "name": "stella-1.5b",
         "model_id": "dunzhang/stella_en_1.5B_v5",
@@ -17,7 +16,6 @@ def test_stella_1_5b():
 
 
 def test_uae_large_v1_1_5b():
-    return True
     config = {
         "name": "UAE-Large-V1-1.5b",
         "model_id": "WhereIsAI/UAE-Large-V1",
