@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'fix-integration-tests'
     tags:
       - "v*"
 
