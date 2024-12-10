@@ -122,6 +122,15 @@ jobs:
             docker tag ghcr.io/predibase/lorax:main "$tag"
           done <<< "$tags"
 
+      - name: Run integration tests
+        id: integration_tests
+        uses: ./.github/workflows/integration-tests
+        with:
+          test_image_tag: ${{ steps.meta.outputs.tags }}
+          use_local_image: true
+          github_token: ${{ secrets.GHCR_PAT }}
+          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+
       - name: Import image in containerd
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
@@ -152,15 +161,6 @@ jobs:
             echo "Pushing soci index for $tag"
             sudo $SOCI_PATH push --user ${{ github.repository_owner }}:${{ secrets.GHCR_PAT }} $tag
           done
-
-      - name: Run integration tests
-        id: integration_tests
-        uses: ./.github/workflows/integration-tests
-        with:
-          test_image_tag: ${{ steps.meta.outputs.tags }}
-          use_local_image: true
-          github_token: ${{ secrets.GHCR_PAT }}
-          huggingface_token: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
 
       - name: Final Tags
         id: final_meta
