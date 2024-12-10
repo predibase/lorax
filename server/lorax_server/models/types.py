@@ -65,19 +65,6 @@ class GeneratedText:
 
 
 @dataclass
-class PrefillTokens:
-    token_ids: List[int]
-    logprobs: List[float]
-    texts: List[str]
-
-    def to_pb(self) -> generate_pb2.PrefillTokens:
-        return generate_pb2.PrefillTokens(ids=self.token_ids, logprobs=self.logprobs, texts=self.texts)
-
-    def __len__(self):
-        return len(self.token_ids)
-
-
-@dataclass
 class AlternativeTokens:
     token_ids: List[int]
     logprobs: List[float]

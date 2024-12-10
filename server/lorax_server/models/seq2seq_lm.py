@@ -11,7 +11,6 @@ from lorax_server.models.types import (
     GeneratedText,
     Generation,
     NextTokens,
-    PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
@@ -662,10 +661,12 @@ class Seq2SeqLM(Model):
 
                 # Prefill
                 if stopping_criteria.current_tokens == 1 and request.prefill_logprobs:
-                    prefill_tokens = PrefillTokens(
+                    prefill_tokens = NextTokens(
                         [self.tokenizer.bos_token_id],
                         [float("nan")],
                         [self.tokenizer.bos_token],
+                        None,
+                        None
                     )
                     prefill_tokens_length = len(prefill_tokens.token_ids)
                 else:

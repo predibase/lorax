@@ -12,7 +12,6 @@ from lorax_server.models.types import (
     GeneratedText,
     Generation,
     NextTokens,
-    PrefillTokens,
 )
 from lorax_server.pb import generate_pb2
 from lorax_server.utils import NextTokenChooser, Sampling, StoppingCriteria
@@ -697,7 +696,7 @@ class CausalLM(Model):
                         clean_up_tokenization_spaces=False,
                         skip_special_tokens=False,
                     )
-                    prefill_tokens = PrefillTokens(prefill_token_ids, prefill_logprobs, prefill_texts)
+                    prefill_tokens = NextTokens(prefill_token_ids, prefill_logprobs, prefill_texts, None, None)
                     prefill_tokens_length = len(prefill_tokens.token_ids)
                 else:
                     prefill_tokens = None
