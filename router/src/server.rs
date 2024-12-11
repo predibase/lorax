@@ -1774,6 +1774,8 @@ async fn classify(
         inference_time.as_secs_f64()
     );
 
+    tracing::info!("Success");
+
     Ok((headers, Json(response.predictions)))
 }
 
@@ -1858,6 +1860,8 @@ async fn classify_batch(
     );
 
     let batch_entity_vec = responses.into_iter().map(|r| r.predictions).collect();
+    tracing::debug!("Output: {:?}", batch_entity_vec);
+    tracing::info!("Success");
     Ok((headers, Json(batch_entity_vec)))
 }
 

@@ -292,6 +292,7 @@ impl AdapterSchedulerState {
         };
 
         let num_entries = self.queues_state.lock().await.len();
+        metrics::gauge!("lorax_queue_length", num_entries as f64);
         if num_entries == 0 {
             return None;
         }
