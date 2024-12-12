@@ -209,10 +209,15 @@ def use_decode_state(
 
     token = decode_state.set(state)
 
+    indices = []
+    for l in input_lengths:
+            indices.append(torch.arange(l, dtype=torch.int32, device=input_lengths.device))
+    indices = torch.cat(indices) + block_tables[0]
+
     try:
         state.begin_forward(
             indptr=indptr,
-            indices=block_tables,
+            indices=indices,
             last_page_len=last_page_len,
             num_qo_heads=num_heads,
             num_kv_heads=num_kv_heads,
