@@ -1,8 +1,8 @@
 apiVersion: v2
 name: lorax
-description: LoRAX is the open-source framework for serving 
+description: LoRAX is the open-source framework for serving
   hundreds of fine-tuned LLMs in production for the price of one.
-version: 0.3.0
+version: 0.4.0
 appVersion: 0.3.0
 
 home: https://github.com/predibase/lorax
@@ -11,15 +11,14 @@ annotations:
   artifacthub.io/category: ai-machine-learning
 
 keywords:
-- lorax
-- llama
-- llm
-- predibase
+  - lorax
+  - llama
+  - llm
+  - predibase
 
 maintainers:
-- email: maintainers@predibase.com
-  name: Predibase
+  - email: maintainers@predibase.com
+    name: Predibase
 
 sources:
-- https://github.com/predibase/lorax
-
+  - https://github.com/predibase/lorax

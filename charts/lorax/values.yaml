@@ -7,20 +7,25 @@ deployment:
     tag: "latest"
 
   args:
-    modelId: "mistralai/Mistral-7B-Instruct-v0.1"
-    maxInputLength: 512
-    maxTotalTokens: 1024
-    maxBatchTotalTokens: 4096
-    maxBatchPrefillTokens: 2048
-    sharded: false
-    eagerPrefill: false
+    - name: "--model-id"
+      value: "mistralai/Mistral-7B-Instruct-v0.1"
+    - name: "--max-input-length"
+      value: "512"
+    - name: "--max-total-tokens"
+      value: "1024"
+    - name: "--max-batch-total-tokens"
+      value: "4096"
+    - name: "--max-batch-prefill-tokens"
+      value: "2048"
+    - name: "--eager-prefill"
+      value: "false"
+    - name: "--compile"
+      value: "" # --complie does not take a second argument
 
   env:
     # Your huggingface hub token. Required for some models such as the llama-2 family.
-    huggingFaceHubToken: ""
-
-    # Model types that support dynamic adapter loading
-    loraxEnabledModelTypes: "llama,mistral"
+    - name: "HUGGING_FACE_HUB_TOKEN"
+      value: ""
 
   resources:
     limits:
@@ -34,7 +39,7 @@ deployment:
       memory: 27041Mi
       nvidia.com/gpu: "1"
 
-  livenessProbe: 
+  livenessProbe:
     failureThreshold: 240
     httpGet:
       path: /health
@@ -45,7 +50,7 @@ deployment:
     successThreshold: 1
     timeoutSeconds: 1
 
-  readinessProbe: 
+  readinessProbe:
     failureThreshold: 600
     httpGet:
       path: /health
@@ -72,4 +77,3 @@ service:
   serviceType: ClusterIP
   port: 80
   additionalLabels: {}
-
