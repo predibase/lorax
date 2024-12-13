@@ -486,12 +486,12 @@ async fn health(
     if health.shard_info().supports_embeddings {
         let embed_request = EmbedRequest {
             inputs: "San Francisco".to_string(),
-            parameters: EmbedParameters {
+            parameters: Some(EmbedParameters {
                 adapter_id: None,
                 adapter_source: None,
                 adapter_parameters: None,
                 api_token: None,
-            },
+            }),
         };
         match infer.embed(embed_request).await {
             Ok(_) => {}
