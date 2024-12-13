@@ -147,6 +147,7 @@ class Model(ABC):
             supports_embeddings=self.supports_embeddings,
             supports_classification=self.supports_classification,
             chunked_prefill=self.supports_chunking,
+            requires_block_allocator=self.requires_block_allocator,
         )
 
     @property
@@ -162,6 +163,10 @@ class Model(ABC):
     @property
     def supports_embeddings(self) -> bool:
         return False
+
+    @property
+    def requires_block_allocator(self) -> bool:
+        return True
 
     @property
     def supports_classification(self) -> bool:

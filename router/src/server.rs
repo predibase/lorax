@@ -1354,7 +1354,7 @@ pub async fn run(
         shard_info.preloaded_adapters,
         prefix_caching,
         shard_info.chunked_prefill,
-        is_causal_lm,
+        shard_info.requires_block_allocator,
     );
 
     // Duration buckets
