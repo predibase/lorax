@@ -1773,6 +1773,13 @@ async fn classify(
         "lorax_request_inference_duration",
         inference_time.as_secs_f64()
     );
+    metrics::histogram!(
+        "lorax_request_classify_output_count",
+        response.predictions.len() as f64
+    );
+
+    tracing::debug!("Output: {:?}", response.predictions);
+    tracing::info!("Success");
 
     Ok((headers, Json(response.predictions)))
 }
@@ -1857,7 +1864,19 @@ async fn classify_batch(
         inference_time.as_secs_f64()
     );
 
-    let batch_entity_vec = responses.into_iter().map(|r| r.predictions).collect();
+    let batch_entity_vec: Vec<Vec<Entity>> = responses
+        .into_iter()
+        .map(|r| {
+            let entity_vec = r.predictions;
+            metrics::histogram!(
+                "lorax_request_classify_output_count",
+                entity_vec.len() as f64
+            );
+            entity_vec
+        })
+        .collect();
+    tracing::debug!("Output: {:?}", batch_entity_vec);
+    tracing::info!("Success");
     Ok((headers, Json(batch_entity_vec)))
 }
 
