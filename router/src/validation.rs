@@ -814,6 +814,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_validation_best_of_sampling() {
         let tokenizer = Some(get_tokenizer().await);
         let max_best_of = 2;

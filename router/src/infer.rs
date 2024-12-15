@@ -188,7 +188,7 @@ impl Infer {
         preloaded_adapters: Vec<PreloadedAdapter>,
         prefix_caching: bool,
         chunked_prefill: bool,
-        is_causal_lm: bool,
+        requires_block_allocator: bool,
     ) -> Self {
         let adapter_event = Arc::new(AdapterEvent {
             batching_task: Notify::new(),
@@ -207,7 +207,7 @@ impl Infer {
             max_batch_total_tokens,
             prefix_caching,
             chunked_prefill,
-            is_causal_lm,
+            requires_block_allocator,
         );
 
         // Initialize with base model adapter (empty) mapping to index 0
@@ -501,10 +501,12 @@ impl Infer {
                 err
             })?;
 
+        let embed_params = request.parameters.unwrap_or_default();
+
         let (adapter_source, adapter_parameters) = extract_adapter_params(
-            request.parameters.adapter_id.clone(),
-            request.parameters.adapter_source.clone(),
-            request.parameters.adapter_parameters.clone(),
+            embed_params.adapter_id.clone(),
+            embed_params.adapter_source.clone(),
+            embed_params.adapter_parameters.clone(),
         );
 
         let adapter_idx;
@@ -520,7 +522,7 @@ impl Infer {
             }
         }
 
-        let api_token = request.parameters.api_token.clone();
+        let api_token = embed_params.api_token.clone();
         let adapter = Adapter::new(
             adapter_parameters,
             adapter_source.unwrap(),
@@ -875,10 +877,12 @@ impl Infer {
                 err
             })?;
 
+        let embed_params = request.parameters.clone().unwrap_or_default();
+
         let (adapter_source, adapter_parameters) = extract_adapter_params(
-            request.parameters.adapter_id.clone(),
-            request.parameters.adapter_source.clone(),
-            request.parameters.adapter_parameters.clone(),
+            embed_params.adapter_id.clone(),
+            embed_params.adapter_source.clone(),
+            embed_params.adapter_parameters.clone(),
         );
 
         let adapter_idx;
@@ -894,7 +898,7 @@ impl Infer {
             }
         }
 
-        let api_token = request.parameters.api_token.clone();
+        let api_token = embed_params.api_token.clone();
         let adapter = Adapter::new(
             adapter_parameters,
             adapter_source.unwrap(),
