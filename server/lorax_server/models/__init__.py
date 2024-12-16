@@ -278,6 +278,17 @@ def get_model(
             **flash_causal_lm_kwargs,
         )
 
+    if model_type == "solar":
+        from lorax_server.models.flash_solar import FlashSolar
+
+        return FlashSolar(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            **flash_causal_lm_kwargs,
+        )
+
     if model_type == "gemma":
         from lorax_server.models.flash_gemma import FlashGemma
 
