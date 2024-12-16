@@ -41,7 +41,7 @@ impl AdapterScheduler {
         max_batch_total_tokens: u32,
         prefix_caching: bool,
         chunked_prefill: bool,
-        is_causal_lm: bool,
+        requires_block_allocator: bool,
     ) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -59,7 +59,7 @@ impl AdapterScheduler {
             max_batch_total_tokens,
             prefix_caching,
             chunked_prefill,
-            is_causal_lm,
+            requires_block_allocator,
         ));
 
         Self { sender }
@@ -125,7 +125,7 @@ async fn adapter_scheduler_task(
     max_batch_total_tokens: u32,
     prefix_caching: bool,
     chunked_prefill: bool,
-    is_causal_lm: bool,
+    requires_block_allocator: bool,
 ) {
     let mut state = AdapterSchedulerState::new(
         client,
@@ -138,7 +138,7 @@ async fn adapter_scheduler_task(
         max_batch_total_tokens,
         prefix_caching,
         chunked_prefill,
-        is_causal_lm,
+        requires_block_allocator,
     );
 
     while let Some(cmd) = receiver.recv().await {
@@ -217,7 +217,7 @@ impl AdapterSchedulerState {
         max_batch_total_tokens: u32,
         prefix_caching: bool,
         chunked_prefill: bool,
-        is_causal_lm: bool,
+        requires_block_allocator: bool,
     ) -> Self {
         let queues_state = Arc::new(Mutex::new(AdapterQueuesState::new(
             max_active_adapters,
@@ -226,7 +226,7 @@ impl AdapterSchedulerState {
         let loader = AdapterLoader::new(client.clone());
 
         // Only causal LMs require the block allocator, due to paged attention
-        let block_allocator = (!requires_padding && is_causal_lm).then(|| {
+        let block_allocator = (!requires_padding && requires_block_allocator).then(|| {
             BlockAllocator::new(
                 max_batch_total_tokens,
                 block_size,
@@ -292,6 +292,7 @@ impl AdapterSchedulerState {
         };
 
         let num_entries = self.queues_state.lock().await.len();
+        metrics::gauge!("lorax_queue_length", num_entries as f64);
         if num_entries == 0 {
             return None;
         }

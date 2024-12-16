@@ -1,7 +1,7 @@
 # LoRAX
 
 <p align="center">
-    <img src="images/lorax_guy.png" alt="LoRAX Logo" style="width:200px;" />
+    <img src="LoRAX_Main_Logo-Orange.png" alt="LoRAX Logo" style="width:200px;" />
 </p>
 <p align="center">
     <em>Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs</em>

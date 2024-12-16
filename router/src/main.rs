@@ -58,7 +58,7 @@ struct Args {
     port: u16,
     #[clap(default_value = "/tmp/lorax-server-0", long, env)]
     master_shard_uds_path: String,
-    #[clap(default_value = "bigscience/bloom", long, env)]
+    #[clap(long, env)]
     tokenizer_name: String,
     #[clap(long, env)]
     tokenizer_config_path: Option<String>,

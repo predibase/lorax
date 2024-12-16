@@ -125,6 +125,10 @@ class FlashDistilBert(Model):
         return False
 
     @property
+    def requires_block_allocator(self) -> bool:
+        return False
+
+    @property
     def supports_classification(self) -> bool:
         return self.classification_head_enabled
 

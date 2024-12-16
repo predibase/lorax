@@ -10,10 +10,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# def _init_client():
-#     return docker.from_env()
-
-
 def _init_client():
     try:
         client = docker.DockerClient(base_url="unix:///var/run/docker.sock", version="auto")

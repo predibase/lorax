@@ -1144,20 +1144,22 @@ pub(crate) struct EmbedParameters {
     pub api_token: Option<String>,
 }
 
-fn default_embed_parameters() -> EmbedParameters {
-    EmbedParameters {
-        adapter_id: None,
-        adapter_source: None,
-        adapter_parameters: None,
-        api_token: None,
+impl Default for EmbedParameters {
+    fn default() -> Self {
+        Self {
+            adapter_id: None,
+            adapter_source: None,
+            adapter_parameters: None,
+            api_token: None,
+        }
     }
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct EmbedRequest {
     inputs: String,
-    #[serde(default = "default_embed_parameters")]
-    pub parameters: EmbedParameters,
+    #[serde(default)]
+    pub parameters: Option<EmbedParameters>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1192,8 +1194,8 @@ struct CompatEmbedRequest {
     dimensions: Option<i32>,
     #[allow(dead_code)]
     user: Option<String>,
-    #[serde(default = "default_embed_parameters")]
-    parameters: EmbedParameters,
+    #[serde(default)]
+    parameters: Option<EmbedParameters>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1221,8 +1223,8 @@ struct BatchClassifyRequest {
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchEmbedRequest {
     inputs: Vec<String>,
-    #[serde(default = "default_embed_parameters")]
-    parameters: EmbedParameters,
+    #[serde(default)]
+    parameters: Option<EmbedParameters>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

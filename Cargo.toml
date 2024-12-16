@@ -1,10 +1,5 @@
 [workspace]
-members = [
-    "router",
-    "router/client",
-    "router/grpc-metadata",
-    "launcher"
-]
+members = ["router", "router/client", "router/grpc-metadata", "launcher"]
 
 [workspace.package]
 version = "0.1.0"

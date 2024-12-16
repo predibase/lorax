@@ -17,7 +17,7 @@ service LoraxService {
     rpc Prefill (PrefillRequest) returns (PrefillResponse);
     /// Embed
     rpc Embed (EmbedRequest) returns (EmbedResponse);
-    /// Classify 
+    /// Classify
     rpc Classify (ClassifyRequest) returns (ClassifyResponse);
     /// Decode token for a list of prefilled batches
     rpc Decode (DecodeRequest) returns (DecodeResponse);
@@ -58,6 +58,7 @@ message InfoResponse {
     bool supports_embeddings = 9;
     bool supports_classification = 10;
     bool chunked_prefill = 11;
+    bool requires_block_allocator = 12;
 }
 
 /// Empty request
@@ -118,11 +119,11 @@ message StoppingCriteriaParameters {
 message Image {
     /// Binary image data.
     bytes data = 1;
-  
+
     /// Image MIME type.
     string mimetype = 2;
   }
-  
+
 message InputChunk {
     oneof chunk {
       /// Plain text data
@@ -214,15 +215,6 @@ message GeneratedText {
     optional uint64 seed = 5;
 }
 
-message PrefillTokens {
-    /// Prefill Token IDs
-    repeated uint32 ids = 1;
-    /// Prefill Logprobs
-    repeated float logprobs = 2;
-    /// Prefill tokens
-    repeated string texts = 3;
-}
-
 message AlternativeTokens {
     /// Alternative Token IDs
     repeated uint32 ids = 1;
@@ -249,7 +241,7 @@ message Generation {
     /// Request ID
     uint64 request_id = 1;
     /// Prefill tokens (optional)
-    PrefillTokens prefill_tokens = 2;
+    NextTokens prefill_tokens = 2;
     /// Next tokens
     NextTokens next_tokens = 3;
     /// Complete generated text
@@ -340,7 +332,7 @@ message Entity {
 message EntityList {
     /// Request ID
     uint64 request_id = 1;
-    /// Entities 
+    /// Entities
     repeated Entity entities = 2;
     /// XXX
     repeated uint32 input_ids = 4;

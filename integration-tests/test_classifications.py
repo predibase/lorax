@@ -19,5 +19,5 @@ def test_distilbert_ner():
             json={"inputs": "Johnny supports the Golden State Warriors. He lives in London."},
         )
         response.raise_for_status()
-        print("RESPONSE FROM CLASSIFICATION: ", response.json())
+        print("RESPONSE FROM CLASSIFICATION:", response.json())
         assert len(response.json()) > 0
