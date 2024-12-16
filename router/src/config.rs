@@ -161,6 +161,7 @@ pub enum Config {
     PhiMsft,
     Phi3,
     Llama,
+    Solar,
     Baichuan,
     Paligemma(Paligemma),
     Gemma,
