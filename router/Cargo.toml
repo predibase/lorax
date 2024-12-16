@@ -20,6 +20,7 @@ axum = { version = "0.7", features = ["json", "macros"] }
 axum-tracing-opentelemetry = "0.16"
 clap = { version = "4.1.4", features = ["derive", "env"] }
 futures = "0.3.26"
+home = "=0.5.9"
 hf-hub = { version = "0.3.0", features = ["tokio"] }
 h2 = "0.3.26"
 lorax-client = { path = "client" }

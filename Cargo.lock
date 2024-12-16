@@ -1985,6 +1985,7 @@ dependencies = [
  "futures",
  "h2",
  "hf-hub",
+ "home",
  "image",
  "init-tracing-opentelemetry",
  "itertools 0.12.1",
