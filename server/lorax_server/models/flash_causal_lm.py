@@ -1347,7 +1347,7 @@ class FlashCausalLM(Model):
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
         free_memory = get_cuda_free_memory(self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION)
-        free_memory -= graph_cache_memory
+        free_memory = max(0, free_memory - graph_cache_memory)
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
         batch_num_blocks = batch.num_blocks if batch is not None else 0
@@ -1745,7 +1745,8 @@ class FlashCausalLM(Model):
                 # Only save tokens if we are done prefilling for this request
                 batch.all_input_ids_tensor[
                     i,
-                    batch.cache_lengths_tensor[i] + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
+                    batch.cache_lengths_tensor[i]
+                    + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
                     + batch.input_lengths[i]
                     + accepted_ids[i],
                 ] = next_input_ids[cu_accepted_ids[i] : cu_accepted_ids[i + 1]]
@@ -1987,7 +1988,6 @@ class FlashCausalLM(Model):
                             request_alternative_token_texts,
                         )
                         all_alternative_tokens.append(alternative_tokens)
-
 
                     stop, reason = stopping_criteria(
                         next_token_id,
