@@ -20,7 +20,6 @@
 
 from typing import List, Optional, Tuple
 
-# Flash attention imports
 import dropout_layer_norm
 import torch
 import torch.distributed
@@ -181,56 +180,6 @@ class SolarRMSNorm(nn.Module):
             return normed_hidden_states, res
 
 
-class SolarMLP(nn.Module):
-    def __init__(self, prefix, config, weights, layer_id):
-        super().__init__()
-        act = config.hidden_act
-        self.act = (
-            ACT2FN[act]
-            if "gelu" not in act
-            else lambda x: torch.nn.functional.gelu(
-                x,
-                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
-            )
-        )
-        # Fuse gate and up proj
-        gate_up_proj = TensorParallelColumnLinear.load_multi(
-            config,
-            prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
-            weights=weights,
-            dim=0,
-            bias=False,
-        )
-        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
-            gate_up_proj,
-            layer_id,
-            [GATE_PROJ, UP_PROJ],
-            sizes=[
-                config.intermediate_size,
-                config.intermediate_size,
-            ],
-            process_group=weights.process_group,
-        )
-
-        self.down_proj = TensorParallelAdapterRowLinear.load(
-            TensorParallelRowLinear.load(
-                config,
-                prefix=f"{prefix}.down_proj",
-                weights=weights,
-                bias=False,
-            ),
-            layer_id,
-            DOWN_PROJ,
-            process_group=weights.process_group,
-        )
-        self.intermediate_size = config.intermediate_size // weights.process_group.size()
-
-    def forward(self, hidden_states, adapter_data):
-        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
-        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
-
-
 def load_attention(config, prefix, weights, layer_id, head_size):
     base_layer = load_attention_multi(config, prefix, weights, head_size)
     return TensorParallelMultiAdapterLinear.load(
@@ -304,15 +253,16 @@ class SolarAttention(torch.nn.Module):
     ):
         super().__init__()
 
+        self.max_past = config.sliding_window if config.sliding_window is not None else -1
         self.num_heads = config.num_attention_heads
         self.hidden_size = config.hidden_size
-        self.max_past = config.sliding_window if config.sliding_window is not None else -1
 
         if hasattr(config, "head_dim"):
             self.head_size = config.head_dim
         else:
             self.head_size = self.hidden_size // self.num_heads
 
+        # TODO(Arnav): Solar can also support linear and dynamic ntk rotary embeddings
         self.rotary_emb = PositionRotaryEmbedding.static(
             config=config,
             dim=self.head_size,
@@ -461,6 +411,56 @@ class SolarAttention(torch.nn.Module):
         return self.o_proj(attn_output.view(-1, self.num_heads * self.head_size), adapter_data)
 
 
+class SolarMLP(nn.Module):
+    def __init__(self, prefix, config, weights, layer_id):
+        super().__init__()
+        act = config.hidden_act
+        self.act = (
+            ACT2FN[act]
+            if "gelu" not in act
+            else lambda x: torch.nn.functional.gelu(
+                x,
+                approximate="tanh" if act in ["gelu_fast", "gelu_pytorch_tanh"] else "none",
+            )
+        )
+        # Fuse gate and up proj
+        gate_up_proj = TensorParallelColumnLinear.load_multi(
+            config,
+            prefixes=[f"{prefix}.gate_proj", f"{prefix}.up_proj"],
+            weights=weights,
+            dim=0,
+            bias=False,
+        )
+        self.gate_up_proj = TensorParallelMultiAdapterLinear.load(
+            gate_up_proj,
+            layer_id,
+            [GATE_PROJ, UP_PROJ],
+            sizes=[
+                config.intermediate_size,
+                config.intermediate_size,
+            ],
+            process_group=weights.process_group,
+        )
+
+        self.down_proj = TensorParallelAdapterRowLinear.load(
+            TensorParallelRowLinear.load(
+                config,
+                prefix=f"{prefix}.down_proj",
+                weights=weights,
+                bias=False,
+            ),
+            layer_id,
+            DOWN_PROJ,
+            process_group=weights.process_group,
+        )
+        self.intermediate_size = config.intermediate_size // weights.process_group.size()
+
+    def forward(self, hidden_states, adapter_data):
+        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
+        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
+        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
+
+
 class SolarLayer(nn.Module):
     def __init__(self, prefix, layer_id, config, weights):
         super().__init__()
@@ -476,7 +476,9 @@ class SolarLayer(nn.Module):
             prefix=f"{prefix}.input_layernorm", weights=weights, eps=config.rms_norm_eps
         )
         self.post_attention_layernorm = SolarRMSNorm(
-            prefix=f"{prefix}.post_attention_layernorm", weights=weights, eps=config.rms_norm_eps
+            prefix=f"{prefix}.post_attention_layernorm",
+            weights=weights,
+            eps=config.rms_norm_eps,
         )
 
     def forward(
@@ -577,23 +579,23 @@ class SolarModel(nn.Module):
         bskcn_2 = None
         # Note, we use index 1 instead of index 0 since index 0 is used when training is enabled
         bskcn_tv = self.config.bskcn_tv[1]
-        for layer_idx, decoder_layer in enumerate(self.layers):
-            if layer_idx in self.config.bskcn_1:
+        for i, layer in enumerate(self.layers):
+            if i in self.config.bskcn_1:
                 bskcn_1 = hidden_states
-            if layer_idx in self.config.bskcn_2:
+            if i in self.config.bskcn_2:
                 bskcn_2 = hidden_states
-            if layer_idx in self.config.bskcn_3:
+            if i in self.config.bskcn_3:
                 hidden_states = (bskcn_1 * bskcn_tv).to(hidden_states.device) + hidden_states * (1 - bskcn_tv)
-            if layer_idx in self.config.bskcn_4:
+            if i in self.config.bskcn_4:
                 hidden_states = (bskcn_2 * bskcn_tv).to(hidden_states.device) + hidden_states * (1 - bskcn_tv)
 
-            hidden_states, residual = decoder_layer(
+            hidden_states, residual = layer(
                 hidden_states,
                 residual,
                 cos,
                 sin,
                 cu_seqlen_prefill,
-                kv_cache[layer_idx],
+                kv_cache[i],
                 block_tables,
                 slots,
                 seqlen,

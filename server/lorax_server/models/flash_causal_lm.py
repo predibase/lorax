@@ -106,7 +106,7 @@ class FlashCausalLMBatch(Batch):
     prefilling_mask_tensor: Optional[torch.Tensor]
 
     # Prefill metadata tensors to efficiently compute logprobs
-    # tensor of length b+1 containing the cumulative sequence lengths of the sequences in the batch, only used in prefill
+    # tensor of length b+1 containing the cumulative sequence lengths of the sequences in the batch, only used in prefill  # noqa: E501
     cu_seqlen_prefill: Optional[torch.Tensor]
     # Prefill cache indices is used to slice into the kv tensor before caching it into the paged attention buffers
     # as we only keep SLIDING_WINDOW values instead of the whole tensor
@@ -186,13 +186,16 @@ class FlashCausalLMBatch(Batch):
         if batch_tokenized_inputs is None:
             batch_inputs = []
             max_truncation = 0
-            for r in pb.requests:
-                inputs = tokenizers.get_inputs(r, tokenizer)
+            for request in pb.requests:
+                inputs = tokenizers.get_inputs(request, tokenizer)
                 batch_inputs.append(inputs)
-                max_truncation = max(max_truncation, r.truncate)
+                max_truncation = max(max_truncation, request.truncate)
 
-            if all(r.HasField("tokenized_inputs") and len(r.tokenized_inputs.ids) > 0 for r in pb.requests):
-                batch_tokenized_inputs = [r.tokenized_inputs.ids[-max_truncation:] for r in pb.requests]
+            if all(
+                request.HasField("tokenized_inputs") and len(request.tokenized_inputs.ids) > 0
+                for request in pb.requests
+            ):
+                batch_tokenized_inputs = [request.tokenized_inputs.ids[-max_truncation:] for request in pb.requests]
             else:
                 batch_tokenized_inputs = tokenizer(batch_inputs, truncation=True, max_length=max_truncation)[
                     "input_ids"
@@ -225,24 +228,24 @@ class FlashCausalLMBatch(Batch):
         block_tables_ragged = []
 
         # Parse batch
-        for i, (r, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
+        for i, (request, tokenized_input) in enumerate(zip(pb.requests, batch_tokenized_inputs)):
             # request id -> idx in list mapping
-            requests_idx_mapping[r.id] = i
+            requests_idx_mapping[request.id] = i
 
-            tokenized_input = tokenized_input[-r.truncate :]
+            tokenized_input = tokenized_input[-request.truncate :]
 
             prompt_length = len(tokenized_input)
             prompt_lengths.append(prompt_length)
 
-            cache_length = r.cache_len
+            cache_length = request.cache_len
             assert cache_length <= prompt_length, f"Prefix {cache_length} vs input {prompt_length}"
             if cache_length == prompt_length:
                 assert False, "unreachable"
 
             # `chunk_len` is an optional field in the protobuf
             # It is only set if the model support chunking
-            if r.HasField("chunk_len"):
-                input_length = r.chunk_len
+            if request.HasField("chunk_len"):
+                input_length = request.chunk_len
 
                 if cache_length + input_length < prompt_length:
                     # FIXME: speculate is not supported for context chunking at the moment
@@ -265,9 +268,9 @@ class FlashCausalLMBatch(Batch):
             all_postfix_ids.append(postfix_ids)
             all_input_ids.append(tokenized_input)
 
-            next_token_chooser_parameters.append(r.parameters)
+            next_token_chooser_parameters.append(request.parameters)
 
-            stopping_criteria = StoppingCriteria.from_pb(r.stopping_parameters, tokenizer)
+            stopping_criteria = StoppingCriteria.from_pb(request.stopping_parameters, tokenizer)
             max_new_tokens = stopping_criteria.max_new_tokens
             stopping_criterias.append(stopping_criteria)
 
@@ -279,13 +282,13 @@ class FlashCausalLMBatch(Batch):
             block_tokens = prompt_length + max_new_tokens - 1 + speculative_tokens
 
             # blocks and slots can be empty (for example in warmup)
-            if not r.blocks:
+            if not request.blocks:
                 needed_blocks = math.ceil(block_tokens / BLOCK_SIZE)
                 request_blocks = [b for b in range(num_blocks, num_blocks + needed_blocks)]
                 request_slots = [s for b in request_blocks for s in range(b * BLOCK_SIZE, (b + 1) * BLOCK_SIZE)]
             else:
-                request_blocks = r.blocks
-                request_slots = r.slots
+                request_blocks = request.blocks
+                request_slots = request.slots
 
             block_tables.append(request_blocks)
             block_tables_ragged.extend(request_blocks)
@@ -1748,7 +1751,8 @@ class FlashCausalLM(Model):
                 # Only save tokens if we are done prefilling for this request
                 batch.all_input_ids_tensor[
                     i,
-                    batch.cache_lengths_tensor[i] + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
+                    batch.cache_lengths_tensor[i]
+                    + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
                     + batch.input_lengths[i]
                     + accepted_ids[i],
                 ] = next_input_ids[cu_accepted_ids[i] : cu_accepted_ids[i + 1]]
@@ -1990,7 +1994,6 @@ class FlashCausalLM(Model):
                             request_alternative_token_texts,
                         )
                         all_alternative_tokens.append(alternative_tokens)
-
 
                     stop, reason = stopping_criteria(
                         next_token_id,
