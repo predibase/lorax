@@ -633,7 +633,7 @@ struct Args {
     #[clap(long, env)]
     disable_sgmv: bool,
 
-    #[clap(default_value = "0.8", long, env)]
+    #[clap(default_value = "0.9", long, env)]
     memory_wiggle_room: f32,
 }
 
