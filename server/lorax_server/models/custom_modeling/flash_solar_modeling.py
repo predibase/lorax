@@ -20,6 +20,7 @@
 
 from typing import List, Optional, Tuple
 
+# Flash attention imports
 import dropout_layer_norm
 import torch
 import torch.distributed
@@ -53,7 +54,6 @@ from lorax_server.utils.lora import (
     V_PROJ,
 )
 from lorax_server.utils.torch_utils import is_fp8_kv, is_quantized
-
 
 if not HAS_FLASH_ATTN_V2_CUDA:
     raise ImportError("Solar model requires flash attn v2")
