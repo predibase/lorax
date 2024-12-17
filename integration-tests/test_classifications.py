@@ -28,7 +28,7 @@ def test_distilbert_ner():
 def test_bert_ner():
     config = {
         "name": "bert-ner",
-        "model_id": "dslim/bert-base-NER",
+        "model_id": "magdyks/bert-base-ner",
         "docker_args": {
             "max_input_length": 512,
             "max_batch_prefill_tokens": 512,
