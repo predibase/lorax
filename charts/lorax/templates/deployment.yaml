@@ -33,25 +33,16 @@ spec:
       {{- end }}
       containers:
       - args:
-        - --model-id
-        - {{ .Values.deployment.args.modelId }}
-        - --max-input-length
-        - {{ .Values.deployment.args.maxInputLength | quote }}
-        - --max-total-tokens
-        - {{ .Values.deployment.args.maxTotalTokens | quote }}
-        - --max-batch-total-tokens
-        - {{ .Values.deployment.args.maxBatchTotalTokens | quote }}
-        - --max-batch-prefill-tokens
-        - {{ .Values.deployment.args.maxBatchPrefillTokens | quote }}
-        - --sharded
-        - {{ .Values.deployment.args.sharded | quote }}
-        - --eager-prefill
-        - {{ .Values.deployment.args.eagerPrefill | quote }}
+      {{- range .Values.deployment.args }}
+        - {{ .name }}
+        {{- if .value }}
+        - {{ .value | quote }}
+        {{- end }}
+      {{- end }}
         env:
         - name: PORT
           value: "8000"
-        - name: HUGGING_FACE_HUB_TOKEN
-          value: {{ .Values.deployment.env.huggingFaceHubToken | quote }}
+{{- toYaml .Values.deployment.env | nindent 8 }}
         image: {{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}
         imagePullPolicy: IfNotPresent
         livenessProbe: {{ toYaml .Values.deployment.livenessProbe | nindent 10 }}
@@ -68,7 +59,7 @@ spec:
         - mountPath: /dev/shm
           name: shm
       {{- if .Values.deployment.tolerations }}
-      tolerations: 
+      tolerations:
         {{- toYaml .Values.deployment.tolerations | nindent 6 }}
       {{- end }}
       nodeSelector: {{ toYaml .Values.deployment.nodeSelector | nindent 8 }}
