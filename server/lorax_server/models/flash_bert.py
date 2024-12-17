@@ -179,6 +179,8 @@ class FlashBert(Model):
             num_heads=self.num_heads,
             num_kv_heads=self.num_kv_heads,
             head_size=self.head_size,
+            # TODO: This is a hack to get the prefill state to work
+            window_left=0,
         )
 
     def forward(self, batch: FlashEmbeddingClassificationBatch):
