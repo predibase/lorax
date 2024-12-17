@@ -26,7 +26,8 @@ if TYPE_CHECKING:
     from lorax_server.models.model import Model
 
 
-MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 128))
+MAX_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_MAX_BATCH_SIZE", 256))
+COMPILE_BATCH_SIZE = int(os.environ.get("LORAX_COMPILE_BATCH_SIZE", 32))
 MAX_RANK = int(os.environ.get("LORAX_COMPILE_MAX_RANK", 64))
 
 SLOT_PAD_VALUE = -1
@@ -40,7 +41,7 @@ BATCH_SIZE_INCREMENT = 32
 CACHED_BATCH_SIZES = [1, 2, 3, 4, 8, 16] + [
     BATCH_SIZE_INCREMENT * (i + 1) for i in range(MAX_BATCH_SIZE // BATCH_SIZE_INCREMENT)
 ]
-CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= MAX_BATCH_SIZE]
+CACHED_BATCH_SIZES = [b for b in CACHED_BATCH_SIZES if b <= COMPILE_BATCH_SIZE]
 
 # Include 0 to ensure we can use cuda graphs without adapters
 # TODO(travis): use padding to allow for more ranks without increasing memory usage
@@ -472,6 +473,7 @@ class GraphCache:
         self.sliding_window_blocks = sliding_window_blocks
         self.layer_to_lora_weights = layer_to_lora_weights
         self.punica_wrapper = punica_wrapper
+        self.batch_size = COMPILE_BATCH_SIZE
 
     def can_use_graph(
         self,
@@ -603,7 +605,13 @@ class GraphCache:
 
         key = (batch_size, max_rank)
         graph = self.cache.get(key)
-        if graph is None or not graph.input_state.traced_adapter_layer_names.issuperset(adapter_data.layer_names()):
+        if (
+            graph is None
+            or not graph.input_state.traced_adapter_layer_names.issuperset(adapter_data.layer_names())
+            # This is the case where COMPILE_BATCH_SIZE < batch_size <= MAX_BATCH_SIZE so
+            # we just retrace the graph for that new size
+            or batch_size > self.batch_size
+        ):
             current_traced_adapter_layer_names = (
                 graph.input_state.traced_adapter_layer_names if graph is not None else set()
             )
@@ -631,6 +639,7 @@ class GraphCache:
                 self.punica_wrapper,
             )
             self.cache[key] = graph
+            self.batch_size = batch_size
 
         output_states = graph.forward(
             input_ids=input_ids,

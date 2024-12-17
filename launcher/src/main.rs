@@ -353,6 +353,10 @@ struct Args {
     #[clap(default_value = "64", long, env)]
     compile_max_rank: usize,
 
+    // The initial batch size for model CUDA compilations
+    #[clap(default_value = "32", long, env)]
+    compile_batch_size: usize,
+
     /// The number of speculative tokens to generate in the model per step.
     /// Defaults to 0, meaning no speculative decoding.
     #[clap(long, env)]
@@ -633,7 +637,7 @@ struct Args {
     #[clap(long, env)]
     disable_sgmv: bool,
 
-    #[clap(default_value = "0.8", long, env)]
+    #[clap(default_value = "0.9", long, env)]
     memory_wiggle_room: f32,
 }
 
@@ -654,6 +658,7 @@ fn shard_manager(
     compile: bool,
     compile_max_batch_size: usize,
     compile_max_rank: usize,
+    compile_batch_size: usize,
     speculative_tokens: Option<usize>,
     speculation_max_batch_size: usize,
     preloaded_adapter_ids: Vec<String>,
@@ -830,6 +835,12 @@ fn shard_manager(
     envs.push((
         "LORAX_COMPILE_MAX_RANK".into(),
         compile_max_rank.to_string().into(),
+    ));
+
+    // Compile initial batch size
+    envs.push((
+        "LORAX_COMPILE_BATCH_SIZE".into(),
+        compile_batch_size.to_string().into(),
     ));
 
     // Speculative decoding max batch size
@@ -1294,6 +1305,7 @@ fn spawn_shards(
         let compile = args.compile;
         let compile_max_batch_size = args.compile_max_batch_size;
         let compile_max_rank = args.compile_max_rank;
+        let compile_batch_size = args.compile_batch_size;
         let speculative_tokens = args.speculative_tokens;
         let speculation_max_batch_size = args.speculation_max_batch_size;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
@@ -1325,6 +1337,7 @@ fn spawn_shards(
                 compile,
                 compile_max_batch_size,
                 compile_max_rank,
+                compile_batch_size,
                 speculative_tokens,
                 speculation_max_batch_size,
                 preloaded_adapter_ids,

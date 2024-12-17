@@ -1350,7 +1350,7 @@ class FlashCausalLM(Model):
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
         free_memory = get_cuda_free_memory(self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION)
-        free_memory -= graph_cache_memory
+        free_memory = max(0, free_memory - graph_cache_memory)
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
         batch_num_blocks = batch.num_blocks if batch is not None else 0
