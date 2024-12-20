@@ -380,4 +380,15 @@ def get_model(
             trust_remote_code=trust_remote_code,
         )
 
+    if model_type == "granite":
+        from lorax_server.models.flash_granite import FlashGranite
+
+        return FlashGranite(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            **flash_causal_lm_kwargs,
+        )
+
     raise ValueError(f"Unsupported model type {model_type}")
