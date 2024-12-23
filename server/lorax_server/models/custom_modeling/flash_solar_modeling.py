@@ -580,6 +580,12 @@ class SolarModel(nn.Module):
         # Note, we use index 1 instead of index 0 since index 0 is used when training is enabled
         bskcn_tv = self.config.bskcn_tv[1]
         for i, layer in enumerate(self.layers):
+            # Add residual to hidden states explicitly. We have to do this because the cross-layer
+            # residuals assume the output hidden state already have the residuals added to it, but the
+            # LoRAX implementation only adds the residual to the hidden states in the next layer's input_layernorm.
+            if residual is not None:
+                hidden_states = hidden_states + residual
+
             if i in self.config.bskcn_1:
                 bskcn_1 = hidden_states
             if i in self.config.bskcn_2:
@@ -589,9 +595,11 @@ class SolarModel(nn.Module):
             if i in self.config.bskcn_4:
                 hidden_states = (bskcn_2 * bskcn_tv).to(hidden_states.device) + hidden_states * (1 - bskcn_tv)
 
+            # Note, we explicitly set residual to None here to skip adding it to the hidden states
+            # in the input_layernorm layer because we do this explicitly above.
             hidden_states, residual = layer(
                 hidden_states,
-                residual,
+                None,  # residual
                 cos,
                 sin,
                 cu_seqlen_prefill,
