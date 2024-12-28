@@ -454,6 +454,119 @@ async fn get_model_info(info: Extension<Info>) -> Json<Info> {
 #[utoipa::path(
 get,
 tag = "LoRAX",
+path = "/startup",
+responses(
+(status = 200, description = "Everything is working fine and ready"),
+(status = 503, description = "LoRAX is down", body = ErrorResponse,
+example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
+)
+)]
+/// For k8s startup probe
+async fn is_startup_ready(
+    infer: Extension<Infer>,
+    health: Extension<Health>,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if health.shard_info().supports_classification {
+        let classify_request = ClassifyRequest {
+            inputs: "San Francisco".to_string(),
+        };
+        match infer.classify(classify_request).await {
+            Ok(_) => {}
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
+            }
+        }
+    }
+    if health.shard_info().supports_embeddings {
+        let embed_request = EmbedRequest {
+            inputs: "San Francisco".to_string(),
+            parameters: Some(EmbedParameters {
+                adapter_id: None,
+                adapter_source: None,
+                adapter_parameters: None,
+                api_token: None,
+            }),
+        };
+        match infer.embed(embed_request).await {
+            Ok(_) => {}
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
+            }
+        }
+    }
+    if health.shard_info().supports_generation {
+        let generate_request = GenerateRequest {
+            inputs: "Who?".to_string(),
+            parameters: GenerateParameters {
+                adapter_id: None,
+                adapter_source: None,
+                adapter_parameters: None,
+                api_token: None,
+                best_of: None,
+                temperature: None,
+                top_k: None,
+                top_p: None,
+                typical_p: None,
+                do_sample: false,
+                seed: None,
+                repetition_penalty: None,
+                frequency_penalty: None,
+                presence_penalty: None,
+                watermark: false,
+                return_full_text: None,
+                stop: vec![],
+                truncate: None,
+                details: false,
+                decoder_input_details: false,
+                return_k_alternatives: None,
+                apply_chat_template: false,
+                response_format: None,
+                max_new_tokens: Some(1),
+                ignore_eos_token: false,
+            },
+            add_special_tokens: true,
+        };
+        match infer.generate(generate_request).await {
+            Ok(response) => {
+                if response.generated_text.text.len() == 0 {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "Empty generation".to_string(),
+                            error_type: "failed healthcheck".to_string(),
+                        }),
+                    ));
+                }
+            }
+            Err(error) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: error.to_string(),
+                        error_type: error.error_type().to_string(),
+                    }),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[utoipa::path(
+get,
+tag = "LoRAX",
 path = "/health",
 responses(
 (status = 200, description = "Everything is working fine"),
@@ -1229,12 +1342,8 @@ pub async fn run(
         max_input_length,
         max_total_tokens,
     );
-    let generation_health = Arc::new(AtomicBool::new(false));
-    let health_ext = Health::new(
-        client.clone(),
-        generation_health.clone(),
-        shard_info.clone(),
-    );
+    let inference_health = Arc::new(AtomicBool::new(false));
+    let health_ext = Health::new(client.clone(), inference_health.clone(), shard_info.clone());
 
     // For non-causal LMs, the max batch total tokens is equal to the max batch prefill tokens
     let is_causal_lm = shard_info.supports_generation;
@@ -1256,7 +1365,7 @@ pub async fn run(
         adapter_cycle_time_s,
         shard_info.requires_padding,
         shard_info.window_size,
-        generation_health,
+        inference_health,
         eager_prefill,
         tokenizer_config,
         arc_tokenizer,
@@ -1403,6 +1512,7 @@ pub async fn run(
     let info_routes = Router::new()
         .route("/", get(health))
         // Base Health route
+        .route("/ready", get(is_startup_ready))
         .route("/health", get(health))
         .route("/info", get(get_model_info))
         // AWS Sagemaker health route

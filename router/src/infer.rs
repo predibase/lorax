@@ -179,7 +179,7 @@ impl Infer {
         adapter_cycle_time_s: u64,
         requires_padding: bool,
         window_size: Option<u32>,
-        generation_health: Arc<AtomicBool>,
+        inference_health: Arc<AtomicBool>,
         eager_prefill: bool,
         tokenizer_config: HubTokenizerConfig,
         tokenizer: Option<Arc<Tokenizer>>,
@@ -255,7 +255,7 @@ impl Infer {
             max_batch_total_tokens,
             max_waiting_tokens,
             adapter_event,
-            generation_health,
+            inference_health,
             adapter_scheduler.clone(),
             eager_prefill,
             chunked_prefill,
@@ -1055,7 +1055,7 @@ async fn batching_task(
     max_batch_total_tokens: u32,
     max_waiting_tokens: usize,
     adapter_event: Arc<AdapterEvent>,
-    generation_health: Arc<AtomicBool>,
+    inference_health: Arc<AtomicBool>,
     adapter_scheduler: AdapterScheduler,
     eager_prefill: bool,
     chunked_prefill: bool,
@@ -1078,7 +1078,7 @@ async fn batching_task(
             .await
         {
             let mut cached_batch = batch_entries
-                .process_first(&mut client, batch, None, span, &generation_health)
+                .process_first(&mut client, batch, None, span, &inference_health)
                 .await;
             let mut waiting_tokens = 1;
 
@@ -1195,7 +1195,7 @@ async fn batching_task(
                             new_batch,
                             cached_batch,
                             span,
-                            &generation_health,
+                            &inference_health,
                         )
                         .await;
 
@@ -1237,7 +1237,7 @@ async fn batching_task(
                     });
 
                 cached_batch = batch_entries
-                    .process_next(&mut client, batches, next_batch_span, &generation_health)
+                    .process_next(&mut client, batches, next_batch_span, &inference_health)
                     .await;
                 waiting_tokens += 1;
             }
@@ -1253,7 +1253,7 @@ pub(crate) async fn prefill(
     batch: Batch,
     cached_batch: Option<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
-    generation_health: &Arc<AtomicBool>,
+    inference_health: &Arc<AtomicBool>,
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_id = batch.id;
@@ -1262,7 +1262,7 @@ pub(crate) async fn prefill(
     match client.prefill(batch, cached_batch).await {
         Ok((generations, next_batch)) => {
             // Update health
-            generation_health.store(true, Ordering::SeqCst);
+            inference_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
             let removed = filter_send_generations(generations, entries);
 
@@ -1282,7 +1282,7 @@ pub(crate) async fn prefill(
         // If we have an error, we discard the whole batch
         Err(err) => {
             // Update health
-            generation_health.store(false, Ordering::SeqCst);
+            inference_health.store(false, Ordering::SeqCst);
             let _ = client.clear_cache(Some(batch_id)).await;
             send_errors(err, entries);
             metrics::increment_counter!("lorax_batch_inference_failure", "method" => "prefill");
@@ -1296,7 +1296,7 @@ pub(crate) async fn decode(
     client: &mut ShardedClient,
     batches: Vec<CachedBatch>,
     entries: &mut IntMap<u64, Entry>,
-    generation_health: &Arc<AtomicBool>,
+    inference_health: &Arc<AtomicBool>,
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_ids: Vec<u64> = batches.iter().map(|b| b.id).collect();
@@ -1305,7 +1305,7 @@ pub(crate) async fn decode(
     match client.decode(batches).await {
         Ok((generations, next_batch)) => {
             // Update health
-            generation_health.store(true, Ordering::SeqCst);
+            inference_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
             let removed = filter_send_generations(generations, entries);
 
@@ -1318,7 +1318,7 @@ pub(crate) async fn decode(
         }
         // If we have an error, we discard the whole batch
         Err(err) => {
-            generation_health.store(false, Ordering::SeqCst);
+            inference_health.store(false, Ordering::SeqCst);
             for id in batch_ids {
                 let _ = client.clear_cache(Some(id)).await;
             }
@@ -1334,7 +1334,7 @@ pub(crate) async fn embed(
     client: &mut ShardedClient,
     batch: Batch,
     entries: &mut IntMap<u64, Entry>,
-    generation_health: &Arc<AtomicBool>,
+    inference_health: &Arc<AtomicBool>,
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_id = batch.id;
@@ -1343,7 +1343,7 @@ pub(crate) async fn embed(
     match client.embed(batch).await {
         Ok(results) => {
             // Update health
-            generation_health.store(true, Ordering::SeqCst);
+            inference_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
             results.into_iter().for_each(|embedding| {
                 let id = embedding.request_id;
@@ -1377,7 +1377,7 @@ pub(crate) async fn embed(
         // If we have an error, we discard the whole batch
         Err(err) => {
             // Update health
-            generation_health.store(false, Ordering::SeqCst);
+            inference_health.store(false, Ordering::SeqCst);
             let _ = client.clear_cache(Some(batch_id)).await;
             send_errors(err, entries);
             metrics::increment_counter!("lorax_batch_inference_failure", "method" => "embed");
@@ -1391,7 +1391,7 @@ pub(crate) async fn classify(
     client: &mut ShardedClient,
     batch: Batch,
     entries: &mut IntMap<u64, Entry>,
-    generation_health: &Arc<AtomicBool>,
+    inference_health: &Arc<AtomicBool>,
 ) -> Option<CachedBatch> {
     let start_time = Instant::now();
     let batch_id = batch.id;
@@ -1400,7 +1400,7 @@ pub(crate) async fn classify(
     match client.classify(batch).await {
         Ok(results) => {
             // Update health
-            generation_health.store(true, Ordering::SeqCst);
+            inference_health.store(true, Ordering::SeqCst);
             // Send generated tokens and filter stopped entries
             results.into_iter().for_each(|predictions| {
                 let id = predictions.request_id;
@@ -1434,7 +1434,7 @@ pub(crate) async fn classify(
         // If we have an error, we discard the whole batch
         Err(err) => {
             // Update health
-            generation_health.store(false, Ordering::SeqCst);
+            inference_health.store(false, Ordering::SeqCst);
             let _ = client.clear_cache(Some(batch_id)).await;
             send_errors(err, entries);
             metrics::increment_counter!("lorax_batch_inference_failure", "method" => "classify");
