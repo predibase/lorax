@@ -1512,7 +1512,7 @@ pub async fn run(
     let info_routes = Router::new()
         .route("/", get(health))
         // Base Health route
-        .route("/ready", get(is_startup_ready))
+        .route("/startup", get(is_startup_ready))
         .route("/health", get(health))
         .route("/info", get(get_model_info))
         // AWS Sagemaker health route

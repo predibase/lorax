@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 def _init_client():
     try:
-        client = docker.DockerClient(base_url="unix:///var/run/docker.sock", version="auto")
+        client = docker.DockerClient(
+            base_url="unix:///var/run/docker.sock", version="auto"
+        )
         # Test the connection
         client.ping()
         logger.info("Successfully connected to Docker daemon")
@@ -20,7 +22,9 @@ def _init_client():
     except Exception as e:
         logger.error(f"Failed to connect to Docker daemon: {str(e)}")
         logger.error(f"Docker socket exists: {os.path.exists('/var/run/docker.sock')}")
-        logger.error(f"Docker socket permissions: {oct(os.stat('/var/run/docker.sock').st_mode)}")
+        logger.error(
+            f"Docker socket permissions: {oct(os.stat('/var/run/docker.sock').st_mode)}"
+        )
         raise
 
 
@@ -82,6 +86,8 @@ def run_lorax_container(config):
     try:
         logger.info("Waiting for container to be healthy")
         _wait_for_healthy(container)
+        startup_response = requests.get("http://localhost:8080/startup")
+        startup_response.raise_for_status()
         logger.info("Container is healthy")
         yield
     finally:
