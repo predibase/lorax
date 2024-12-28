@@ -454,15 +454,15 @@ async fn get_model_info(info: Extension<Info>) -> Json<Info> {
 #[utoipa::path(
 get,
 tag = "LoRAX",
-path = "/health",
+path = "/startup",
 responses(
-(status = 200, description = "Everything is working fine"),
+(status = 200, description = "Everything is working fine and ready"),
 (status = 503, description = "LoRAX is down", body = ErrorResponse,
 example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
 )
 )]
-/// Health check method
-async fn health(
+/// For k8s startup probe
+async fn is_startup_ready(
     infer: Extension<Infer>,
     health: Extension<Health>,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
@@ -562,6 +562,30 @@ async fn health(
         }
     }
     Ok(())
+}
+
+#[utoipa::path(
+get,
+tag = "LoRAX",
+path = "/health",
+responses(
+(status = 200, description = "Everything is working fine"),
+(status = 503, description = "LoRAX is down", body = ErrorResponse,
+example = json ! ({"error": "unhealthy", "error_type": "healthcheck"})),
+)
+)]
+/// Health check method
+async fn health(mut health: Extension<Health>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    match health.check().await {
+        true => Ok(()),
+        false => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "unhealthy".to_string(),
+                error_type: "healthcheck".to_string(),
+            }),
+        )),
+    }
 }
 
 /// Generate tokens
@@ -1318,12 +1342,8 @@ pub async fn run(
         max_input_length,
         max_total_tokens,
     );
-    let generation_health = Arc::new(AtomicBool::new(false));
-    let health_ext = Health::new(
-        client.clone(),
-        generation_health.clone(),
-        shard_info.clone(),
-    );
+    let inference_health = Arc::new(AtomicBool::new(false));
+    let health_ext = Health::new(client.clone(), inference_health.clone(), shard_info.clone());
 
     // For non-causal LMs, the max batch total tokens is equal to the max batch prefill tokens
     let is_causal_lm = shard_info.supports_generation;
@@ -1345,7 +1365,7 @@ pub async fn run(
         adapter_cycle_time_s,
         shard_info.requires_padding,
         shard_info.window_size,
-        generation_health,
+        inference_health,
         eager_prefill,
         tokenizer_config,
         arc_tokenizer,
@@ -1492,6 +1512,7 @@ pub async fn run(
     let info_routes = Router::new()
         .route("/", get(health))
         // Base Health route
+        .route("/startup", get(is_startup_ready))
         .route("/health", get(health))
         .route("/info", get(get_model_info))
         // AWS Sagemaker health route

@@ -290,7 +290,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         batch: Batch,
         cached_batch: Option<CachedBatch>,
         span: Span,
-        generation_health: &Arc<AtomicBool>,
+        inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
 
     async fn process_next(
@@ -298,7 +298,7 @@ pub(crate) trait BatchEntries: Sync + Send + Debug {
         client: &mut ShardedClient,
         batches: Vec<CachedBatch>,
         span: Span,
-        generation_health: &Arc<AtomicBool>,
+        inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch>;
 }
 
@@ -404,14 +404,14 @@ impl BatchEntries for GenerateBatchEntries {
         batch: Batch,
         cached_batch: Option<CachedBatch>,
         span: Span,
-        generation_health: &Arc<AtomicBool>,
+        inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         prefill(
             client,
             batch,
             cached_batch,
             &mut self.state.batch_entries,
-            &generation_health,
+            &inference_health,
         )
         .instrument(span)
         .await
@@ -422,13 +422,13 @@ impl BatchEntries for GenerateBatchEntries {
         client: &mut ShardedClient,
         batches: Vec<CachedBatch>,
         span: Span,
-        generation_health: &Arc<AtomicBool>,
+        inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         decode(
             client,
             batches,
             &mut self.state.batch_entries,
-            &generation_health,
+            &inference_health,
         )
         .instrument(span)
         .await
@@ -537,13 +537,13 @@ impl BatchEntries for EmbedBatchEntries {
         batch: Batch,
         _cached_batch: Option<CachedBatch>,
         span: Span,
-        generation_health: &Arc<AtomicBool>,
+        inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         embed(
             client,
             batch,
             &mut self.state.batch_entries,
-            &generation_health,
+            &inference_health,
         )
         .instrument(span)
         .await
@@ -554,7 +554,7 @@ impl BatchEntries for EmbedBatchEntries {
         _client: &mut ShardedClient,
         _batches: Vec<CachedBatch>,
         _span: Span,
-        _generation_health: &Arc<AtomicBool>,
+        _inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(travis): send error (programming eroor) if we get here
         None
@@ -663,13 +663,13 @@ impl BatchEntries for ClassifyBatchEntries {
         batch: Batch,
         _cached_batch: Option<CachedBatch>,
         span: Span,
-        generation_health: &Arc<AtomicBool>,
+        inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         classify(
             client,
             batch,
             &mut self.state.batch_entries,
-            &generation_health,
+            &inference_health,
         )
         .instrument(span)
         .await
@@ -680,7 +680,7 @@ impl BatchEntries for ClassifyBatchEntries {
         _client: &mut ShardedClient,
         _batches: Vec<CachedBatch>,
         _span: Span,
-        _generation_health: &Arc<AtomicBool>,
+        _inference_health: &Arc<AtomicBool>,
     ) -> Option<CachedBatch> {
         // TODO(magdy): send error (programming eroor) if we get here
         None
