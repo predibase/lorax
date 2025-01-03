@@ -20,6 +20,8 @@ use crate::{
     TokenizeRequest, TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
 };
 use axum::extract::Extension;
+use axum::extract::Query;
+use axum::http::header;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -33,8 +35,10 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp;
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -1175,15 +1179,116 @@ async fn generate_stream_with_callback(
     (headers, stream)
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct MetricFamily {
+    r#type: String,
+    data: Vec<DataPoint>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct DataPoint {
+    key: String,
+    value: f64,
+}
+
+fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
+    let mut metrics = HashMap::new();
+    let mut current_metric = String::new();
+
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.starts_with("# TYPE ") {
+            // Extract metric name from TYPE declaration
+            // # TYPE <metric_name> <metric_type>
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                current_metric = parts[2].to_string();
+                metrics.insert(
+                    current_metric.clone(),
+                    MetricFamily {
+                        r#type: parts[3].to_string(), // Metric type -> histogram, counter, etc
+                        data: Vec::new(),
+                    },
+                );
+                continue;
+            }
+        }
+
+        // Parse metric line if it belongs to current metric family
+        if let Some(metric_family) = metrics.get_mut(&current_metric) {
+            let mut parts = line.split_whitespace();
+            if let (Some(metric_name), Some(value_str)) = (parts.next(), parts.next()) {
+                if let Ok(value) = value_str.parse::<f64>() {
+                    let key = match metric_name {
+                        name if name.contains('{') => name.to_string(),
+                        name if name.ends_with("_sum") => "sum".to_string(),
+                        name if name.ends_with("_count") => "count".to_string(),
+                        _ => "".to_string(),
+                    };
+
+                    // Add the parsed metric data point
+                    metric_family.data.push(DataPoint { key, value });
+                }
+            }
+        }
+    }
+
+    metrics
+}
+
 /// Prometheus metrics scrape endpoint
 #[utoipa::path(
 get,
 tag = "LoRAX",
 path = "/metrics",
-responses((status = 200, description = "Prometheus Metrics", body = String))
+params(
+    ("format", Query, description = "Optional format parameter (prometheus|json)", example = "json")
+),
+responses(
+    (status = 200, description = "Prometheus or JSON Metrics",
+     content(
+         ("text/plain" = String),
+         ("application/json" = Object)
+     ))
+)
 )]
-async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
-    prom_handle.render()
+async fn metrics(
+    prom_handle: Extension<PrometheusHandle>,
+    format: Option<Query<String>>,
+    headers: HeaderMap,
+) -> Response {
+    let want_json = format
+        .map(|f| f.0.to_lowercase() == "json")
+        .unwrap_or_else(|| {
+            headers
+                .get(header::ACCEPT)
+                .and_then(|h| h.to_str().ok())
+                .map(|h| h.contains("application/json"))
+                .unwrap_or(false)
+        });
+
+    let prometheus_text = prom_handle.render();
+
+    if want_json {
+        let metrics = parse_text_to_metrics(&prometheus_text);
+
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            Json(metrics),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/plain")],
+            prometheus_text,
+        )
+            .into_response()
+    }
 }
 
 async fn request_logger(
