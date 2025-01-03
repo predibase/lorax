@@ -52,7 +52,9 @@ class MergedAdapters(BaseModel):
     @field_validator("majority_sign_method")
     def validate_majority_sign_method(cls, v):
         if v is not None and v not in MAJORITY_SIGN_METHODS:
-            raise ValidationError(f"`majority_sign_method` must be one of {MAJORITY_SIGN_METHODS}")
+            raise ValidationError(
+                f"`majority_sign_method` must be one of {MAJORITY_SIGN_METHODS}"
+            )
         return v
 
 
@@ -64,7 +66,9 @@ class ResponseFormat(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     type: ResponseFormatType
-    schema_spec: Optional[Union[Dict[str, Any], OrderedDict]] = Field(None, alias="schema")
+    schema_spec: Optional[Union[Dict[str, Any], OrderedDict]] = Field(
+        None, alias="schema"
+    )
 
 
 class Parameters(BaseModel):
@@ -121,13 +125,17 @@ class Parameters(BaseModel):
         adapter_id = self.adapter_id
         merged_adapters = self.merged_adapters
         if adapter_id is not None and merged_adapters is not None:
-            raise ValidationError("you must specify at most one of `adapter_id` or `merged_adapters`")
+            raise ValidationError(
+                "you must specify at most one of `adapter_id` or `merged_adapters`"
+            )
         return self
 
     @field_validator("adapter_source")
     def valid_adapter_source(cls, v):
         if v is not None and v not in ADAPTER_SOURCES:
-            raise ValidationError(f"`adapter_source={v}` must be one of {ADAPTER_SOURCES}")
+            raise ValidationError(
+                f"`adapter_source={v}` must be one of {ADAPTER_SOURCES}"
+            )
         return v
 
     @field_validator("best_of")
@@ -215,8 +223,15 @@ class Request(BaseModel):
     @field_validator("stream")
     def valid_best_of_stream(cls, field_value, values):
         parameters = values.data["parameters"]
-        if parameters is not None and parameters.best_of is not None and parameters.best_of > 1 and field_value:
-            raise ValidationError("`best_of` != 1 is not supported when `stream` == True")
+        if (
+            parameters is not None
+            and parameters.best_of is not None
+            and parameters.best_of > 1
+            and field_value
+        ):
+            raise ValidationError(
+                "`best_of` != 1 is not supported when `stream` == True"
+            )
         return field_value
 
 
@@ -237,8 +252,15 @@ class BatchRequest(BaseModel):
     @field_validator("stream")
     def valid_best_of_stream(cls, field_value, values):
         parameters = values.data["parameters"]
-        if parameters is not None and parameters.best_of is not None and parameters.best_of > 1 and field_value:
-            raise ValidationError("`best_of` != 1 is not supported when `stream` == True")
+        if (
+            parameters is not None
+            and parameters.best_of is not None
+            and parameters.best_of > 1
+            and field_value
+        ):
+            raise ValidationError(
+                "`best_of` != 1 is not supported when `stream` == True"
+            )
         return field_value
 
 
@@ -370,6 +392,12 @@ class EmbedResponse(BaseModel):
     # Embeddings
     embeddings: Optional[List[float]]
 
+
 class ClassifyResponse(BaseModel):
     # Classifications
     entities: Optional[List[dict]]
+
+
+class MetricsResponse(BaseModel):
+    # Metrics (can be in JSON or Prometheus [string] format)
+    metrics: Optional[str | dict]

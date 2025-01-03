@@ -2,10 +2,11 @@ import json
 import logging
 import requests
 from requests.adapters import HTTPAdapter, Retry
-
+import copy
+import os
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
-from typing import Any, Dict, Optional, List, AsyncIterator, Iterator, Union
+from typing import Any, Dict, Optional, List, AsyncIterator, Iterator, Union, Literal
 
 from lorax.types import (
     BatchRequest,
@@ -16,10 +17,10 @@ from lorax.types import (
     MergedAdapters,
     ResponseFormat,
     EmbedResponse,
-    ClassifyResponse
+    ClassifyResponse,
+    MetricsResponse,
 )
 from lorax.errors import parse_error
-import os 
 
 LORAX_DEBUG_MODE = os.getenv("LORAX_DEBUG_MODE", None) is not None
 if LORAX_DEBUG_MODE:
@@ -28,6 +29,7 @@ if LORAX_DEBUG_MODE:
     # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
     # The only thing missing will be the response.body which is not logged.
     import http.client as http_client
+
     http_client.HTTPConnection.debuglevel = 1
 
     # You must initialize logging, otherwise you'll not see debug output.
@@ -87,6 +89,7 @@ class Client:
         self.embed_endpoint = f"{base_url}/embed"
         self.classify_endpoint = f"{base_url}/classify"
         self.classify_batch_endpoint = f"{base_url}/classify_batch"
+        self.metrics_endpoint = f"{base_url}/metrics"
         self.headers = headers
         self.cookies = cookies
         self.timeout = timeout
@@ -109,7 +112,7 @@ class Client:
         )
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-    
+
     def _post(self, json: dict, stream: bool = False) -> requests.Response:
         """
         Given inputs, make an HTTP POST call
@@ -120,8 +123,8 @@ class Client:
 
             stream (`bool`):
                 Whether to stream the HTTP response or not
-        
-        Returns: 
+
+        Returns:
             requests.Response: HTTP response object
         """
         # Instantiate session if currently None
@@ -130,7 +133,7 @@ class Client:
 
         # Retry if the session is stale and hits a ConnectionError
         current_retry_attempt = 0
-        
+
         # Make the HTTP POST request
         while True:
             try:
@@ -140,18 +143,21 @@ class Client:
                     headers=self.headers,
                     cookies=self.cookies,
                     timeout=self.timeout,
-                    stream=stream
+                    stream=stream,
                 )
                 return resp
-            except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout) as e:
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.ConnectTimeout,
+            ) as e:
                 # Refresh session if there is a ConnectionError
                 self.session = None
                 self._create_session()
-                
+
                 # Raise error if retries have been exhausted
                 if current_retry_attempt >= self.max_session_retries:
                     raise e
-                
+
                 current_retry_attempt += 1
             except Exception as e:
                 # Raise any other exception
@@ -219,13 +225,14 @@ class Client:
             top_k (`int`):
                 The number of highest probability vocabulary tokens to keep for top-k-filtering.
             top_p (`float`):
-                If set to < 1, only the smallest set of most probable tokens with probabilities that add up to `top_p` or
-                higher are kept for generation.
+                If set to < 1, only the smallest set of most probable tokens with probabilities that add up to
+                `top_p` or higher are kept for generation.
             truncate (`int`):
                 Truncate inputs tokens to the given size
             typical_p (`float`):
                 Typical Decoding mass
-                See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
+                See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for
+                more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
             response_format (`Optional[Union[Dict[str, Any], ResponseFormat]]`):
@@ -242,7 +249,8 @@ class Client:
             decoder_input_details (`bool`):
                 Return the decoder input token logprobs and ids
             return_k_alternatives (`int`):
-                The number of highest probability vocabulary tokens to return as alternative tokens in the generation result
+                The number of highest probability vocabulary tokens to return as alternative tokens in the
+                generation result
             details (`bool`):
                 Return the token logprobs and ids for generated tokens
 
@@ -272,7 +280,7 @@ class Client:
             watermark=watermark,
             response_format=response_format,
             decoder_input_details=decoder_input_details,
-            return_k_alternatives=return_k_alternatives
+            return_k_alternatives=return_k_alternatives,
         )
 
         # Instantiate the request object
@@ -292,8 +300,10 @@ class Client:
             payload = {"message": e.msg}
 
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, payload, resp.headers if LORAX_DEBUG_MODE else None)
-        
+            raise parse_error(
+                resp.status_code, payload, resp.headers if LORAX_DEBUG_MODE else None
+            )
+
         if LORAX_DEBUG_MODE:
             print(resp.headers)
 
@@ -356,13 +366,14 @@ class Client:
             top_k (`int`):
                 The number of highest probability vocabulary tokens to keep for top-k-filtering.
             top_p (`float`):
-                If set to < 1, only the smallest set of most probable tokens with probabilities that add up to `top_p` or
-                higher are kept for generation.
+                If set to < 1, only the smallest set of most probable tokens with probabilities that add up
+                to `top_p` or higher are kept for generation.
             truncate (`int`):
                 Truncate inputs tokens to the given size
             typical_p (`float`):
                 Typical Decoding mass
-                See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information
+                See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for
+                more information
             watermark (`bool`):
                 Watermarking with [A Watermark for Large Language Models](https://arxiv.org/abs/2301.10226)
             response_format (`Optional[Union[Dict[str, Any], ResponseFormat]]`):
@@ -415,7 +426,11 @@ class Client:
         )
 
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
+            raise parse_error(
+                resp.status_code,
+                resp.json(),
+                resp.headers if LORAX_DEBUG_MODE else None,
+            )
 
         # Parse ServerSentEvents
         for byte_payload in resp.iter_lines():
@@ -434,10 +449,13 @@ class Client:
                     response = StreamResponse(**json_payload)
                 except ValidationError:
                     # If we failed to parse the payload, then it is an error payload
-                    raise parse_error(resp.status_code, json_payload, resp.headers if LORAX_DEBUG_MODE else None)
+                    raise parse_error(
+                        resp.status_code,
+                        json_payload,
+                        resp.headers if LORAX_DEBUG_MODE else None,
+                    )
                 yield response
 
-    
     def embed(self, inputs: str) -> EmbedResponse:
         """
         Given inputs, embed the text using the model
@@ -445,8 +463,8 @@ class Client:
         Args:
             inputs (`str`):
                 Input text
-        
-        Returns: 
+
+        Returns:
             Embeddings: computed embeddings
         """
         request = Request(inputs=inputs)
@@ -461,10 +479,13 @@ class Client:
 
         payload = resp.json()
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
-        
-        return EmbedResponse(**payload)
+            raise parse_error(
+                resp.status_code,
+                resp.json(),
+                resp.headers if LORAX_DEBUG_MODE else None,
+            )
 
+        return EmbedResponse(**payload)
 
     def classify(self, inputs: str) -> ClassifyResponse:
         """
@@ -473,8 +494,8 @@ class Client:
         Args:
             inputs (`str`):
                 Input text
-        
-        Returns: 
+
+        Returns:
             Entities: Entities found in the input text
         """
         request = Request(inputs=inputs)
@@ -489,10 +510,14 @@ class Client:
 
         payload = resp.json()
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
-        
+            raise parse_error(
+                resp.status_code,
+                resp.json(),
+                resp.headers if LORAX_DEBUG_MODE else None,
+            )
+
         return ClassifyResponse(entities=payload)
-    
+
     def classify_batch(self, inputs: List[str]) -> List[ClassifyResponse]:
         """
         Given a list of inputs, run token classification on the text using the model
@@ -500,8 +525,8 @@ class Client:
         Args:
             inputs (`List[str]`):
                 List of input texts
-        
-        Returns: 
+
+        Returns:
             List[Entities]: Entities found in the input text
         """
         request = BatchRequest(inputs=inputs)
@@ -516,9 +541,54 @@ class Client:
 
         payload = resp.json()
         if resp.status_code != 200:
-            raise parse_error(resp.status_code, resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
-        
+            raise parse_error(
+                resp.status_code,
+                resp.json(),
+                resp.headers if LORAX_DEBUG_MODE else None,
+            )
+
         return [ClassifyResponse(entities=e) for e in payload]
+
+    def metrics(
+        self, format: Optional[Literal["json", "prometheus"]] = "prometheus"
+    ) -> MetricsResponse:
+        """
+        Get the metrics of the model
+
+        Args:
+            format (`Optional[Literal["json", "prometheus"]]`):
+                Format of the metrics
+
+        Returns:
+            MetricsResponse: metrics in the specified format
+        """
+        headers = copy.deepcopy(self.headers)
+        if format == "json":
+            if self.headers is None:
+                headers = {"Accept": "application/json"}
+            else:
+                headers = {**self.headers, "Accept": "application/json"}
+
+        resp = requests.get(
+            self.metrics_endpoint,
+            headers=headers,
+            cookies=self.cookies,
+            timeout=self.timeout,
+        )
+
+        if format == "json":
+            payload = resp.json()
+        else:
+            payload = resp.text
+
+        if resp.status_code != 200:
+            raise parse_error(
+                resp.status_code,
+                resp.json(),
+                resp.headers if LORAX_DEBUG_MODE else None,
+            )
+
+        return MetricsResponse(metrics=payload)
 
 
 class AsyncClient:
@@ -690,11 +760,15 @@ class AsyncClient:
         async with ClientSession(
             headers=self.headers, cookies=self.cookies, timeout=self.timeout
         ) as session:
-            async with session.post(self.base_url, json=request.dict(by_alias=True)) as resp:
+            async with session.post(
+                self.base_url, json=request.dict(by_alias=True)
+            ) as resp:
                 payload = await resp.json()
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None)
+                    raise parse_error(
+                        resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None
+                    )
                 return Response(**payload[0])
 
     async def generate_stream(
@@ -720,7 +794,6 @@ class AsyncClient:
         response_format: Optional[Union[Dict[str, Any], ResponseFormat]] = None,
         details: bool = True,
         return_k_alternatives: Optional[int] = None,
-
     ) -> AsyncIterator[StreamResponse]:
         """
         Given a prompt, generate the following stream of tokens asynchronously
@@ -814,10 +887,15 @@ class AsyncClient:
         async with ClientSession(
             headers=self.headers, cookies=self.cookies, timeout=self.timeout
         ) as session:
-            async with session.post(self.base_url, json=request.dict(by_alias=True)) as resp:
-
+            async with session.post(
+                self.base_url, json=request.dict(by_alias=True)
+            ) as resp:
                 if resp.status != 200:
-                    raise parse_error(resp.status, await resp.json(), resp.headers if LORAX_DEBUG_MODE else None)
+                    raise parse_error(
+                        resp.status,
+                        await resp.json(),
+                        resp.headers if LORAX_DEBUG_MODE else None,
+                    )
 
                 # Parse ServerSentEvents
                 async for byte_payload in resp.content:
@@ -836,9 +914,12 @@ class AsyncClient:
                             response = StreamResponse(**json_payload)
                         except ValidationError:
                             # If we failed to parse the payload, then it is an error payload
-                            raise parse_error(resp.status, json_payload, resp.headers if LORAX_DEBUG_MODE else None)
+                            raise parse_error(
+                                resp.status,
+                                json_payload,
+                                resp.headers if LORAX_DEBUG_MODE else None,
+                            )
                         yield response
-    
 
     async def embed(self, inputs: str) -> EmbedResponse:
         """
@@ -847,21 +928,24 @@ class AsyncClient:
         Args:
             inputs (`str`):
                 Input text
-        
-        Returns: 
+
+        Returns:
             Embeddings: computed embeddings
         """
         request = Request(inputs=inputs)
         async with ClientSession(
             headers=self.headers, cookies=self.cookies, timeout=self.timeout
         ) as session:
-            async with session.post(self.embed_endpoint, json=request.dict(by_alias=True)) as resp:
+            async with session.post(
+                self.embed_endpoint, json=request.dict(by_alias=True)
+            ) as resp:
                 payload = await resp.json()
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None)
+                    raise parse_error(
+                        resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None
+                    )
                 return EmbedResponse(**payload)
-
 
     async def classify(self, inputs: str) -> ClassifyResponse:
         """
@@ -870,17 +954,45 @@ class AsyncClient:
         Args:
             inputs (`str`):
                 Input text
-        
-        Returns: 
+
+        Returns:
             Entities: Entities found in the input text
         """
         request = Request(inputs=inputs)
         async with ClientSession(
             headers=self.headers, cookies=self.cookies, timeout=self.timeout
         ) as session:
-            async with session.post(self.classify_endpoint, json=request.dict(by_alias=True)) as resp:
+            async with session.post(
+                self.classify_endpoint, json=request.dict(by_alias=True)
+            ) as resp:
                 payload = await resp.json()
 
                 if resp.status != 200:
-                    raise parse_error(resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None)
+                    raise parse_error(
+                        resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None
+                    )
                 return ClassifyResponse(**payload)
+
+    async def metrics(
+        self, format: Literal["json", "prometheus"] = "prometheus"
+    ) -> MetricsResponse:
+        """
+        Get the metrics of the server
+        """
+        headers = copy.deepcopy(self.headers)
+        if format == "json":
+            if headers is None:
+                headers = {"Accept": "application/json"}
+            else:
+                headers["Accept"] = "application/json"
+
+        async with ClientSession(
+            headers=headers, cookies=self.cookies, timeout=self.timeout
+        ) as session:
+            async with session.get(self.metrics_endpoint, headers=headers) as resp:
+                if format == "json":
+                    payload = await resp.json()
+                else:
+                    payload = await resp.text()
+
+                return MetricsResponse(metrics=payload)

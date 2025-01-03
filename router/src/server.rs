@@ -20,6 +20,8 @@ use crate::{
     TokenizeRequest, TokenizeResponse, Tool, ToolCall, ToolChoice, UsageInfo, Validation,
 };
 use axum::extract::Extension;
+use axum::extract::Query;
+use axum::http::header;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -35,6 +37,7 @@ use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde_json::Value;
 use std::cmp;
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -1180,10 +1183,88 @@ async fn generate_stream_with_callback(
 get,
 tag = "LoRAX",
 path = "/metrics",
-responses((status = 200, description = "Prometheus Metrics", body = String))
+params(
+    ("format", Query, description = "Optional format parameter (prometheus|json)", example = "json")
+),
+responses(
+    (status = 200, description = "Prometheus or JSON Metrics",
+     content(
+         ("text/plain" = String),
+         ("application/json" = Object)
+     ))
+)
 )]
-async fn metrics(prom_handle: Extension<PrometheusHandle>) -> String {
-    prom_handle.render()
+async fn metrics(
+    prom_handle: Extension<PrometheusHandle>,
+    format: Option<Query<String>>,
+    headers: HeaderMap,
+) -> Response {
+    // Check format query param first, then Accept header
+    let want_json = format
+        .map(|f| f.0.to_lowercase() == "json")
+        .unwrap_or_else(|| {
+            headers
+                .get(header::ACCEPT)
+                .and_then(|h| h.to_str().ok())
+                .map(|h| h.contains("application/json"))
+                .unwrap_or(false)
+        });
+
+    let prometheus_text = prom_handle.render();
+
+    if want_json {
+        // Parse the Prometheus text format into a structured format
+        let mut counters = HashMap::new();
+        let mut gauges = HashMap::new();
+
+        // Basic parsing of Prometheus format
+        for line in prometheus_text.lines() {
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+
+            if let Some((name, value)) = parse_metric_line(line) {
+                if name.ends_with("_total") {
+                    counters.insert(name, value);
+                } else {
+                    gauges.insert(name, value);
+                }
+            }
+        }
+
+        let json_response = json!({
+            "counters": counters,
+            "gauges": gauges,
+        });
+
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            Json(json_response),
+        )
+            .into_response()
+    } else {
+        // Return default Prometheus format
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/plain")],
+            prometheus_text,
+        )
+            .into_response()
+    }
+}
+
+/// Helper function to parse a Prometheus metric line
+fn parse_metric_line(line: &str) -> Option<(String, f64)> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let name = parts[0].to_string();
+    let value = parts[1].parse().ok()?;
+
+    Some((name, value))
 }
 
 async fn request_logger(
@@ -1793,10 +1874,6 @@ async fn classify(
     metrics::histogram!(
         "lorax_request_inference_duration",
         inference_time.as_secs_f64()
-    );
-    metrics::histogram!(
-        "lorax_request_classify_output_count",
-        response.predictions.len() as f64
     );
 
     tracing::debug!("Output: {:?}", response.predictions);
