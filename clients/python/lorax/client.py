@@ -17,7 +17,6 @@ from lorax.types import (
     ResponseFormat,
     EmbedResponse,
     ClassifyResponse,
-    MetricsResponse,
 )
 from lorax.errors import parse_error
 
@@ -550,7 +549,7 @@ class Client:
 
     def metrics(
         self, format: Optional[Literal["json", "prometheus"]] = "prometheus"
-    ) -> MetricsResponse:
+    ) -> Union[str, dict]:
         """
         Get the metrics of the model
 
@@ -970,7 +969,7 @@ class AsyncClient:
 
     async def metrics(
         self, format: Literal["json", "prometheus"] = "prometheus"
-    ) -> MetricsResponse:
+    ) -> Union[str, dict]:
         """
         Get the metrics of the server
         """
@@ -990,5 +989,4 @@ class AsyncClient:
                     raise parse_error(
                         resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None
                     )
-
-                return MetricsResponse(metrics=payload)
+                return payload

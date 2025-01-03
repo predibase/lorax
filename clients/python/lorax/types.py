@@ -396,8 +396,3 @@ class EmbedResponse(BaseModel):
 class ClassifyResponse(BaseModel):
     # Classifications
     entities: Optional[List[dict]]
-
-
-class MetricsResponse(BaseModel):
-    # Metrics (can be in JSON or Prometheus [string] format)
-    metrics: Optional[Union[str, dict]]
