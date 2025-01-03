@@ -485,10 +485,15 @@ class FlashQwen2ForCausalLM(torch.nn.Module):
         self.config = config
 
         self.model = FlashQwen2Model(prefix, config, weights)
+        if config.tie_word_embeddings:
+            suffix = "model.embed_tokens"
+        else:
+            suffix = "lm_head"
+
         self.lm_head = MultiAdapterHead.load(
             TensorParallelHead.load(
                 config,
-                prefix=prepend(prefix, "lm_head"),
+                prefix=suffix if not prefix else f"{prefix}.{suffix}",
                 weights=weights,
             ),
             0,
