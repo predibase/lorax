@@ -103,7 +103,7 @@ touch ../proto/generate.proto
 Launch the router:
 
 ```shell
-RUST_BACKTRACE=1 cargo run -- --port 8080
+RUST_BACKTRACE=1 cargo run -- --port 8080 --tokenizer-path mistralai/Mistral-7B-Instruct-v0.1
 ```
 
 ## Client window setup
