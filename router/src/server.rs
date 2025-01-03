@@ -54,6 +54,8 @@ use tower_http::cors::{
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use serde::{Deserialize, Serialize};
+
 
 pub static DEFAULT_ADAPTER_SOURCE: OnceCell<String> = OnceCell::new();
 
@@ -1178,6 +1180,70 @@ async fn generate_stream_with_callback(
     (headers, stream)
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct MetricFamily {
+    r#type: String,
+    data: Vec<DataPoint>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct DataPoint {
+    key: String,
+    value: f64,
+}
+
+fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
+    let mut metrics = HashMap::new();
+    let mut current_metric = String::new();
+    let mut current_type = String::new();
+
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.starts_with("# TYPE ") {
+            // Extract metric name and type from TYPE declaration
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                current_metric = parts[2].to_string();
+                current_type = parts[3].to_string();
+                metrics.insert(current_metric.clone(), MetricFamily {
+                    r#type: current_type.clone(),
+                    data: Vec::new(),
+                });
+                continue;
+            }
+        }
+
+        // Parse metric line
+        if let Some(metric_family) = metrics.get_mut(&current_metric) {
+            // Split into name and value parts
+            let mut parts = line.split_whitespace();
+            if let (Some(name_part), Some(value_str)) = (parts.next(), parts.next()) {
+                if let Ok(value) = value_str.parse::<f64>() {
+                    let key = if name_part.contains('{') {
+                        name_part.to_string()
+                    } else if name_part.ends_with("_sum") {
+                        "sum".to_string()
+                    } else if name_part.ends_with("_count") {
+                        "count".to_string()
+                    } else {
+                        "".to_string()
+                    };
+
+                    metric_family.data.push(DataPoint {
+                        key,
+                        value,
+                    });
+                }
+            }
+        }
+    }
+
+    metrics
+}
+
 /// Prometheus metrics scrape endpoint
 #[utoipa::path(
 get,
@@ -1199,7 +1265,6 @@ async fn metrics(
     format: Option<Query<String>>,
     headers: HeaderMap,
 ) -> Response {
-    // Check format query param first, then Accept header
     let want_json = format
         .map(|f| f.0.to_lowercase() == "json")
         .unwrap_or_else(|| {
@@ -1213,38 +1278,15 @@ async fn metrics(
     let prometheus_text = prom_handle.render();
 
     if want_json {
-        // Parse the Prometheus text format into a structured format
-        let mut counters = HashMap::new();
-        let mut gauges = HashMap::new();
-
-        // Basic parsing of Prometheus format
-        for line in prometheus_text.lines() {
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-
-            if let Some((name, value)) = parse_metric_line(line) {
-                if name.ends_with("_total") {
-                    counters.insert(name, value);
-                } else {
-                    gauges.insert(name, value);
-                }
-            }
-        }
-
-        let json_response = json!({
-            "counters": counters,
-            "gauges": gauges,
-        });
+        let metrics = parse_text_to_metrics(&prometheus_text);
 
         (
             StatusCode::OK,
             [(header::CONTENT_TYPE, "application/json")],
-            Json(json_response),
+            Json(metrics),
         )
             .into_response()
     } else {
-        // Return default Prometheus format
         (
             StatusCode::OK,
             [(header::CONTENT_TYPE, "text/plain")],
@@ -1252,19 +1294,6 @@ async fn metrics(
         )
             .into_response()
     }
-}
-
-/// Helper function to parse a Prometheus metric line
-fn parse_metric_line(line: &str) -> Option<(String, f64)> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    let name = parts[0].to_string();
-    let value = parts[1].parse().ok()?;
-
-    Some((name, value))
 }
 
 async fn request_logger(
