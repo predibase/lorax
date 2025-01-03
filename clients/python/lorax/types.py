@@ -400,4 +400,4 @@ class ClassifyResponse(BaseModel):
 
 class MetricsResponse(BaseModel):
     # Metrics (can be in JSON or Prometheus [string] format)
-    metrics: Optional[str | dict]
+    metrics: Optional[Union[str, dict]]
