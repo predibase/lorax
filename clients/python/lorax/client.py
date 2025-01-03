@@ -2,7 +2,6 @@ import json
 import logging
 import requests
 from requests.adapters import HTTPAdapter, Retry
-import copy
 import os
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import ValidationError
@@ -562,12 +561,11 @@ class Client:
         Returns:
             MetricsResponse: metrics in the specified format
         """
-        headers = copy.deepcopy(self.headers)
-        if format == "json":
-            if self.headers is None:
-                headers = {"Accept": "application/json"}
-            else:
-                headers = {**self.headers, "Accept": "application/json"}
+        # Simplified header assignment
+        headers = {
+            **(self.headers or {}),
+            "Accept": "application/json" if format == "json" else "text/plain",
+        }
 
         resp = requests.get(
             self.metrics_endpoint,
@@ -576,19 +574,17 @@ class Client:
             timeout=self.timeout,
         )
 
-        if format == "json":
-            payload = resp.json()
-        else:
-            payload = resp.text
+        # Unified payload handling
+        payload = resp.json() if format == "json" else resp.text
 
         if resp.status_code != 200:
             raise parse_error(
                 resp.status_code,
-                resp.json(),
+                payload,
                 resp.headers if LORAX_DEBUG_MODE else None,
             )
 
-        return MetricsResponse(metrics=payload)
+        return payload
 
 
 class AsyncClient:
@@ -979,20 +975,22 @@ class AsyncClient:
         """
         Get the metrics of the server
         """
-        headers = copy.deepcopy(self.headers)
-        if format == "json":
-            if headers is None:
-                headers = {"Accept": "application/json"}
-            else:
-                headers["Accept"] = "application/json"
+        # Simplified header assignment
+        headers = {
+            **(self.headers or {}),
+            "Accept": "application/json" if format == "json" else "text/plain",
+        }
 
         async with ClientSession(
             headers=headers, cookies=self.cookies, timeout=self.timeout
         ) as session:
-            async with session.get(self.metrics_endpoint, headers=headers) as resp:
-                if format == "json":
-                    payload = await resp.json()
-                else:
-                    payload = await resp.text()
+            async with session.get(self.metrics_endpoint) as resp:
+                # Unified payload handling
+                payload = await resp.json() if format == "json" else await resp.text()
+
+                if resp.status != 200:
+                    raise parse_error(
+                        resp.status, payload, resp.headers if LORAX_DEBUG_MODE else None
+                    )
 
                 return MetricsResponse(metrics=payload)
