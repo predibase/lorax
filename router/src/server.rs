@@ -35,6 +35,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp;
 use std::collections::HashMap;
@@ -54,8 +55,6 @@ use tower_http::cors::{
 use tracing::{info_span, instrument, Instrument};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use serde::{Deserialize, Serialize};
-
 
 pub static DEFAULT_ADAPTER_SOURCE: OnceCell<String> = OnceCell::new();
 
@@ -1207,10 +1206,13 @@ fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 4 {
                 current_metric = parts[2].to_string();
-                metrics.insert(current_metric.clone(), MetricFamily {
-                    r#type: parts[3].to_string(), // Metric type -> histogram, counter, etc
-                    data: Vec::new(),
-                });
+                metrics.insert(
+                    current_metric.clone(),
+                    MetricFamily {
+                        r#type: parts[3].to_string(), // Metric type -> histogram, counter, etc
+                        data: Vec::new(),
+                    },
+                );
                 continue;
             }
         }
