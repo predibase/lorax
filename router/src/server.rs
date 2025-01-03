@@ -1195,7 +1195,6 @@ struct DataPoint {
 fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
     let mut metrics = HashMap::new();
     let mut current_metric = String::new();
-    let mut current_type = String::new();
 
     for line in text.lines() {
         if line.is_empty() {
@@ -1203,13 +1202,13 @@ fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
         }
 
         if line.starts_with("# TYPE ") {
-            // Extract metric name and type from TYPE declaration
+            // Extract metric name from TYPE declaration
+            // # TYPE <metric_name> <metric_type>
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 4 {
                 current_metric = parts[2].to_string();
-                current_type = parts[3].to_string();
                 metrics.insert(current_metric.clone(), MetricFamily {
-                    r#type: current_type.clone(),
+                    r#type: parts[3].to_string(), // Metric type -> histogram, counter, etc
                     data: Vec::new(),
                 });
                 continue;
@@ -1225,7 +1224,7 @@ fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
                         name if name.contains('{') => name.to_string(),
                         name if name.ends_with("_sum") => "sum".to_string(),
                         name if name.ends_with("_count") => "count".to_string(),
-                        _ => "".to_string()
+                        _ => "".to_string(),
                     };
 
                     // Add the parsed metric data point
