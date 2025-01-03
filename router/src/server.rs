@@ -1216,26 +1216,20 @@ fn parse_text_to_metrics(text: &str) -> HashMap<String, MetricFamily> {
             }
         }
 
-        // Parse metric line
+        // Parse metric line if it belongs to current metric family
         if let Some(metric_family) = metrics.get_mut(&current_metric) {
-            // Split into name and value parts
             let mut parts = line.split_whitespace();
-            if let (Some(name_part), Some(value_str)) = (parts.next(), parts.next()) {
+            if let (Some(metric_name), Some(value_str)) = (parts.next(), parts.next()) {
                 if let Ok(value) = value_str.parse::<f64>() {
-                    let key = if name_part.contains('{') {
-                        name_part.to_string()
-                    } else if name_part.ends_with("_sum") {
-                        "sum".to_string()
-                    } else if name_part.ends_with("_count") {
-                        "count".to_string()
-                    } else {
-                        "".to_string()
+                    let key = match metric_name {
+                        name if name.contains('{') => name.to_string(),
+                        name if name.ends_with("_sum") => "sum".to_string(),
+                        name if name.ends_with("_count") => "count".to_string(),
+                        _ => "".to_string()
                     };
 
-                    metric_family.data.push(DataPoint {
-                        key,
-                        value,
-                    });
+                    // Add the parsed metric data point
+                    metric_family.data.push(DataPoint { key, value });
                 }
             }
         }
