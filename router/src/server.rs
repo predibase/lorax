@@ -1898,6 +1898,10 @@ async fn classify(
         "lorax_request_inference_duration",
         inference_time.as_secs_f64()
     );
+    metrics::histogram!(
+        "lorax_request_classify_output_count",
+        response.predictions.len() as f64
+    );
 
     tracing::debug!("Output: {:?}", response.predictions);
     tracing::info!("Success");

@@ -561,7 +561,6 @@ class Client:
         Returns:
             MetricsResponse: metrics in the specified format
         """
-        # Simplified header assignment
         headers = {
             **(self.headers or {}),
             "Accept": "application/json" if format == "json" else "text/plain",
@@ -975,7 +974,6 @@ class AsyncClient:
         """
         Get the metrics of the server
         """
-        # Simplified header assignment
         headers = {
             **(self.headers or {}),
             "Accept": "application/json" if format == "json" else "text/plain",
