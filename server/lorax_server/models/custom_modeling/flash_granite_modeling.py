@@ -27,24 +27,20 @@ from transformers.modeling_rope_utils import rope_config_validation
 
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
+    FlashLlamaForCausalLM,
     LlamaMLP,
     FlashLlamaAttention,
-    FlashLlamaModel, 
     LlamaConfig, 
     FlashLlamaLayer,
 )
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
-    MultiAdapterHead,
-    TensorParallelEmbedding,
-    TensorParallelHead,
     TensorParallelColumnLinear,
     TensorParallelMultiAdapterLinear,
     TensorParallelAdapterRowLinear,
     TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import (
-    LM_HEAD,
     GATE_PROJ,
     UP_PROJ,
     DOWN_PROJ,
@@ -154,7 +150,6 @@ class FlashGraniteAttention(FlashLlamaAttention):
     ):
         super().__init__(prefix=prefix, config=config, weights=weights, layer_id=layer_id)
 
-        # `config.attention_multiplier` is used in Granite
         self.softmax_scale = getattr(
             config, "attention_multiplier", self.head_size**-0.5
         )
@@ -162,12 +157,12 @@ class FlashGraniteAttention(FlashLlamaAttention):
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
 
-
 class GraniteMLP(LlamaMLP):
     def __init__(self, prefix, config, weights, layer_id):
         super().__init__(prefix, config, weights, layer_id)
 
         bias = getattr(config, "mlp_bias", False)
+
         # Fuse gate and up proj
         gate_up_proj = TensorParallelColumnLinear.load_multi(
             config,
@@ -199,17 +194,11 @@ class GraniteMLP(LlamaMLP):
             process_group=weights.process_group,
         )
 
-    def forward(self, hidden_states, adapter_data):
-        gate_up_states = self.gate_up_proj(hidden_states, adapter_data)
-        gate_up_states = gate_up_states.view(-1, 2, self.intermediate_size)
-        return self.down_proj(self.act(gate_up_states[:, 0]) * gate_up_states[:, 1], adapter_data)
-
 
 class FlashGraniteLayer(FlashLlamaLayer):
     def __init__(self, layer_id, prefix: str, config, weights):
         super().__init__(layer_id=layer_id, prefix=prefix, config=config, weights=weights)
         
-        # Used in Granite
         self.residual_multiplier = getattr(config, "residual_multiplier", None)
         
         self.self_attn = FlashGraniteAttention(
@@ -267,48 +256,15 @@ class FlashGraniteLayer(FlashLlamaLayer):
         return mlp_output, attn_res
 
 
-class FlashGraniteForCausalLM(torch.nn.Module):
+class FlashGraniteForCausalLM(FlashLlamaForCausalLM):
     def __init__(self, prefix: str, config, weights, create_layer_fn=None):
-        super().__init__()
-        self.config = config
+        super().__init__(prefix, config, weights, create_layer_fn=FlashGraniteLayer)
 
-        self.embed_tokens = TensorParallelEmbedding(
-            prefix=("model.embed_tokens" if not prefix else f"{prefix}.model.embed_tokens"),
-            weights=weights,
-        )
-        self.model = FlashLlamaModel(prefix, config, weights, create_layer_fn=FlashGraniteLayer)
-        if config.tie_word_embeddings:
-            suffix = "model.embed_tokens"
-        else:
-            suffix = "lm_head"
-        
-        # Used in Granite
         embedding_multiplier = getattr(config, "embedding_multiplier", None)
         if embedding_multiplier is not None:
             self.embed_tokens.weight.data *= embedding_multiplier
 
-        head = TensorParallelHead.load(
-            config,
-            prefix=suffix if not prefix else f"{prefix}.{suffix}",
-            weights=weights,
-        )
-
-        # Used in Granite
         self.logits_scaling = getattr(config, "logits_scaling", None)
-        if self.logits_scaling is not None:
-            try:
-                # Scale the weights directly
-                head.linear.weight.data /= self.logits_scaling
-                self.logits_scaled = True
-            except Exception:
-                self.logits_scaled = False
-        
-        self.lm_head = MultiAdapterHead.load(
-            head,
-            0,
-            LM_HEAD,
-            process_group=weights.process_group,
-        )
 
 
     def forward(
@@ -327,30 +283,23 @@ class FlashGraniteForCausalLM(torch.nn.Module):
         cross_attention_states: Optional[torch.Tensor] = None,
         skip_lm_head: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = self.model(
-            inputs_embeds,
-            position_ids,
-            cu_seqlen_prefill,
-            kv_cache,
-            block_tables,
-            slots,
-            seqlen,
-            max_s,
-            adapter_data,
-            prefill_cache_indices,
-            cross_attention_states,
+        logits, speculative_logits = super().forward(
+            input_ids, 
+            position_ids, 
+            cu_seqlen_prefill, 
+            kv_cache, 
+            block_tables, 
+            slots, 
+            seqlen, 
+            max_s, 
+            adapter_data, 
+            prefill_cache_indices, 
+            lm_head_indices, 
+            cross_attention_states, 
+            skip_lm_head,
         )
-        if lm_head_indices is not None:
-            hidden_states = hidden_states[lm_head_indices]
 
-        if skip_lm_head:
-            return hidden_states, None
-
-        logits, speculative_logits = self.lm_head(hidden_states, adapter_data)
-
-        # Used in Granite
-        if self.logits_scaling is not None and not self.logits_scaled:
+        if self.logits_scaling is not None:
             logits /= self.logits_scaling
             if speculative_logits is not None:
                 speculative_logits /= self.logits_scaling
