@@ -6,8 +6,8 @@ from opentelemetry import trace
 
 from lorax_server.models import FlashCausalLM
 from lorax_server.models.custom_modeling.flash_granite_modeling import (
-    GraniteConfig,
     FlashGraniteForCausalLM,
+    GraniteConfig,
 )
 from lorax_server.utils.lora import (
     DOWN_PROJ,
