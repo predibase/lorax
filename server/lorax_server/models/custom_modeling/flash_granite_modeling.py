@@ -27,23 +27,23 @@ from transformers.modeling_rope_utils import rope_config_validation
 
 from lorax_server.adapters import AdapterBatchData
 from lorax_server.models.custom_modeling.flash_llama_modeling import (
-    FlashLlamaForCausalLM,
-    LlamaMLP,
     FlashLlamaAttention,
-    LlamaConfig, 
+    FlashLlamaForCausalLM,
     FlashLlamaLayer,
+    LlamaConfig,
+    LlamaMLP,
 )
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.layers import (
+    TensorParallelAdapterRowLinear,
     TensorParallelColumnLinear,
     TensorParallelMultiAdapterLinear,
-    TensorParallelAdapterRowLinear,
     TensorParallelRowLinear,
 )
 from lorax_server.utils.lora import (
+    DOWN_PROJ,
     GATE_PROJ,
     UP_PROJ,
-    DOWN_PROJ,
 )
 
 
@@ -84,7 +84,7 @@ class GraniteConfig(LlamaConfig):
         self.logits_scaling = logits_scaling
         self.residual_multiplier = residual_multiplier
         self.attention_multiplier = attention_multiplier
-        
+
         super().__init__(
             vocab_size=vocab_size,
             max_position_embeddings=max_position_embeddings,
@@ -150,9 +150,7 @@ class FlashGraniteAttention(FlashLlamaAttention):
     ):
         super().__init__(prefix=prefix, config=config, weights=weights, layer_id=layer_id)
 
-        self.softmax_scale = getattr(
-            config, "attention_multiplier", self.head_size**-0.5
-        )
+        self.softmax_scale = getattr(config, "attention_multiplier", self.head_size**-0.5)
 
         self.query_key_value = load_attention(config, prefix, weights, layer_id)
 
@@ -198,9 +196,9 @@ class GraniteMLP(LlamaMLP):
 class FlashGraniteLayer(FlashLlamaLayer):
     def __init__(self, layer_id, prefix: str, config, weights):
         super().__init__(layer_id=layer_id, prefix=prefix, config=config, weights=weights)
-        
+
         self.residual_multiplier = getattr(config, "residual_multiplier", None)
-        
+
         self.self_attn = FlashGraniteAttention(
             prefix=f"{prefix}.self_attn",
             config=config,
@@ -209,7 +207,6 @@ class FlashGraniteLayer(FlashLlamaLayer):
         )
 
         self.mlp = GraniteMLP(prefix=f"{prefix}.mlp", config=config, weights=weights, layer_id=layer_id)
-        
 
     def forward(
         self,
@@ -266,7 +263,6 @@ class FlashGraniteForCausalLM(FlashLlamaForCausalLM):
 
         self.logits_scaling = getattr(config, "logits_scaling", None)
 
-
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -284,18 +280,18 @@ class FlashGraniteForCausalLM(FlashLlamaForCausalLM):
         skip_lm_head: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         logits, speculative_logits = super().forward(
-            input_ids, 
-            position_ids, 
-            cu_seqlen_prefill, 
-            kv_cache, 
-            block_tables, 
-            slots, 
-            seqlen, 
-            max_s, 
-            adapter_data, 
-            prefill_cache_indices, 
-            lm_head_indices, 
-            cross_attention_states, 
+            input_ids,
+            position_ids,
+            cu_seqlen_prefill,
+            kv_cache,
+            block_tables,
+            slots,
+            seqlen,
+            max_s,
+            adapter_data,
+            prefill_cache_indices,
+            lm_head_indices,
+            cross_attention_states,
             skip_lm_head,
         )
 
@@ -303,5 +299,5 @@ class FlashGraniteForCausalLM(FlashLlamaForCausalLM):
             logits /= self.logits_scaling
             if speculative_logits is not None:
                 speculative_logits /= self.logits_scaling
-        
+
         return logits, speculative_logits
