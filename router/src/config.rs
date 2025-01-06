@@ -178,6 +178,7 @@ pub enum Config {
     Distilbert,
     #[serde(rename = "xlm-roberta")]
     XlmRoberta,
+    Granite,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
