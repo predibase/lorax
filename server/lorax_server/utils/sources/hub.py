@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional
 
-from huggingface_hub import file_download, HfApi, hf_hub_download
+from huggingface_hub import HfApi, file_download, hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
     EntryNotFoundError,  # Import here to ease try/except in other part of the lib
