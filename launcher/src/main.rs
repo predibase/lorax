@@ -342,8 +342,17 @@ struct Args {
 
     /// Whether you want to compile the model into a CUDA graph.
     /// This will speed up decoding but increase GPU memory usage.
-    #[clap(long, env, value_enum)]
+    /// Only use either `--compile` or `--eager`. Using both at the same time will
+    /// result in an error.
+    #[clap(default_value = "true", long, env, value_enum)]
     compile: bool,
+
+    /// Whether you want to run the model in eager mode, without
+    /// CUDA mode compilation, or run it with compilation.
+    /// Only use either `--compile` or `--eager`. Using both at the same time will
+    /// result in an error.
+    #[clap(default_value = "false", long, env, value_enum)]
+    eager: bool,
 
     // The maximum batch size past which CUDA graphs are disabled.
     #[clap(default_value = "128", long, env)]
@@ -656,6 +665,7 @@ fn shard_manager(
     adapter_source: String,
     quantize: Option<Quantization>,
     compile: bool,
+    eager: bool,
     compile_max_batch_size: usize,
     compile_max_rank: usize,
     compile_batch_size: usize,
@@ -738,8 +748,12 @@ fn shard_manager(
     }
 
     // CUDA graph compilation
-    if compile {
+    if compile && !eager {
         shard_args.push("--compile".to_string());
+    }
+
+    if (compile && eager) || (!compile && !eager) {
+        panic!("Cannot use both --compile and --eager at the same time.");
     }
 
     // Speculative decoding
@@ -1303,6 +1317,7 @@ fn spawn_shards(
         let otlp_endpoint = args.otlp_endpoint.clone();
         let quantize = args.quantize;
         let compile = args.compile;
+        let eager = args.eager;
         let compile_max_batch_size = args.compile_max_batch_size;
         let compile_max_rank = args.compile_max_rank;
         let compile_batch_size = args.compile_batch_size;
@@ -1335,6 +1350,7 @@ fn spawn_shards(
                 adapter_source,
                 quantize,
                 compile,
+                eager,
                 compile_max_batch_size,
                 compile_max_rank,
                 compile_batch_size,
