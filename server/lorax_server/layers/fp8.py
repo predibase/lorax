@@ -43,7 +43,7 @@ class Fp8Linear(torch.nn.Module):
             input=input,
             qweight=self.qweight,
             weight_scale=self.weight_scale,
-            input_scale=self.input_scale,
+            input_scale=None,
             qbias=self.qbias,
         )
 
