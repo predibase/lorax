@@ -29,37 +29,33 @@ deployment:
 
   resources:
     limits:
-      cpu: "8"
-      ephemeral-storage: 100Gi
-      memory: 27041Mi
       nvidia.com/gpu: "1"
     requests:
-      cpu: "8"
-      ephemeral-storage: 100Gi
-      memory: 27041Mi
       nvidia.com/gpu: "1"
 
   livenessProbe:
-    failureThreshold: 240
-    httpGet:
-      path: /health
-      port: http
-      scheme: HTTP
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    successThreshold: 1
-    timeoutSeconds: 1
+    {}
+    # failureThreshold: 240
+    # httpGet:
+    #   path: /health
+    #   port: http
+    #   scheme: HTTP
+    # initialDelaySeconds: 5
+    # periodSeconds: 5
+    # successThreshold: 1
+    # timeoutSeconds: 1
 
   readinessProbe:
-    failureThreshold: 600
-    httpGet:
-      path: /health
-      port: http
-      scheme: HTTP
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    successThreshold: 1
-    timeoutSeconds: 1
+    {}
+    # failureThreshold: 600
+    # httpGet:
+    #   path: /health
+    #   port: http
+    #   scheme: HTTP
+    # initialDelaySeconds: 5
+    # periodSeconds: 5
+    # successThreshold: 1
+    # timeoutSeconds: 1
 
   nodeSelector: {}
   tolerations: []
