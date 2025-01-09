@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional
 
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import file_download, HfApi, hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 from huggingface_hub.utils import (
     EntryNotFoundError,  # Import here to ease try/except in other part of the lib
@@ -15,12 +15,66 @@ from loguru import logger
 from .source import BaseModelSource, try_to_load_from_cache
 
 WEIGHTS_CACHE_OVERRIDE = os.getenv("WEIGHTS_CACHE_OVERRIDE", None)
+HF_HUB_OFFLINE = os.environ.get("HF_HUB_OFFLINE", "0").lower() in ["true", "1", "yes"]
 
 
 def get_hub_model_local_dir(model_id: str) -> Path:
     object_id = model_id.replace("/", "--")
     repo_cache = Path(HUGGINGFACE_HUB_CACHE) / f"models--{object_id}"
     return repo_cache
+
+
+def _cached_weight_files(model_id: str, revision: Optional[str], extension: str) -> List[str]:
+    """Guess weight files from the cached revision snapshot directory"""
+    d = _get_cached_revision_directory(model_id, revision)
+    if not d:
+        return []
+    filenames = _weight_files_from_dir(d, extension)
+    return filenames
+
+
+def _get_cached_revision_directory(model_id: str, revision: Optional[str]) -> Optional[Path]:
+    if revision is None:
+        revision = "main"
+
+    repo_cache = Path(HUGGINGFACE_HUB_CACHE) / Path(file_download.repo_folder_name(repo_id=model_id, repo_type="model"))
+
+    if not repo_cache.is_dir():
+        # No cache for this model
+        return None
+
+    refs_dir = repo_cache / "refs"
+    snapshots_dir = repo_cache / "snapshots"
+
+    # Resolve refs (for instance to convert main to the associated commit sha)
+    if refs_dir.is_dir():
+        revision_file = refs_dir / revision
+        if revision_file.exists():
+            with revision_file.open() as f:
+                revision = f.read()
+
+    # Check if revision folder exists
+    if not snapshots_dir.exists():
+        return None
+    cached_shas = os.listdir(snapshots_dir)
+    if revision not in cached_shas:
+        # No cache for this revision and we won't try to return a random revision
+        return None
+
+    return snapshots_dir / revision
+
+
+def _weight_files_from_dir(d: Path, extension: str) -> List[str]:
+    # os.walk: do not iterate, just scan for depth 1, not recursively
+    # see _weight_hub_files_from_model_info, that's also what is
+    # done there with the len(s.rfilename.split("/")) == 1 condition
+    root, _, files = next(os.walk(str(d)))
+    filenames = [
+        os.path.join(root, f)
+        for f in files
+        if f.endswith(extension) and "arguments" not in f and "args" not in f and "training" not in f
+    ]
+    return filenames
 
 
 def weight_hub_files(
@@ -31,35 +85,38 @@ def weight_hub_files(
     embedding_dim: Optional[int] = None,
 ) -> List[str]:
     """Get the weights filenames on the hub"""
-    api = get_hub_api(token=api_token)
-    info = api.model_info(model_id, revision=revision)
-    if embedding_dim is not None:
-        filenames = [
-            s.rfilename
-            for s in info.siblings
-            if s.rfilename.endswith(extension)
-            and len(s.rfilename.split("/")) <= 2
-            and "arguments" not in s.rfilename
-            and "args" not in s.rfilename
-            and "training" not in s.rfilename
-        ]
-        # Only include the layer for the correct embedding dim
-        embedding_tensor_file = f"2_Dense_{embedding_dim}/model.safetensors"
-        if embedding_tensor_file not in filenames:
-            raise ValueError(f"No embedding tensor file found for embedding dim {embedding_dim}")
-        filenames = [
-            filename for filename in filenames if len(filename.split("/")) < 2 or filename == embedding_tensor_file
-        ]
+    if HF_HUB_OFFLINE:
+        filenames = _cached_weight_files(model_id, revision, extension)
     else:
-        filenames = [
-            s.rfilename
-            for s in info.siblings
-            if s.rfilename.endswith(extension)
-            and len(s.rfilename.split("/")) == 1
-            and "arguments" not in s.rfilename
-            and "args" not in s.rfilename
-            and "training" not in s.rfilename
-        ]
+        api = get_hub_api(token=api_token)
+        info = api.model_info(model_id, revision=revision)
+        if embedding_dim is not None:
+            filenames = [
+                s.rfilename
+                for s in info.siblings
+                if s.rfilename.endswith(extension)
+                and len(s.rfilename.split("/")) <= 2
+                and "arguments" not in s.rfilename
+                and "args" not in s.rfilename
+                and "training" not in s.rfilename
+            ]
+            # Only include the layer for the correct embedding dim
+            embedding_tensor_file = f"2_Dense_{embedding_dim}/model.safetensors"
+            if embedding_tensor_file not in filenames:
+                raise ValueError(f"No embedding tensor file found for embedding dim {embedding_dim}")
+            filenames = [
+                filename for filename in filenames if len(filename.split("/")) < 2 or filename == embedding_tensor_file
+            ]
+        else:
+            filenames = [
+                s.rfilename
+                for s in info.siblings
+                if s.rfilename.endswith(extension)
+                and len(s.rfilename.split("/")) == 1
+                and "arguments" not in s.rfilename
+                and "args" not in s.rfilename
+                and "training" not in s.rfilename
+            ]
 
     if not filenames:
         raise EntryNotFoundError(
