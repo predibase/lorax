@@ -91,7 +91,8 @@ inference_time,
 time_per_token,
 seed,
 )
-)]async fn compat_generate(
+)]
+async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
@@ -101,6 +102,10 @@ seed,
     req_headers: HeaderMap,
     req: Json<CompatGenerateRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // Log some useful headers to the span.
+    let span = tracing::Span::current();
+    trace_headers(req_headers, &span);
+
     let mut req = req.0;
 
     // default return_full_text given the pipeline_tag
@@ -168,6 +173,8 @@ async fn completions_v1(
     req_headers: HeaderMap,
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    trace_headers(req_headers, &span);
     let mut req = req.0;
     if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
@@ -253,6 +260,8 @@ async fn chat_completions_v1(
     req_headers: HeaderMap,
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let span = tracing::Span::current();
+    trace_headers(req_headers, &span);
     let mut req = req.0;
     let model_id = info.model_id.clone();
     if req.model == info.model_id.as_str() {
@@ -642,6 +651,7 @@ async fn generate(
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
+    trace_headers(req_headers, &span);
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
@@ -2067,4 +2077,16 @@ async fn tokenize(
             }),
         ))
     }
+}
+
+fn trace_headers(headers: HeaderMap, span: &tracing::Span) {
+    headers
+        .get("x-predibase-tenant")
+        .map(|value| span.record("x-predibase-tenant", value));
+    headers
+        .get("user-agent")
+        .map(|value| span.record("user-agent", value));
+    headers
+        .get("x-b3-traceid")
+        .map(|value| span.record("x-b3-traceid", value));
 }
