@@ -80,8 +80,18 @@ example = json ! ({"error": "Input validation error"})),
 example = json ! ({"error": "Incomplete generation"})),
 )
 )]
-#[instrument(skip(infer, req))]
-async fn compat_generate(
+#[instrument(
+skip_all,
+fields(
+parameters = ? req.0.parameters,
+total_time,
+validation_time,
+queue_time,
+inference_time,
+time_per_token,
+seed,
+)
+)]async fn compat_generate(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
     info: Extension<Info>,
@@ -147,7 +157,7 @@ example = json ! ({"error": "Input validation error"})),
 example = json ! ({"error": "Incomplete generation"})),
 )
 )]
-#[instrument(skip(infer, req))]
+#[instrument(skip(infer, req, req_headers))]
 async fn completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
@@ -232,7 +242,7 @@ example = json ! ({"error": "Input validation error"})),
 example = json ! ({"error": "Incomplete generation"})),
 )
 )]
-#[instrument(skip(infer, req))]
+#[instrument(skip(infer, req, req_headers))]
 async fn chat_completions_v1(
     default_return_full_text: Extension<bool>,
     infer: Extension<Infer>,
