@@ -508,7 +508,7 @@ struct Args {
     /// Whether to use the prefix caching mechanism. This will skip computing attention on previously cached prefixes
     /// in the prompt. Useful in cases where many queries need to be run over a shared context, or for long multi-turn
     /// chats conversations.
-    #[clap(default_value = "true", long, env)]
+    #[clap(long, env)]
     prefix_caching: Option<bool>,
 
     /// Whether to merge the weights of the adapter with the base model weights. This will disable dynamic adapter
