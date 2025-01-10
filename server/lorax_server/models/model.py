@@ -229,6 +229,10 @@ class Model(ABC):
             )
 
     @property
+    def supports_cuda_graph_compilation(self) -> bool:
+        return True
+
+    @property
     def supports_adapter_loading(self) -> bool:
         return False
 
