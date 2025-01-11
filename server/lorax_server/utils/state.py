@@ -10,12 +10,12 @@ NGRAM = False
 
 
 LORAX_PROFILER_DIR = os.environ.get("LORAX_PROFILER_DIR", None)
-PREFIX_CACHING = bool(os.environ.get("PREFIX_CACHING", ""))
-CHUNKED_PREFILL = bool(os.environ.get("CHUNKED_PREFILL", ""))
+PREFIX_CACHING = bool(int(os.environ.get("PREFIX_CACHING", "0")))
+CHUNKED_PREFILL = bool(int(os.environ.get("CHUNKED_PREFILL", "0")))
 LORAX_SPECULATION_MAX_BATCH_SIZE = int(os.environ.get("LORAX_SPECULATION_MAX_BATCH_SIZE", 32))
 
 # Always use flashinfer when prefix caching is enabled
-FLASH_INFER = bool(os.environ.get("FLASH_INFER", "")) or PREFIX_CACHING
+FLASH_INFER = bool(int(os.environ.get("FLASH_INFER", "0"))) or PREFIX_CACHING
 if FLASH_INFER:
     logger.info("Backend = flashinfer")
 else:
