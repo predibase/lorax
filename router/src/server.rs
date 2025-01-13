@@ -2079,6 +2079,15 @@ async fn tokenize(
     }
 }
 
+// Implements Tracing Value for Header Value, to support recording header values
+impl tracing::Value for HeaderValue {
+    fn record(&self, key: &tracing::field::Field, visitor: &mut dyn Visit) {
+        // Convert HeaderValue to a string representation safely
+        let value_str = self.to_str().unwrap_or("<invalid utf-8>");
+        key.record_str(value_str, visitor);
+    }
+}
+
 fn trace_headers(headers: HeaderMap, span: &tracing::Span) {
     headers
         .get("x-predibase-tenant")
