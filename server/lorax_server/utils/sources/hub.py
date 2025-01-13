@@ -274,7 +274,7 @@ class HubModelSource(BaseModelSource):
 
 
 def get_hub_api(token: Optional[str] = None) -> HfApi:
-    if token == "" and bool(os.environ.get("LORAX_USE_GLOBAL_HF_TOKEN", 0)):
+    if token == "" and bool(int(os.environ.get("LORAX_USE_GLOBAL_HF_TOKEN", "0"))):
         # User initialized LoRAX to fallback to global HF token if request token is empty
         token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
     return HfApi(token=token)

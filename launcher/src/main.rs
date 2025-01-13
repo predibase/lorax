@@ -818,12 +818,14 @@ fn shard_manager(
 
     // Prefix caching
     if let Some(prefix_caching) = prefix_caching {
-        envs.push(("PREFIX_CACHING".into(), prefix_caching.to_string().into()));
+        let prefix_caching = if prefix_caching { "1" } else { "0" };
+        envs.push(("PREFIX_CACHING".into(), prefix_caching.into()));
     }
 
     // Chunked prefill
     if let Some(chunked_prefill) = chunked_prefill {
-        envs.push(("CHUNKED_PREFILL".into(), chunked_prefill.to_string().into()));
+        let chunked_prefill = if chunked_prefill { "1" } else { "0" };
+        envs.push(("CHUNKED_PREFILL".into(), chunked_prefill.into()));
     }
 
     // Compile max batch size and rank

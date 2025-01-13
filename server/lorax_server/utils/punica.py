@@ -20,14 +20,14 @@ if TYPE_CHECKING:
 try:
     import punica_kernels as _kernels
 
-    HAS_SGMV = not bool(os.environ.get("DISABLE_SGMV", ""))
+    HAS_SGMV = not bool(int(os.environ.get("DISABLE_SGMV", "0")))
 except ImportError:
     warnings.warn("Could not import SGMV kernel from Punica, falling back to loop.")
     _kernels = None
     HAS_SGMV = False
 
 
-LORAX_PUNICA_TRITON_DISABLED = bool(os.environ.get("LORAX_PUNICA_TRITON_DISABLED", ""))
+LORAX_PUNICA_TRITON_DISABLED = bool(int(os.environ.get("LORAX_PUNICA_TRITON_DISABLED", "0")))
 if LORAX_PUNICA_TRITON_DISABLED:
     logger.info("LORAX_PUNICA_TRITON_DISABLED is set, disabling Punica Trion kernels.")
 
