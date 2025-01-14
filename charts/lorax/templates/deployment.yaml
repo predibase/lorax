@@ -45,13 +45,17 @@ spec:
 {{- toYaml .Values.deployment.env | nindent 8 }}
         image: {{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}
         imagePullPolicy: IfNotPresent
+        {{- if .Values.deployment.livenessProbe }}
         livenessProbe: {{ toYaml .Values.deployment.livenessProbe | nindent 10 }}
+        {{- end }}
         name: lorax
         ports:
         - containerPort: 8000
           name: http
           protocol: TCP
+        {{- if .Values.deployment.readinessProbe }}
         readinessProbe: {{ toYaml .Values.deployment.readinessProbe | nindent 10 }}
+        {{- end }}
         resources: {{ toYaml .Values.deployment.resources | nindent 10 }}
         volumeMounts:
         - mountPath: /data
