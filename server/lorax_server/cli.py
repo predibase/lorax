@@ -136,7 +136,8 @@ def download_weights(
     )
     _download_weights(model_id, revision, extension, auto_convert, source, api_token, embedding_dim)
     if adapter_id:
-        _download_weights(adapter_id, revision, extension, auto_convert, adapter_source, api_token)
+        # TODO(travis): allow passing in a revision for the adapter ID
+        _download_weights(adapter_id, None, extension, auto_convert, adapter_source, api_token)
 
 
 @app.command()
