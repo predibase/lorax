@@ -497,7 +497,7 @@ struct Args {
     /// Whether to prioritize running prefill before decode to increase batch size during decode (throughput) over
     /// liveness in earlier requests (latency). For batch use cases that are not latnecy sensitive, this should be set
     /// to true.
-    #[clap(long, env)]
+    #[clap(default_value = "true", long, env)]
     eager_prefill: Option<bool>,
 
     /// Split prefill requests into multiple chunks and batch them with decode requests. For high QPS scenarios, this

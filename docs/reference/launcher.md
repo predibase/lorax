@@ -143,6 +143,13 @@ Options:
           [env: MAX_WAITING_TOKENS=]
           [default: 20]
 
+      --eager-prefill
+
+          Whether to prioritize running prefill before decode to increase batch size during decode (throughput) over
+          liveness in earlier requests (latency). This is set to true by default.
+
+          [default: true]
+
       --max-active-adapters <MAX_ACTIVE_ADAPTERS>
           Maximum number of adapters that can be placed on the GPU and accept requests at a time
           
