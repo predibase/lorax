@@ -65,8 +65,8 @@ impl Health {
             }),
             adapter_index: 0,
             // Block 0 is reserved for health checks
-            blocks: vec![0],
-            slots: (0..self.shard_info.block_size).collect(),
+            blocks: vec![0, 1],
+            slots: (0..self.shard_info.block_size + 1).collect(),
             cache_len: 0,
             chunk_len: None,
         };
