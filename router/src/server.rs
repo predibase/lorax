@@ -2079,23 +2079,14 @@ async fn tokenize(
     }
 }
 
-// Implements Tracing Value for Header Value, to support recording header values
-impl tracing::Value for axum::http::HeaderValue {
-    fn record(&self, key: &tracing::field::Field, visitor: &mut dyn tracing::field::Visit) {
-        // Convert HeaderValue to a string representation safely
-        let value_str = self.to_str().unwrap_or("<invalid utf-8>");
-        visitor.record_str(key, value_str);
-    }
-}
-
 fn trace_headers(headers: HeaderMap, span: &tracing::Span) {
     headers
         .get("x-predibase-tenant")
-        .map(|value| span.record("x-predibase-tenant", value));
+        .map(|value| span.record("x-predibase-tenant", value.to_str().unwrap_or("unknown")));
     headers
         .get("user-agent")
-        .map(|value| span.record("user-agent", value));
+        .map(|value| span.record("user-agent", value.to_str().unwrap_or("unknown")));
     headers
         .get("x-b3-traceid")
-        .map(|value| span.record("x-b3-traceid", value));
+        .map(|value| span.record("x-b3-traceid", value.to_str().unwrap_or("")));
 }
