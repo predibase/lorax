@@ -104,7 +104,7 @@ async fn compat_generate(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     // Log some useful headers to the span.
     let span = tracing::Span::current();
-    trace_headers(req_headers, &span);
+    trace_headers(req_headers.clone(), &span);
 
     let mut req = req.0;
 
@@ -174,7 +174,7 @@ async fn completions_v1(
     req: Json<CompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
-    trace_headers(req_headers, &span);
+    trace_headers(req_headers.clone(), &span);
     let mut req = req.0;
     if req.model == info.model_id.as_str() {
         // Allow user to specify the base model, but treat it as an empty adapter_id
@@ -261,7 +261,7 @@ async fn chat_completions_v1(
     req: Json<ChatCompletionRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
-    trace_headers(req_headers, &span);
+    trace_headers(req_headers.clone(), &span);
     let mut req = req.0;
     let model_id = info.model_id.clone();
     if req.model == info.model_id.as_str() {
@@ -651,7 +651,7 @@ async fn generate(
     mut req: Json<GenerateRequest>,
 ) -> Result<(HeaderMap, Json<GenerateResponse>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
-    trace_headers(req_headers, &span);
+    trace_headers(req_headers.clone(), &span);
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
 
@@ -2084,7 +2084,7 @@ impl tracing::Value for HeaderValue {
     fn record(&self, key: &tracing::field::Field, visitor: &mut dyn tracing::field::Visit) {
         // Convert HeaderValue to a string representation safely
         let value_str = self.to_str().unwrap_or("<invalid utf-8>");
-        key.record_str(value_str, visitor);
+        visitor.record_str(key, value_str);
     }
 }
 
