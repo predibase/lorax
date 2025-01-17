@@ -37,7 +37,6 @@ impl Health {
     }
 
     pub(crate) async fn check_generation(&mut self) -> bool {
-        let block_size = self.shard_info().block_size;
         let generation_liveness_request = Request {
             id: LIVENESS_ID,
             inputs: "liveness".to_string(),
@@ -67,7 +66,7 @@ impl Health {
             adapter_index: 0,
             // Block 0 is reserved for health checks
             blocks: vec![0],
-            slots: (0..block_size).collect(),
+            slots: (0..self.shard_info().block_size).collect(),
             cache_len: 0,
             chunk_len: None,
         };
@@ -93,7 +92,7 @@ impl Health {
             stopping_parameters: None,
             adapter_index: 0,
             blocks: vec![0],
-            slots: (0..16).collect(),
+            slots: (0..self.shard_info().block_size).collect(),
             cache_len: 0,
             chunk_len: None,
         };
@@ -118,7 +117,7 @@ impl Health {
             stopping_parameters: None,
             adapter_index: 0,
             blocks: vec![0],
-            slots: (0..16).collect(),
+            slots: (0..self.shard_info().block_size).collect(),
             cache_len: 0,
             chunk_len: None,
         };
