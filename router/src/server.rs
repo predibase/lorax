@@ -22,7 +22,7 @@ use crate::{
 use axum::extract::Extension;
 use axum::extract::Query;
 use axum::http::header;
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -2081,7 +2081,7 @@ async fn tokenize(
 
 // Implements Tracing Value for Header Value, to support recording header values
 impl tracing::Value for HeaderValue {
-    fn record(&self, key: &tracing::field::Field, visitor: &mut dyn Visit) {
+    fn record(&self, key: &tracing::field::Field, visitor: &mut dyn tracing::field::Visit) {
         // Convert HeaderValue to a string representation safely
         let value_str = self.to_str().unwrap_or("<invalid utf-8>");
         key.record_str(value_str, visitor);
