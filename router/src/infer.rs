@@ -276,7 +276,7 @@ impl Infer {
     }
 
     /// Add a new request to the queue and return a stream of InferStreamResponse
-    #[instrument(skip(self))]
+    #[instrument(skip_all,fields(parameters = ? request.parameters))]
     pub(crate) async fn generate_stream(
         &self,
         request: GenerateRequest,
@@ -400,7 +400,7 @@ impl Infer {
     }
 
     /// Add a new request to the queue and return a InferResponse
-    #[instrument(skip(self))]
+    #[instrument(skip_all,fields(parameters = ? request.parameters))]
     pub(crate) async fn generate(
         &self,
         request: GenerateRequest,
@@ -488,7 +488,7 @@ impl Infer {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all,fields(parameters = ? request.parameters))]
     pub(crate) async fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, InferError> {
         // Limit concurrent requests by acquiring a permit from the semaphore
         let _permit = self
@@ -618,7 +618,7 @@ impl Infer {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub(crate) async fn classify(
         &self,
         request: ClassifyRequest,
@@ -731,7 +731,7 @@ impl Infer {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub(crate) async fn classify_batch(
         &self,
         request: BatchClassifyRequest,
@@ -861,7 +861,7 @@ impl Infer {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all,fields(parameters = ? request.parameters))]
     pub(crate) async fn embed_batch(
         &self,
         request: BatchEmbedRequest,
@@ -996,7 +996,7 @@ impl Infer {
 
     /// Add best_of new requests to the queue and return a InferResponse of the sequence with
     /// the highest log probability per token
-    #[instrument(skip(self))]
+    #[instrument(skip_all,fields(parameters = ? request.parameters, best_of, prefix_caching))]
     pub(crate) async fn generate_best_of(
         &self,
         request: GenerateRequest,
