@@ -1,6 +1,6 @@
 use lorax_client::{
-    Batch, NextTokenChooserParameters, Request, ShardInfo, ShardedClient,
-    StoppingCriteriaParameters,
+    input_chunk, Batch, InputChunk, NextTokenChooserParameters, Request, ShardInfo, ShardedClient,
+    StoppingCriteriaParameters, TokenizedInputs,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -40,7 +40,12 @@ impl Health {
         let generation_liveness_request = Request {
             id: LIVENESS_ID,
             inputs: "liveness".to_string(),
-            tokenized_inputs: None,
+            tokenized_inputs: Some(TokenizedInputs {
+                ids: vec![75],
+                input_chunks: vec![InputChunk {
+                    chunk: Some(input_chunk::Chunk::Text("liveness".to_string())),
+                }],
+            }),
             truncate: 10,
             prefill_logprobs: false,
             parameters: Some(NextTokenChooserParameters {
@@ -66,7 +71,7 @@ impl Health {
             adapter_index: 0,
             // Block 0 is reserved for health checks
             blocks: vec![0],
-            slots: (0..16).collect(),
+            slots: (0..self.shard_info.block_size).collect(),
             cache_len: 0,
             chunk_len: None,
         };
@@ -84,15 +89,20 @@ impl Health {
     pub(crate) async fn check_classification(&mut self) -> bool {
         let classify_request = Request {
             id: LIVENESS_ID,
-            inputs: "San Francisco".to_string(),
-            tokenized_inputs: None,
+            inputs: "liveness".to_string(),
+            tokenized_inputs: Some(TokenizedInputs {
+                ids: vec![75],
+                input_chunks: vec![InputChunk {
+                    chunk: Some(input_chunk::Chunk::Text("liveness".to_string())),
+                }],
+            }),
             truncate: 10,
             prefill_logprobs: false,
             parameters: None,
             stopping_parameters: None,
             adapter_index: 0,
             blocks: vec![0],
-            slots: (0..16).collect(),
+            slots: (0..self.shard_info.block_size).collect(),
             cache_len: 0,
             chunk_len: None,
         };
@@ -109,15 +119,20 @@ impl Health {
     pub(crate) async fn check_embeddings(&mut self) -> bool {
         let embed_request = Request {
             id: LIVENESS_ID,
-            inputs: "San Francisco".to_string(),
-            tokenized_inputs: None,
+            inputs: "liveness".to_string(),
+            tokenized_inputs: Some(TokenizedInputs {
+                ids: vec![75],
+                input_chunks: vec![InputChunk {
+                    chunk: Some(input_chunk::Chunk::Text("liveness".to_string())),
+                }],
+            }),
             truncate: 10,
             prefill_logprobs: false,
             parameters: None,
             stopping_parameters: None,
             adapter_index: 0,
             blocks: vec![0],
-            slots: (0..16).collect(),
+            slots: (0..self.shard_info.block_size).collect(),
             cache_len: 0,
             chunk_len: None,
         };
