@@ -179,6 +179,8 @@ pub enum Config {
     #[serde(rename = "xlm-roberta")]
     XlmRoberta,
     Granite,
+    #[serde(rename = "exaone")]
+    ExaOne,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

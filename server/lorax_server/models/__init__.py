@@ -390,5 +390,16 @@ def get_model(
             revision,
             **flash_causal_lm_kwargs,
         )
+    
+    if model_type == "exaone":
+        from lorax_server.models.flash_exaone import FlashExaOne
+
+        return FlashExaOne(
+            model_id,
+            adapter_id,
+            adapter_source,
+            revision,
+            **flash_causal_lm_kwargs,
+        )
 
     raise ValueError(f"Unsupported model type {model_type}")
