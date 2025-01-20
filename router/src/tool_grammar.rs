@@ -29,27 +29,27 @@ impl ToolGrammar {
 
         let tool_choice = tool_choice.0.unwrap_or(ToolType::OneOf);
 
-        let mut tools = tools.clone();
+        // let mut tools = tools.clone();
 
-        // add the no_tool function to the tools
-        let no_tool = Tool {
-            r#type: "function".to_string(),
-            function: FunctionDefinition {
-                name: "no_tool".to_string(),
-                description: Some("Open ened response with no specific tool selected".to_string()),
-                parameters: json!({
-                    "type": "object",
-                    "properties": {
-                        "content": {
-                            "type": "string",
-                            "description": "The response content",
-                        }
-                    },
-                    "required": ["content"]
-                }),
-            },
-        };
-        tools.push(no_tool);
+        // // add the no_tool function to the tools
+        // let no_tool = Tool {
+        //     r#type: "function".to_string(),
+        //     function: FunctionDefinition {
+        //         name: "no_tool".to_string(),
+        //         description: Some("Open ened response with no specific tool selected".to_string()),
+        //         parameters: json!({
+        //             "type": "object",
+        //             "properties": {
+        //                 "content": {
+        //                     "type": "string",
+        //                     "description": "The response content",
+        //                 }
+        //             },
+        //             "required": ["content"]
+        //         }),
+        //     },
+        // };
+        // tools.push(no_tool);
 
         // if tools are provided and no tool_choice we default to the OneOf
         let tools_to_use = match tool_choice {
@@ -106,7 +106,7 @@ impl ToolGrammar {
             })
             .collect();
 
-        let tool_schema = JsonSchemaTool {
+        let _tool_schema = JsonSchemaTool {
             functions_map: FunctionsMap { functions },
             properties: Properties {
                 function: tools_to_use
@@ -118,6 +118,7 @@ impl ToolGrammar {
             },
         };
 
-        Ok((tools, Some(tool_schema)))
+        // Ok((tools, Some(tool_schema)))
+        Ok((tools, None))
     }
 }
