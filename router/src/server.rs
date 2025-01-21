@@ -33,6 +33,7 @@ use futures::Stream;
 use lorax_client::{ShardInfo, ShardedClient};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use once_cell::sync::OnceCell;
+use regex::Regex;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{Deserialize, Serialize};
@@ -210,6 +211,104 @@ async fn completions_v1(
     }
 }
 
+fn parse_json_tool_call(
+    gen_text_value: Value,
+) -> Result<(Option<Vec<ToolCall>>, Option<String>), InferError> {
+    let function = gen_text_value.get("function").ok_or(InferError::ToolError(
+        "No function found in generated text".to_string(),
+    ))?;
+
+    let name = function
+        .get("_name")
+        .and_then(Value::as_str)
+        .ok_or(InferError::ToolError(
+            "No _name found in generated text".to_string(),
+        ))?
+        .to_string();
+
+    let mut arguments = function.clone();
+    if let Value::Object(ref mut props) = arguments {
+        props.remove("_name");
+    }
+    match name.as_str() {
+        "no_tool" => {
+            // parse the content message
+            let content_message = arguments
+                .get("content")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    InferError::ToolError("No `content` found in generated text".to_string())
+                })?
+                .to_string();
+            Ok((None, Some(content_message)))
+        }
+        _ => {
+            let arguments = serde_json::to_string(&arguments).map_err(|e| {
+                InferError::ToolError(format!("Failed to serialize arguments: {}", e))
+            })?;
+            let tool_calls = vec![ToolCall {
+                id: "0".to_string(),
+                r#type: "function".to_string(),
+                function: ReturnFunctionDefinition {
+                    description: None,
+                    name,
+                    arguments,
+                },
+            }];
+            Ok((Some(tool_calls), None))
+        }
+    }
+}
+
+fn parse_xml_tool_call(gen: &str) -> Result<(Option<Vec<ToolCall>>, Option<String>), InferError> {
+    let tool_call_regex = Regex::new(r"(?s)<tool_call>(.*?)</tool_call>|<tool_call>(.*)")
+        .map_err(|e| InferError::ToolError(format!("Failed to create tool call regex: {}", e)))?;
+    // Check for tool call matches
+    if let Some(captures) = tool_call_regex.captures(gen) {
+        // Check for complete tool call (first capture group)
+        let json_content = if let Some(complete_match) = captures.get(1) {
+            complete_match.as_str()
+        }
+        // Check for incomplete tool call (second capture group)
+        else if let Some(incomplete_match) = captures.get(2) {
+            incomplete_match.as_str()
+        } else {
+            return Ok((None, Some(gen.to_string())));
+        };
+
+        // Parse the JSON content
+        let parsed_content: serde_json::Value =
+            serde_json::from_str(json_content.trim()).map_err(|e| {
+                InferError::ToolError(format!("Failed to parse tool call JSON content: {}", e))
+            })?;
+
+        // Extract name and arguments
+        let name = parsed_content["name"]
+            .as_str()
+            .ok_or_else(|| InferError::ToolError("Missing 'name' field in tool call".to_string()))?
+            .to_string();
+
+        let arguments = serde_json::to_string(&parsed_content["arguments"])
+            .map_err(|e| InferError::ToolError(format!("Failed to serialize arguments: {}", e)))?;
+
+        // Create tool call with the extracted content
+        let tool_calls = vec![ToolCall {
+            id: "0".to_string(),
+            r#type: "function".to_string(),
+            function: ReturnFunctionDefinition {
+                description: None,
+                name,
+                arguments,
+            },
+        }];
+
+        Ok((Some(tool_calls), None))
+    } else {
+        // If no tool call tags are found, return the original text
+        Ok((None, Some(gen.to_string())))
+    }
+}
+
 /// OpenAI compatible chat completions endpoint
 #[utoipa::path(
 post,
@@ -319,58 +418,10 @@ async fn chat_completions_v1(
         let mut choice_content = vec![];
         for (_, gen) in generations.iter().enumerate() {
             let (tool_calls, output) = if using_tools {
-                let gen_text_value: Value = serde_json::from_str(&gen).map_err(|e| {
-                    InferError::ToolError(format!(
-                        "Failed to parse generated text: {} {:?}",
-                        e, gen
-                    ))
-                })?;
-                let function = gen_text_value.get("function").ok_or(InferError::ToolError(
-                    "No function found in generated text".to_string(),
-                ))?;
-
-                let name = function
-                    .get("_name")
-                    .and_then(Value::as_str)
-                    .ok_or(InferError::ToolError(
-                        "No _name found in generated text".to_string(),
-                    ))?
-                    .to_string();
-
-                let mut arguments = function.clone();
-                if let Value::Object(ref mut props) = arguments {
-                    props.remove("_name");
-                }
-                match name.as_str() {
-                    "no_tool" => {
-                        // parse the content message
-                        let content_message = arguments
-                            .get("content")
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| {
-                                InferError::ToolError(
-                                    "No `content` found in generated text".to_string(),
-                                )
-                            })?
-                            .to_string();
-                        (None, Some(content_message))
-                    }
-                    _ => {
-                        let arguments = serde_json::to_string(&arguments).map_err(|e| {
-                            InferError::ToolError(format!("Failed to serialize arguments: {}", e))
-                        })?;
-                        let tool_calls = vec![ToolCall {
-                            id: "0".to_string(),
-                            r#type: "function".to_string(),
-                            function: ReturnFunctionDefinition {
-                                description: None,
-                                name,
-                                arguments,
-                            },
-                        }];
-                        (Some(tool_calls), None)
-                    }
-                }
+                match serde_json::from_str::<Value>(gen) {
+                    Ok(gen_text_value) => parse_json_tool_call(gen_text_value),
+                    Err(_) => parse_xml_tool_call(gen),
+                }?
             } else {
                 (None, Some(gen.clone()))
             };
@@ -435,7 +486,8 @@ pub(crate) fn prepare_chat_input(
             messages,
             Some((updated_tools, tool_prompt.into())),
         )?;
-        return Ok((inputs, grammar, tool_schema.is_some()));
+        // return Ok((inputs, grammar, tool_schema.is_some()));
+        return Ok((inputs, grammar, true));
     }
 
     // if no response_format or tools are set simply apply the chat template to generate inputs
