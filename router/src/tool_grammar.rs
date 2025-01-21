@@ -1,8 +1,5 @@
 use crate::infer::InferError;
-use crate::{
-    FunctionDefinition, FunctionRef, FunctionsMap, JsonSchemaTool, Properties, Tool, ToolChoice,
-    ToolType,
-};
+use crate::{FunctionRef, FunctionsMap, JsonSchemaTool, Properties, Tool, ToolChoice, ToolType};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
