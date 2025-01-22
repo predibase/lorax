@@ -418,10 +418,15 @@ async fn chat_completions_v1(
         let mut choice_content = vec![];
         for (_, gen) in generations.iter().enumerate() {
             let (tool_calls, output) = if using_tools {
-                match serde_json::from_str::<Value>(gen) {
+                let tool_call_result = match serde_json::from_str::<Value>(gen) {
                     Ok(gen_text_value) => parse_json_tool_call(gen_text_value),
                     Err(_) => parse_xml_tool_call(gen),
-                }?
+                };
+                match tool_call_result {
+                    Ok((tool_calls, output)) => (tool_calls, output),
+                    // TODO: (magdy) How should we tell the user that the tool call failed?
+                    Err(_) => (None, Some(gen.clone())),
+                }
             } else {
                 (None, Some(gen.clone()))
             };
