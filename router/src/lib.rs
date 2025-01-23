@@ -581,7 +581,7 @@ pub struct Url {
 }
 
 #[derive(Clone, Deserialize, Serialize, ToSchema, Default, Debug, PartialEq)]
-pub(crate) struct ToolCall {
+pub struct ToolCall {
     pub id: String,
     pub r#type: String,
     pub function: ReturnFunctionDefinition,
@@ -602,6 +602,8 @@ pub struct Message {
     #[serde(default)]
     #[schema(example = "My name is David and I")]
     pub content: Option<MessageContent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "\"David\"")]
     name: Option<String>,
@@ -642,6 +644,8 @@ pub struct TextMessage {
     pub role: String,
     #[schema(example = "My name is David and I")]
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 impl From<Message> for TextMessage {
@@ -660,6 +664,7 @@ impl From<Message> for TextMessage {
                     .join(""),
                 None => String::new(),
             },
+            tool_calls: value.tool_calls,
         }
     }
 }
