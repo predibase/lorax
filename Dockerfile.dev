@@ -1,19 +1,92 @@
 # LoRAX base image
-FROM ghcr.io/predibase/lorax:latest as base
+FROM ghcr.io/predibase/lorax:main as base
 
-# Install server
-COPY proto proto
-COPY server server
-COPY server/Makefile server/Makefile
+# Update and install system packages
+RUN apt update && \
+    DEBIAN_FRONTEND=noninteractive apt install pkg-config rsync tmux vim rust-gdb git -y
 
-# Final image
-FROM base
+# Install protoc
+RUN PROTOC_ZIP=protoc-21.12-linux-x86_64.zip && \
+    curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$PROTOC_ZIP && \
+    unzip -o $PROTOC_ZIP -d /usr/local bin/protoc && \
+    unzip -o $PROTOC_ZIP -d /usr/local 'include/*' && \
+    rm -f $PROTOC_ZIP
 
-COPY container-entrypoint.sh entrypoint.sh
-RUN chmod +x entrypoint.sh
-COPY sync.sh sync.sh
-RUN chmod +x sync.sh
+# Refresh hash table
+RUN hash -r
 
-# ENTRYPOINT ["./entrypoint.sh"]
-ENTRYPOINT ["lorax-launcher"]
-CMD ["--json-output"]
+# Install cmake via pip
+RUN pip install cmake
+
+# Clone lorax repo
+RUN git clone https://github.com/predibase/lorax.git /lorax
+
+
+RUN echo "PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" > /root/.bashrc
+
+
+# Create .tmux.conf with vim-tmux navigation config
+RUN echo '# .tmux.conf\n\
+    # Smart pane switching with awareness of Vim splits.\n\
+    # See: https://github.com/christoomey/vim-tmux-navigator\n\
+    is_vim="ps -o state= -o comm= -t '"'"'#{pane_tty}'"'"' \\\n\
+    | grep -iqE '"'"'^[^TXZ ]+ +(\\\\S+\\\\/)?g?(view|n?vim?x?)(diff)?$'"'"'"\n\
+    bind-key -n '"'"'C-h'"'"' if-shell "$is_vim" '"'"'send-keys C-h'"'"'  '"'"'select-pane -L'"'"'\n\
+    bind-key -n '"'"'C-j'"'"' if-shell "$is_vim" '"'"'send-keys C-j'"'"'  '"'"'select-pane -D'"'"'\n\
+    bind-key -n '"'"'C-k'"'"' if-shell "$is_vim" '"'"'send-keys C-k'"'"'  '"'"'select-pane -U'"'"'\n\
+    bind-key -n '"'"'C-l'"'"' if-shell "$is_vim" '"'"'send-keys C-l'"'"'  '"'"'select-pane -R'"'"'\n\
+    \n\
+    tmux_version='"'"'$(tmux -V | sed -En "s/^tmux ([0-9]+(.[0-9]+)?).*/\\1/p")'"'"'\n\
+    if-shell -b '"'"'[ "$(echo "$tmux_version < 3.0" | bc)" = 1 ]'"'"' \\\n\
+    "bind-key -n '"'"'C-\\\\'"'"' if-shell \\"$is_vim\\" '"'"'send-keys C-\\\\'"'"'  '"'"'select-pane -l'"'"'"\n\
+    if-shell -b '"'"'[ "$(echo "$tmux_version >= 3.0" | bc)" = 1 ]'"'"' \\\n\
+    "bind-key -n '"'"'C-\\\\'"'"' if-shell \\"$is_vim\\" '"'"'send-keys C-\\\\\\\\'"'"'  '"'"'select-pane -l'"'"'"\n\
+    \n\
+    bind-key -T copy-mode-vi '"'"'C-h'"'"' select-pane -L\n\
+    bind-key -T copy-mode-vi '"'"'C-j'"'"' select-pane -D\n\
+    bind-key -T copy-mode-vi '"'"'C-k'"'"' select-pane -U\n\
+    bind-key -T copy-mode-vi '"'"'C-l'"'"' select-pane -R\n\
+    bind-key -T copy-mode-vi '"'"'C-\\\\'"'"' select-pane -l\n\
+    \n\
+    set-window-option -g automatic-rename on\n\
+    set -g default-terminal "screen-256color"\n\
+    \n\
+    # Mouse options\n\
+    set -g mouse on\n\
+    bind -n WheelUpPane   select-pane -t= \\; copy-mode -e \\; send-keys -M\n\
+    bind -n WheelDownPane select-pane -t= \\;                 send-keys -M\n\
+    \n\
+    # enable wm window titles\n\
+    set -g set-titles on\n\
+    set -g set-titles-string "tmux.#I.#W"\n\
+    \n\
+    # Act like Vim\n\
+    setw -g mode-keys vi\n\
+    \n\
+    # Vim-like pane navigation\n\
+    bind C-h select-pane -L\n\
+    bind h select-pane -L\n\
+    bind C-j select-pane -D\n\
+    bind j select-pane -D\n\
+    bind C-k select-pane -U\n\
+    bind k select-pane -U\n\
+    bind C-l select-pane -R\n\
+    bind l select-pane -R\n\
+    \n\
+    # Vim-like splitting\n\
+    bind s split-window -v\n\
+    bind v split-window -h\n\
+    \n\
+    # Restore Ctrl-l and Ctrl-k\n\
+    bind C-l send-keys '"'"'C-l'"'"'\n\
+    bind C-k send-keys '"'"'C-k'"'"'\n\
+    \n\
+    run '"'"'~/.tmux/plugins/tpm/tpm'"'"'' > /root/.tmux.conf
+
+
+# Install rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    export PATH=$PATH:$HOME/.cargo/bin && \
+    touch /lorax/proto/generate.proto
+
+ENTRYPOINT ["/bin/bash"]
