@@ -957,7 +957,7 @@ pub(crate) struct FunctionDefinition {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema, Default, PartialEq)]
-pub(crate) struct ReturnFunctionDefinition {
+pub struct ReturnFunctionDefinition {
     #[serde(default)]
     pub description: Option<String>,
     pub name: String,
