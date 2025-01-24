@@ -288,8 +288,14 @@ fn parse_xml_tool_call(gen: &str) -> Result<(Option<Vec<ToolCall>>, Option<Strin
             .ok_or_else(|| InferError::ToolError("Missing 'name' field in tool call".to_string()))?
             .to_string();
 
-        let arguments = serde_json::to_string(&parsed_content["arguments"])
-            .map_err(|e| InferError::ToolError(format!("Failed to serialize arguments: {}", e)))?;
+        // Parse the arguments field which may be a JSON string
+        let arguments = if let Some(args_str) = parsed_content["arguments"].as_str() {
+            // If arguments is a string, try to parse it as JSON
+            serde_json::from_str(args_str).unwrap_or(parsed_content["arguments"].clone())
+        } else {
+            // If not a string, use the raw value
+            parsed_content["arguments"].clone()
+        };
 
         // Create tool call with the extracted content
         let tool_calls = vec![ToolCall {
@@ -298,7 +304,9 @@ fn parse_xml_tool_call(gen: &str) -> Result<(Option<Vec<ToolCall>>, Option<Strin
             function: ReturnFunctionDefinition {
                 description: None,
                 name,
-                arguments,
+                arguments: serde_json::to_string(&arguments).map_err(|e| {
+                    InferError::ToolError(format!("Failed to serialize arguments: {}", e))
+                })?,
             },
         }];
 
