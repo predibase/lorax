@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'lambda-runner-fix'
     tags:
       - "v*"
 
@@ -35,15 +36,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: false
-          swap-storage: true
+      # - name: Free Disk Space (Ubuntu)
+      #   uses: jlumbroso/free-disk-space@main
+      #   with:
+      #     tool-cache: false
+      #     android: true
+      #     dotnet: true
+      #     haskell: true
+      #     large-packages: false
+      #     swap-storage: true
 
       - name: Install soci
         uses: lerentis/soci-installer@v1.0.1
@@ -82,16 +83,16 @@ jobs:
           echo "image_dir=/runner/build/images" >> $GITHUB_OUTPUT
           echo "image_path=/runner/build/images/lorax" >> $GITHUB_OUTPUT
 
-      - name: Create and update image/cache directory
-        env:
-          image_dir: ${{ steps.vars.outputs.image_dir }}
-          cache_dir: ${{ steps.vars.outputs.cache_dir }}
-        run: |
-          sudo mkdir -p $image_dir
-          sudo chown ubuntu:ubuntu $image_dir
+      # - name: Create and update image/cache directory
+      #   env:
+      #     image_dir: ${{ steps.vars.outputs.image_dir }}
+      #     cache_dir: ${{ steps.vars.outputs.cache_dir }}
+      #   run: |
+      #     sudo mkdir -p $image_dir
+      #     sudo chown ubuntu:ubuntu $image_dir
 
-          sudo mkdir -p $cache_dir
-          sudo chown ubuntu:ubuntu $cache_dir
+      #     sudo mkdir -p $cache_dir
+      #     sudo chown ubuntu:ubuntu $cache_dir
 
       - name: Export Docker image as OCI
         uses: docker/build-push-action@v5
