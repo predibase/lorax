@@ -277,6 +277,9 @@ struct Args {
     /// `gpt2` or `mistralai/Mistral-7B-Instruct-v0.1`.
     /// Or it can be a local directory containing the necessary files
     /// as saved by `save_pretrained(...)` methods of transformers
+    /// Optionally you can specify a revision with `@` like
+    /// `<model_id>@main` - this is incompatible with the `--revision`
+    /// flag.
     #[clap(default_value = "mistralai/Mistral-7B-Instruct-v0.1", long, env)]
     model_id: String,
 
@@ -701,6 +704,16 @@ fn shard_manager(
         fs::remove_file(uds).unwrap();
     }
 
+    if model_id.contains('@') {
+        if revision.is_some() {
+            tracing::error!("Cannot specify both a revision in the  and via --revision flag");
+            return;
+        }
+    }
+    // Extract the model id and revision from the model_id flag, if encoded in model@revision format (otherwise this
+    // is a no-op).
+    let (model_id, revision) = get_model_and_revision(&model_id, revision);
+
     // Process args
     let mut shard_args = vec![
         "serve".to_string(),
@@ -995,6 +1008,15 @@ fn shard_manager(
         }
         sleep(Duration::from_millis(100));
     }
+}
+
+// Parse the model_id to extract the model and revision (in model@revision format). If the model_id string doesn't
+// encode a revision, return revision_fallback for revision (which may itself be None).
+fn get_model_and_revision(model_id: &str, revision_fallback: Option<String>) -> (String, Option<String>) {
+    let mut parts = model_id.split('@');
+    let model_id = parts.next().unwrap().to_string();
+    let revision = parts.next().map(|s| s.to_string()).or(revision_fallback);
+    (model_id, revision)
 }
 
 fn shutdown_shards(shutdown: Arc<AtomicBool>, shutdown_receiver: &mpsc::Receiver<()>) {
