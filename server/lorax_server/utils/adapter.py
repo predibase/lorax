@@ -224,9 +224,7 @@ def download_adapter(
                 f"{adapter_bytes} / {adapter_memory_size} bytes"
             )
     else:
-        # Assume 0.0 memory fraction if adapter memory size is not set
-        logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)")
-        adapter_memory_fraction = 0.0
+        raise ValueError(f"Memory reserved for adapters is 0. Please set a memory reservation for adapters.")
 
     return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
 
