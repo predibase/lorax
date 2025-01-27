@@ -78,7 +78,7 @@ Options:
           The maximum amount of concurrent requests for this particular deployment. Having a low limit will refuse clients requests instead of having them wait for too long and is usually good to handle backpressure correctly
           
           [env: MAX_CONCURRENT_REQUESTS=]
-          [default: 128]
+          [default: 1024]
 
       --max-best-of <MAX_BEST_OF>
           This is the maximum allowed value for clients to set `best_of`. Best of makes `n` generations at the same time, and return the best in terms of overall log probability over the entire generated sequence
