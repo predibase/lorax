@@ -4,7 +4,7 @@ import torch
 
 from lorax_server.utils.attention.common import Seqlen
 from lorax_server.utils.import_utils import SYSTEM
-from lorax_server.utils.state import FLASH_INFER
+from lorax_server.utils.state import FLASH_INFER, FLASH_DECODING
 
 _PARTITION_SIZE = 512
 
@@ -36,7 +36,7 @@ def reshape_and_cache(
     v_scale: float = 1.0,
     fp8_kv: bool = False,
 ):
-    if FLASH_INFER:
+    if FLASH_INFER or FLASH_DECODING:
         if fp8_kv:
             key = static_per_tensor_quantize(key, k_scale).view(torch.uint8)
             value = static_per_tensor_quantize(value, v_scale).view(torch.uint8)
@@ -101,6 +101,39 @@ def attention(
     max_num_partitions = (max_s + _PARTITION_SIZE - 1) // _PARTITION_SIZE
 
     out = torch.empty_like(query)
+
+    if FLASH_DECODING:
+        max_q = 1
+        max_k = max_s
+        import flash_attn_2_cuda
+
+        # TODO fixme when flash contains the fix.
+        # Number of splits is not correctly handled
+        # by the current path
+        # https://github.com/Dao-AILab/flash-attention/blob/320fb59487658f033f56711efd3d61b7c7a6f8f3/csrc/flash_attn/flash_api.cpp#L577
+        # This fails becuase we're using causal, therefore window_right is set to 0 and the split logic is never applied.
+        out2 = flash_attn_2_cuda.varlen_fwd(
+            query,
+            key_cache,
+            value_cache,
+            None,
+            seqlen.cu_seqlen_q,
+            seqlen.cu_seqlen_k,
+            None,
+            block_tables,
+            None,
+            max_q,
+            max_k,
+            0.0,  # dropout
+            softmax_scale,
+            False,  # zero_tensors
+            True,  # causal
+            -1,  # Window_left
+            -1,  # Window right
+            False,  # return softmax
+            None,  # generator
+        )
+        return out2[0]
 
     if SYSTEM == "xpu":
         query = query.contiguous()
