@@ -704,16 +704,6 @@ fn shard_manager(
         fs::remove_file(uds).unwrap();
     }
 
-    if model_id.contains('@') {
-        if revision.is_some() {
-            tracing::error!("Cannot specify both a revision in the  and via --revision flag");
-            return;
-        }
-    }
-    // Extract the model id and revision from the model_id flag, if encoded in model@revision format (otherwise this
-    // is a no-op).
-    let (model_id, revision) = get_model_and_revision(&model_id, revision);
-
     // Process args
     let mut shard_args = vec![
         "serve".to_string(),
@@ -1630,7 +1620,16 @@ fn terminate(process_name: &str, mut process: Child, timeout: Duration) -> io::R
 
 fn main() -> Result<(), LauncherError> {
     // Pattern match configuration
-    let args: Args = Args::parse();
+    let mut args: Args = Args::parse();
+
+    if args.model_id.contains('@') && args.revision.is_some() {
+        return Err(LauncherError::ArgumentValidation(
+            "Cannot specify a revision in both the --model_id and --revision flags".to_string()
+        ));
+    }
+    // Extract the model id and revision from the model_id flag, if encoded in model@revision format (otherwise this
+    // is a no-op).
+    (args.model_id, args.revision) = get_model_and_revision(&args.model_id, args.revision);
 
     // Filter events with LOG_LEVEL
     let env_filter =
