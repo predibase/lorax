@@ -4,8 +4,6 @@ from functools import lru_cache
 from typing import Dict, List, Optional, Union
 
 import torch
-from outlines.fsm.guide import RegexGuide
-from outlines.fsm.json_schema import build_regex_from_schema
 from transformers import (
     LogitsProcessor,
     LogitsWarper,
@@ -17,6 +15,8 @@ from transformers import (
 )
 
 # try:
+from outlines.fsm.guide import RegexGuide
+from outlines.fsm.json_schema import build_regex_from_schema
 
 HAS_OUTLINES = True
 # except ImportError:
