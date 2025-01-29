@@ -30,6 +30,16 @@ Options:
           [env: ADAPTER_SOURCE=]
           [default: hub]
 
+      --adapter-memory-fraction <ADAPTER_MEMORY_FRACTION>
+          Reservation of memory set aside for loading adapters onto the GPU.
+          Increasing this value will reduce the size of the KV cache in exchange for allowing more
+          adapters to be loaded onto the GPU at once.
+          This value is NOT scaled relative to `cuda_memory_fraction`, but is expressed in absolute terms.
+          This will be set to `0` if `preloaded_adapter_ids` are provided.
+
+          [env: ADAPTER_MEMORY_FRACTION=]
+          [default: 0.1]
+
       --revision <REVISION>
           The actual revision of the model if you're referring to a model on the hub. You can use a specific commit id or a branch like `refs/pr/2`
           

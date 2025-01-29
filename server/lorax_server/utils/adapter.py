@@ -194,7 +194,7 @@ def load_module_map(
 
 
 def download_adapter(
-    request: generate_pb2.DownloadAdapterRequest, model: "Model"
+    request: generate_pb2.DownloadAdapterRequest, model: "Model", is_preloaded: bool = False
 ) -> generate_pb2.DownloadAdapterResponse:
     adapter_parameters = request.adapter_parameters
     if is_base_model(adapter_parameters):
@@ -211,6 +211,11 @@ def download_adapter(
 
         adapter_bytes += download_adapter_weights(adapter_id, adapter_source, api_token)
 
+    if is_preloaded:
+        total_gpu_memory = torch.cuda.get_device_properties(model.device).total_memory
+        adapter_memory_fraction = adapter_bytes / total_gpu_memory
+        return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
+
     adapter_memory_size = model.adapter_memory_size()
     if adapter_memory_size > 0:
         logger.info(
@@ -224,9 +229,7 @@ def download_adapter(
                 f"{adapter_bytes} / {adapter_memory_size} bytes"
             )
     else:
-        # Assume 0.0 memory fraction if adapter memory size is not set
-        logger.info(f"Downloaded adapter {adapter_id} memory size: {adapter_bytes} bytes " f"(no reservation limit)")
-        adapter_memory_fraction = 0.0
+        raise ValueError("Memory reserved for adapters is 0. Please set a memory reservation for adapters.")
 
     return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
 

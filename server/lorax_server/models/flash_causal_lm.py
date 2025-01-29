@@ -1349,7 +1349,11 @@ class FlashCausalLM(Model):
         cache_block_size = BLOCK_SIZE * self.num_kv_heads * self.head_size
         total_cache_size = self.num_layers * cache_block_size * 2 * dtype_size
 
-        free_memory = get_cuda_free_memory(self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION)
+        preloaded_adapter_memory_fraction = sum(self.preloaded_adapter_memory_fractions.values())
+        free_memory = get_cuda_free_memory(
+            self.device,
+            MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION - preloaded_adapter_memory_fraction
+        )
         free_memory = max(0, free_memory - graph_cache_memory)
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
