@@ -1002,7 +1002,10 @@ fn shard_manager(
 
 // Parse the model_id to extract the model and revision (in model@revision format). If the model_id string doesn't
 // encode a revision, return revision_fallback for revision (which may itself be None).
-fn get_model_and_revision(model_id: &str, revision_fallback: Option<String>) -> (String, Option<String>) {
+fn get_model_and_revision(
+    model_id: &str,
+    revision_fallback: Option<String>,
+) -> (String, Option<String>) {
     let mut parts = model_id.split('@');
     let model_id = parts.next().unwrap().to_string();
     let revision = parts.next().map(|s| s.to_string()).or(revision_fallback);
