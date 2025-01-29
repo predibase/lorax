@@ -554,10 +554,6 @@ class OutlinesLogitsProcessor(LogitsProcessor):
 
         allowed_tokens = self.fsm.get_next_instruction(self.fsm_state).tokens
 
-        # Filter out tokens that are out of bounds
-        # TODO(travis): figure out why this happens
-        # allowed_tokens = [t for t in allowed_tokens if t < scores.shape[-1]]
-
         mask = torch.full_like(scores, -math.inf, device=scores.device)
         if allowed_tokens is not None:
             mask[:, allowed_tokens] = 0
