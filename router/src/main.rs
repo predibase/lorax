@@ -30,7 +30,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(default_value = "128", long, env)]
+    #[clap(default_value = "1024", long, env)]
     max_concurrent_requests: usize,
     #[clap(default_value = "2", long, env)]
     max_best_of: usize,
