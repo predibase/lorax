@@ -1624,7 +1624,7 @@ fn main() -> Result<(), LauncherError> {
 
     if args.model_id.contains('@') && args.revision.is_some() {
         return Err(LauncherError::ArgumentValidation(
-            "Cannot specify a revision in both the --model_id and --revision flags".to_string()
+            "Cannot specify a revision in both the --model_id and --revision flags".to_string(),
         ));
     }
     // Extract the model id and revision from the model_id flag, if encoded in model@revision format (otherwise this
