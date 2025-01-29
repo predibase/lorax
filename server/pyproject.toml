@@ -2,7 +2,11 @@
 name = "lorax-server"
 version = "0.1.0"
 description = "LoRAX Inference Python gRPC Server"
-authors = ["Geoffrey Angus <geoffrey@predibase.com>", "Travis Addair <travis@predibase.com>","Olivier Dehaene <olivier@huggingface.co>"]
+authors = [
+    "Geoffrey Angus <geoffrey@predibase.com>",
+    "Travis Addair <travis@predibase.com>",
+    "Olivier Dehaene <olivier@huggingface.co>",
+]
 
 [tool.poetry.scripts]
 lorax-server = 'lorax_server.cli:app'
@@ -38,7 +42,7 @@ boto3 = "^1.28.34"
 urllib3 = "1.26.19"
 hqq = { version = "^0.1.7", optional = true }
 stanford-stk = { version = "^0.7.0", markers = "sys_platform == 'linux'" }
-outlines = { version = "^0.0.46", optional = true }
+outlines = { version = "^0.1.1", optional = true }
 prometheus-client = "^0.20.0"
 py-cpuinfo = "^9.0.0"
 nvidia-ml-py = "^12.555.43"
@@ -65,7 +69,9 @@ url = "https://download.pytorch.org/whl/cu124"
 priority = "explicit"
 
 [tool.pytest.ini_options]
-markers = ["private: marks tests as requiring an admin hf token (deselect with '-m \"not private\"')"]
+markers = [
+    "private: marks tests as requiring an admin hf token (deselect with '-m \"not private\"')",
+]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -105,4 +111,10 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.lint.isort]
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]

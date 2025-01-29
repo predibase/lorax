@@ -15,7 +15,7 @@ from transformers import (
 )
 
 try:
-    from outlines.fsm.fsm import RegexFSM
+    from outlines.fsm.guide import RegexGuide
     from outlines.fsm.json_schema import build_regex_from_schema
 
     HAS_OUTLINES = True
@@ -551,26 +551,24 @@ class OutlinesLogitsProcessor(LogitsProcessor):
         if self.fsm_state == -1 or self.fsm is None:
             return scores
 
-        allowed_tokens = self.fsm.allowed_token_ids(self.fsm_state)
-
-        # Filter out tokens that are out of bounds
-        # TODO(travis): figure out why this happens
-        allowed_tokens = [t for t in allowed_tokens if t < scores.shape[-1]]
+        allowed_tokens = self.fsm.get_next_instruction(self.fsm_state).tokens
 
         mask = torch.full_like(scores, -math.inf, device=scores.device)
-        mask[:, allowed_tokens] = 0
+        if allowed_tokens is not None:
+            mask[:, allowed_tokens] = 0
         biased_scores = scores + mask
+
         return biased_scores
 
     def next_state(self, next_token_id: int):
         if self.fsm_state != -1:
-            self.fsm_state = self.fsm.next_state(self.fsm_state, next_token_id)
+            self.fsm_state = self.fsm.get_next_state(self.fsm_state, next_token_id)
 
     @staticmethod
     @lru_cache(maxsize=32, typed=True)
     def compile_fsm(schema, tokenizer):
         regex_string = build_regex_from_schema(schema)
-        return RegexFSM(regex_string, tokenizer)
+        return RegexGuide.from_regex(regex_string, tokenizer)
 
     @staticmethod
     @lru_cache(maxsize=32, typed=True)

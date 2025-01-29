@@ -39,6 +39,7 @@ opentelemetry-instrumentation==0.42b0 ; python_version >= "3.9" and python_versi
 opentelemetry-proto==1.21.0 ; python_version >= "3.9" and python_version < "4.0"
 opentelemetry-sdk==1.21.0 ; python_version >= "3.9" and python_version < "4.0"
 opentelemetry-semantic-conventions==0.42b0 ; python_version >= "3.9" and python_version < "4.0"
+outlines==0.1.1 ; python_version >= "3.9" and python_version < "4.0"
 packaging==24.1 ; python_version >= "3.9" and python_version < "4.0"
 pillow==10.4.0 ; python_version >= "3.9" and python_version < "4.0"
 prometheus-client==0.20.0 ; python_version >= "3.9" and python_version < "4.0"
