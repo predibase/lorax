@@ -369,12 +369,18 @@ def serve(
                 for adapter_info in preloaded_adapters
             ]
             models = [model] * len(download_requests)
+            are_preloaded = [True] * len(download_requests)
 
             # Download adapters
             t0 = time.time()
             with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                 download_responses = list(
-                    tqdm(executor.map(download_adapter, download_requests, models), total=len(download_requests))
+                    tqdm(
+                        executor.map(
+                            download_adapter, download_requests, models, are_preloaded
+                        ),
+                        total=len(download_requests),
+                    )
                 )
             logger.info(f"Downloaded {len(download_requests)} adapters in {time.time() - t0:.2f}s")
 

@@ -194,7 +194,7 @@ def load_module_map(
 
 
 def download_adapter(
-    request: generate_pb2.DownloadAdapterRequest, model: "Model"
+    request: generate_pb2.DownloadAdapterRequest, model: "Model", is_preloaded: bool = False
 ) -> generate_pb2.DownloadAdapterResponse:
     adapter_parameters = request.adapter_parameters
     if is_base_model(adapter_parameters):
@@ -210,6 +210,11 @@ def download_adapter(
             continue
 
         adapter_bytes += download_adapter_weights(adapter_id, adapter_source, api_token)
+
+    if is_preloaded:
+        total_gpu_memory = torch.cuda.get_device_properties(model.device).total_memory
+        adapter_memory_fraction = adapter_bytes / total_gpu_memory
+        return generate_pb2.DownloadAdapterResponse(downloaded=True, memory_fraction=adapter_memory_fraction)
 
     adapter_memory_size = model.adapter_memory_size()
     if adapter_memory_size > 0:

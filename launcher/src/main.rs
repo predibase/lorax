@@ -528,7 +528,7 @@ struct Args {
     /// Increasing this value will reduce the size of the KV cache in exchange for allowing more
     /// adapters to be loaded onto the GPU at once.
     /// This value is NOT scaled relative to `cuda_memory_fraction`, but is expressed in absolute terms.
-    #[clap(default_value = "0.0", long, env)]
+    #[clap(default_value = "0.1", long, env)]
     adapter_memory_fraction: f32,
 
     /// The IP address to listen on
@@ -749,6 +749,7 @@ fn shard_manager(
     }
 
     // Preloaded adapters
+    let has_preloaded_adapters = !preloaded_adapter_ids.is_empty();
     for adapter_id in preloaded_adapter_ids {
         shard_args.push("--preloaded-adapter-ids".to_string());
         shard_args.push(adapter_id);
@@ -811,10 +812,14 @@ fn shard_manager(
     ));
 
     // Adapter memory fraction
-    envs.push((
-        "ADAPTER_MEMORY_FRACTION".into(),
-        adapter_memory_fraction.to_string().into(),
-    ));
+    if has_preloaded_adapters {
+        envs.push(("ADAPTER_MEMORY_FRACTION".into(), "0".into()));
+    } else {
+        envs.push((
+            "ADAPTER_MEMORY_FRACTION".into(),
+            adapter_memory_fraction.to_string().into(),
+        ));
+    }
 
     // Prefix caching
     if let Some(prefix_caching) = prefix_caching {
