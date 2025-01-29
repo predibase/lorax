@@ -14,13 +14,13 @@ from transformers import (
     TypicalLogitsWarper,
 )
 
-# try:
-from outlines.fsm.guide import RegexGuide
-from outlines.fsm.json_schema import build_regex_from_schema
+try:
+    from outlines.fsm.guide import RegexGuide
+    from outlines.fsm.json_schema import build_regex_from_schema
 
-HAS_OUTLINES = True
-# except ImportError:
-#     HAS_OUTLINES = False
+    HAS_OUTLINES = True
+except ImportError:
+    HAS_OUTLINES = False
 
 mempool = torch.cuda.graph_pool_handle() if torch.cuda.is_available() else None
 
