@@ -112,11 +112,11 @@ def attention(
         # by the current path
         # https://github.com/Dao-AILab/flash-attention/blob/320fb59487658f033f56711efd3d61b7c7a6f8f3/csrc/flash_attn/flash_api.cpp#L577
         # This fails becuase we're using causal, therefore window_right is set to 0 and the split logic is never applied.
-        out2 = flash_attn_2_cuda.varlen_fwd(
+        return flash_attn_2_cuda.varlen_fwd(
             query,
             key_cache,
             value_cache,
-            None,
+            out,
             seqlen.cu_seqlen_q,
             seqlen.cu_seqlen_k,
             None,
@@ -132,8 +132,7 @@ def attention(
             -1,  # Window right
             False,  # return softmax
             None,  # generator
-        )
-        return out2[0]
+        )[0]
 
     if SYSTEM == "xpu":
         query = query.contiguous()
