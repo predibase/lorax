@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Type
 
 import torch
+from loguru import logger
 from opentelemetry import trace
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
 
@@ -499,7 +500,7 @@ class CausalLM(Model):
         trust_remote_code: bool = False,
     ):
         if compile:
-            raise ValueError("`--compile` is not supported with CausalLM")
+            logger.info(f"Model {model_id} does not support CUDA graph compilation. Skipping compilation.")
 
         if torch.cuda.is_available():
             device = torch.device("cuda")
