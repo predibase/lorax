@@ -753,8 +753,7 @@ fn shard_manager(
     }
 
     if compile && eager {
-        tracing::error!("Cannot use both --compile and --eager at the same time.");
-        return;
+        panic!("Cannot use both --compile and --eager at the same time.");
     }
 
     // Speculative decoding
