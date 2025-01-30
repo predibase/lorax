@@ -277,6 +277,9 @@ struct Args {
     /// `gpt2` or `mistralai/Mistral-7B-Instruct-v0.1`.
     /// Or it can be a local directory containing the necessary files
     /// as saved by `save_pretrained(...)` methods of transformers
+    /// Optionally you can specify a revision with `@` like
+    /// `<model_id>@main` - this is incompatible with the `--revision`
+    /// flag.
     #[clap(default_value = "mistralai/Mistral-7B-Instruct-v0.1", long, env)]
     model_id: String,
 
@@ -1016,6 +1019,18 @@ fn shard_manager(
     }
 }
 
+// Parse the model_id to extract the model and revision (in model@revision format). If the model_id string doesn't
+// encode a revision, return revision_fallback for revision (which may itself be None).
+fn get_model_and_revision(
+    model_id: &str,
+    revision_fallback: Option<String>,
+) -> (String, Option<String>) {
+    let mut parts = model_id.split('@');
+    let model_id = parts.next().unwrap().to_string();
+    let revision = parts.next().map(|s| s.to_string()).or(revision_fallback);
+    (model_id, revision)
+}
+
 fn shutdown_shards(shutdown: Arc<AtomicBool>, shutdown_receiver: &mpsc::Receiver<()>) {
     tracing::info!("Shutting down shards");
     // Update shutdown value to true
@@ -1629,7 +1644,16 @@ fn terminate(process_name: &str, mut process: Child, timeout: Duration) -> io::R
 
 fn main() -> Result<(), LauncherError> {
     // Pattern match configuration
-    let args: Args = Args::parse();
+    let mut args: Args = Args::parse();
+
+    if args.model_id.contains('@') && args.revision.is_some() {
+        return Err(LauncherError::ArgumentValidation(
+            "Cannot specify a revision in both the --model_id and --revision flags".to_string(),
+        ));
+    }
+    // Extract the model id and revision from the model_id flag, if encoded in model@revision format (otherwise this
+    // is a no-op).
+    (args.model_id, args.revision) = get_model_and_revision(&args.model_id, args.revision);
 
     // Filter events with LOG_LEVEL
     let env_filter =
