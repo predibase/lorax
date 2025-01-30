@@ -53,7 +53,7 @@ class FlashQwen2(FlashCausalLM):
             compile = False
         else:
             model_cls = FlashQwen2ForCausalLM
-            compile = kwargs.pop("compile", True)
+            compile = kwargs.pop("compile")
 
         super().__init__(
             model_id=model_id,
