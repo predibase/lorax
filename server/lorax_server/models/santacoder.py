@@ -2,6 +2,7 @@ from typing import List, Optional
 
 import torch
 import torch.distributed
+from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from lorax_server.models.causal_lm import CausalLM
@@ -24,7 +25,7 @@ class SantaCoder(CausalLM):
         trust_remote_code: bool = False,
     ):
         if compile:
-            raise ValueError("`--compile` is not supported with SantaCoder")
+            logger.info(f"Model {model_id} does not support CUDA graph compilation. Skipping compilation.")
 
         if torch.cuda.is_available():
             device = torch.device("cuda")

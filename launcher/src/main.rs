@@ -344,14 +344,14 @@ struct Args {
     /// This will speed up decoding but increase GPU memory usage.
     /// Only use either `--compile` or `--eager`. Using both at the same time will
     /// result in an error.
-    #[clap(default_value = "true", long, env, value_enum)]
+    #[clap(long, env, value_enum)]
     compile: bool,
 
     /// Whether you want to run the model in eager mode, without
     /// CUDA mode compilation, or run it with compilation.
     /// Only use either `--compile` or `--eager`. Using both at the same time will
     /// result in an error.
-    #[clap(default_value = "false", long, env, value_enum)]
+    #[clap(long, env, value_enum)]
     eager: bool,
 
     // The maximum batch size past which CUDA graphs are disabled.
@@ -748,12 +748,13 @@ fn shard_manager(
     }
 
     // CUDA graph compilation
-    if compile && !eager {
+    if !eager {
         shard_args.push("--compile".to_string());
     }
 
-    if (compile && eager) || (!compile && !eager) {
-        panic!("Cannot use both --compile and --eager at the same time.");
+    if compile && eager {
+        tracing::error!("Cannot use both --compile and --eager at the same time.");
+        return;
     }
 
     // Speculative decoding

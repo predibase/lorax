@@ -2,6 +2,7 @@ from typing import Optional
 
 import torch
 import torch.distributed
+from loguru import logger
 from transformers import (
     AutoConfig,
     AutoTokenizer,
@@ -29,7 +30,7 @@ class GPTNeoxSharded(CausalLM):
         trust_remote_code: bool = False,
     ):
         if compile:
-            raise ValueError("`--compile` is not supported with GPT-NeoX")
+            logger.info(f"Model {model_id} does not support CUDA graph compilation. Skipping compilation.")
 
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():

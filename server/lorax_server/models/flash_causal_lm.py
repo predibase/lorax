@@ -1181,9 +1181,7 @@ class FlashCausalLM(Model):
             SLIDING_WINDOW = sliding_window
             SLIDING_WINDOW_BLOCKS = math.ceil(sliding_window / BLOCK_SIZE)
 
-        self.compile = compile and self.supports_cuda_graph_compilation
-        if compile and not self.supports_cuda_graph_compilation:
-            logger.info("Model does not support CUDA graph compilation. Skipping compilation.")
+        self.compile = compile
 
         self.model_graph_wrapper: GraphCache = None
         self.kv_cache = []

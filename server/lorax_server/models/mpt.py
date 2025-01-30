@@ -5,6 +5,7 @@ from typing import Optional, Type
 import torch
 import torch.distributed
 from huggingface_hub import hf_hub_download
+from loguru import logger
 from opentelemetry import trace
 from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBase
 
@@ -58,7 +59,7 @@ class MPTSharded(CausalLM):
         trust_remote_code: bool = False,
     ):
         if compile:
-            raise ValueError("`--compile` is not supported with MPT")
+            logger.info(f"Model {model_id} does not support CUDA graph compilation. Skipping compilation.")
 
         self.process_group, rank, world_size = initialize_torch_distributed()
         if torch.cuda.is_available():
