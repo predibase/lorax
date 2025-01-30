@@ -47,7 +47,14 @@ class FlashQwen2(FlashCausalLM):
         embedding_dim: Optional[int] = None,
         **kwargs,
     ):
-        model_cls = FlashQwen2ForEmbeddings if embedding_dim is not None else FlashQwen2ForCausalLM
+        if embedding_dim is not None:
+            model_cls = FlashQwen2ForEmbeddings
+            kwargs.pop("compile")
+            compile = False
+        else:
+            model_cls = FlashQwen2ForCausalLM
+            compile = kwargs.pop("compile")
+
         super().__init__(
             model_id=model_id,
             model_cls=model_cls,
@@ -57,6 +64,7 @@ class FlashQwen2(FlashCausalLM):
             adapter_source=adapter_source,
             config_cls=Qwen2Config,
             embedding_dim=embedding_dim,
+            compile=compile,
             **kwargs,
         )
 
