@@ -1344,6 +1344,8 @@ class FlashCausalLM(Model):
             logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
             torch.cuda.synchronize(self.device)
 
+        self.kv_cache = []
+        torch.cuda.empty_cache()
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
         dtype_size = torch.tensor([], dtype=self.dtype).element_size()
@@ -1358,13 +1360,7 @@ class FlashCausalLM(Model):
         free_memory = max(0, free_memory - graph_cache_memory)
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
 
-        batch_num_blocks = batch.num_blocks if batch is not None else 0
-        num_blocks = (
-            # Leave 5% for some wiggle room
-            int((free_memory * MEMORY_WIGGLE_ROOM) // total_cache_size)
-            # Add batch.num_blocks as we allocated it above, so it is included in the peak memory.
-            + batch_num_blocks
-        )
+        num_blocks = int((free_memory * MEMORY_WIGGLE_ROOM) // total_cache_size)
 
         del batch
 
