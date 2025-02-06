@@ -1291,7 +1291,7 @@ class FlashCausalLM(Model):
         )
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
-        logger.info(f'Pre warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3)}')
+        logger.info(f'Pre warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
 
         # The warmup batch is the biggest batch we could ever receive
         max_total_tokens = batch.max_input_length + max_new_tokens + get_speculative_tokens()
@@ -1316,7 +1316,7 @@ class FlashCausalLM(Model):
                 self.kv_dtype,
                 self.device,
             )
-            logger.info(f'Pre warmup kv init cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3)}')
+            logger.info(f'Pre warmup kv init cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
 
             if not embedding_model:
                 with warmup_mode():
@@ -1351,12 +1351,12 @@ class FlashCausalLM(Model):
             logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
             torch.cuda.synchronize(self.device)
 
-        logger.info(f'Post warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3)}')
-        del batch
+        logger.info(f'Post warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
         del self.model_graph_wrapper
         self.kv_cache = []
+        torch.cuda.synchronize(self.device)
         torch.cuda.empty_cache()
-        logger.info(f'Post warmup empty_cache cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3)}')
+        logger.info(f'Post warmup empty_cache cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
         dtype_size = torch.tensor([], dtype=self.dtype).element_size()
@@ -1374,6 +1374,7 @@ class FlashCausalLM(Model):
         num_blocks = int((free_memory * MEMORY_WIGGLE_ROOM) // total_cache_size)
         logger.info(f"num kv blocks: {num_blocks}, num kv tokens: {num_blocks * BLOCK_SIZE}")
 
+        del batch
 
         self.init_kv_cache(
             num_blocks,
