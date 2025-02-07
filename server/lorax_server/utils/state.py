@@ -15,7 +15,7 @@ CHUNKED_PREFILL = bool(int(os.environ.get("CHUNKED_PREFILL", "0")))
 LORAX_SPECULATION_MAX_BATCH_SIZE = int(os.environ.get("LORAX_SPECULATION_MAX_BATCH_SIZE", 32))
 
 # Always use flashinfer when prefix caching is enabled
-FLASH_INFER = bool(int(os.environ.get("FLASH_INFER", "0"))) or PREFIX_CACHING
+FLASH_INFER = False
 if FLASH_INFER:
     logger.info("Backend = flashinfer")
 else:
