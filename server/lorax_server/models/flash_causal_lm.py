@@ -1352,7 +1352,7 @@ class FlashCausalLM(Model):
             torch.cuda.synchronize(self.device)
 
         logger.info(f'Post warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
-        del self.model_graph_wrapper
+        self.model_graph_wrapper = None
         self.kv_cache = []
         torch.cuda.synchronize(self.device)
         torch.cuda.empty_cache()
