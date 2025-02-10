@@ -20,6 +20,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use std::{fs, io};
 use tracing_subscriber::EnvFilter;
+use secrecy::{Secret, ExposeSecret};
 
 mod env_runtime;
 
@@ -394,7 +395,7 @@ struct Args {
     /// The API token to use when fetching adapters from pbase.
     /// If specified, will set the environment variable PREDIBASE_API_TOKEN.
     #[clap(long, env)]
-    predibase_api_token: Option<String>,
+    predibase_api_token: Option<Secret<String>>,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -1229,7 +1230,7 @@ fn download_convert_model(
     if let Some(predibase_api_token) = &args.predibase_api_token {
         envs.push((
             "PREDIBASE_API_TOKEN".into(),
-            predibase_api_token.to_string().into(),
+            predibase_api_token.expose_secret().to_string().into(),
         ));
     }
 
@@ -1380,7 +1381,7 @@ fn spawn_shards(
                 speculation_max_batch_size,
                 preloaded_adapter_ids,
                 preloaded_adapter_source,
-                predibase_api_token,
+                predibase_api_token.expose_secret(),
                 dtype,
                 trust_remote_code,
                 uds_path,
