@@ -1350,6 +1350,7 @@ fn spawn_shards(
         let preloaded_adapter_source = args.preloaded_adapter_source.clone();
         let predibase_api_token = args
             .predibase_api_token
+            .clone()
             .unwrap_or(SecretBox::new("".into()));
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
