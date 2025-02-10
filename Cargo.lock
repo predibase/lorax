@@ -1965,6 +1965,7 @@ dependencies = [
  "openssl",
  "reqwest",
  "rustix 0.37.27",
+ "secrecy",
  "serde",
  "serde_json",
  "tracing",
