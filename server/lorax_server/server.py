@@ -292,7 +292,7 @@ def serve(
             local_url = unix_socket_template.format(uds_path, 0)
             server_urls = [local_url]
 
-        if adapter_source == PBASE:
+        if adapter_source == PBASE and adapter_id != "":
             logger.info("Got a PBASE adapter source, mapping model ID to S3")
             api_token = os.getenv("PREDIBASE_API_TOKEN")
             adapter_id = map_pbase_model_id_to_s3(adapter_id, api_token)
