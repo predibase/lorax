@@ -10,7 +10,7 @@ homepage.workspace = true
 clap = { version = "4.1.4", features = ["derive", "env"] }
 ctrlc = { version = "3.2.5", features = ["termination"] }
 nix = "0.26.2"
-openssl = "0.10.66"
+openssl = "0.10.70"
 hf-hub = { version = "0.3.0", features = ["tokio"] }
 h2 = "0.3.26"
 rustix = "0.37.25"
