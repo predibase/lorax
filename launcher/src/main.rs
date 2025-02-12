@@ -5,6 +5,7 @@ use hf_hub::{
 };
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
+use secrecy::{ExposeSecret, SecretBox};
 use serde::Deserialize;
 use std::env;
 use std::ffi::OsString;
@@ -394,7 +395,7 @@ struct Args {
     /// The API token to use when fetching adapters from pbase.
     /// If specified, will set the environment variable PREDIBASE_API_TOKEN.
     #[clap(long, env)]
-    predibase_api_token: Option<String>,
+    predibase_api_token: Option<SecretBox<str>>,
 
     /// The dtype to be forced upon the model. This option cannot be used with `--quantize`.
     #[clap(long, env, value_enum)]
@@ -1229,7 +1230,7 @@ fn download_convert_model(
     if let Some(predibase_api_token) = &args.predibase_api_token {
         envs.push((
             "PREDIBASE_API_TOKEN".into(),
-            predibase_api_token.to_string().into(),
+            predibase_api_token.expose_secret().into(),
         ));
     }
 
@@ -1347,7 +1348,10 @@ fn spawn_shards(
         let speculation_max_batch_size = args.speculation_max_batch_size;
         let preloaded_adapter_ids = args.preloaded_adapter_ids.clone();
         let preloaded_adapter_source = args.preloaded_adapter_source.clone();
-        let predibase_api_token = args.predibase_api_token.clone();
+        let predibase_api_token = args
+            .predibase_api_token
+            .clone()
+            .unwrap_or(SecretBox::new("".into()));
         let dtype = args.dtype;
         let trust_remote_code = args.trust_remote_code;
         let master_port = args.master_port;
@@ -1380,7 +1384,7 @@ fn spawn_shards(
                 speculation_max_batch_size,
                 preloaded_adapter_ids,
                 preloaded_adapter_source,
-                predibase_api_token,
+                Some(String::from(predibase_api_token.expose_secret())),
                 dtype,
                 trust_remote_code,
                 uds_path,
