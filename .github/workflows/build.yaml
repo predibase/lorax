@@ -188,6 +188,14 @@ jobs:
             echo "Pushed $tag"
           done <<< "$tags"
 
+      - name: Build and push dev image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.dev
+          push: true
+          tags: ghcr.io/predibase/lorax:dev
+
       - name: Prune older images
         env:
           tag_hash: ${{ steps.vars.outputs.tag_hash }}
