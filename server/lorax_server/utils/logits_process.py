@@ -1,7 +1,7 @@
 import math
 from contextlib import contextmanager
 from functools import lru_cache
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import torch
 from transformers import (
