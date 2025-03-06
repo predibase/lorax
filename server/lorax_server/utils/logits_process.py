@@ -440,7 +440,7 @@ class HeterogeneousProcessorWrapper(LogitsProcessor):
 
     def __init__(
         self,
-        processors: Dict[int, Union[LogitsProcessor, LogitsWarper]],
+        processors: Dict[int, LogitsProcessor],
     ):
         self.processors = processors
 
