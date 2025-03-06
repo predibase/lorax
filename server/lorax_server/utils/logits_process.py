@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Union
 import torch
 from transformers import (
     LogitsProcessor,
-    LogitsWarper,
     PreTrainedTokenizerBase,
     TemperatureLogitsWarper,
     TopKLogitsWarper,
@@ -188,7 +187,7 @@ class HeterogeneousFrequencyPenaltyLogitsProcessor(LogitsProcessor):
         return None
 
 
-class HeterogeneousTemperatureLogitsWarper(LogitsWarper):
+class HeterogeneousTemperatureLogitsWarper(LogitsProcessor):
     r"""
     [`LogitsWarper`] for temperature (exponential scaling output probability distribution).
     This version allows for a separate value for each sample and runs inplace when possible.
@@ -215,7 +214,7 @@ class HeterogeneousTemperatureLogitsWarper(LogitsWarper):
         return None
 
 
-class HeterogeneousTopPLogitsWarper(LogitsWarper):
+class HeterogeneousTopPLogitsWarper(LogitsProcessor):
     """
     [`LogitsWarper`] that performs top-p, i.e. restricting to top tokens summing to prob_cut_off <= prob_cut_off.
     This version allows for a separate value for each sample and runs inplace when possible.
@@ -270,7 +269,7 @@ class HeterogeneousTopPLogitsWarper(LogitsWarper):
         return None
 
 
-class HeterogeneousTopKLogitsWarper(LogitsWarper):
+class HeterogeneousTopKLogitsWarper(LogitsProcessor):
     r"""
     [`LogitsWarper`] that performs top-k, i.e. restricting to the k highest probability elements.
     This version allows for a separate value for each sample and runs inplace when possible.
@@ -347,7 +346,7 @@ class HeterogeneousTopKLogitsWarper(LogitsWarper):
         return None
 
 
-class HeterogeneousTypicalLogitsWarper(LogitsWarper):
+class HeterogeneousTypicalLogitsWarper(LogitsProcessor):
     r"""
     [`LogitsWarper`] that performs typical decoding. See [Typical Decoding for Natural Language
     Generation](https://arxiv.org/abs/2202.00666) for more information.
