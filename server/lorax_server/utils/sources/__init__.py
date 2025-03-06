@@ -79,9 +79,12 @@ def map_pbase_model_id_to_s3(model_id: str, api_token: str) -> str:
         if status not in STATUSES:
             # Status is unknown to us, so skip status validation
             logger.warning(f"Unknown status {status} for adapter {model_id}")
-        elif status not in FINAL_STATUSES:
-            # Status is known to us, but not a final status, so raise a user error
-            raise RuntimeError(f"Adapter {model_id} has not completed training (status: {status})")
+        elif status not in FINAL_STATUSES and status != TRAINING:
+            # Status is known to us, but not a final status or training, so raise a user error
+            raise RuntimeError(
+                f"Adapter {model_id} is not ready for use. Current status: {status}."
+                "Please wait until the adapter has completed training."
+            )
 
         path = resp_json.get("adapterPath")
         if not path:
