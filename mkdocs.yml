@@ -8,7 +8,7 @@ theme:
     - navigation.indexes
     - search.suggest
     - search.highlight
-  logo: docs/LoRAX_Main_Logo-Orange.png
+  logo: docs/LoRAX_Main_Logo-White.png
   favicon: favicon.ico
   palette:
     # primary: deep orange
