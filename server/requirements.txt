@@ -85,3 +85,4 @@ win32-setctime==1.2.0 ; python_version >= "3.9" and python_version < "4.0" and s
 wrapt==1.17.2 ; python_version >= "3.9" and python_version < "4.0"
 yarl==1.18.3 ; python_version >= "3.9" and python_version < "4.0"
 zipp==3.21.0 ; python_version >= "3.9" and python_version < "4.0"
+outlines==0.1.1 ; python_version >= "3.9" and python_version < "4.0"
