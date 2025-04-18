@@ -74,7 +74,7 @@ stanford-stk==0.7.1 ; python_version >= "3.9" and python_version < "4.0" and sys
 sympy==1.13.3 ; python_version >= "3.9" and python_version < "4.0"
 tiktoken==0.5.2 ; python_version >= "3.9" and python_version < "4.0"
 tokenizers==0.21.0 ; python_version >= "3.9" and python_version < "4.0"
-torch==2.4.0 ; python_version >= "3.9" and python_version < "4.0"
+torch==2.6.0 ; python_version >= "3.9" and python_version < "4.0"
 tqdm==4.67.1 ; python_version >= "3.9" and python_version < "4.0"
 transformers==4.49.0 ; python_version >= "3.9" and python_version < "4.0"
 triton==3.0.0 ; python_version >= "3.9" and sys_platform == "linux" and python_version < "4.0" or python_version >= "3.9" and python_version < "3.13" and platform_machine == "x86_64" and platform_system == "Linux"
