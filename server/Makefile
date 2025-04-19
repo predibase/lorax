@@ -19,7 +19,7 @@ gen-server:
 
 install: gen-server
 	pip install pip --upgrade
-	pip install torch==2.4.0
+	pip install torch==2.6.0
 	pip install -r requirements.txt
 	pip install -e ".[bnb, accelerate, quantize, peft, outlines]"
 
