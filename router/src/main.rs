@@ -428,9 +428,6 @@ async fn main() -> Result<(), RouterError> {
 
     let supports_chunking = shard_info.chunked_prefill;
     let max_batch_total_tokens = max_supported_batch_total_tokens;
-    if max_input_length as u32 > max_batch_prefill_tokens && !supports_chunking {
-        return Err(RouterError::ArgumentValidation(format!("`max_batch_prefill_tokens` must be >= `max_input_length`. Given: {max_batch_prefill_tokens} and {max_input_length}")));
-    }
     if max_batch_prefill_tokens > max_batch_total_tokens {
         return Err(RouterError::ArgumentValidation(format!("`max_batch_prefill_tokens` must be <= `max_batch_total_tokens`. Given: {max_batch_prefill_tokens} and {max_batch_total_tokens}")));
     }
