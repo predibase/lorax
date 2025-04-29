@@ -581,7 +581,7 @@ pub struct Url {
 }
 
 #[derive(Clone, Deserialize, Serialize, ToSchema, Default, Debug, PartialEq)]
-pub(crate) struct ToolCall {
+pub struct ToolCall {
     pub id: String,
     pub r#type: String,
     pub function: ReturnFunctionDefinition,
@@ -602,6 +602,8 @@ pub struct Message {
     #[serde(default)]
     #[schema(example = "My name is David and I")]
     pub content: Option<MessageContent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "\"David\"")]
     name: Option<String>,
@@ -642,6 +644,8 @@ pub struct TextMessage {
     pub role: String,
     #[schema(example = "My name is David and I")]
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 impl From<Message> for TextMessage {
@@ -660,6 +664,7 @@ impl From<Message> for TextMessage {
                     .join(""),
                 None => String::new(),
             },
+            tool_calls: value.tool_calls,
         }
     }
 }
@@ -858,7 +863,8 @@ impl ChatCompletionRequest {
 }
 
 pub fn default_tool_prompt() -> String {
-    "\nGiven the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables.\n".to_string()
+    // "\nGiven the functions available, please respond with a JSON for a function call with its proper arguments that best answers the given prompt. Respond in the format {name: function name, parameters: dictionary of argument name and its value}.Do not use variables.\n".to_string()
+    "".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -951,7 +957,7 @@ pub(crate) struct FunctionDefinition {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema, Default, PartialEq)]
-pub(crate) struct ReturnFunctionDefinition {
+pub struct ReturnFunctionDefinition {
     #[serde(default)]
     pub description: Option<String>,
     pub name: String,

@@ -112,12 +112,14 @@ impl ChatTemplateRenderer {
                 // if not, we need to append the tools to the last message
                 let text = if self.use_default_tool_template {
                     match serde_json::to_string(&tools) {
-                        Ok(tools_str) => format!("\n---\n{}\n{}", tools_str, tool_prompt),
+                        // Ok(tools_str) => format!("\n---\n{}\n{}", tools_str, tool_prompt),
+                        Ok(tools_str) => format!("\n{}\n{}", tools_str, tool_prompt),
                         Err(e) => return Err(InferError::ToolError(e.to_string())),
                     }
                 } else {
                     // if the `tools` variable is used in the template, we just append the tool_prompt
-                    format!("\n---\n{}", tool_prompt)
+                    // format!("\n---\n{}", tool_prompt)
+                    format!("\n{}", tool_prompt)
                 };
                 if let Some(last_message) = messages.last_mut() {
                     if let Some(content) = &mut last_message.content {
