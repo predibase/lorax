@@ -81,6 +81,7 @@ RUN case ${TARGETPLATFORM} in \
 FROM pytorch-install as kernel-builder
 
 ARG MAX_JOBS=2
+ENV CUDA_HOME=/usr/local/cuda
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ninja-build cmake \
