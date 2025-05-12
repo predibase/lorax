@@ -220,7 +220,7 @@ COPY --from=eetq-kernels-builder /usr/src/eetq/build/lib.linux-x86_64-cpython-31
 RUN uv pip install einops --no-cache-dir
 
 # Install flashinfer
-RUN uv pip install --no-cache-dir flashinfer==0.2.2 -i https://flashinfer.ai/whl/cu124/torch2.6
+RUN uv pip install flashinfer-python -i https://flashinfer.ai/whl/cu126/torch2.6/
 
 # Install server
 COPY proto proto
