@@ -1092,7 +1092,10 @@ class FlashCausalLM(Model):
         else:
             self.kv_dtype = dtype
 
-        torch.distributed.barrier(group=self.process_group)
+        if self.process_group.size() > 1:
+            torch.distributed.barrier(group=self.process_group)
+        else:
+            self.process_group.barrier()
 
         filenames = weight_files(model_id, revision=revision, extension=".safetensors", embedding_dim=embedding_dim)
         merged_weight_filenames = None
@@ -1122,7 +1125,10 @@ class FlashCausalLM(Model):
         prefix = ""
         model = model_cls(prefix, config, weights)
 
-        torch.distributed.barrier(group=self.process_group)
+        if self.process_group.size() > 1:
+            torch.distributed.barrier(group=self.process_group)
+        else:
+            self.process_group.barrier()
 
         # VLM models define the config we care about in their text_config
         text_config = getattr(config, "text_config", None)
@@ -1273,7 +1279,6 @@ class FlashCausalLM(Model):
         total_gpu_memory = torch.cuda.get_device_properties(self.device).total_memory
         return ADAPTER_MEMORY_FRACTION * total_gpu_memory
 
-
     def init_graph_wrapper(self, max_total_tokens: int):
         self.model_graph_wrapper = GraphCache(
             self.model,
@@ -1291,7 +1296,7 @@ class FlashCausalLM(Model):
         )
 
     def warmup(self, batch: FlashCausalLMBatch, max_new_tokens: int, embedding_model: bool = False):
-        logger.info(f'Pre warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
+        logger.info(f"Pre warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB")
 
         # The warmup batch is the biggest batch we could ever receive
         max_total_tokens = batch.max_input_length + max_new_tokens + get_speculative_tokens()
@@ -1316,7 +1321,7 @@ class FlashCausalLM(Model):
                 self.kv_dtype,
                 self.device,
             )
-            logger.info(f'Pre warmup kv init cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
+            logger.info(f"Pre warmup kv init cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB")
 
             if not embedding_model:
                 with warmup_mode():
@@ -1351,12 +1356,12 @@ class FlashCausalLM(Model):
             logger.info("Estimated graph cache memory: {} MB", graph_cache_memory / 1024 / 1024)
             torch.cuda.synchronize(self.device)
 
-        logger.info(f'Post warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
+        logger.info(f"Post warmup cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB")
         self.model_graph_wrapper = None
         self.kv_cache = []
         torch.cuda.synchronize(self.device)
         torch.cuda.empty_cache()
-        logger.info(f'Post warmup empty_cache cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB')
+        logger.info(f"Post warmup empty_cache cuda memory: {get_cuda_free_memory(self.device, 1) / (1024 ** 3):.2f} GB")
         # Inspired by the original implementation in [vllm](https://github.com/vllm-project/vllm)
         # Calculate the number of blocks that can be allocated with the free memory
         dtype_size = torch.tensor([], dtype=self.dtype).element_size()
@@ -1365,8 +1370,7 @@ class FlashCausalLM(Model):
 
         preloaded_adapter_memory_fraction = sum(self.preloaded_adapter_memory_fractions.values())
         free_memory = get_cuda_free_memory(
-            self.device,
-            MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION - preloaded_adapter_memory_fraction
+            self.device, MEMORY_FRACTION - ADAPTER_MEMORY_FRACTION - preloaded_adapter_memory_fraction
         )
         free_memory = max(0, free_memory - graph_cache_memory)
         logger.info("Memory remaining for kv cache: {} MB", free_memory / 1024 / 1024)
@@ -1762,8 +1766,7 @@ class FlashCausalLM(Model):
                 # Only save tokens if we are done prefilling for this request
                 batch.all_input_ids_tensor[
                     i,
-                    batch.cache_lengths_tensor[i]
-                    + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
+                    batch.cache_lengths_tensor[i] + batch.input_lengths[i] : batch.cache_lengths_tensor[i]
                     + batch.input_lengths[i]
                     + accepted_ids[i],
                 ] = next_input_ids[cu_accepted_ids[i] : cu_accepted_ids[i + 1]]
