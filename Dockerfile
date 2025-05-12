@@ -229,8 +229,8 @@ COPY server/Makefile server/Makefile
 
 RUN cd server && \
     make gen-server && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
+    uv pip install --no-cache-dir -r requirements.txt && \
+    uv pip install ".[bnb, accelerate, quantize, peft, outlines]" --no-cache-dir
 
 # Install router
 COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router
