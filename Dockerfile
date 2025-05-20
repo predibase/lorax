@@ -170,6 +170,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ca-certificates \
     make \
     sudo \
+    build-essential \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy conda with PyTorch installed
@@ -236,12 +238,6 @@ RUN cd server && \
 COPY --from=builder /usr/src/target/release/lorax-router /usr/local/bin/lorax-router
 # Install launcher
 COPY --from=builder /usr/src/target/release/lorax-launcher /usr/local/bin/lorax-launcher
-
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    build-essential \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 
 # Final image
 FROM base
