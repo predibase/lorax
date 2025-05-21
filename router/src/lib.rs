@@ -22,6 +22,7 @@ use loader::AdapterLoader;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use server::prepare_chat_input;
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use validation::Validation;
 
@@ -1211,13 +1212,26 @@ struct CompatEmbedding {
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ClassifyInput {
+    original_description: String,
+    amount: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+struct ClassifyParameters {
+    aggregation_strategy: String,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
 struct ClassifyRequest {
-    inputs: String,
+    inputs: ClassifyInput,
+    parameters: Option<ClassifyParameters>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 struct BatchClassifyRequest {
-    inputs: Vec<String>,
+    inputs: Vec<ClassifyInput>,
+    parameters: Option<ClassifyParameters>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -1234,6 +1248,17 @@ struct Entity {
     word: String,
     start: usize,
     end: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ClassifyResponse {
+    raw_ner: Vec<Entity>,
+    linkable_fields: HashMap<String, Option<String>>,
+}
+
+#[derive(Debug, Serialize)]
+struct BatchClassifyResponse {
+    responses: Vec<ClassifyResponse>,
 }
 
 impl From<EntityMessage> for Entity {
