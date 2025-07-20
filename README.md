@@ -16,6 +16,19 @@ _LoRAX: Multi-LoRA inference server that scales to 1000s of fine-tuned LLMs_
 
 LoRAX (LoRA eXchange) is a framework that allows users to serve thousands of fine-tuned models on a single GPU, dramatically reducing the cost of serving without compromising on throughput or latency.
 
+---
+
+**🚀 Start Here: For a Robust & Reliable LoRAX Deployment**
+
+While this `README.md` provides a general overview, setting up a performant LoRAX server involves specific hardware, software, and environment configurations. To ensure a smooth, "impossible-to-fail" deployment experience, we highly recommend consulting our detailed **[LoRAX Deployment Playbook](lorax_deployment_playbook.md)**. This guide covers:
+
+* **[Bulletproof Host System Setup](lorax_deployment_playbook.md#phase-1-host-setup):** NVIDIA drivers, Docker, `nvidia-container-toolkit`, and crucial user permissions.
+* **[GPU VRAM Considerations](lorax_deployment_playbook.md#phase-2-deploy-lorax):** Understanding LLM memory requirements and selecting compatible models for your hardware.
+* **[Pre-Built vs. Source Deployment](lorax_deployment_playbook.md#phase-2-deploy-lorax):** Choosing the fastest path or building from source with all CUDA kernels.
+* **[Common Pitfalls & Troubleshooting](lorax_deployment_playbook.md#troubleshooting-guide):** Solutions for Hugging Face authentication, model download stalls, and more.
+
+---
+
 ## 📖 Table of contents
 
 - [📖 Table of contents](#-table-of-contents)
@@ -59,6 +72,9 @@ Base models can be loaded in fp16 or quantized with `bitsandbytes`, [GPT-Q](http
 
 Supported adapters include LoRA adapters trained using the [PEFT](https://github.com/huggingface/peft) and [Ludwig](https://ludwig.ai/) libraries. Any of the linear layers in the model can be adapted via LoRA and loaded in LoRAX.
 
+**⚙️ Model Compatibility & VRAM:** Selecting the right model for your GPU's VRAM is crucial. Not all quantized models are plug-and-play due to varying toolchains. For detailed guidance on VRAM limitations and troubleshooting quantized model errors (e.g., `CUDA out of memory`, `RuntimeError`), refer to **[Phase 2: Deploy LoRAX](lorax_deployment_playbook.md#phase-2-deploy-lorax)** in the LoRAX Deployment Playbook.
+
+
 ## 🏃‍♂️ Getting Started
 
 We recommend starting with our pre-built Docker image to avoid compiling custom CUDA kernels and other dependencies.
@@ -72,6 +88,8 @@ The minimum system requirements need to run LoRAX include:
 - Linux OS
 - Docker (for this guide)
 
+**🚨 Critical Setup Note:** Meeting these requirements can be complex. For a step-by-step, verified guide on installing GPU drivers, Docker Engine, and `nvidia-container-toolkit` (including essential user permissions), please follow **[Phase 1: Host Setup](lorax_deployment_playbook.md#phase-1-host-setup)** in the LoRAX Deployment Playbook. Incorrect setup here is the most common cause of deployment failures.
+
 ### Launch LoRAX Server
 
 #### Prerequisites
@@ -79,6 +97,8 @@ Install [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-nati
 Then 
  - `sudo systemctl daemon-reload`
  - `sudo systemctl restart docker`
+
+**💡 For the most reliable and fully explained `docker run` command, including critical flags (`-e HUGGING_FACE_HUB_TOKEN`, `--user`), model selection based on GPU VRAM, and troubleshooting common issues like model download stalls or quantized model compatibility, refer to our comprehensive guide: [Phase 2: Deploy LoRAX](lorax_deployment_playbook.md#phase-2-deploy-lorax) and [Phase 3: Test the API](lorax_deployment_playbook.md#phase-3-test-the-api) in the LoRAX Deployment Playbook.**
 
 ```shell
 model=mistralai/Mistral-7B-Instruct-v0.1
