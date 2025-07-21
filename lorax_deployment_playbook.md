@@ -402,7 +402,7 @@ When building from source, you gain the flexibility to choose a wider range of m
 **Action:** First, clone the main repository, then immediately initialize and update all its submodules.
 
 ```bash
-git clone https://github.com/predibase/lorax.git
+git clone https://github.com/minhkhoango/lorax.git
 cd lorax
 git submodule update --init --recursive
 ```
