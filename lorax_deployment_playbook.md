@@ -179,6 +179,45 @@ docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi \
 
 </details>
 
+#### Advanced NVIDIA Container Toolkit Configuration & Troubleshooting
+Some cloud environments or specific Docker/NVIDIA driver versions may require additional configuration for GPU access inside containers.
+
+* **Cgroup V2 Compatibility (`"Failed to initialize NVML: Unknown Error"`)**:
+    * **Problem:** On systems using `cgroup v2` (common in newer Linux distributions), rootless Docker or certain container runtime setups can conflict with NVIDIA's cgroup requirements, leading to errors like `"Failed to initialize NVML: Unknown Error"` or `"no such file or directory"` when trying to read cgroup events.
+    * **Solution:** You might need to adjust kernel parameters or `nvidia-container-runtime` settings.
+        * **Kernel Parameter:** Add `systemd.unified_cgroup_hierarchy=false` to your kernel boot parameters (e.g., in GRUB, then reboot).
+        * **Runtime Config:** Ensure `no-cgroups = false` is set in `/etc/nvidia-container-runtime/config.toml`.
+* **Device Symlink Issues (`/dev/char` missing)**:
+    * **Problem:** In some cases, necessary device symlinks for NVIDIA GPUs (`/dev/char/...`) might be missing, preventing containers from accessing the GPU.
+    * **Solution:** Use `nvidia-ctk system create-dev-char-symlinks --create-all` to create them, and ensure accompanying udev rules are in place.
+* **Essential Docker Daemon Configuration (`daemon.json`)**:
+    * **Problem:** Incorrect Docker daemon configuration can prevent GPUs from being exposed to containers.
+    * **Solution:** Verify your `/etc/docker/daemon.json` includes the following, then restart Docker (`sudo systemctl restart docker`):
+        ```json
+        {
+          "runtimes": {
+            "nvidia": {
+              "path": "/usr/bin/nvidia-container-runtime",
+              "runtimeArgs": []
+            }
+          },
+          "default-runtime": "nvidia",
+          "node-generic-resources": ["gpu=GPU-{uuid}"]
+        }
+        ```
+
+#### Cloud Platform-Specific Pitfalls
+Deployment on various cloud GPU providers can introduce unique challenges.
+
+* **Vast.ai Specific Problems:**
+    * **Docker Image Pull Throttling:** Frequent `"image pull is throttled"` errors can occur due to rate limits.
+        * **Solution:** Implement retry strategies for `docker pull`, or consider using pre-configured Vast.ai instances or custom images with required dependencies pre-installed.
+    * **Environment Variable Issues (`$DISPLAY`)**: Some GUI-dependent tools or environment checks might fail if `$DISPLAY` is not exported. This is less common for LoRAX but can impact debugging.
+* **RunPod Deployment Challenges:**
+    * **Network Configuration:** Ensure proper port mapping and understanding of shared volumes for model caching.
+    * **Secret Management:** HuggingFace tokens must be properly configured as secrets or environment variables for secure access.
+    * **Resource Allocation:** Always double-check adequate GPU memory allocation for the specific model you intend to load.
+
 ---
 
 ### 4. Check User in Docker Group 👤
@@ -413,13 +452,15 @@ git submodule update --init --recursive
 docker build -t my-lorax-server -f Dockerfile .
 ```
 
-
 **Common Failures:**
 - Build stalls → Add `--network=host` to the build command.
 - Version conflicts → Adjust base image or dependencies.
 
 > **Important Note on Build Parallelism (`MAX_JOBS`) & Memory:**
 > Building custom CUDA kernels from source is a memory-intensive process. The `Dockerfile` is configured with `ENV MAX_JOBS=2` as a **very conservative default** for parallel compilation. This value aims to provide the highest stability and prevent Out-Of-Memory (OOM) crashes on a wide range of hardware, including instances with limited RAM relative to CPU cores.
+>
+> **Advanced Build-Time Memory Management:**
+> For systems with very limited RAM or during memory-intensive CUDA kernel compilations, setting `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` can help PyTorch manage memory more flexibly during the build process, potentially reducing Out-Of-Memory (OOM) crashes. This setting is now automatically applied via an environment variable in the `Dockerfile` for relevant build stages.
 >
 > * **To Optimize for Faster Builds (Recommended):**
 >     If you have significantly more RAM (e.g., 96GB or more) and want to speed up compilation, you can safely **increase `MAX_JOBS`**.
@@ -438,6 +479,21 @@ Use the same `docker run` command as in Option A, replacing `ghcr.io/predibase/l
 **Common Failures:**
 - “Exec format error” → Image built for wrong architecture.
 - Immediate exit → Library mismatch; rebuild with compatible CUDA base.
+
+### Model Compatibility Beyond Mistral-7B (Build from Source)
+
+If you attempt to load a model other than `mistralai/Mistral-7B-Instruct-v0.1` and encounter errors such as `TypeError: TensorParallelColumnLinear.load_multi()` or `RuntimeError: weight ... does not exist`, these errors typically indicate version incompatibilities between PEFT, Transformers, and TGI components. The root issue is that the `fan_in_fan_out` parameter conflicts with TGI's tensor parallel implementations, and `TensorParallelColumnLinear` expects certain `base_layer` attributes that may not be present in all model variants or library versions.
+
+To attempt compatibility with a different model (e.g., `gpt2`):
+
+1. The `vLLM` inference engine version is crucial. In LoRAX, `vLLM` is pinned to a specific Git commit for stability. To change it, you need to **edit `server/Makefile-vllm`**.
+2. Rebuild the Docker image after making any changes.
+3. If you encounter errors related to missing weights or quantization, check the model's compatibility with the current `transformers` and `vLLM` versions.
+4. Change the commit hash (e.g., `766435e660a786933392eb8ef0a873bc38cf0c8b`) to **`9985d06add07a4cc691dc54a7e34f54205c04d40`** (a `vLLM 0.7.3+` version known for broader compatibility, including `gpt2`).
+
+* **Potential `transformers` version adjustments:** If changing the `vLLM` commit doesn't resolve the issue, you *might* also need to modify the `transformers` version in `server/requirements.txt`. Research suggests `Transformers 4.49.0+` provides stable `gpt2` support with `vLLM 0.7.3+`. **Avoid `Transformers 4.48.x` with `vLLM 0.7.2` due to known Qwen model compatibility issues.**
+
+* **Using `--model-impl transformers`:** For certain models, particularly `gpt2`, if issues persist, you may need to add the `--model-impl transformers` flag to your `lorax-launcher` command to explicitly force the Transformers backend for inference.
 
 ---
 
@@ -572,6 +628,14 @@ curl http://localhost:80/
 - **Reliability:** Add watchdog with `Restart=on-failure` (systemd or Docker policies).
 
 </details>
+
+---
+
+## Lessons Learned
+
+- **Kernel Cohesion:** Kernel upgrades Must Be Cohesive: Partial migrations (e.g., AWQ v0.0.4 → v0.0.6) exposed ABI mismatches; coordinated bump strategies are now mandated. This directly explains why versions like `vLLM` commits are so critical.
+- **Memory Virtualization:** Early investment in memory virtualization (like v0.9 memory pool overhaul) is crucial for runtime OOM reduction.
+- **Schema-Driven API Design:** Tightened Pydantic models prevented API inconsistencies and improved reliability.
 
 ---
 

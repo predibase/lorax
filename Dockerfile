@@ -48,14 +48,19 @@ ARG INSTALL_CHANNEL=pytorch
 ARG TARGETPLATFORM
 
 ENV PATH /opt/conda/bin:$PATH
+# For build-time CUDA memory resilience
+ENV PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     ccache \
     curl \
-    git && \
-    rm -rf /var/lib/apt/lists/*
+    git \
+    ninja-build \
+    cmake \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install conda
 # translating Docker's TARGETPLATFORM into mamba arches
@@ -80,19 +85,14 @@ RUN case ${TARGETPLATFORM} in \
 # CUDA kernels builder image
 FROM pytorch-install as kernel-builder
 
-ARG MAX_JOBS=2
-
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ninja-build cmake \
-    && rm -rf /var/lib/apt/lists/*
-
-# This environment variable controls the number of parallel compilation jobs.
+# This environment variable controls the number of parallel compilation jobs for CUDA kernels.
 # It is set to a conservative value (2) by default for stability on machines
-# with limited RAM.
+# with limited RAM relative to CPU cores, preventing Out-Of-Memory (OOM) crashes during build.
 #
-# If you have more RAM (e.g., 96GB+), you can increase this value
-# (e.g., to 16, 24, or 32) to significantly speed up the build.
-# Always monitor RAM usage (htop) to avoid Out-Of-Memory (OOM) crashes.
+# You can adjust this value to optimize build speed based on your system's RAM:
+# - If you have more RAM (e.g., 96GB+), you can increase this value (e.g., to 16, 24, or 32)
+#   to significantly speed up the build. Always monitor RAM usage (htop) to avoid OOM crashes.
+# - If you encounter OOM errors even with this value, try reducing it further to 1.
 ENV MAX_JOBS=2
 # If you encounter OOM errors even with this value, try reducing it to 1.
 
@@ -112,13 +112,13 @@ RUN make build-flash-attention-v2-cuda -j$(MAX_JOBS)
 FROM kernel-builder as exllama-kernels-builder
 WORKDIR /usr/src
 COPY server/exllama_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+RUN MAX_JOBS=$(MAX_JOBS) TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
 # Build Transformers exllama kernels
 FROM kernel-builder as exllamav2-kernels-builder
 WORKDIR /usr/src
 COPY server/exllamav2_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
+RUN MAX_JOBS=$(MAX_JOBS) TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
 # Build Transformers awq kernels
 FROM kernel-builder as awq-kernels-builder
@@ -131,18 +131,11 @@ FROM kernel-builder as custom-kernels-builder
 WORKDIR /usr/src
 COPY server/custom_kernels/ .
 # Build specific version of transformers
-RUN python setup.py build
+RUN MAX_JOBS=$(MAX_JOBS) python setup.py build
 
 # Build vllm CUDA kernels
 FROM kernel-builder as vllm-builder
 WORKDIR /usr/src
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-RUN DEBIAN_FRONTEND=noninteractive apt purge -y --auto-remove cmake
-RUN wget 'https://github.com/Kitware/CMake/releases/download/v3.30.0/cmake-3.30.0-linux-x86_64.tar.gz'
-RUN tar xzvf 'cmake-3.30.0-linux-x86_64.tar.gz'
-RUN ln -s "$(pwd)/cmake-3.30.0-linux-x86_64/bin/cmake" /usr/local/bin/cmake
 ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
@@ -161,7 +154,7 @@ WORKDIR /usr/src
 COPY server/punica_kernels/ .
 # Build specific version of punica
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-RUN python setup.py build
+RUN MAX_JOBS=$(MAX_JOBS) python setup.py build
 
 # Build eetq kernels
 FROM kernel-builder as eetq-kernels-builder
