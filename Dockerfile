@@ -86,45 +86,45 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# Add this for robust parallel builds
-ENV MAX_JOBS=$(nproc)
+# Add this for robust parallel builds, adjusted for memory constraints
+ENV MAX_JOBS=16
 
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att Makefile
-RUN make build-flash-attention -j$(nproc)
+RUN make build-flash-attention -j$(MAX_JOBS)
 
 # Build Flash Attention v2 CUDA kernels
 FROM kernel-builder as flash-att-v2-builder
 WORKDIR /usr/src
 COPY server/Makefile-flash-att-v2 Makefile
-RUN make build-flash-attention-v2-cuda -j$(nproc)
+RUN make build-flash-attention-v2-cuda -j$(MAX_JOBS)
 
 # Build Transformers exllama kernels
 FROM kernel-builder as exllama-kernels-builder
 WORKDIR /usr/src
 COPY server/exllama_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" MAX_JOBS=$(nproc) python setup.py build
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
 # Build Transformers exllama kernels
 FROM kernel-builder as exllamav2-kernels-builder
 WORKDIR /usr/src
 COPY server/exllamav2_kernels/ .
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" MAX_JOBS=$(nproc) python setup.py build
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" python setup.py build
 
 # Build Transformers awq kernels
 FROM kernel-builder as awq-kernels-builder
 WORKDIR /usr/src
 COPY server/Makefile-awq Makefile
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq -j$(nproc)
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-awq -j$(MAX_JOBS)
 
 # Build Transformers CUDA kernels
 FROM kernel-builder as custom-kernels-builder
 WORKDIR /usr/src
 COPY server/custom_kernels/ .
 # Build specific version of transformers
-RUN MAX_JOBS=$(nproc) python setup.py build
+RUN python setup.py build
 
 # Build vllm CUDA kernels
 FROM kernel-builder as vllm-builder
@@ -139,14 +139,14 @@ RUN ln -s "$(pwd)/cmake-3.30.0-linux-x86_64/bin/cmake" /usr/local/bin/cmake
 ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6 8.9 9.0+PTX"
 COPY server/Makefile-vllm Makefile
 # Build specific version of vllm
-RUN make build-vllm-cuda -j$(nproc)
+RUN make build-vllm-cuda -j$(MAX_JOBS)
 
 # Build megablocks kernels
 FROM kernel-builder as megablocks-kernels-builder
 WORKDIR /usr/src
 COPY server/Makefile-megablocks Makefile
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-RUN make build-megablocks -j$(nproc)
+RUN make build-megablocks -j$(MAX_JOBS)
 
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
@@ -154,14 +154,14 @@ WORKDIR /usr/src
 COPY server/punica_kernels/ .
 # Build specific version of punica
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
-RUN MAX_JOBS=$(nproc) python setup.py build
+RUN python setup.py build
 
 # Build eetq kernels
 FROM kernel-builder as eetq-kernels-builder
 WORKDIR /usr/src
 COPY server/Makefile-eetq Makefile
 # Build specific version of transformers
-RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq -j$(nproc)
+RUN TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX" make build-eetq -j$(MAX_JOBS)
 
 # LoRAX base image
 FROM nvidia/cuda:12.4.0-base-ubuntu22.04 as base
