@@ -86,8 +86,15 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     ninja-build cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# Add this for robust parallel builds, adjusted for memory constraints
-ENV MAX_JOBS=16
+# This environment variable controls the number of parallel compilation jobs.
+# It is set to a conservative value (2) by default for stability on machines
+# with limited RAM.
+#
+# If you have more RAM (e.g., 96GB+), you can increase this value
+# (e.g., to 16, 24, or 32) to significantly speed up the build.
+# Always monitor RAM usage (htop) to avoid Out-Of-Memory (OOM) crashes.
+ENV MAX_JOBS=2
+# If you encounter OOM errors even with this value, try reducing it to 1.
 
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder

@@ -402,7 +402,7 @@ When building from source, you gain the flexibility to choose a wider range of m
 **Action:** First, clone the main repository, then immediately initialize and update all its submodules.
 
 ```bash
-git clone https://github.com/minhkhoango/lorax.git
+git clone -b feat/deployment-playbook-enhancements https://github.com/minhkhoango/lorax.git
 cd lorax
 git submodule update --init --recursive
 ```
@@ -417,6 +417,19 @@ docker build -t my-lorax-server -f Dockerfile .
 **Common Failures:**
 - Build stalls → Add `--network=host` to the build command.
 - Version conflicts → Adjust base image or dependencies.
+
+> **Important Note on Build Parallelism (`MAX_JOBS`) & Memory:**
+> Building custom CUDA kernels from source is a memory-intensive process. The `Dockerfile` is configured with `ENV MAX_JOBS=2` as a **very conservative default** for parallel compilation. This value aims to provide the highest stability and prevent Out-Of-Memory (OOM) crashes on a wide range of hardware, including instances with limited RAM relative to CPU cores.
+>
+> * **To Optimize for Faster Builds (Recommended):**
+>     If you have significantly more RAM (e.g., 96GB or more) and want to speed up compilation, you can safely **increase `MAX_JOBS`**.
+>     1.  **Open the `Dockerfile`** in your cloned `lorax` directory using your preferred text editor (e.g., `nano Dockerfile` or `code Dockerfile`).
+>     2.  **Find the line:** `ENV MAX_JOBS=2` (it will be surrounded by comments explaining its purpose)
+>     3.  **Change the value** to a higher number (e.g., `16`, `24`, or `32`). *Always monitor your RAM usage (`htop`) during the build to avoid crashes.*
+>     4.  **Save the `Dockerfile`** and restart your build command (`docker build -t my-lorax-server -f Dockerfile .`).
+>
+> * **If your build still crashes with an OOM error:**
+>     This indicates you have very limited RAM or other processes are consuming it. You **must reduce `MAX_JOBS` further**. Edit the `Dockerfile` as described above and change the value to `1`. Then, restart the build.
 
 #### 4. Run the Container
 
