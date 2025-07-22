@@ -161,8 +161,6 @@ FROM kernel-builder as punica-builder
 WORKDIR /usr/src
 COPY server/punica_kernels/ ./server/punica_kernels/
 # Build specific version of punica
-COPY flashinfer/ ./server/punica_kernels/third_party/flashinfer/
-COPY cutlass/ ./server/punica_kernels/third_party/cutlass/
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN MAX_JOBS=$(MAX_JOBS) python setup.py build
 
