@@ -298,25 +298,35 @@ docker pull ghcr.io/predibase/lorax:main
 
 ### 1. (Option B) Build the Image from Source
 
-> **Tip: Dramatically Speed Up Builds!**
+Want to build LoRAX from source for custom changes or the latest patches? Follow these steps:
+
+```bash
+# 1. Clone the repository (if you haven't already)
+git clone -b feat/deployment-playbook-enhancements https://github.com/minhkhoango/lorax.git
+cd lorax
+# 2. Initialize submodules
+git submodule update --init --recursive
+```
+
+> **Tip: Speed Up Your Build!**
 > 
-> By default, the Dockerfile sets `MAX_JOBS=2` to prevent out-of-memory (OOM) errors on machines with limited RAM. If you have a lot of RAM (e.g., 64GB, 96GB, or more), you can **dramatically speed up the build** by increasing this value.
+> By default, the Dockerfile uses `MAX_JOBS=2` to avoid out-of-memory (OOM) errors on machines with limited RAM. If you have a lot of RAM (e.g., 64GB, 96GB, or more), you can **dramatically speed up the build** by increasing this value.
 >
-> **How to do it:**
-> 1. Open the `Dockerfile` in your editor.
-> 2. Find the line:
+> **How to adjust build speed:**
+> 1. Open your `Dockerfile` at the root of your cloned repository (`~/lorax/Dockerfile`) in your editor.
+> 2. Locate the line:
 >    ```Dockerfile
 >    ENV MAX_JOBS=2
 >    ```
-> 3. Change `2` to a higher number (e.g., `16`, `24`, or `32`).
-> 4. Save the file and rebuild the image.
+>    (This line is typically found around line 90 in the `Dockerfile` within the `kernel-builder` stage, but verify its exact location).
+> 3. Change `2` to a higher number (e.g., `16`, `24`, or `32`) if your system has enough RAM.
+> 4. Save your `Dockerfile` and rebuild the image.
 >
-> **Warning:** Always monitor your RAM usage (e.g., with `htop`) during the build. If you run out of memory, reduce `MAX_JOBS` and try again.
+> *Not sure how much RAM you have? Run `htop` or `free -h` in your terminal. If you run out of memory during build, lower `MAX_JOBS` and try again!*
+
+Now, build your Docker image:
 
 ```bash
-git clone -b feat/deployment-playbook-enhancements https://github.com/minhkhoango/lorax.git
-cd lorax
-git submodule update --init --recursive
 export DOCKER_BUILDKIT=1
 docker build -t my-lorax-server -f Dockerfile .
 ```
