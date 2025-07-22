@@ -281,39 +281,77 @@ echo $HUGGING_FACE_HUB_TOKEN
 
 ## Phase 2: Deploy LoRAX
 
-Choose one deployment path:
+You can deploy LoRAX using either the **pre-built image** or by **building from source**. Both methods now support the same set of models:
+- `meta-llama/Llama-3.2-3B-Instruct`
+- `mistralai/Mistral-7B-Instruct-v0.1`
+- `meta-llama/Meta-Llama-3-8B-Instruct`
+
+Choose your deployment path:
 - **(A) Pre-built Image** – Fastest option, recommended for most users.
-- **(B) Build from Source** – Only for custom changes or unreleased patches.
+- **(B) Build from Source** – For custom changes or unreleased patches.
 
----
-
-### Option A: Pre-built Image 🎉
-
-#### 1. Pull the LoRAX Image
+### 1. (Option A) Pull the Pre-built Image
 
 ```bash
 docker pull ghcr.io/predibase/lorax:main
 ```
 
-**Success:** Image downloads successfully.  
-**Common Failure:** Network timeout → Retry or check connectivity.
+### 1. (Option B) Build the Image from Source
 
-> **Tip:** This is a public image, so no authentication issues are expected.
+> **Tip: Dramatically Speed Up Builds!**
+> 
+> By default, the Dockerfile sets `MAX_JOBS=2` to prevent out-of-memory (OOM) errors on machines with limited RAM. If you have a lot of RAM (e.g., 64GB, 96GB, or more), you can **dramatically speed up the build** by increasing this value.
+>
+> **How to do it:**
+> 1. Open the `Dockerfile` in your editor.
+> 2. Find the line:
+>    ```Dockerfile
+>    ENV MAX_JOBS=2
+>    ```
+> 3. Change `2` to a higher number (e.g., `16`, `24`, or `32`).
+> 4. Save the file and rebuild the image.
+>
+> **Warning:** Always monitor your RAM usage (e.g., with `htop`) during the build. If you run out of memory, reduce `MAX_JOBS` and try again.
+
+```bash
+git clone -b feat/deployment-playbook-enhancements https://github.com/minhkhoango/lorax.git
+cd lorax
+git submodule update --init --recursive
+export DOCKER_BUILDKIT=1
+docker build -t my-lorax-server -f Dockerfile .
+```
 
 ---
 
-#### 2. Choose Your Model 📊
+### 2. Choose Your Model & Run the Container
 
-**Critical Compatibility Note:** Due to internal versioning and optimization, the `ghcr.io/predibase/lorax:main` pre-built Docker image is **only consistently compatible with `mistralai/Mistral-7B-Instruct-v0.1`** at this time. Attempts to load other models (including `gpt2`, `starcoder2-3b`, or any other quantized models) may result in `TypeError`, `RuntimeError: weight ... does not exist`, or other internal loading failures. For broader model compatibility, custom configurations, or support for a wider range of quantized models, please proceed with **Option B: Build from Source**.
+Refer to the table below to select a model that fits your hardware and requirements:
 
-For `mistralai/Mistral-7B-Instruct-v0.1`, a GPU with **16-24 GB VRAM is recommended** to ensure smooth operation and sufficient KV cache.
+| **Model** | **Params** | **VRAM (FP16/BF16)** | **Notes** |
+|-----------|------------|-----------------------|-----------|
+| `meta-llama/Llama-3.2-3B-Instruct` | 3B | ~7 GB | Good for 8GB+ GPUs |
+| `mistralai/Mistral-7B-Instruct-v0.1` | 7B | ~14–15 GB | Needs 16–24 GB VRAM. |
+| `meta-llama/Meta-Llama-3-8B-Instruct` | 8B | ~16 GB | Tight on 16 GB; better with 24 GB. |
 
-#### 3. Run the Container
+> **VRAM Tips:**
+> - Keep **10–15% VRAM free** for KV cache and overhead.
+> - **6–8 GB GPUs**: Stick to quantized or smaller models.
+> - **12–16 GB GPUs**: Comfortable for 7B; tight for 8B.
+> - **24 GB+ GPUs**: Suitable for 13B or multi-instance setups.
+
+#### Run the Container
+
+Set your desired model and image name (see below):
 
 ```bash
-MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1"
+MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1" # or meta-llama/Llama-3.2-3B-Instruct, meta-llama/Meta-Llama-3-8B-Instruct
 SHARDED_MODEL="false" # Set to 'true' for sharded (multi-GPU) models like 70B
 PORT=80 # Host port to access the LoRAX server
+
+# For pre-built image:
+IMAGE_NAME="ghcr.io/predibase/lorax:main"
+# For source-built image:
+# IMAGE_NAME="my-lorax-server"
 
 docker run --rm \
   --name lorax \
@@ -324,7 +362,7 @@ docker run --rm \
   -v "$HOME/lorax_outlines_cache":/root/.cache/outlines \
   --user "$(id -u):$(id -g)" \
   -p ${PORT}:80 \
-  ghcr.io/predibase/lorax:main \
+  $IMAGE_NAME \
   --model-id "$MODEL_ID" \
   --sharded "$SHARDED_MODEL"
 ```
@@ -340,124 +378,11 @@ docker run --rm \
 - `-v "$HOME/lorax_outlines_cache":/root/.cache/outlines`: Mounts cache for Outlines library.
 - `--user "$(id -u):$(id -g)"`: Runs the container process as your host user for permission consistency.
 - `-p ${PORT}:80`: Maps the container's internal port 80 to your specified host port.
-- `ghcr.io/predibase/lorax:main`: Specifies the Docker image to use.
+- `$IMAGE_NAME`: Specifies the Docker image to use (pre-built or source-built).
 - `--model-id "$MODEL_ID"`: Sets the Hugging Face model to load.
 - `--sharded "$SHARDED_MODEL"`: Configures for multi-GPU sharding if set to `true`.
 
 </details>
-
----
-
-### Option B: Build from Source 🛠️
-
-Use this if you need custom changes or unreleased patches, or if you want to run models other than `mistralai/Mistral-7B-Instruct-v0.1`.
-
-#### 1. Clone the LoRAX Repository (Including all necessary Submodules)
-
-**Problem:** To build LoRAX from source, you need not only the main repository but also its nested external dependencies, which are managed as Git submodules (e.g., `flashinfer` for custom CUDA kernels). Skipping this can lead to "No such file or directory" errors during the build.
-
-**Action:** First, clone the main repository, then immediately initialize and update all its submodules.
-
-```bash
-git clone -b feat/deployment-playbook-enhancements https://github.com/minhkhoango/lorax.git
-cd lorax
-git submodule update --init --recursive
-```
-
-#### 2. Build the Image
-
-```bash
-export DOCKER_BUILDKIT=1
-docker build -t my-lorax-server -f Dockerfile .
-```
-
-**Common Failures:**
-- Build stalls → Add `--network=host` to the build command.
-- Version conflicts → Adjust base image or dependencies.
-
-<details>
-<summary>Click to expand: Advanced Build-Time Optimizations & Troubleshooting (MAX_JOBS, OOM)</summary>
-
-> **Important Note on Build Parallelism (`MAX_JOBS`) & Memory:**
-> Building custom CUDA kernels from source is a memory-intensive process. The `Dockerfile` is configured with `ENV MAX_JOBS=2` as a **very conservative default** for parallel compilation. This value aims to provide the highest stability and prevent Out-Of-Memory (OOM) crashes on a wide range of hardware, including instances with limited RAM relative to CPU cores.
->
-> **Advanced Build-Time Memory Management:**
-> For systems with very limited RAM or during memory-intensive CUDA kernel compilations, setting `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` can help PyTorch manage memory more flexibly during the build process, potentially reducing Out-Of-Memory (OOM) crashes. This setting is now automatically applied via an environment variable in the `Dockerfile` for relevant build stages.
->
-> * **To Optimize for Faster Builds (Recommended):**
->     If you have significantly more RAM (e.g., 96GB or more) and want to speed up compilation, you can safely **increase `MAX_JOBS`**.
->     1.  **Open the `Dockerfile`** in your cloned `lorax` directory using your preferred text editor (e.g., `nano Dockerfile` or `code Dockerfile`).
->     2.  **Find the line:** `ENV MAX_JOBS=2` (it will be surrounded by comments explaining its purpose)
->     3.  **Change the value** to a higher number (e.g., `16`, `24`, or `32`). *Always monitor your RAM usage (`htop`) during the build to avoid crashes.*
->     4.  **Save the `Dockerfile`** and restart your build command (`docker build -t my-lorax-server -f Dockerfile .`).
->
-> * **If your build still crashes with an OOM error:**
->     This indicates you have very limited RAM or other processes are consuming it. You **must reduce `MAX_JOBS` further**. Edit the `Dockerfile` as described above and change the value to `1`. Then, restart the build.
-
-</details>
-
-#### 3. Choose Your Model
-
-Refer to the compatibility table below to select a model that fits your hardware and requirements.
-
----
-
-| **Model** | **Params** | **VRAM (FP16/BF16)** | **Notes** |
-|-----------|------------|-----------------------|-----------|
-| `mistralai/Mistral-7B-Instruct-v0.1` | 7B | ~14–15 GB | Needs 16–24 GB VRAM. |
-| `meta-llama/Meta-Llama-3-8B-Instruct` | 8B | ~16 GB | Tight on 16 GB; better with 24 GB. |
-| `meta-llama/Meta-Llama-3-70B-Instruct` | 70B | 135–140 GB | Needs multi-GPU or heavy quantization. |
-| `mistralai/Mixtral-8x7B-Instruct-v0.1` | 8x7B (MoE) | ~90-100 GB (FP16/BF16) | **Disk Required: ~130 GB.** Often runs via expert routing; requires heavy quantization (e.g., Q8_0) or multiple H100s/A100s. |
-
-> **VRAM Tips:**
-> - Keep **10–15% VRAM free** for KV cache and overhead.
-> - **6–8 GB GPUs**: Stick to quantized 7B models.
-> - **12–16 GB GPUs**: Comfortable for 7B; tight for 8B.
-> - **24 GB+ GPUs**: Suitable for 13B or multi-instance setups.
-> - **MoE Models (e.g., Mixtral 8x7B)**: These models consume VRAM differently, and also have significant disk footprint. A full 8x7B in FP16/BF16 will require significantly more than 48GB VRAM (closer to 90-100GB), and around **130 GB of disk space for the weights**. Consider heavy quantization (e.g., Q8_0) or multi-GPU systems like multiple H100s for deployment.
-
-<details>
-<summary>Click to expand: Troubleshooting Model Compatibility (Build from Source)</summary>
-
-### Model Compatibility Beyond Mistral-7B (Build from Source)
-
-If you attempt to load a model other than `mistralai/Mistral-7B-Instruct-v0.1` and encounter errors such as `TypeError: TensorParallelColumnLinear.load_multi()` or `RuntimeError: weight ... does not exist`, these errors typically indicate version incompatibilities between PEFT, Transformers, and TGI components. The root issue is that the `fan_in_fan_out` parameter conflicts with TGI's tensor parallel implementations, and `TensorParallelColumnLinear` expects certain `base_layer` attributes that may not be present in all model variants or library versions.
-
-- **Note:** If your model requires `--trust-remote-code`, this is a flag and should be passed as `--trust-remote-code` (no value, not `--trust-remote-code=True`).
-- **`ImportError: No module named 'msgspec'` (for Qwen or other vLLM-dependent models):** `vLLM` may require the `msgspec` Python library. Add `msgspec` to `server/requirements.txt` and rebuild your Docker image with `--no-cache`.
-- **`TypeError` for `gpt2` (fan_in_fan_out):** This is a specific API mismatch between LoRAX's custom `FlashGPT2` modeling and the `vLLM` version. Ensure the `vLLM` commit in `server/Makefile-vllm` is `9985d06add07a4cc691dc54a7e34f54205c04d40` (the stable `0.7.3+` version) or a later compatible version like `0.8.2+`, and rebuild. The `--model-impl transformers` flag does *not* exist in `lorax-launcher`.
-
-To attempt compatibility with a different model (e.g., `gpt2`):
-
-1. The `vLLM` inference engine version is crucial. In LoRAX, `vLLM` is pinned to a specific Git commit for stability. To change it, you need to **edit `server/Makefile-vllm`**.
-2. Rebuild the Docker image after making any changes.
-3. If you encounter errors related to missing weights or quantization, check the model's compatibility with the current `transformers` and `vLLM` versions.
-4. Change the commit hash (e.g., `766435e660a786933392eb8ef0a873bc38cf0c8b`) to **`9985d06add07a4cc691dc54a7e34f54205c04d40`** (a `vLLM 0.7.3+` version known for broader compatibility, including `gpt2`), or try a later compatible version such as `0.8.2+`.
-
-* **Potential `transformers` version adjustments:** If changing the `vLLM` commit doesn't resolve the issue, you *might* also need to modify the `transformers` version in `server/requirements.txt`. Research suggests `Transformers 4.49.0+` provides stable `gpt2` support with `vLLM 0.7.3+`. **Avoid `Transformers 4.48.x` with `vLLM 0.7.2` due to known Qwen model compatibility issues.**
-
-</details>
-
-#### 4. Run the Container
-
-```bash
-MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1"
-SHARDED_MODEL="false" # Set to 'true' for sharded (multi-GPU) models like 70B
-PORT=80 # Host port to access the LoRAX server
-
-docker run --rm \
-  --name lorax \
-  --gpus all \
-  -e HUGGING_FACE_HUB_TOKEN="$HUGGING_FACE_HUB_TOKEN" \
-  -e TRANSFORMERS_CACHE=/data \
-  -v "$HOME/lorax_model_cache":/data \
-  -v "$HOME/lorax_outlines_cache":/root/.cache/outlines \
-  --user "$(id -u):$(id -g)" \
-  -p ${PORT}:80 \
-  my-lorax-server \
-  --model-id "$MODEL_ID" \
-  --sharded "$SHARDED_MODEL"
-```
 
 ---
 
@@ -518,6 +443,27 @@ your chosen base model.
 - **[Performance]** Slow first call → Warmup overhead → Send a short warmup prompt.
 - **[Performance]** Low GPU usage (<30%) → Small batches → Enable batching or increase concurrency.
 - **[Stability]** Exit code 137 → Host OOM → Check `dmesg | tail`; reduce model size.
+
+</details>
+
+<!-- Inserted section: Model Compatibility Beyond Mistral-7B (Build from Source) troubleshooting bullets -->
+
+<details>
+<summary>Model Compatibility Beyond Mistral-7B (Build from Source)</summary>
+
+**Common Issues & Solutions:**
+
+* **`TypeError: TensorParallelColumnLinear.load_multi() got an unexpected keyword argument 'fan_in_fan_out'` (for `gpt2`):**
+    * **Cause:** This error is specific to `gpt2`'s `Conv1D` layer architecture and an API mismatch with the `vLLM` integration in LoRAX's custom modeling.
+    * **Fix:** Ensure your `vLLM` is pinned to a compatible version/commit in `server/Makefile-vllm` (e.g., `v0.7.3` or specific fixes like `9985d06add07a4cc691dc54a7e34f54205c04d40` if explicitly needed). Rebuild your Docker image. The `--model-impl transformers` flag, while a workaround in some TGI contexts, is not supported by `lorax-launcher`.
+
+* **`ImportError: No module named 'msgspec'` (for `Qwen` models or others using newer `vLLM` features):**
+    * **Cause:** The `vLLM` version integrated in your build may require the `msgspec` Python library, which is not a default dependency.
+    * **Fix:** Add `msgspec` to your `server/requirements.txt` file and rebuild your Docker image with `--no-cache` to ensure the new dependency is installed.
+
+* **`RuntimeError: weight transformer.wte.weight does not exist` (for `bigcode/starcoder2-3b`):**
+    * **Cause:** This indicates a specific naming convention or structural mismatch for certain weight files within the `bigcode/starcoder2-3b` checkpoint that LoRAX's `FlashSantacoderModel` is trying to load.
+    * **Fix:** This often requires deeper debugging of the model's weight structure or changes within `lorax_server/models/custom_modeling/flash_santacoder_modeling.py`. Consider this model a known edge case that may require specific code adjustments beyond standard dependency management.
 
 </details>
 
