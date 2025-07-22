@@ -20,7 +20,7 @@ To deploy **LoRAX**, you need these components in order:
 > **Quick Sanity Check:** Stop at the first failure in this sequence:
 > - **A.** Run `nvidia-smi` on the host.
 > - **B.** Test GPU access in a container: `docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi`.
-> - **C.** Launch **LoRAX** with `MODEL_ID=gpt2`.
+> - **C.** Launch **LoRAX** with `MODEL_ID=mistralai/Mistral-7B-Instruct-v0.1` (the pre-built image is recommended for this check).
 > - **D.** Test the API with `curl`.
 > - **E.** Scale up to a larger model.
 
@@ -37,11 +37,14 @@ Ensure your **NVIDIA driver** is working correctly.
 ```bash
 nvidia-smi
 ```
+**Success:** Displays a table with the driver version and GPU details.
+<details>
+<summary>Click to expand: Common Failures & Troubleshooting</summary>
 
-**Success:** Displays a table with the driver version and GPU details.  
-**Common Failures:**
 - *`command not found`* → Driver not installed or PATH issue.
 - *"NVIDIA-SMI has failed"* → Kernel module mismatch or Secure Boot blocking.
+
+</details>
 
 <details>
 <summary>Click to expand: NVIDIA Driver Installation Guide</summary>
@@ -57,25 +60,21 @@ Installing NVIDIA drivers can be complex and varies greatly by OS and GPU. **We 
 Run this command to check if Docker is installed and running:
 
 ```bash
-# Check if we're inside a containerized environment where Docker can't run
-if grep -qa 'docker\|lxc' /proc/1/cgroup || [ -f /.dockerenv ]; then
-    echo "⚠️  Detected: This environment is containerized (Docker/LXC)."
-    echo "You CANNOT start Docker inside a container on most cloud GPU providers."
-    echo "👉  If you need full Docker access, deploy on a bare-metal or privileged VM."
-    echo "The script will exit in 10 seconds. Hit Ctrl+C to abort immediately."
-    sleep 10
-    echo "Exiting script."
-    exit 0
-fi
-
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     echo "Docker Engine: Installed and running. ✅"
 else
     echo "Docker Engine: NOT detected or NOT running. ❌"
 fi
 ```
+**Success:** `Docker Engine: Installed and running. ✅`
+<details>
+<summary>Click to expand: Common Failures & Troubleshooting</summary>
 
-> **Outcome:** If you see "Docker is installed and running.", you can skip the installation below.
+- `Docker Engine: NOT detected or NOT running. ❌`
+- *GPG/repo errors ("NO_PUBKEY", "Unsigned")* → Key issue; redo key setup.
+- *Architecture mismatch* on non-x86 hosts.
+
+</details>
 
 <details>
 <summary>Click to expand: Install Docker Engine</summary>
@@ -125,9 +124,13 @@ Run this command to verify GPU access within a container (requires Docker and To
 ```bash
 docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 ```
+**Success:** Displays GPU details (similar to `nvidia-smi` on host).
+<details>
+<summary>Click to expand: Common Failures & Troubleshooting</summary>
 
-> **Outcome:** If you see GPU details (similar to `nvidia-smi` on host), you can skip the installation below.
-> **Common Failures:** "Unknown runtime specified nvidia" or "Could not select device driver" means the Toolkit is not correctly installed or configured.
+- *"Unknown runtime specified nvidia"* or *"Could not select device driver"* → Toolkit not correctly installed or configured.
+
+</details>
 
 <details>
 <summary>Click to expand: Install NVIDIA Container Toolkit</summary>
@@ -178,46 +181,6 @@ docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi \
 > **Fix:** Re-run the toolkit installation and configuration steps.
 
 </details>
-
-#### Advanced NVIDIA Container Toolkit Configuration & Troubleshooting
-Some cloud environments or specific Docker/NVIDIA driver versions may require additional configuration for GPU access inside containers.
-
-* **Cgroup V2 Compatibility (`"Failed to initialize NVML: Unknown Error"`)**:
-    * **Problem:** On systems using `cgroup v2` (common in newer Linux distributions), rootless Docker or certain container runtime setups can conflict with NVIDIA's cgroup requirements, leading to errors like `"Failed to initialize NVML: Unknown Error"` or `"no such file or directory"` when trying to read cgroup events.
-    * **Solution:** You might need to adjust kernel parameters or `nvidia-container-runtime` settings.
-        * **Kernel Parameter:** Add `systemd.unified_cgroup_hierarchy=false` to your kernel boot parameters (e.g., in GRUB, then reboot).
-        * **Runtime Config:** Ensure `no-cgroups = false` is set in `/etc/nvidia-container-runtime/config.toml`.
-* **Device Symlink Issues (`/dev/char` missing)**:
-    * **Problem:** In some cases, necessary device symlinks for NVIDIA GPUs (`/dev/char/...`) might be missing, preventing containers from accessing the GPU.
-    * **Solution:** Use `nvidia-ctk system create-dev-char-symlinks --create-all` to create them, and ensure accompanying udev rules are in place.
-* **Essential Docker Daemon Configuration (`daemon.json`)**:
-    * **Problem:** Incorrect Docker daemon configuration can prevent GPUs from being exposed to containers.
-    * **Solution:** Verify your `/etc/docker/daemon.json` includes the following, then restart Docker (`sudo systemctl restart docker`):
-        ```json
-        {
-          "runtimes": {
-            "nvidia": {
-              "path": "/usr/bin/nvidia-container-runtime",
-              "runtimeArgs": []
-            }
-          },
-          "default-runtime": "nvidia",
-          "node-generic-resources": ["gpu=GPU-{uuid}"]
-        }
-        ```
-
-#### Cloud Platform-Specific Pitfalls
-Deployment on various cloud GPU providers can introduce unique challenges.
-
-* **Vast.ai Specific Problems:**
-    * **Docker Image Pull Throttling:** Frequent `"image pull is throttled"` errors can occur due to rate limits.
-        * **Solution:** Implement retry strategies for `docker pull`, or consider using pre-configured Vast.ai instances or custom images with required dependencies pre-installed.
-    * **Environment Variable Issues (`$DISPLAY`)**: Some GUI-dependent tools or environment checks might fail if `$DISPLAY` is not exported. This is less common for LoRAX but can impact debugging.
-* **RunPod Deployment Challenges:**
-    * **Network Configuration:** Ensure proper port mapping and understanding of shared volumes for model caching.
-    * **Secret Management:** HuggingFace tokens must be properly configured as secrets or environment variables for secure access.
-    * **Resource Allocation:** Always double-check adequate GPU memory allocation for the specific model you intend to load.
-
 ---
 
 ### 4. Check User in Docker Group 👤
@@ -227,8 +190,14 @@ Run this command to check if your user is already in the 'docker' group:
 ```bash
 groups | grep -q docker && echo "User is in the docker group." || echo "User is NOT in the docker group. Permissions needed."
 ```
+**Success:** `User is in the docker group.`
+<details>
+<summary>Click to expand: Common Failures & Troubleshooting</summary>
 
-> **Outcome:** If you see "User is in the docker group.", you can skip the steps below.
+- `User is NOT in the docker group. Permissions needed.`
+- *Commands still require `sudo`* → Log out and back in.
+
+</details>
 
 <details>
 <summary>Click to expand: Add User to Docker Group</summary>
@@ -265,8 +234,13 @@ else
     echo "HUGGING_FACE_HUB_TOKEN is NOT set. ❌"
 fi
 ```
+**Success:** `HUGGING_FACE_HUB_TOKEN is set. ✅`
+<details>
+<summary>Click to expand: Common Failures & Troubleshooting</summary>
 
-> **Outcome:** If you see "HUGGING_FACE_HUB_TOKEN is set. ✅", you can skip the manual setup steps below.
+- `HUGGING_FACE_HUB_TOKEN is NOT set. ❌` → Token missing or not exported correctly.
+
+</details>
 
 <details>
 <summary>Click to expand: Set up HUGGING_FACE_HUB_TOKEN</summary>
@@ -313,34 +287,6 @@ Choose one deployment path:
 
 ---
 
-### Common Failures during Container Launch
-
-<details>
-<summary>Click to expand: Common Failures during Container Launch</summary>
-
-These issues can occur when attempting to run *any* LoRAX Docker container, regardless of whether it's pre-built or from source.
-
-* **`docker: Error response from daemon: Conflict. The container name "/lorax" is already in use...`**: This means a container named `lorax` is already running or exists from a previous session. You need to stop and remove it first.
-    ```bash
-    docker stop lorax # Stop the running container
-    docker rm lorax   # Remove the stopped container (optional, if --rm was not used or failed previously)
-    ```
-    Then, re-run your `docker run` command.
-* **`docker: invalid reference format`, `--gpus: command not found`, etc.**: You likely copied the `docker run` command incorrectly. Ensure there are **no spaces** after the backslash `\` at the end of each line, and copy the entire block at once.
-* **`CUDA out of memory`** → The model you are trying to load is too large for your GPU's VRAM. Refer to the [GPU VRAM vs. Model Size Compatibility](#option-b-build-from-source-🛠️) table and choose a smaller or more quantized model.
-* **Stalled model download** → Indicates a network issue or Hugging Face rate limit when downloading the model weights inside the container.
-    > **Fix for Stalled Downloads:**
-    > 1.  Visit the model’s Hugging Face page (e.g., `https://huggingface.co/<model_id>/tree/main`).
-    > 2.  Note the commit hash from the URL or “Files and Versions.”
-    > 3.  Create the cache path on your host: `$HOME/lorax_model_cache/<model_id>/snapshots/<commit_hash>/`.
-    > 4.  Download all model files (config, tokenizer, `.safetensors`, etc.) to that directory.
-    > 5.  Re-run the container; it should now use the cached files.
-* **`RuntimeError: weight not found`** or **`TypeError`** → Model or quantization incompatibility with the pre-built image. For broader model compatibility, custom configurations, or support for a wider range of quantized models, please proceed with [Option B: Build from Source](#option-b-build-from-source-🛠️).
-
-</details>
-
----
-
 ### Option A: Pre-built Image 🎉
 
 #### 1. Pull the LoRAX Image
@@ -348,7 +294,6 @@ These issues can occur when attempting to run *any* LoRAX Docker container, rega
 ```bash
 docker pull ghcr.io/predibase/lorax:main
 ```
-
 
 **Success:** Image downloads successfully.  
 **Common Failure:** Network timeout → Retry or check connectivity.
@@ -363,12 +308,9 @@ docker pull ghcr.io/predibase/lorax:main
 
 For `mistralai/Mistral-7B-Instruct-v0.1`, a GPU with **16-24 GB VRAM is recommended** to ensure smooth operation and sufficient KV cache.
 
----
-
-#### 3. Run the LoRAX Container
+#### 3. Run the Container
 
 ```bash
-# Define your variables (MODEL_ID is set to the only supported model)
 MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1"
 SHARDED_MODEL="false" # Set to 'true' for sharded (multi-GPU) models like 70B
 PORT=80 # Host port to access the LoRAX server
@@ -391,48 +333,24 @@ docker run --rm \
 <summary>Click to expand: Explanation of Docker Run Flags</summary>
 
 **What This Does:**
-- Starts the **LoRAX container** named `lorax` with GPU access.
-- Mounts model cache to persist downloads between container restarts.
-- Maps port **80** (container) to your chosen **host port**.
-- Loads the specified **model** (now only `mistralai/Mistral-7B-Instruct-v0.1`).
-- Uses your Hugging Face token for authenticated model downloads.
+- `docker run --rm --name lorax`: Starts a new container, removes it on exit, and names it `lorax`.
+- `--gpus all`: Grants the container access to all available GPUs.
+- `-e HUGGING_FACE_HUB_TOKEN`: Passes your Hugging Face authentication token.
+- `-v "$HOME/lorax_model_cache":/data`: Mounts a local directory for persistent model caching.
+- `-v "$HOME/lorax_outlines_cache":/root/.cache/outlines`: Mounts cache for Outlines library.
+- `--user "$(id -u):$(id -g)"`: Runs the container process as your host user for permission consistency.
+- `-p ${PORT}:80`: Maps the container's internal port 80 to your specified host port.
+- `ghcr.io/predibase/lorax:main`: Specifies the Docker image to use.
+- `--model-id "$MODEL_ID"`: Sets the Hugging Face model to load.
+- `--sharded "$SHARDED_MODEL"`: Configures for multi-GPU sharding if set to `true`.
 
 </details>
-
-**Success:** Logs show model download/cache hit and “Model loaded”; health endpoint responds.  
-**Common Failures:** Refer to [Common Failures during Container Launch](#common-failures-during-container-launch)
-
-> **Fix for Stalled Downloads:**
-> 1. Visit the model’s Hugging Face page (e.g., `https://huggingface.co/<model_id>/tree/main`).
-> 2. Note the commit hash from the URL or “Files and Versions.”
-> 3. Create the cache path: `$HOME/lorax_model_cache/<model_id>/snapshots/<commit_hash>/`.
-> 4. Download all model files (config, tokenizer, `.safetensors`, etc.) to that directory.
-> 5. Re-run the container; it should use the cached files.
 
 ---
 
 ### Option B: Build from Source 🛠️
 
 Use this if you need custom changes or unreleased patches, or if you want to run models other than `mistralai/Mistral-7B-Instruct-v0.1`.
-
-#### GPU VRAM vs. Model Size Compatibility
-
-When building from source, you gain the flexibility to choose a wider range of models. Use the following table as a guide for VRAM compatibility:
-
-| **Model** | **Params** | **VRAM (FP16/BF16)** | **Notes** |
-|-----------|------------|-----------------------|-----------|
-| `gpt2` | 0.1B | ~0.5 GB | Perfect for testing; fits any GPU. |
-| `bigcode/starcoder2-3b` | 3B | ~6–7 GB | Works on 8 GB VRAM GPUs. |
-| `mistralai/Mistral-7B-Instruct-v0.1` | 7B | ~14–15 GB | Needs 16–24 GB VRAM. |
-| `meta-llama/Meta-Llama-3-8B-Instruct` | 8B | ~16 GB | Tight on 16 GB; better with 24 GB. |
-| `meta-llama/Meta-Llama-3-13B-Instruct` | 13B | ~26 GB | Requires 24–26 GB VRAM. |
-| `meta-llama/Meta-Llama-3-70B-Instruct` | 70B | 135–140 GB | Needs multi-GPU or heavy quantization. |
-
-> **VRAM Tips:**
-> - Keep **10–15% VRAM free** for KV cache and overhead.
-> - **6–8 GB GPUs**: Stick to quantized 7B models.
-> - **12–16 GB GPUs**: Comfortable for 7B; tight for 8B.
-> - **24 GB+ GPUs**: Suitable for 13B or multi-instance setups.
 
 #### 1. Clone the LoRAX Repository (Including all necessary Submodules)
 
@@ -449,12 +367,16 @@ git submodule update --init --recursive
 #### 2. Build the Image
 
 ```bash
+export DOCKER_BUILDKIT=1
 docker build -t my-lorax-server -f Dockerfile .
 ```
 
 **Common Failures:**
 - Build stalls → Add `--network=host` to the build command.
 - Version conflicts → Adjust base image or dependencies.
+
+<details>
+<summary>Click to expand: Advanced Build-Time Optimizations & Troubleshooting (MAX_JOBS, OOM)</summary>
 
 > **Important Note on Build Parallelism (`MAX_JOBS`) & Memory:**
 > Building custom CUDA kernels from source is a memory-intensive process. The `Dockerfile` is configured with `ENV MAX_JOBS=2` as a **very conservative default** for parallel compilation. This value aims to provide the highest stability and prevent Out-Of-Memory (OOM) crashes on a wide range of hardware, including instances with limited RAM relative to CPU cores.
@@ -472,28 +394,70 @@ docker build -t my-lorax-server -f Dockerfile .
 > * **If your build still crashes with an OOM error:**
 >     This indicates you have very limited RAM or other processes are consuming it. You **must reduce `MAX_JOBS` further**. Edit the `Dockerfile` as described above and change the value to `1`. Then, restart the build.
 
-#### 4. Run the Container
+</details>
 
-Use the same `docker run` command as in Option A, replacing `ghcr.io/predibase/lorax:main` with `my-lorax-server`.
+#### 3. Choose Your Model
 
-**Common Failures:**
-- “Exec format error” → Image built for wrong architecture.
-- Immediate exit → Library mismatch; rebuild with compatible CUDA base.
+Refer to the compatibility table below to select a model that fits your hardware and requirements.
+
+---
+
+| **Model** | **Params** | **VRAM (FP16/BF16)** | **Notes** |
+|-----------|------------|-----------------------|-----------|
+| `mistralai/Mistral-7B-Instruct-v0.1` | 7B | ~14–15 GB | Needs 16–24 GB VRAM. |
+| `meta-llama/Meta-Llama-3-8B-Instruct` | 8B | ~16 GB | Tight on 16 GB; better with 24 GB. |
+| `meta-llama/Meta-Llama-3-70B-Instruct` | 70B | 135–140 GB | Needs multi-GPU or heavy quantization. |
+| `mistralai/Mixtral-8x7B-Instruct-v0.1` | 8x7B (MoE) | ~90-100 GB (FP16/BF16) | **Disk Required: ~130 GB.** Often runs via expert routing; requires heavy quantization (e.g., Q8_0) or multiple H100s/A100s. |
+
+> **VRAM Tips:**
+> - Keep **10–15% VRAM free** for KV cache and overhead.
+> - **6–8 GB GPUs**: Stick to quantized 7B models.
+> - **12–16 GB GPUs**: Comfortable for 7B; tight for 8B.
+> - **24 GB+ GPUs**: Suitable for 13B or multi-instance setups.
+> - **MoE Models (e.g., Mixtral 8x7B)**: These models consume VRAM differently, and also have significant disk footprint. A full 8x7B in FP16/BF16 will require significantly more than 48GB VRAM (closer to 90-100GB), and around **130 GB of disk space for the weights**. Consider heavy quantization (e.g., Q8_0) or multi-GPU systems like multiple H100s for deployment.
+
+<details>
+<summary>Click to expand: Troubleshooting Model Compatibility (Build from Source)</summary>
 
 ### Model Compatibility Beyond Mistral-7B (Build from Source)
 
 If you attempt to load a model other than `mistralai/Mistral-7B-Instruct-v0.1` and encounter errors such as `TypeError: TensorParallelColumnLinear.load_multi()` or `RuntimeError: weight ... does not exist`, these errors typically indicate version incompatibilities between PEFT, Transformers, and TGI components. The root issue is that the `fan_in_fan_out` parameter conflicts with TGI's tensor parallel implementations, and `TensorParallelColumnLinear` expects certain `base_layer` attributes that may not be present in all model variants or library versions.
+
+- **Note:** If your model requires `--trust-remote-code`, this is a flag and should be passed as `--trust-remote-code` (no value, not `--trust-remote-code=True`).
+- **`ImportError: No module named 'msgspec'` (for Qwen or other vLLM-dependent models):** `vLLM` may require the `msgspec` Python library. Add `msgspec` to `server/requirements.txt` and rebuild your Docker image with `--no-cache`.
+- **`TypeError` for `gpt2` (fan_in_fan_out):** This is a specific API mismatch between LoRAX's custom `FlashGPT2` modeling and the `vLLM` version. Ensure the `vLLM` commit in `server/Makefile-vllm` is `9985d06add07a4cc691dc54a7e34f54205c04d40` (the stable `0.7.3+` version) or a later compatible version like `0.8.2+`, and rebuild. The `--model-impl transformers` flag does *not* exist in `lorax-launcher`.
 
 To attempt compatibility with a different model (e.g., `gpt2`):
 
 1. The `vLLM` inference engine version is crucial. In LoRAX, `vLLM` is pinned to a specific Git commit for stability. To change it, you need to **edit `server/Makefile-vllm`**.
 2. Rebuild the Docker image after making any changes.
 3. If you encounter errors related to missing weights or quantization, check the model's compatibility with the current `transformers` and `vLLM` versions.
-4. Change the commit hash (e.g., `766435e660a786933392eb8ef0a873bc38cf0c8b`) to **`9985d06add07a4cc691dc54a7e34f54205c04d40`** (a `vLLM 0.7.3+` version known for broader compatibility, including `gpt2`).
+4. Change the commit hash (e.g., `766435e660a786933392eb8ef0a873bc38cf0c8b`) to **`9985d06add07a4cc691dc54a7e34f54205c04d40`** (a `vLLM 0.7.3+` version known for broader compatibility, including `gpt2`), or try a later compatible version such as `0.8.2+`.
 
 * **Potential `transformers` version adjustments:** If changing the `vLLM` commit doesn't resolve the issue, you *might* also need to modify the `transformers` version in `server/requirements.txt`. Research suggests `Transformers 4.49.0+` provides stable `gpt2` support with `vLLM 0.7.3+`. **Avoid `Transformers 4.48.x` with `vLLM 0.7.2` due to known Qwen model compatibility issues.**
 
-* **Using `--model-impl transformers`:** For certain models, particularly `gpt2`, if issues persist, you may need to add the `--model-impl transformers` flag to your `lorax-launcher` command to explicitly force the Transformers backend for inference.
+</details>
+
+#### 4. Run the Container
+
+```bash
+MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1"
+SHARDED_MODEL="false" # Set to 'true' for sharded (multi-GPU) models like 70B
+PORT=80 # Host port to access the LoRAX server
+
+docker run --rm \
+  --name lorax \
+  --gpus all \
+  -e HUGGING_FACE_HUB_TOKEN="$HUGGING_FACE_HUB_TOKEN" \
+  -e TRANSFORMERS_CACHE=/data \
+  -v "$HOME/lorax_model_cache":/data \
+  -v "$HOME/lorax_outlines_cache":/root/.cache/outlines \
+  --user "$(id -u):$(id -g)" \
+  -p ${PORT}:80 \
+  my-lorax-server \
+  --model-id "$MODEL_ID" \
+  --sharded "$SHARDED_MODEL"
+```
 
 ---
 
@@ -506,12 +470,7 @@ Once logs show the server is ready, test the **LoRAX API**.
 ```bash
 curl 127.0.0.1:80/generate \
     -X POST \
-    -d '{
-        "inputs": "[INST] Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? [/INST]",
-        "parameters": {
-            "max_new_tokens": 64
-        }
-    }' \
+    -d '{ "inputs": "[INST] What LLM model are you? [/INST]", "parameters": { "max_new_tokens": 64 } }' \
     -H 'Content-Type: application/json'
 ```  
 
@@ -537,7 +496,7 @@ your chosen base model.
 <details>
 <summary>Click to expand: Common Failures during API Test</summary>
 
-**Common Failures:** Refer to [Common Failures during Container Launch](#common-failures-during-container-launch)
+**Common Failures:** Refer to the Comprehensive Troubleshooting Guide below.
 
 </details>
 
@@ -554,30 +513,11 @@ your chosen base model.
 - **[Docker]** Cache permission denied → Root-owned files → Run `sudo chown -R $(id -u):$(id -g) $HOME/lorax_model_cache`.
 - **[Model Load]** CUDA OOM → Model too large → Check `nvidia-smi`; use smaller/quantized model.
 - **[Model Load]** Download stalls → Network issue → Use manual download workaround.
-- **[Model Load]** `RuntimeError: weight not found` or **`TypeError`** → Model or quantization incompatibility with the pre-built image. For broader model compatibility, custom configurations, or support for a wider range of quantized models, proceed with Option B: Build from Source.
-- **[API]** 404 on generate → Wrong route → Check `curl http://localhost:80/`; adjust client.
-- **[API]** 500 error → OOM or bad params → Check `docker logs --tail 100 lorax | grep -i error`; reduce `max_tokens`.
+- **[Model Load]** `RuntimeError: weight not found` or **`TypeError`** → Model or quantization incompatibility with the pre-built image. For detailed fixes, see the "Troubleshooting Model Compatibility (Build from Source)" section above.
+- **[Download]** `UserWarning: Not enough free disk space` or `No space left on device` (during model download/caching):** The mounted model cache directory has insufficient space. Check `df -h $HOME/lorax_model_cache`, then `rm -rf` unused model folders. Consider larger disk if needed.
 - **[Performance]** Slow first call → Warmup overhead → Send a short warmup prompt.
 - **[Performance]** Low GPU usage (<30%) → Small batches → Enable batching or increase concurrency.
 - **[Stability]** Exit code 137 → Host OOM → Check `dmesg | tail`; reduce model size.
-
-</details>
-
----
-
-## 🧠 Decision Matrix
-
-<details>
-<summary>Click to expand: Quick Decision Matrix</summary>
-
-| **Situation** | **Action** |
-|---------------|------------|
-| `nvidia-smi` broken | Fix driver first. |
-| Container `nvidia-smi` fails | Fix NVIDIA runtime config. |
-| `gpt2` fails to load | Check environment/image. If you need broader model compatibility, proceed with Option B: Build from Source. |
-| `gpt2` works, larger model fails | Address VRAM/quantization issues or use Option B for more models. |
-| API fails | Check routes, params, or logs. |
-| API slow | Optimize concurrency or use smaller model. |
 
 </details>
 
@@ -606,12 +546,19 @@ sudo chown -R $(id -u):$(id -g) $HOME/lorax_model_cache
 nvidia-smi
 docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 
-# Pull and run LoRAX
-docker pull ghcr.io/predibase/lorax:main
-MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1"; docker run --rm --name lorax --gpus all -e HUGGING_FACE_HUB_TOKEN="$HUGGING_FACE_HUB_TOKEN" -e TRANSFORMERS_CACHE=/data -v "$HOME/lorax_model_cache":/data -v "$HOME/lorax_outlines_cache":/root/.cache/outlines --user "$(id -u):$(id -g)" -p 80:80 ghcr.io/predibase/lorax:main --model-id "$MODEL_ID" --sharded false
+# Pull and run LoRAX (Pre-built Image)
+MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1"; \
+docker run --rm --name lorax --gpus all -e HUGGING_FACE_HUB_TOKEN="$HUGGING_FACE_HUB_TOKEN" \
+  -e TRANSFORMERS_CACHE=/data -v "$HOME/lorax_model_cache":/data \
+  -v "$HOME/lorax_outlines_cache":/root/.cache/outlines \
+  --user "$(id -u):$(id -g)" -p 80:80 \
+  ghcr.io/predibase/lorax:main --model-id "$MODEL_ID" --sharded false
 
 # Test the API
-curl http://localhost:80/
+curl 127.0.0.1:80/generate \
+    -X POST \
+    -d '{ "inputs": "[INST] What LLM model are you? [/INST]", "parameters": { "max_new_tokens": 64 } }' \
+    -H 'Content-Type: application/json'
 ```
 
 
@@ -628,14 +575,6 @@ curl http://localhost:80/
 - **Reliability:** Add watchdog with `Restart=on-failure` (systemd or Docker policies).
 
 </details>
-
----
-
-## Lessons Learned
-
-- **Kernel Cohesion:** Kernel upgrades Must Be Cohesive: Partial migrations (e.g., AWQ v0.0.4 → v0.0.6) exposed ABI mismatches; coordinated bump strategies are now mandated. This directly explains why versions like `vLLM` commits are so critical.
-- **Memory Virtualization:** Early investment in memory virtualization (like v0.9 memory pool overhaul) is crucial for runtime OOM reduction.
-- **Schema-Driven API Design:** Tightened Pydantic models prevented API inconsistencies and improved reliability.
 
 ---
 

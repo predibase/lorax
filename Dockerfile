@@ -58,9 +58,17 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     curl \
     git \
     ninja-build \
-    cmake \
     wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Add these lines to install a *newer* CMake version
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends software-properties-common && \
+    wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null && \
+    echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/kitware.list >/dev/null && \
+    apt-get update && \
+    rm -f /etc/apt/sources.list.d/cmake.list && \
+    apt-get install -y --no-install-recommends cmake
 
 # Install conda
 # translating Docker's TARGETPLATFORM into mamba arches
@@ -95,7 +103,7 @@ FROM pytorch-install as kernel-builder
 # - If you encounter OOM errors even with this value, try reducing it further to 1.
 ENV MAX_JOBS=2
 # If you encounter OOM errors even with this value, try reducing it to 1.
-
+RUN pip install setuptools_scm --no-cache-dir
 # Build Flash Attention CUDA kernels
 FROM kernel-builder as flash-att-builder
 WORKDIR /usr/src
@@ -151,8 +159,10 @@ RUN make build-megablocks -j$(MAX_JOBS)
 # Build punica CUDA kernels
 FROM kernel-builder as punica-builder
 WORKDIR /usr/src
-COPY server/punica_kernels/ .
+COPY server/punica_kernels/ ./server/punica_kernels/
 # Build specific version of punica
+COPY flashinfer/ ./server/punica_kernels/third_party/flashinfer/
+COPY cutlass/ ./server/punica_kernels/third_party/cutlass/
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6+PTX"
 RUN MAX_JOBS=$(MAX_JOBS) python setup.py build
 
