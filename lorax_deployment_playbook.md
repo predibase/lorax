@@ -302,6 +302,10 @@ Want to build LoRAX from source for custom changes or the latest patches? Follow
 
 ```bash
 # 1. Clone the repository (if you haven't already)
+#    NOTE: This guide uses a battle-tested branch of the LoRAX repository
+#    that includes fixes for common on-premise deployment issues (e.g., build-time
+#    dependencies and submodule initialization). Once these fixes are
+#    merged upstream, you can use the official `predibase/lorax.git` repository.
 git clone -b feat/deployment-playbook-enhancements https://github.com/minhkhoango/lorax.git
 cd lorax
 # 2. Initialize submodules
@@ -354,7 +358,7 @@ Refer to the table below to select a model that fits your hardware and requireme
 Set your desired model and image name (see below):
 
 ```bash
-MODEL_ID="mistralai/Mistral-7B-Instruct-v0.1" # or meta-llama/Llama-3.2-3B-Instruct, meta-llama/Meta-Llama-3-8B-Instruct
+MODEL_ID="meta-llama/Llama-3.2-3B-Instruct" # or mistralai/Mistral-7B-Instruct-v0.1, meta-llama/Meta-Llama-3-8B-Instruct
 SHARDED_MODEL="false" # Set to 'true' for sharded (multi-GPU) models like 70B
 PORT=80 # Host port to access the LoRAX server
 
