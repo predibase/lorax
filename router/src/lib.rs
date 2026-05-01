@@ -672,6 +672,11 @@ struct ChatCompletionRequest {
     top_p: Option<f32>,
     n: Option<i32>,
     max_tokens: Option<i32>,
+    /// OpenAI-compatible alias for `max_tokens`. Per the OpenAI Chat Completions
+    /// API, `max_tokens` is deprecated in favor of `max_completion_tokens`. When
+    /// both are provided, `max_tokens` takes precedence to preserve existing
+    /// behavior.
+    max_completion_tokens: Option<i32>,
     #[serde(default)]
     stop: Vec<String>,
     stream: Option<bool>,
@@ -724,6 +729,7 @@ impl ChatCompletionRequest {
         let ChatCompletionRequest {
             model,
             max_tokens,
+            max_completion_tokens,
             messages,
             seed,
             stop,
@@ -837,7 +843,7 @@ impl ChatCompletionRequest {
                     top_p,
                     typical_p: None,
                     do_sample,
-                    max_new_tokens: max_tokens.map(|x| x as u32),
+                    max_new_tokens: max_tokens.or(max_completion_tokens).map(|x| x as u32),
                     return_full_text: None,
                     stop,
                     truncate: None,
