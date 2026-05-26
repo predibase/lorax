@@ -60,6 +60,7 @@ nav:
       - Contributing to LoRAX:
           - Contributing to LoRAX: guides/contributing/index.md
           - Development Environment: guides/contributing/development_env.md
+      - HTTP Status Codes: http_status_codes/
   #     - GPUs: guides/gpus.md
   #     - Fine-Tuning: guides/fine_tuning.md
   #     - Memory Management: guides/memory_management.md
