@@ -282,7 +282,7 @@ class AlternativeToken(BaseModel):
     # Token text
     text: str
     # Logprob
-    logprob: float
+    logprob: Optional[float] = None
 
 
 # Generated tokens
