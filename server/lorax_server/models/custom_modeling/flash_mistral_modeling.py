@@ -537,6 +537,7 @@ class MistralModel(torch.nn.Module):
         max_s: int,
         adapter_data: AdapterBatchData,
         prefill_cache_indices: Optional[torch.Tensor],
+        cross_attention_states: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         hidden_states = inputs_embeds
 
