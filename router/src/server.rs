@@ -2,16 +2,17 @@
 use crate::adapter::{extract_adapter_params, BASE_MODEL_ADAPTER_ID};
 use crate::config::Config;
 use crate::health::Health;
-use crate::infer::{InferError, InferResponse, InferStreamResponse};
+use crate::infer::{InferClassifyResponse, InferError, InferResponse, InferStreamResponse};
 use crate::tool_grammar::ToolGrammar;
 use crate::validation::ValidationError;
 use crate::{json, HubPreprocessorConfig, HubProcessorConfig, HubTokenizerConfig};
 use crate::{
-    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchEmbedRequest, BestOfSequence,
-    ChatCompletionRequest, ChatCompletionResponse, ChatCompletionResponseChoice,
-    ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice, ChatMessage, ClassifyRequest,
-    CompatEmbedRequest, CompatEmbedResponse, CompatEmbedding, CompatGenerateRequest,
-    CompletionFinishReason, CompletionRequest, CompletionResponse, CompletionResponseChoice,
+    AdapterParameters, AlternativeToken, BatchClassifyRequest, BatchClassifyResponse,
+    BatchEmbedRequest, BestOfSequence, ChatCompletionRequest, ChatCompletionResponse,
+    ChatCompletionResponseChoice, ChatCompletionStreamResponse, ChatCompletionStreamResponseChoice,
+    ChatMessage, ClassifyInput, ClassifyRequest, ClassifyResponse, CompatEmbedRequest,
+    CompatEmbedResponse, CompatEmbedding, CompatGenerateRequest, CompletionFinishReason,
+    CompletionRequest, CompletionResponse, CompletionResponseChoice,
     CompletionResponseStreamChoice, CompletionStreamResponse, Details, EmbedParameters,
     EmbedRequest, EmbedResponse, Entity, ErrorResponse, FinishReason, GenerateParameters,
     GenerateRequest, GenerateResponse, HubModelInfo, Infer, Info, JsonSchema, LogProbs, Message,
@@ -491,7 +492,11 @@ async fn is_startup_ready(
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if health.shard_info().supports_classification {
         let classify_request = ClassifyRequest {
-            inputs: "San Francisco".to_string(),
+            inputs: ClassifyInput {
+                original_description: "San Francisco".to_string(),
+                amount: 100.0,
+            },
+            parameters: None,
         };
         match infer.classify(classify_request).await {
             Ok(_) => {}
@@ -1868,11 +1873,11 @@ async fn compat_embed(
 async fn classify(
     infer: Extension<Infer>,
     Json(req): Json<ClassifyRequest>,
-) -> Result<(HeaderMap, Json<Vec<Entity>>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<ClassifyResponse>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
-    tracing::debug!("Input: {}", req.inputs);
+    tracing::debug!("Input: {:?}", req.inputs);
     let response = infer.classify(req).await?;
 
     // Timings
@@ -1919,15 +1924,23 @@ async fn classify(
         "lorax_request_inference_duration",
         inference_time.as_secs_f64()
     );
+
+    // The `responses` Vec is already in the correct structure for serialization.
+    // Record metrics for each response.
     metrics::histogram!(
         "lorax_request_classify_output_count",
-        response.predictions.len() as f64
+        response.raw_ner.len() as f64
     );
 
-    tracing::debug!("Output: {:?}", response.predictions);
+    tracing::debug!("Output: {:?}", response.raw_ner);
     tracing::info!("Success");
-
-    Ok((headers, Json(response.predictions)))
+    Ok((
+        headers,
+        Json(ClassifyResponse {
+            raw_ner: response.raw_ner,
+            linkable_fields: response.linkable_fields,
+        }),
+    ))
 }
 
 #[utoipa::path(
@@ -1936,7 +1949,7 @@ async fn classify(
     path = "/classify_batch",
     request_body = BatchClassifyRequest,
     responses(
-    (status = 200, description = "Classifications", body = BatchClassifyResponse),
+    (status = 200, description = "Classifications", body = Vec<ClassifyResponse>),
     (status = 500, description = "Incomplete classification", body = ErrorResponse),
     )
 )]
@@ -1944,7 +1957,7 @@ async fn classify(
 async fn classify_batch(
     infer: Extension<Infer>,
     Json(req): Json<BatchClassifyRequest>,
-) -> Result<(HeaderMap, Json<Vec<Vec<Entity>>>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(HeaderMap, Json<Vec<ClassifyResponse>>), (StatusCode, Json<ErrorResponse>)> {
     let span = tracing::Span::current();
     let start_time = Instant::now();
     metrics::increment_counter!("lorax_request_count");
@@ -1955,6 +1968,9 @@ async fn classify_batch(
     // Timings
     let now = Instant::now();
     let total_time = start_time.elapsed();
+
+    // These calculations should still work as `queued` and `start` are accessible in Rust,
+    // even if skipped during serialization.
     let mut validation_times = Vec::with_capacity(responses.len());
     let mut queue_times = Vec::with_capacity(responses.len());
     let mut inference_times = Vec::with_capacity(responses.len());
@@ -2010,20 +2026,28 @@ async fn classify_batch(
         inference_time.as_secs_f64()
     );
 
-    let batch_entity_vec: Vec<Vec<Entity>> = responses
-        .into_iter()
-        .map(|r| {
-            let entity_vec = r.predictions;
-            metrics::histogram!(
-                "lorax_request_classify_output_count",
-                entity_vec.len() as f64
-            );
-            entity_vec
-        })
-        .collect();
-    tracing::debug!("Output: {:?}", batch_entity_vec);
+    // The `responses` Vec is already in the correct structure for serialization.
+    // Record metrics for each response.
+    for r in &responses {
+        metrics::histogram!(
+            "lorax_request_classify_output_count",
+            r.raw_ner.len() as f64
+        );
+    }
+    tracing::debug!("Output: {:?}", responses);
     tracing::info!("Success");
-    Ok((headers, Json(batch_entity_vec)))
+    Ok((
+        headers,
+        Json(
+            responses
+                .into_iter()
+                .map(|r| ClassifyResponse {
+                    raw_ner: r.raw_ner,
+                    linkable_fields: r.linkable_fields,
+                })
+                .collect(),
+        ),
+    ))
 }
 
 /// Tokenize inputs

@@ -23,6 +23,7 @@ futures = "0.3.26"
 home = "=0.5.9"
 hf-hub = { version = "0.3.0", features = ["tokio"] }
 h2 = "0.3.26"
+lazy_static = "1.4.0"
 lorax-client = { path = "client" }
 metrics = "0.21.0"
 metrics-exporter-prometheus = { version = "0.12.1", features = [] }

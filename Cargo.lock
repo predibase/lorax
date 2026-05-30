@@ -1990,6 +1990,7 @@ dependencies = [
  "image",
  "init-tracing-opentelemetry",
  "itertools 0.12.1",
+ "lazy_static",
  "lorax-client",
  "metrics",
  "metrics-exporter-prometheus",
