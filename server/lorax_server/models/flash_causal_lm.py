@@ -44,6 +44,7 @@ from lorax_server.utils.sources.hub import weight_files
 from lorax_server.utils.state import (
     BLOCK_SIZE,
     FLASH_INFER,
+    FLASH_DECODING,
     get_max_prefill_tokens,
     get_speculative_tokens,
     get_supports_chunking,
@@ -1236,7 +1237,7 @@ class FlashCausalLM(Model):
         element_size = torch.tensor([], dtype=dtype).element_size()
         x = BLOCK_SIZE // element_size
 
-        if FLASH_INFER:
+        if FLASH_INFER or FLASH_DECODING:
             self.kv_cache = [
                 (
                     torch.empty(
